@@ -1977,6 +1977,33 @@ func (a *AssetMintingStore) CommitSignedGenesisTx(ctx context.Context,
 	})
 }
 
+// StoreSignedGenesisPsbt durably records a signed custom genesis packet while
+// leaving its batch committed. The transaction is only anchored into the
+// asset store after publication validation succeeds.
+func (a *AssetMintingStore) StoreSignedGenesisPsbt(ctx context.Context,
+	batchKey *btcec.PublicKey, genesisPkt *tapsend.FundedPsbt) error {
+
+	pktBytes, err := fn.Serialize(genesisPkt.Pkt)
+	if err != nil {
+		return fmt.Errorf("unable to serialize signed genesis packet: %w", err)
+	}
+
+	rawBatchKey := batchKey.SerializeCompressed()
+	var writeTxOpts AssetStoreTxOptions
+	return a.db.ExecTx(ctx, &writeTxOpts, func(q PendingAssetStore) error {
+		err := q.UpdateBatchGenesisTx(ctx, GenesisTxUpdate{
+			RawKey:        rawBatchKey,
+			MintingTxPsbt: pktBytes,
+		})
+		if err != nil {
+			return fmt.Errorf("unable to store signed genesis packet: %w",
+				err)
+		}
+
+		return nil
+	})
+}
+
 // MarkBatchConfirmed stores final confirmation information for a batch on
 // disk.
 func (a *AssetMintingStore) MarkBatchConfirmed(ctx context.Context,

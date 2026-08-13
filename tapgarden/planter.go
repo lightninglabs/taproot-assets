@@ -352,6 +352,18 @@ var customAnchorPsbtMarker = []byte{
 	0xfc, 0x04, 't', 'a', 'p', 'd', 0x01,
 }
 
+var customAnchorPublishMarker = []byte{
+	0xfc, 0x04, 't', 'a', 'p', 'd', 0x02,
+}
+
+type customAnchorPublishState byte
+
+const (
+	customAnchorPublishNone customAnchorPublishState = iota
+	customAnchorPublishPending
+	customAnchorPublishRejected
+)
+
 func markCustomAnchorPsbt(packet *psbt.Packet) {
 	if isCustomAnchorPsbt(packet) {
 		return
@@ -375,6 +387,57 @@ func isCustomAnchorPsbt(packet *psbt.Packet) bool {
 	}
 
 	return false
+}
+
+func setCustomAnchorPublishState(packet *psbt.Packet,
+	state customAnchorPublishState) {
+
+	unknowns := packet.Unknowns[:0]
+	for _, unknown := range packet.Unknowns {
+		if !bytes.Equal(unknown.Key, customAnchorPublishMarker) {
+			unknowns = append(unknowns, unknown)
+		}
+	}
+	packet.Unknowns = unknowns
+	if state == customAnchorPublishNone {
+		return
+	}
+
+	packet.Unknowns = append(packet.Unknowns, &psbt.Unknown{
+		Key:   fn.CopySlice(customAnchorPublishMarker),
+		Value: []byte{byte(state)},
+	})
+}
+
+func getCustomAnchorPublishState(
+	packet *psbt.Packet) customAnchorPublishState {
+
+	if packet == nil {
+		return customAnchorPublishNone
+	}
+
+	for _, unknown := range packet.Unknowns {
+		if !bytes.Equal(unknown.Key, customAnchorPublishMarker) {
+			continue
+		}
+		if len(unknown.Value) == 1 &&
+			customAnchorPublishState(unknown.Value[0]) ==
+				customAnchorPublishRejected {
+
+			return customAnchorPublishRejected
+		}
+
+		// An unknown or malformed persisted value is conservative: a
+		// publication attempt might have happened, so don't make the batch
+		// cancellable.
+		return customAnchorPublishPending
+	}
+
+	return customAnchorPublishNone
+}
+
+func stripCustomAnchorPublishState(packet *psbt.Packet) {
+	setCustomAnchorPublishState(packet, customAnchorPublishNone)
 }
 
 // PendingGroupWitness specifies the asset group witness for an asset seedling
@@ -584,15 +647,24 @@ func (c *ChainPlanter) Start() error {
 				batch.AssetMetas = make(AssetMetas)
 			}
 
-			// A committed custom batch is deliberately paused for an
-			// external signer. Restore it as the pending batch instead of
-			// launching a caretaker that would immediately ask lnd to sign.
+			// A custom batch is paused while awaiting an external signer or
+			// after a conclusive publication rejection. A finalized
+			// Committed packet with a pending publication marker instead
+			// resumes automatically: it may already have reached the backend
+			// before a crash and therefore must not become cancellable.
 			customBatch := batch.GenesisPacket != nil &&
 				isCustomAnchorPsbt(batch.GenesisPacket.Pkt)
+			publishState := customAnchorPublishNone
+			if customBatch {
+				publishState = getCustomAnchorPublishState(
+					batch.GenesisPacket.Pkt,
+				)
+			}
 			awaitingExternalSigner := customBatch &&
 				(batchState == BatchStatePending ||
 					batchState == BatchStateFrozen ||
-					batchState == BatchStateCommitted)
+					(batchState == BatchStateCommitted &&
+						publishState != customAnchorPublishPending))
 			if awaitingExternalSigner {
 
 				if c.pendingBatch != nil {
@@ -1331,7 +1403,7 @@ func customGenesisPsbt(chainParams address.ChainParams,
 		return zero, fmt.Errorf("invalid custom asset anchor internal "+
 			"key: %w", err)
 	}
-	if len(pOut.TaprootTapTree) != 0 {
+	if pOut.TaprootTapTree != nil {
 		return zero, fmt.Errorf("custom asset anchor output must not " +
 			"specify a PSBT tap tree; use the batch sibling fields")
 	}
@@ -2139,6 +2211,15 @@ func (c *ChainPlanter) cancelMintingBatch(ctx context.Context,
 		cancelState = BatchStateSeedlingCancelled
 
 	case BatchStateCommitted:
+		if isCustomAnchorPsbt(c.pendingBatch.GenesisPacket.Pkt) &&
+			getCustomAnchorPublishState(
+				c.pendingBatch.GenesisPacket.Pkt,
+			) == customAnchorPublishPending {
+
+			return fmt.Errorf("custom anchor publication status is " +
+				"ambiguous and is not cancellable")
+		}
+
 		cancelState = BatchStateSproutCancelled
 
 	default:
@@ -3052,6 +3133,11 @@ func mergeSignedCustomPsbt(stored,
 	if err != nil {
 		return nil, err
 	}
+	// Publication state is internal recovery metadata added after the
+	// caller signs. It isn't part of the prepared transaction contract and
+	// therefore isn't required in a resubmitted external packet.
+	stripCustomAnchorPublishState(storedNorm)
+	stripCustomAnchorPublishState(signedNorm)
 	if !reflect.DeepEqual(storedNorm.UnsignedTx, signedNorm.UnsignedTx) ||
 		!reflect.DeepEqual(storedNorm.Outputs, signedNorm.Outputs) ||
 		!reflect.DeepEqual(storedNorm.XPubs, signedNorm.XPubs) ||
@@ -3279,14 +3365,15 @@ func (c *ChainPlanter) finalizeBatch(params FinalizeParams) (*BatchCaretaker,
 			return nil, fmt.Errorf("externally signed PSBT is not fully "+
 				"valid: %w", err)
 		}
-		if state == BatchStateBroadcast {
-			persistedTx, err := psbt.Extract(
-				c.pendingBatch.GenesisPacket.Pkt,
-			)
-			if err != nil {
+		persistedTx, persistedErr := psbt.Extract(
+			c.pendingBatch.GenesisPacket.Pkt,
+		)
+		if state == BatchStateBroadcast || persistedErr == nil {
+			if persistedErr != nil {
 				return nil, fmt.Errorf("unable to extract persisted custom "+
-					"anchor transaction: %w", err)
+					"anchor transaction: %w", persistedErr)
 			}
+
 			retryTx, err := psbt.Extract(merged)
 			if err != nil {
 				return nil, fmt.Errorf("unable to extract custom anchor "+
@@ -3303,11 +3390,16 @@ func (c *ChainPlanter) finalizeBatch(params FinalizeParams) (*BatchCaretaker,
 					"retry transaction: %w", err)
 			}
 			if !bytes.Equal(persistedBytes.Bytes(), retryBytes.Bytes()) {
-				return nil, fmt.Errorf("broadcast retry changes finalized " +
-					"transaction")
+				if state == BatchStateBroadcast {
+					return nil, fmt.Errorf("broadcast retry changes " +
+						"finalized transaction")
+				}
+
+				return nil, fmt.Errorf("committed retry changes " +
+					"finalized transaction")
 			}
 
-			// The transaction was already committed before the original
+			// The signed transaction was already recorded before an earlier
 			// publication attempt. Reuse that exact persisted packet instead
 			// of replacing it with caller-supplied retry data.
 			merged = c.pendingBatch.GenesisPacket.Pkt
@@ -3320,6 +3412,27 @@ func (c *ChainPlanter) finalizeBatch(params FinalizeParams) (*BatchCaretaker,
 				return nil, fmt.Errorf("externally signed PSBT has an invalid "+
 					"fee rate: %w", err)
 			}
+			setCustomAnchorPublishState(
+				merged, customAnchorPublishPending,
+			)
+
+			// Store the signed packet before starting the caretaker. If
+			// publication is definitively rejected, the batch remains in
+			// Committed and the exact signed transaction survives restart
+			// for inspection, cancellation, or idempotent resubmission.
+			signedFundedPsbt := c.pendingBatch.GenesisPacket.FundedPsbt
+			signedFundedPsbt.Pkt = merged
+			ctx, cancel = c.WithCtxQuit()
+			err = c.cfg.Log.StoreSignedGenesisPsbt(
+				ctx, c.pendingBatch.BatchKey.PubKey,
+				&signedFundedPsbt,
+			)
+			cancel()
+			if err != nil {
+				return nil, fmt.Errorf("unable to store externally signed "+
+					"PSBT: %w", err)
+			}
+
 			c.pendingBatch.GenesisPacket.Pkt = merged
 		}
 

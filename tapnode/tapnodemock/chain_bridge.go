@@ -49,6 +49,7 @@ type ChainBridge struct {
 
 	failFeeEstimates atomic.Bool
 	failPublish      atomic.Bool
+	failPublishFinal atomic.Bool
 	failConfRegister atomic.Bool
 	errConf          atomic.Int32
 	emptyConf        atomic.Int32
@@ -78,6 +79,12 @@ func (m *ChainBridge) FailFeeEstimatesOnce() {
 // FailPublishOnce arms the next call to PublishTransaction to return an error.
 func (m *ChainBridge) FailPublishOnce() {
 	m.failPublish.Store(true)
+}
+
+// FailPublishDefinitively arms transaction validation to return a conclusive
+// rejection until the caller replaces the mock.
+func (m *ChainBridge) FailPublishDefinitively() {
+	m.failPublishFinal.Store(true)
 }
 
 // FailConfRegistrationOnce arms the next confirmation registration to fail.
@@ -262,6 +269,26 @@ func (m *ChainBridge) PublishTransaction(_ context.Context,
 	}
 
 	m.PublishReq <- tx
+	return nil
+}
+
+// ValidateAndPublishTransaction models the validation performed by lnd before
+// publication without sending a second mock publication notification on the
+// successful path.
+func (m *ChainBridge) ValidateAndPublishTransaction(_ context.Context,
+	tx *wire.MsgTx, _ string) error {
+
+	if m.failPublishFinal.Load() {
+		m.PublishAttempts <- tx.Copy()
+		return tapnode.NewDefinitivePublishError(
+			fmt.Errorf("transaction rejected: output already spent"),
+		)
+	}
+	if m.failPublish.CompareAndSwap(true, false) {
+		m.PublishAttempts <- tx.Copy()
+		return fmt.Errorf("failed to publish transaction")
+	}
+
 	return nil
 }
 

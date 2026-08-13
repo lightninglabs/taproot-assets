@@ -72,12 +72,15 @@ func TestCustomGenesisPsbtValidation(t *testing.T) {
 	)
 	require.ErrorContains(t, err, "anchor output is dust")
 
-	anchorTapTree := testCustomAnchorPacket(t)
-	anchorTapTree.Outputs[0].TaprootTapTree = []byte{0x00}
-	_, err = customGenesisPsbt(
-		address.TestNet3Tap, nil, anchorTapTree, 0, -1, noneUint32(),
-	)
-	require.ErrorContains(t, err, "must not specify a PSBT tap tree")
+	for _, tapTree := range [][]byte{{}, {0x00}} {
+		anchorTapTree := testCustomAnchorPacket(t)
+		anchorTapTree.Outputs[0].TaprootTapTree = tapTree
+		_, err = customGenesisPsbt(
+			address.TestNet3Tap, nil, anchorTapTree, 0, -1,
+			noneUint32(),
+		)
+		require.ErrorContains(t, err, "must not specify a PSBT tap tree")
+	}
 
 	// Every non-anchor P2TR output needs enough metadata to construct an
 	// exclusion proof after the mint confirms.

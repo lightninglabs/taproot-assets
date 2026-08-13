@@ -804,6 +804,40 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 			return 0, err
 		}
 
+		// Custom anchor transactions can contain inputs that aren't owned
+		// by lnd. Ask the chain backend to validate and submit the fully
+		// signed transaction before we persist the irreversible Broadcast
+		// state. A conclusive application rejection leaves the batch in
+		// Committed, while an ambiguous transport failure must be treated as
+		// potentially published.
+		var publishErr error
+		if isCustomAnchorPsbt(signedPkt) {
+			publishCtx, publishCancel := b.WithCtxQuit()
+			publishErr = b.cfg.ChainBridge.
+				ValidateAndPublishTransaction(
+					publishCtx, signedTx, IssuanceTxLabel,
+				)
+			publishCancel()
+			if tapnode.IsDefinitivePublishError(publishErr) {
+				setCustomAnchorPublishState(
+					signedPkt, customAnchorPublishRejected,
+				)
+				storeCtx, storeCancel := b.WithCtxQuit()
+				storeErr := b.cfg.Log.StoreSignedGenesisPsbt(
+					storeCtx, b.cfg.Batch.BatchKey.PubKey,
+					&b.cfg.Batch.GenesisPacket.FundedPsbt,
+				)
+				storeCancel()
+				if storeErr != nil {
+					return 0, fmt.Errorf("unable to store definitive "+
+						"publication rejection: %w", storeErr)
+				}
+
+				return 0, fmt.Errorf("transaction rejected before "+
+					"broadcast state: %w", publishErr)
+			}
+		}
+
 		// To spend this output in the future, we must also commit the
 		// Taproot Asset commitment root and batch tapscript sibling.
 		tapCommitmentRoot := b.cfg.Batch.RootAssetCommitment.
@@ -841,6 +875,17 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 
 		default:
 			return 0, fmt.Errorf("unable to import key: %w", err)
+		}
+
+		// If validation failed ambiguously, the transaction might still
+		// have reached the backend. The durable signed transaction and
+		// Broadcast state make an exact retry safe after this caretaker
+		// exits.
+		if publishErr != nil {
+			b.cfg.Batch.UpdateState(BatchStateBroadcast)
+
+			return 0, fmt.Errorf("unable to publish transaction: %w",
+				publishErr)
 		}
 
 		log.Infof("BatchCaretaker(%x): transition states: %v -> %v",

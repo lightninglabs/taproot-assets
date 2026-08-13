@@ -241,6 +241,13 @@ type MintingStore interface {
 		genesisPacket *FundedMintAnchorPsbt,
 		assets *commitment.TapCommitment) error
 
+	// StoreSignedGenesisPsbt durably records a fully signed custom genesis
+	// packet while leaving the batch in BatchStateCommitted. This allows
+	// publication acceptance to be checked before the irreversible broadcast
+	// records are created.
+	StoreSignedGenesisPsbt(ctx context.Context, batchKey *btcec.PublicKey,
+		genesisTx *tapsend.FundedPsbt) error
+
 	// CommitSignedGenesisTx adds a fully signed genesis transaction to the
 	// batch, along with the Taproot Asset script root, which is the
 	// left/right sibling for the Taproot Asset tapscript commitment in the

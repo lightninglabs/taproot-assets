@@ -2,6 +2,7 @@ package tapnode
 
 import (
 	"context"
+	"errors"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
@@ -9,6 +10,40 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
+
+// DefinitivePublishError marks a transaction publication error that proves the
+// transaction was rejected before it could enter the mempool. Callers may
+// safely keep the transaction in a pre-broadcast state when this error is
+// returned.
+type DefinitivePublishError struct {
+	err error
+}
+
+// NewDefinitivePublishError wraps a conclusive transaction rejection.
+func NewDefinitivePublishError(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	return &DefinitivePublishError{err: err}
+}
+
+// Error returns the underlying publication error.
+func (e *DefinitivePublishError) Error() string {
+	return e.err.Error()
+}
+
+// Unwrap returns the underlying publication error.
+func (e *DefinitivePublishError) Unwrap() error {
+	return e.err
+}
+
+// IsDefinitivePublishError reports whether publication conclusively rejected
+// the transaction rather than failing with an ambiguous transport error.
+func IsDefinitivePublishError(err error) bool {
+	var definitiveErr *DefinitivePublishError
+	return errors.As(err, &definitiveErr)
+}
 
 // ChainBridge is our bridge to the target chain. It's used to get
 // confirmation notifications, the current height, publish
@@ -61,6 +96,12 @@ type ChainBridge interface {
 	// PublishTransaction attempts to publish a new transaction to
 	// the network.
 	PublishTransaction(context.Context, *wire.MsgTx, string) error
+
+	// ValidateAndPublishTransaction submits a transaction before callers
+	// persist an irreversible broadcast state. A definitive rejection is
+	// returned as DefinitivePublishError; all other errors are ambiguous and
+	// callers must assume the transaction may have been relayed.
+	ValidateAndPublishTransaction(context.Context, *wire.MsgTx, string) error
 
 	// EstimateFee returns a fee estimate for the confirmation
 	// target.

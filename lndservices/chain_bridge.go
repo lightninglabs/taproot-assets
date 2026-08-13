@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
@@ -16,7 +17,9 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapdb"
 	"github.com/lightninglabs/taproot-assets/tapnode"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"google.golang.org/grpc/status"
 )
 
 const (
@@ -334,6 +337,37 @@ func (l *LndRpcChainBridge) PublishTransaction(ctx context.Context,
 		},
 	)
 	return err
+}
+
+// ValidateAndPublishTransaction submits a transaction before tapd persists an
+// irreversible broadcast state. Errors returned by the remote application are
+// definitive because lnd performs TestMempoolAccept before publishing, while
+// transport and context failures remain ambiguous.
+func (l *LndRpcChainBridge) ValidateAndPublishTransaction(ctx context.Context,
+	tx *wire.MsgTx, label string) error {
+
+	err := l.lnd.WalletKit.PublishTransaction(ctx, tx, label)
+	if err == nil {
+		return nil
+	}
+
+	if isDefinitivePublishError(err) {
+		return tapnode.NewDefinitivePublishError(err)
+	}
+
+	return err
+}
+
+// isDefinitivePublishError recognizes the typed lnd publication errors that
+// are emitted only after TestMempoolAccept conclusively rejects a transaction.
+// Other application and transport errors remain ambiguous: a backend can fail
+// after relaying the transaction, so they must not restore a cancellable
+// pre-broadcast state.
+func isDefinitivePublishError(err error) bool {
+	errMsg := status.Convert(err).Message()
+
+	return strings.HasPrefix(errMsg, lnwallet.ErrDoubleSpend.Error()) ||
+		strings.HasPrefix(errMsg, lnwallet.ErrMempoolFee.Error())
 }
 
 // EstimateFee returns a fee estimate for the confirmation target.

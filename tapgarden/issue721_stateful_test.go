@@ -356,6 +356,76 @@ func testIssue721PublishRetry(t *testing.T, restartBeforeRetry bool) {
 	require.Equal(t, tapgarden.BatchStateBroadcast, minted.State())
 }
 
+// TestIssue721DefinitivePublishFailureCancellable verifies a conclusive
+// backend rejection never advances a custom batch to Broadcast. The signed
+// packet is retained durably in Committed across restart, where the caller can
+// still cancel and rebuild the transaction with a different input.
+func TestIssue721DefinitivePublishFailureCancellable(t *testing.T) {
+	store := newMintingStore(t)
+	h := newMintingTestHarness(t, store)
+	h.refreshChainPlanter()
+	t.Cleanup(func() {
+		if h.planter != nil {
+			_ = h.planter.Stop()
+		}
+	})
+
+	h.queueSeedlingsInBatch(false, issue721Seedling())
+	pkt, _, witnessScript := issue721Anchor(t)
+	issue721Fund(t, h, pkt)
+	prepared, err := h.planter.PrepareBatch()
+	require.NoError(t, err)
+
+	signed := clonePacket(t, prepared.GenesisPacket.Pkt)
+	signed.Inputs[0].FinalScriptWitness = issue721FinalWitness(
+		t, witnessScript,
+	)
+	signedTx, err := psbt.Extract(signed)
+	require.NoError(t, err)
+
+	h.chain.FailPublishDefinitively()
+	var wg sync.WaitGroup
+	respChan := make(chan *FinalizeBatchResp, 1)
+	h.finalizeBatch(&wg, respChan, &tapgarden.FinalizeParams{
+		SignedPsbt: signed,
+	})
+	attempt, err := fn.RecvOrTimeout(
+		h.chain.PublishAttempts, defaultTimeout,
+	)
+	require.NoError(t, err)
+	require.Equal(t, signedTx.WitnessHash(), (*attempt).WitnessHash())
+	h.assertFinalizeBatch(
+		&wg, respChan, "transaction rejected before broadcast state",
+	)
+
+	pending, err := h.planter.PendingBatch()
+	require.NoError(t, err)
+	require.Equal(t, tapgarden.BatchStateCommitted, pending.State())
+	persisted := h.fetchSingleBatch(pending.BatchKey.PubKey)
+	require.Equal(t, tapgarden.BatchStateCommitted, persisted.State())
+	persistedTx, err := psbt.Extract(persisted.GenesisPacket.Pkt)
+	require.NoError(t, err)
+	require.Equal(t, signedTx.WitnessHash(), persistedTx.WitnessHash())
+	h.assertNumCaretakersActive(0)
+
+	// A restored custom Committed batch remains paused and retains the exact
+	// finalized transaction rather than attempting to publish it again.
+	h.refreshChainPlanter()
+	restored, err := h.planter.PendingBatch()
+	require.NoError(t, err)
+	require.Equal(t, tapgarden.BatchStateCommitted, restored.State())
+	restoredTx, err := psbt.Extract(restored.GenesisPacket.Pkt)
+	require.NoError(t, err)
+	require.Equal(t, signedTx.WitnessHash(), restoredTx.WitnessHash())
+	h.assertNumCaretakersActive(0)
+
+	batchKey, err := h.planter.CancelBatch()
+	require.NoError(t, err)
+	require.True(t, batchKey.IsEqual(restored.BatchKey.PubKey))
+	cancelled := h.fetchSingleBatch(batchKey)
+	require.Equal(t, tapgarden.BatchStateSproutCancelled, cancelled.State())
+}
+
 // TestIssue721ConfirmationRegistrationRetry ensures a successful publish
 // followed by a transient notifier error remains retryable in the same process.
 func TestIssue721ConfirmationRegistrationRetry(t *testing.T) {
@@ -509,6 +579,51 @@ func TestIssue721CustomRestartStates(t *testing.T) {
 			h.assertNumCaretakersActive(0)
 		})
 	}
+
+	t.Run("committed publication attempt resumes", func(t *testing.T) {
+		store := newMintingStore(t)
+		h := newMintingTestHarness(t, store)
+		h.refreshChainPlanter()
+		t.Cleanup(func() {
+			if h.planter != nil {
+				_ = h.planter.Stop()
+			}
+		})
+
+		h.queueSeedlingsInBatch(false, issue721Seedling())
+		pkt, _, witnessScript := issue721Anchor(t)
+		issue721Fund(t, h, pkt)
+		prepared, err := h.planter.PrepareBatch()
+		require.NoError(t, err)
+
+		signed := clonePacket(t, prepared.GenesisPacket.Pkt)
+		signed.Inputs[0].FinalScriptWitness = issue721FinalWitness(
+			t, witnessScript,
+		)
+		// This proprietary marker is the durable boundary written before
+		// the publication RPC. A crash at that point must resume rather
+		// than expose a cancellable signed transaction.
+		signed.Unknowns = append(signed.Unknowns, &psbt.Unknown{
+			Key:   []byte{0xfc, 0x04, 't', 'a', 'p', 'd', 0x02},
+			Value: []byte{1},
+		})
+		funded := prepared.GenesisPacket.FundedPsbt
+		funded.Pkt = signed
+		err = store.StoreSignedGenesisPsbt(
+			t.Context(), prepared.BatchKey.PubKey, &funded,
+		)
+		require.NoError(t, err)
+
+		h.refreshChainPlanter()
+		_, err = fn.RecvOrTimeout(
+			h.wallet.ImportPubKeySignal, defaultTimeout,
+		)
+		require.NoError(t, err)
+		h.assertTxPublished()
+		_, err = fn.RecvOrTimeout(h.chain.ConfReqSignal, defaultTimeout)
+		require.NoError(t, err)
+		h.assertNumCaretakersActive(1)
+	})
 
 	t.Run("legacy pending resumes", func(t *testing.T) {
 		store := newMintingStore(t)
