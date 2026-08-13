@@ -885,6 +885,107 @@ func upsertMultiverseLeafEntry(ctx context.Context, dbTx BaseUniverseStore,
 	return nil
 }
 
+// multiverseLeafRefresh pairs a universe with the root its multiverse
+// leaf must commit to.
+type multiverseLeafRefresh struct {
+	id   universe.Identifier
+	root mssmt.Node
+}
+
+// upsertMultiverseLeafEntries refreshes the multiverse leaf of every
+// given universe. The tree writes are grouped by proof type — each
+// proof type is one multiverse tree — and applied through InsertMany,
+// so internal nodes shared by the batch are computed once per call
+// rather than once per universe; per-universe cost otherwise grows
+// superlinearly with the batch. The relational multiverse root and
+// leaf rows are upserted as in upsertMultiverseLeafEntry.
+//
+// NOTE: This function accepts a db transaction, as it's used when
+// making broader DB updates.
+func upsertMultiverseLeafEntries(ctx context.Context,
+	dbTx BaseUniverseStore, refreshes []multiverseLeafRefresh) error {
+
+	type proofTypeGroup struct {
+		ns      string
+		leaves  map[[32]byte]*mssmt.LeafNode
+		entries []multiverseLeafRefresh
+	}
+
+	groups := make(map[universe.ProofType]*proofTypeGroup, 2)
+	for _, refresh := range refreshes {
+		group, ok := groups[refresh.id.ProofType]
+		if !ok {
+			ns, err := namespaceForProof(refresh.id.ProofType)
+			if err != nil {
+				return err
+			}
+
+			group = &proofTypeGroup{
+				ns:     ns,
+				leaves: make(map[[32]byte]*mssmt.LeafNode),
+			}
+			groups[refresh.id.ProofType] = group
+		}
+
+		group.leaves[refresh.id.Bytes()] = multiverseLeafNode(
+			refresh.id, refresh.root,
+		)
+		group.entries = append(group.entries, refresh)
+	}
+
+	for proofType, group := range groups {
+		multiverseTree := mssmt.NewCompactedTree(
+			newTreeStoreWrapperTx(dbTx, group.ns),
+		)
+		_, err := multiverseTree.InsertMany(ctx, group.leaves)
+		if err != nil {
+			return fmt.Errorf("multiverse tree insert "+
+				"failed: %w", err)
+		}
+
+		// One multiverse root row covers every universe of the
+		// proof type.
+		multiverseRootID, err := dbTx.UpsertMultiverseRoot(
+			ctx, UpsertMultiverseRoot{
+				NamespaceRoot: group.ns,
+				ProofType:     proofType.String(),
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("unable to upsert multiverse "+
+				"root: %w", err)
+		}
+
+		for _, entry := range group.entries {
+			var assetIDBytes, groupKeyBytes []byte
+			if entry.id.GroupKey == nil {
+				assetIDBytes = entry.id.AssetID[:]
+			} else {
+				groupKeyBytes = schnorr.SerializePubKey(
+					entry.id.GroupKey,
+				)
+			}
+
+			leafNodeKey := entry.id.Bytes()
+			_, err = dbTx.UpsertMultiverseLeaf(
+				ctx, UpsertMultiverseLeaf{
+					MultiverseRootID:  multiverseRootID,
+					AssetID:           assetIDBytes,
+					GroupKey:          groupKeyBytes,
+					LeafNodeKey:       leafNodeKey[:],
+					LeafNodeNamespace: group.ns,
+				},
+			)
+			if err != nil {
+				return fmt.Errorf("unable to upsert "+
+					"multiverse leaf: %w", err)
+			}
+		}
+	}
+
+	return nil
+}
+
 // multiverseRootAndProof returns the current root of the multiverse tree for
 // the given universe's proof type, along with the inclusion proof for the
 // universe's leaf within it.

@@ -554,10 +554,14 @@ func (c *multiverseRootCoalescer) flushBatch(batch []*pendingRootUpdate,
 				missing[i] = false
 			}
 
-			// Refresh every universe's multiverse leaf first,
-			// then read back the resulting root and one
-			// inclusion proof per universe that has a waiter
+			// Derive every universe's current root first, then
+			// refresh all their multiverse leaves in one grouped
+			// write, and finally read back the resulting root and
+			// one inclusion proof per universe that has a waiter
 			// consuming them.
+			refreshes := make(
+				[]multiverseLeafRefresh, 0, len(batch),
+			)
 			for i, update := range batch {
 				// Derive the universe's current root here,
 				// inside the flush transaction, rather than
@@ -594,14 +598,24 @@ func (c *multiverseRootCoalescer) flushBatch(batch []*pendingRootUpdate,
 					Node:      root,
 				}
 
-				err = upsertMultiverseLeafEntry(
-					ctx, store, update.id, root,
+				refreshes = append(
+					refreshes, multiverseLeafRefresh{
+						id:   update.id,
+						root: root,
+					},
 				)
-				if err != nil {
-					return fmt.Errorf("failed multiverse "+
-						"upsert for %v: %w",
-						update.id.String(), err)
-				}
+			}
+
+			// The grouped write applies the whole round through
+			// InsertMany per proof type: internal tree nodes
+			// shared by the round are computed once, which is
+			// what keeps large rounds within the flush timeout.
+			err := upsertMultiverseLeafEntries(
+				ctx, store, refreshes,
+			)
+			if err != nil {
+				return fmt.Errorf("failed multiverse "+
+					"upsert: %w", err)
 			}
 
 			for i, update := range batch {
