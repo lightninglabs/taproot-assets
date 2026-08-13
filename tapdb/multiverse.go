@@ -39,10 +39,30 @@ var (
 	// ErrMultiverseInconsistent is returned when a fetched multiverse
 	// proof repeatedly fails to commit to the universe root fetched
 	// in the same snapshot, even after awaiting multiverse flushes of
-	// the universe.
+	// the universe. It marks transient contention — concurrent
+	// inserts into the universe holding the inconsistency window open
+	// — not corruption: the fetch is retryable, and the RPC layer
+	// maps this error to a transient status rather than a permanent
+	// failure.
 	ErrMultiverseInconsistent = errors.New(
 		"multiverse proof inconsistent with universe root",
 	)
+)
+
+const (
+	// maxFetchAttempts bounds the number of snapshot reads a proof
+	// fetch performs before reporting the universe as transiently
+	// inconsistent.
+	maxFetchAttempts = 5
+
+	// fetchRetryInitialBackoff is the delay before the second proof
+	// fetch attempt. It doubles per attempt, up to
+	// fetchRetryMaxBackoff.
+	fetchRetryInitialBackoff = 20 * time.Millisecond
+
+	// fetchRetryMaxBackoff caps the backoff between proof fetch
+	// attempts.
+	fetchRetryMaxBackoff = 250 * time.Millisecond
 )
 
 type (
@@ -161,6 +181,11 @@ type MultiverseStore struct {
 	// to defaultReconcileBatchSize and is only overridden in tests.
 	reconcileBatchSize int
 
+	// fetchRetryBackoff is the delay before the second proof fetch
+	// attempt on an inconsistent snapshot. It defaults to
+	// fetchRetryInitialBackoff and is only overridden in tests.
+	fetchRetryBackoff time.Duration
+
 	// reconcilePageSize is the number of universe roots the
 	// reconciliation divergence scan reads per page. It defaults to
 	// universe.RequestPageSize and is only overridden in tests.
@@ -211,6 +236,7 @@ func NewMultiverseStore(db BatchedMultiverse,
 		transferProofDistributor: fn.NewEventDistributor[proof.Blob](),
 		reconcileBatchSize:       defaultReconcileBatchSize,
 		reconcilePageSize:        universe.RequestPageSize,
+		fetchRetryBackoff:        fetchRetryInitialBackoff,
 	}
 	store.rootCoalescer = newMultiverseRootCoalescer(
 		db, &store.multiverseWriteMu,
@@ -725,9 +751,22 @@ func (b *MultiverseStore) FetchProofLeaf(ctx context.Context,
 	// leaf, and proofs assembled from it would not compose. On
 	// detecting that, wait for a multiverse flush of this universe to
 	// commit — outside the read transaction, whose snapshot would
-	// never observe it — and read again from a fresh snapshot.
-	const maxFetchAttempts = 3
+	// never observe it — and read again from a fresh snapshot. Under
+	// sustained same-universe ingest each healed snapshot can race the
+	// next insert, so retry with backoff, checking the caller's
+	// context between attempts, and report exhaustion with a typed,
+	// retryable error rather than looping indefinitely.
+	backoff := b.fetchRetryBackoff
 	for attempt := 0; attempt < maxFetchAttempts; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-time.After(backoff):
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+			backoff = min(2*backoff, fetchRetryMaxBackoff)
+		}
+
 		proofs, err := b.fetchProofLeafSnapshot(
 			ctx, id, universeKey, multiverseNS,
 		)

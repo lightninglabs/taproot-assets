@@ -686,6 +686,193 @@ func TestFetchProofLeafHealsMultiverse(t *testing.T) {
 	assertReceiptComposes(t, id, proofs[0])
 }
 
+// skipFlushDB is a BatchedMultiverse that silently skips coalescer
+// flush transactions while reporting success, so universe and
+// multiverse state stay diverged no matter how many heals a reader
+// awaits. This models the reader-visible worst case of sustained
+// same-universe ingest: every healed snapshot is immediately stale
+// again.
+type skipFlushDB struct {
+	BatchedMultiverse
+}
+
+func (s *skipFlushDB) ExecTx(ctx context.Context, opts TxOptions,
+	txBody func(BaseMultiverseStore) error) error {
+
+	if _, isFlush := opts.(multiverseFlushTx); isFlush {
+		return nil
+	}
+
+	return s.BatchedMultiverse.ExecTx(ctx, opts, txBody)
+}
+
+// newSkipFlushMultiverse creates a multiverse store whose flushes
+// silently do nothing.
+func newSkipFlushMultiverse(t *testing.T) *MultiverseStore {
+	db := NewTestDB(t)
+	skipDB := &skipFlushDB{
+		BatchedMultiverse: NewTransactionExecutor(
+			db, func(tx *sql.Tx) BaseMultiverseStore {
+				return db.WithTx(tx)
+			},
+		),
+	}
+	multiverse, err := NewMultiverseStore(
+		skipDB, DefaultMultiverseStoreConfig(),
+	)
+	require.NoError(t, err)
+	t.Cleanup(multiverse.Stop)
+
+	return multiverse
+}
+
+// TestFetchProofLeafExhaustsRetries asserts that a reader facing
+// persistent inconsistency gives up after its bounded retry budget
+// with the typed, retryable error rather than looping or returning an
+// opaque failure.
+func TestFetchProofLeafExhaustsRetries(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	multiverse := newSkipFlushMultiverse(t)
+	multiverse.fetchRetryBackoff = time.Millisecond
+
+	items := genUniverseItems(t, 1)
+	_, err := insertUniverseLeafOnly(ctx, multiverse, items[0])
+	require.NoError(t, err)
+
+	_, err = multiverse.FetchProofLeaf(ctx, items[0].ID, items[0].Key)
+	require.ErrorIs(t, err, ErrMultiverseInconsistent)
+}
+
+// TestFetchProofLeafRetryCancellation asserts that a reader awaiting
+// its retry backoff honours its context and exits promptly when the
+// context ends, rather than sleeping out the backoff.
+func TestFetchProofLeafRetryCancellation(t *testing.T) {
+	t.Parallel()
+
+	multiverse := newSkipFlushMultiverse(t)
+
+	// A backoff far beyond the caller's deadline: only the context
+	// check can end the wait in test time.
+	multiverse.fetchRetryBackoff = time.Hour
+
+	items := genUniverseItems(t, 1)
+	ctx := context.Background()
+	_, err := insertUniverseLeafOnly(ctx, multiverse, items[0])
+	require.NoError(t, err)
+
+	fetchCtx, cancel := context.WithTimeout(ctx, 150*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	_, err = multiverse.FetchProofLeaf(fetchCtx, items[0].ID, items[0].Key)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.Less(t, time.Since(start), 30*time.Second)
+}
+
+// TestFetchProofLeafUnderConcurrentInserts asserts the read-path
+// contract under sustained same-universe ingest: every read either
+// returns a composing proof or the typed, retryable inconsistency
+// error — never a non-composing proof and never any other failure.
+func TestFetchProofLeafUnderConcurrentInserts(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	multiverse, _ := newTestMultiverse(t)
+
+	const numLeaves = 10
+	items := genUniverseItems(t, numLeaves)
+	id := items[0].ID
+
+	_, err := multiverse.UpsertProofLeaf(
+		ctx, items[0].ID, items[0].Key, items[0].Leaf,
+		items[0].MetaReveal,
+	)
+	require.NoError(t, err)
+
+	var (
+		writerDone = make(chan struct{})
+		failures   = make(chan error, 8)
+	)
+	go func() {
+		defer close(writerDone)
+
+		for _, item := range items[1:] {
+			_, err := multiverse.UpsertProofLeaf(
+				ctx, item.ID, item.Key, item.Leaf,
+				item.MetaReveal,
+			)
+			if err != nil {
+				failures <- fmt.Errorf("writer: %w", err)
+				return
+			}
+		}
+	}()
+
+	const numReaders = 4
+	var wg sync.WaitGroup
+	for r := 0; r < numReaders; r++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			for {
+				select {
+				case <-writerDone:
+					return
+				default:
+				}
+
+				proofs, err := multiverse.FetchProofLeaf(
+					ctx, id, items[0].Key,
+				)
+				switch {
+				// Transient contention is acceptable, and
+				// the only acceptable error.
+				case errors.Is(
+					err, ErrMultiverseInconsistent,
+				):
+					continue
+
+				case err != nil:
+					failures <- fmt.Errorf(
+						"reader: %w", err,
+					)
+					return
+				}
+
+				for _, p := range proofs {
+					if p.MultiverseRoot == nil {
+						continue
+					}
+
+					leaf := multiverseLeafNode(
+						id, p.UniverseRoot,
+					)
+					if !mssmt.VerifyMerkleProof(
+						id.Bytes(), leaf,
+						p.MultiverseInclusionProof,
+						p.MultiverseRoot,
+					) {
+
+						failures <- fmt.Errorf(
+							"non-composing read",
+						)
+						return
+					}
+				}
+			}
+		}()
+	}
+
+	wg.Wait()
+	close(failures)
+	for err := range failures {
+		t.Errorf("unexpected failure: %v", err)
+	}
+}
+
 // TestUpsertProofLeafConcurrentDelete asserts that inserts racing a
 // deletion of their universe either succeed with a composing receipt or
 // fail outright, and that the persisted multiverse state is consistent
