@@ -3279,6 +3279,39 @@ func (c *ChainPlanter) finalizeBatch(params FinalizeParams) (*BatchCaretaker,
 			return nil, fmt.Errorf("externally signed PSBT is not fully "+
 				"valid: %w", err)
 		}
+		if state == BatchStateBroadcast {
+			persistedTx, err := psbt.Extract(
+				c.pendingBatch.GenesisPacket.Pkt,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("unable to extract persisted custom "+
+					"anchor transaction: %w", err)
+			}
+			retryTx, err := psbt.Extract(merged)
+			if err != nil {
+				return nil, fmt.Errorf("unable to extract custom anchor "+
+					"retry transaction: %w", err)
+			}
+
+			var persistedBytes, retryBytes bytes.Buffer
+			if err := persistedTx.Serialize(&persistedBytes); err != nil {
+				return nil, fmt.Errorf("unable to serialize persisted custom "+
+					"anchor transaction: %w", err)
+			}
+			if err := retryTx.Serialize(&retryBytes); err != nil {
+				return nil, fmt.Errorf("unable to serialize custom anchor "+
+					"retry transaction: %w", err)
+			}
+			if !bytes.Equal(persistedBytes.Bytes(), retryBytes.Bytes()) {
+				return nil, fmt.Errorf("broadcast retry changes finalized " +
+					"transaction")
+			}
+
+			// The transaction was already committed before the original
+			// publication attempt. Reuse that exact persisted packet instead
+			// of replacing it with caller-supplied retry data.
+			merged = c.pendingBatch.GenesisPacket.Pkt
+		}
 		if state == BatchStateCommitted {
 			ctx, cancel := c.WithCtxQuit()
 			err = c.validateCustomAnchorFeeRate(ctx, merged)
@@ -3287,8 +3320,8 @@ func (c *ChainPlanter) finalizeBatch(params FinalizeParams) (*BatchCaretaker,
 				return nil, fmt.Errorf("externally signed PSBT has an invalid "+
 					"fee rate: %w", err)
 			}
+			c.pendingBatch.GenesisPacket.Pkt = merged
 		}
-		c.pendingBatch.GenesisPacket.Pkt = merged
 
 		caretaker := c.newCaretakerForBatch(c.pendingBatch, nil)
 		if err := caretaker.Start(); err != nil {

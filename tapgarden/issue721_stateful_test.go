@@ -26,7 +26,9 @@ import (
 func issue721Anchor(t *testing.T) (*psbt.Packet, *btcec.PublicKey, []byte) {
 	t.Helper()
 
-	witnessScript := []byte{txscript.OP_TRUE}
+	// A dropped witness element lets retry tests construct distinct, valid
+	// witnesses for the same unsigned transaction.
+	witnessScript := []byte{txscript.OP_DROP, txscript.OP_TRUE}
 	witnessHash := sha256.Sum256(witnessScript)
 	prevScript, err := txscript.NewScriptBuilder().
 		AddOp(txscript.OP_0).AddData(witnessHash[:]).Script()
@@ -107,8 +109,20 @@ func issue721Fund(t *testing.T, h *mintingTestHarness,
 func issue721FinalWitness(t *testing.T, witnessScript []byte) []byte {
 	t.Helper()
 
+	return issue721FinalWitnessWithItem(
+		t, []byte{0x01}, witnessScript,
+	)
+}
+
+func issue721FinalWitnessWithItem(t *testing.T, item,
+	witnessScript []byte) []byte {
+
+	t.Helper()
+
 	var buf bytes.Buffer
-	err := psbt.WriteTxWitness(&buf, wire.TxWitness{witnessScript})
+	err := psbt.WriteTxWitness(
+		&buf, wire.TxWitness{item, witnessScript},
+	)
 	require.NoError(t, err)
 
 	return buf.Bytes()
@@ -288,7 +302,9 @@ func testIssue721PublishRetry(t *testing.T, restartBeforeRetry bool) {
 		// returning to an externally cancellable pre-broadcast state.
 		h.refreshChainPlanter()
 		published := h.assertTxPublished()
-		require.Equal(t, (*firstAttempt).TxHash(), published.TxHash())
+		require.Equal(
+			t, (*firstAttempt).WitnessHash(), published.WitnessHash(),
+		)
 		_, err = fn.RecvOrTimeout(h.chain.ConfReqSignal, defaultTimeout)
 		require.NoError(t, err)
 		h.assertNumCaretakersActive(1)
@@ -298,12 +314,42 @@ func testIssue721PublishRetry(t *testing.T, restartBeforeRetry bool) {
 		return
 	}
 
+	// A Broadcast retry must not replace the transaction that was already
+	// persisted before the ambiguous publication failure. Both witnesses are
+	// valid and have the same txid, but the larger witness has a different
+	// wtxid and weight.
+	changedRetry := clonePacket(t, pending.GenesisPacket.Pkt)
+	changedRetry.Inputs[0].FinalScriptWitness =
+		issue721FinalWitnessWithItem(
+			t, bytes.Repeat([]byte{0x02}, 500), witnessScript,
+		)
+	changedTx, err := psbt.Extract(changedRetry)
+	require.NoError(t, err)
+	require.Equal(t, (*firstAttempt).TxHash(), changedTx.TxHash())
+	require.NotEqual(t, (*firstAttempt).WitnessHash(), changedTx.WitnessHash())
+
+	_, err = h.planter.FinalizeBatch(tapgarden.FinalizeParams{
+		SignedPsbt: changedRetry,
+	})
+	require.ErrorContains(
+		t, err, "broadcast retry changes finalized transaction",
+	)
+	unchanged, err := h.planter.PendingBatch()
+	require.NoError(t, err)
+	unchangedTx, err := psbt.Extract(unchanged.GenesisPacket.Pkt)
+	require.NoError(t, err)
+	require.Equal(
+		t, (*firstAttempt).WitnessHash(), unchangedTx.WitnessHash(),
+	)
+
 	retry := clonePacket(t, pending.GenesisPacket.Pkt)
 	h.finalizeBatch(&wg, respChan, &tapgarden.FinalizeParams{
 		SignedPsbt: retry,
 	})
 	published := h.assertTxPublished()
-	require.Equal(t, (*firstAttempt).TxHash(), published.TxHash())
+	require.Equal(
+		t, (*firstAttempt).WitnessHash(), published.WitnessHash(),
+	)
 	_, err = fn.RecvOrTimeout(h.chain.ConfReqSignal, defaultTimeout)
 	require.NoError(t, err)
 	minted := h.assertFinalizeBatch(&wg, respChan, "")
