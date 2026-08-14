@@ -30,6 +30,8 @@ type WalletAnchor struct {
 	FundPsbtSignal     chan *tapsend.FundedPsbt
 	SignPsbtSignal     chan struct{}
 	ImportPubKeySignal chan *btcec.PublicKey
+	LeaseInputSignal   chan wire.OutPoint
+	ReleaseInputSignal chan wire.OutPoint
 	ListUnspentSignal  chan struct{}
 	SubscribeTxSignal  chan struct{}
 	SubscribeTx        chan lndclient.Transaction
@@ -37,6 +39,10 @@ type WalletAnchor struct {
 
 	Transactions  []lndclient.Transaction
 	ImportedUtxos []*lnwallet.Utxo
+	OwnedInputs   map[wire.OutPoint]bool
+	LeaseErrors   map[wire.OutPoint]error
+	ReleaseErrors map[wire.OutPoint]error
+	ImportErr     error
 }
 
 // NewWalletAnchor returns a freshly-initialised mock WalletAnchor.
@@ -45,10 +51,15 @@ func NewWalletAnchor() *WalletAnchor {
 		FundPsbtSignal:     make(chan *tapsend.FundedPsbt),
 		SignPsbtSignal:     make(chan struct{}),
 		ImportPubKeySignal: make(chan *btcec.PublicKey),
+		LeaseInputSignal:   make(chan wire.OutPoint, 20),
+		ReleaseInputSignal: make(chan wire.OutPoint, 20),
 		ListUnspentSignal:  make(chan struct{}),
 		SubscribeTxSignal:  make(chan struct{}),
 		SubscribeTx:        make(chan lndclient.Transaction),
 		ListTxnsSignal:     make(chan struct{}),
+		OwnedInputs:        make(map[wire.OutPoint]bool),
+		LeaseErrors:        make(map[wire.OutPoint]error),
+		ReleaseErrors:      make(map[wire.OutPoint]error),
 	}
 }
 
@@ -175,10 +186,33 @@ func (m *WalletAnchor) ImportTaprootOutput(ctx context.Context,
 	case <-ctx.Done():
 		return nil, fmt.Errorf("shutting down")
 	}
+	if m.ImportErr != nil {
+		return nil, m.ImportErr
+	}
 
 	return btcaddr.NewAddressTaproot(
 		schnorr.SerializePubKey(pub), &chaincfg.RegressionNetParams,
 	)
+}
+
+// LeaseInput leases the input if the mock marks it as wallet-owned.
+func (m *WalletAnchor) LeaseInput(_ context.Context,
+	op wire.OutPoint) (bool, error) {
+
+	if err := m.LeaseErrors[op]; err != nil {
+		return false, err
+	}
+	if !m.OwnedInputs[op] {
+		return false, nil
+	}
+	m.LeaseInputSignal <- op
+	return true, nil
+}
+
+// ReleaseInput releases a custom-anchor lease held by the mock wallet.
+func (m *WalletAnchor) ReleaseInput(_ context.Context, op wire.OutPoint) error {
+	m.ReleaseInputSignal <- op
+	return m.ReleaseErrors[op]
 }
 
 // UnlockInput unlocks the set of target inputs after a batch or send

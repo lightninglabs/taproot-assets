@@ -2,8 +2,10 @@ package lndservices
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"math"
+	"time"
 
 	btcaddr "github.com/btcsuite/btcd/address/v2"
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -11,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/psbt/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btcwallet/waddrmgr"
+	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
@@ -81,7 +84,16 @@ const (
 	// defaultChangeType is the default change type we'll use when using the
 	// PSBT APIs.
 	defaultChangeType = walletrpc.ChangeAddressType_CHANGE_ADDRESS_TYPE_P2TR
+
+	// External signing may involve offline or multi-party coordination. Keep
+	// the lease long enough for that workflow, and renew it on restart and
+	// immediately before finalization.
+	customAnchorLeaseDuration = 24 * time.Hour
 )
+
+var customAnchorLeaseID = wtxmgr.LockID(sha256.Sum256(
+	[]byte("tapd-custom-anchor-psbt"),
+))
 
 // FundPsbt attaches enough inputs to the target PSBT packet for it to be
 // valid.
@@ -198,6 +210,80 @@ func (l *LndRpcWalletAnchor) ImportTaprootOutput(ctx context.Context,
 	}
 
 	return addr, nil
+}
+
+// LeaseInput leases an input with tapd's custom-anchor lock ID if the input
+// belongs to lnd. Inputs owned by another wallet are intentionally ignored.
+func (l *LndRpcWalletAnchor) LeaseInput(ctx context.Context,
+	op wire.OutPoint) (bool, error) {
+
+	// Renew our own lease without depending on whether ListUnspent includes
+	// locked outputs.
+	leases, err := l.lnd.WalletKit.ListLeases(ctx)
+	if err != nil {
+		return false, fmt.Errorf("error listing existing leases: %w", err)
+	}
+	for _, lease := range leases {
+		if lease.Outpoint != op {
+			continue
+		}
+		if lease.LockID != customAnchorLeaseID {
+			return false, fmt.Errorf("wallet input is already leased by " +
+				"another subsystem")
+		}
+
+		if lease.LockID == customAnchorLeaseID {
+			_, err := l.lnd.WalletKit.LeaseOutput(
+				ctx, customAnchorLeaseID, op, customAnchorLeaseDuration,
+			)
+			return err == nil, err
+		}
+	}
+
+	utxos, err := l.lnd.WalletKit.ListUnspent(ctx, 0, math.MaxInt32)
+	if err != nil {
+		return false, fmt.Errorf("error listing wallet inputs: %w", err)
+	}
+	for _, utxo := range utxos {
+		if utxo.OutPoint != op {
+			continue
+		}
+
+		_, err := l.lnd.WalletKit.LeaseOutput(
+			ctx, customAnchorLeaseID, op, customAnchorLeaseDuration,
+		)
+		if err != nil {
+			return false, fmt.Errorf("unable to lease wallet input: %w", err)
+		}
+
+		return true, nil
+	}
+
+	return false, nil
+}
+
+// ReleaseInput releases only tapd's custom-anchor lease for an input.
+func (l *LndRpcWalletAnchor) ReleaseInput(ctx context.Context,
+	op wire.OutPoint) error {
+
+	leases, err := l.lnd.WalletKit.ListLeases(ctx)
+	if err != nil {
+		return fmt.Errorf("error listing existing leases: %w", err)
+	}
+	for _, lease := range leases {
+		if lease.Outpoint != op || lease.LockID != customAnchorLeaseID {
+			continue
+		}
+
+		if err := l.lnd.WalletKit.ReleaseOutput(
+			ctx, customAnchorLeaseID, op,
+		); err != nil {
+			return fmt.Errorf("error releasing custom anchor lease: %w",
+				err)
+		}
+	}
+
+	return nil
 }
 
 // UnlockInput unlocks the set of target inputs after a batch or send

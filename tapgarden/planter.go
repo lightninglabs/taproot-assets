@@ -3,6 +3,7 @@ package tapgarden
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"reflect"
@@ -127,6 +128,11 @@ type PlanterConfig struct {
 	// ErrChan is the main error channel the planter will report back
 	// critical errors to the main server.
 	ErrChan chan<- error
+
+	// CustomAnchorLeaseRenewalInterval controls how often wallet-owned
+	// inputs in a caller-funded batch are re-leased while awaiting an
+	// external signer. Zero uses the production default.
+	CustomAnchorLeaseRenewalInterval time.Duration
 
 	// TODO(roasbeef): something notification related?
 }
@@ -362,9 +368,12 @@ const (
 	customAnchorPublishNone customAnchorPublishState = iota
 	customAnchorPublishPending
 	customAnchorPublishRejected
+	customAnchorImportPending
 
 	maxFinalScriptWitnessSize = 4_000_000
 	maxFinalWitnessItems      = 100_000
+
+	customAnchorLeaseRenewalInterval = 5 * time.Minute
 )
 
 func markCustomAnchorPsbt(packet *psbt.Packet) {
@@ -376,6 +385,203 @@ func markCustomAnchorPsbt(packet *psbt.Packet) {
 		Key:   fn.CopySlice(customAnchorPsbtMarker),
 		Value: []byte{1},
 	})
+}
+
+// SetCustomAnchorLockedUTXOs records the wallet-owned inputs leased for a
+// custom anchor transaction in tapd's existing proprietary PSBT marker. Caller
+// metadata is left untouched, and the marker is persisted with the packet.
+func SetCustomAnchorLockedUTXOs(packet *psbt.Packet, ops []wire.OutPoint) {
+	if packet == nil {
+		return
+	}
+
+	value := make([]byte, 5+36*len(ops))
+	value[0] = 1
+	binary.LittleEndian.PutUint32(value[1:5], uint32(len(ops)))
+	offset := 5
+	for _, op := range ops {
+		copy(value[offset:offset+32], op.Hash[:])
+		binary.LittleEndian.PutUint32(value[offset+32:offset+36], op.Index)
+		offset += 36
+	}
+
+	for _, unknown := range packet.Unknowns {
+		if bytes.Equal(unknown.Key, customAnchorPsbtMarker) {
+			unknown.Value = value
+			return
+		}
+	}
+
+	packet.Unknowns = append(packet.Unknowns, &psbt.Unknown{
+		Key: fn.CopySlice(customAnchorPsbtMarker), Value: value,
+	})
+}
+
+// CustomAnchorLockedUTXOs returns the wallet-owned custom-anchor inputs stored
+// in tapd's PSBT marker. Old marker versions simply return no leases.
+func CustomAnchorLockedUTXOs(packet *psbt.Packet) []wire.OutPoint {
+	if packet == nil {
+		return nil
+	}
+
+	for _, unknown := range packet.Unknowns {
+		if !bytes.Equal(unknown.Key, customAnchorPsbtMarker) ||
+			len(unknown.Value) < 5 || unknown.Value[0] != 1 {
+
+			continue
+		}
+
+		count := binary.LittleEndian.Uint32(unknown.Value[1:5])
+		if uint64(count) > uint64((len(unknown.Value)-5)/36) ||
+			len(unknown.Value) != 5+int(count)*36 {
+
+			return nil
+		}
+
+		ops := make([]wire.OutPoint, count)
+		offset := 5
+		for idx := range ops {
+			copy(ops[idx].Hash[:], unknown.Value[offset:offset+32])
+			ops[idx].Index = binary.LittleEndian.Uint32(
+				unknown.Value[offset+32 : offset+36],
+			)
+			offset += 36
+		}
+
+		return ops
+	}
+
+	return nil
+}
+
+// acquireCustomAnchorLeases leases all inputs controlled by the backing
+// wallet while allowing foreign inputs to remain under an external signer's
+// control. Only leases acquired during this call are rolled back on failure.
+func acquireCustomAnchorLeases(ctx context.Context, wallet tapnode.WalletAnchor,
+	packet *psbt.Packet, previouslyLocked []wire.OutPoint) ([]wire.OutPoint,
+	error) {
+
+	if packet == nil || packet.UnsignedTx == nil {
+		return nil, fmt.Errorf("custom anchor PSBT is missing a transaction")
+	}
+
+	previous := make(map[wire.OutPoint]struct{}, len(previouslyLocked))
+	for _, op := range previouslyLocked {
+		previous[op] = struct{}{}
+	}
+
+	locked := make([]wire.OutPoint, 0, len(packet.UnsignedTx.TxIn))
+	newlyLocked := make([]wire.OutPoint, 0, len(packet.UnsignedTx.TxIn))
+	seen := make(map[wire.OutPoint]struct{}, len(packet.UnsignedTx.TxIn))
+	for _, txIn := range packet.UnsignedTx.TxIn {
+		op := txIn.PreviousOutPoint
+		if _, ok := seen[op]; ok {
+			releaseErr := releaseCustomAnchorOutpoints(
+				ctx, wallet, newlyLocked,
+			)
+			return nil, errors.Join(fmt.Errorf(
+				"custom anchor PSBT repeats input %v", op,
+			), releaseErr)
+		}
+		seen[op] = struct{}{}
+		owned, err := wallet.LeaseInput(ctx, op)
+		if err != nil {
+			releaseErr := releaseCustomAnchorOutpoints(
+				ctx, wallet, newlyLocked,
+			)
+			return nil, errors.Join(
+				fmt.Errorf("unable to lease custom anchor input %v: %w",
+					op, err), releaseErr,
+			)
+		}
+		if !owned {
+			if _, wasLocked := previous[op]; wasLocked {
+				releaseErr := releaseCustomAnchorOutpoints(
+					ctx, wallet, newlyLocked,
+				)
+				return nil, errors.Join(fmt.Errorf(
+					"unable to renew custom anchor input lease %v", op,
+				), releaseErr)
+			}
+			continue
+		}
+
+		locked = append(locked, op)
+		if _, wasLocked := previous[op]; !wasLocked {
+			newlyLocked = append(newlyLocked, op)
+		}
+	}
+
+	return locked, nil
+}
+
+func newlyAcquiredLeases(locked, previous []wire.OutPoint) []wire.OutPoint {
+	previousSet := make(map[wire.OutPoint]struct{}, len(previous))
+	for _, op := range previous {
+		previousSet[op] = struct{}{}
+	}
+
+	var newlyLocked []wire.OutPoint
+	for _, op := range locked {
+		if _, ok := previousSet[op]; !ok {
+			newlyLocked = append(newlyLocked, op)
+		}
+	}
+
+	return newlyLocked
+}
+
+func releaseCustomAnchorOutpoints(ctx context.Context,
+	wallet tapnode.WalletAnchor, ops []wire.OutPoint) error {
+
+	var releaseErr error
+	for _, op := range ops {
+		if err := wallet.ReleaseInput(ctx, op); err != nil {
+			releaseErr = errors.Join(releaseErr, fmt.Errorf(
+				"unable to release custom anchor input %v: %w", op, err,
+			))
+		}
+	}
+
+	return releaseErr
+}
+
+func releaseCustomAnchorLeases(ctx context.Context,
+	wallet tapnode.WalletAnchor, funded *FundedMintAnchorPsbt) error {
+
+	if funded == nil {
+		return nil
+	}
+	if err := releaseCustomAnchorOutpoints(
+		ctx, wallet, funded.LockedUTXOs,
+	); err != nil {
+		return err
+	}
+
+	funded.LockedUTXOs = nil
+	SetCustomAnchorLockedUTXOs(funded.Pkt, nil)
+	return nil
+}
+
+func renewCustomAnchorLeases(ctx context.Context, wallet tapnode.WalletAnchor,
+	funded *FundedMintAnchorPsbt) error {
+
+	if funded == nil {
+		return nil
+	}
+	for _, op := range funded.LockedUTXOs {
+		owned, err := wallet.LeaseInput(ctx, op)
+		if err != nil {
+			return fmt.Errorf("unable to renew custom anchor input %v: %w",
+				op, err)
+		}
+		if !owned {
+			return fmt.Errorf("custom anchor input %v is no longer available "+
+				"to the backing wallet", op)
+		}
+	}
+
+	return nil
 }
 
 func isCustomAnchorPsbt(packet *psbt.Packet) bool {
@@ -423,11 +629,15 @@ func getCustomAnchorPublishState(
 		if !bytes.Equal(unknown.Key, customAnchorPublishMarker) {
 			continue
 		}
-		if len(unknown.Value) == 1 &&
-			customAnchorPublishState(unknown.Value[0]) ==
-				customAnchorPublishRejected {
+		if len(unknown.Value) == 1 {
+			state := customAnchorPublishState(unknown.Value[0])
+			switch state {
+			case customAnchorPublishPending,
+				customAnchorPublishRejected,
+				customAnchorImportPending:
 
-			return customAnchorPublishRejected
+				return state
+			}
 		}
 
 		// An unknown or malformed persisted value is conservative: a
@@ -691,9 +901,32 @@ func (c *ChainPlanter) Start() error {
 				(batchState == BatchStatePending ||
 					batchState == BatchStateFrozen ||
 					(batchState == BatchStateCommitted &&
-						publishState != customAnchorPublishPending))
-			if awaitingExternalSigner {
+						publishState != customAnchorPublishPending &&
+						publishState != customAnchorImportPending))
+			leaseRenewalFailed := false
+			if customBatch && (batchState == BatchStatePending ||
+				batchState == BatchStateFrozen ||
+				batchState == BatchStateCommitted) {
 
+				if err := renewCustomAnchorLeases(
+					ctx, c.cfg.Wallet, batch.GenesisPacket,
+				); err != nil {
+					log.Warnf("Unable to renew custom anchor input "+
+						"leases during startup: %v", err)
+					leaseRenewalFailed = true
+				}
+			}
+
+			// A pre-publication batch cannot advance after a failed lease
+			// renewal. Keep it available for Cancel or a Finalize retry. A
+			// publish-pending batch may already be on chain and must resume
+			// monitoring regardless.
+			if leaseRenewalFailed &&
+				publishState != customAnchorPublishPending {
+
+				awaitingExternalSigner = true
+			}
+			if awaitingExternalSigner {
 				if c.pendingBatch != nil {
 					startErr = fmt.Errorf("multiple custom batches " +
 						"awaiting external signatures")
@@ -1359,10 +1592,9 @@ func customGenesisPsbt(chainParams address.ChainParams,
 		return zero, fmt.Errorf("custom anchor PSBT is missing its " +
 			"unsigned transaction")
 	}
-	// Caller-supplied packets can't set tapd's private lifecycle markers.
-	// They are added only after the packet passes validation and enters the
-	// corresponding durable state.
-	stripTapdCustomAnchorMarkers(packet)
+	// Run pure structural checks before serialization so malformed callers
+	// retain the established, actionable validation errors. None of these
+	// checks mutate the caller's packet.
 	if len(packet.UnsignedTx.TxIn) == 0 {
 		return zero, fmt.Errorf("custom anchor PSBT must have at least " +
 			"one input")
@@ -1389,6 +1621,7 @@ func customGenesisPsbt(chainParams address.ChainParams,
 		return zero, fmt.Errorf("asset anchor and change output indexes " +
 			"must be distinct")
 	}
+
 	if err := packet.SanityCheck(); err != nil {
 		return zero, fmt.Errorf("invalid custom anchor PSBT: %w", err)
 	}
@@ -1444,6 +1677,31 @@ func customGenesisPsbt(chainParams address.ChainParams,
 		return zero, fmt.Errorf("custom asset anchor output must not " +
 			"specify a PSBT tap tree; use the batch sibling fields")
 	}
+
+	// For ordinary batches, exclusion-proof validation is also entirely
+	// read-only and must run before serialization so malformed metadata gets
+	// its established, precise error without touching the caller's packet.
+	if pendingBatch == nil || !pendingBatch.SupplyCommitments {
+		if err := validateExclusionProofOutputs(
+			packet, assetAnchorOutIdx,
+		); err != nil {
+
+			return zero, err
+		}
+	}
+
+	// All caller-authored validation above is pure. Only now make the deep
+	// copy that tapd will retain and mutate with lifecycle/precommit metadata.
+	var packetBytes bytes.Buffer
+	if err := packet.Serialize(&packetBytes); err != nil {
+		return zero, fmt.Errorf("unable to copy custom anchor PSBT: %w", err)
+	}
+	packet, err = psbt.NewFromRawBytes(&packetBytes, false)
+	if err != nil {
+		return zero, fmt.Errorf("unable to copy custom anchor PSBT: %w", err)
+	}
+	stripTapdCustomAnchorMarkers(packet)
+
 	funded := tapsend.FundedPsbt{
 		Pkt:               packet,
 		ChangeOutputIndex: changeOutputIndex,
@@ -2319,6 +2577,21 @@ func (c *ChainPlanter) cancelMintingBatch(ctx context.Context,
 		return fmt.Errorf("unable to cancel minting batch: %w", err)
 	}
 
+	// Only release leases after cancellation is durable. A partial wallet
+	// RPC failure can then at worst leave a short-lived stale lease; it can
+	// never leave an active batch partially unprotected. Cancellation itself
+	// remains successful and the release helper attempts every recorded input.
+	if c.pendingBatch.GenesisPacket != nil &&
+		isCustomAnchorPsbt(c.pendingBatch.GenesisPacket.Pkt) {
+
+		if err := releaseCustomAnchorLeases(
+			ctx, c.cfg.Wallet, c.pendingBatch.GenesisPacket,
+		); err != nil {
+			log.Warnf("Unable to release one or more cancelled custom "+
+				"anchor input leases: %v", err)
+		}
+	}
+
 	return nil
 }
 
@@ -2328,6 +2601,12 @@ func (c *ChainPlanter) cancelMintingBatch(ctx context.Context,
 // assets.
 func (c *ChainPlanter) gardener() {
 	defer c.Wg.Done()
+	leaseRenewalInterval := c.cfg.CustomAnchorLeaseRenewalInterval
+	if leaseRenewalInterval <= 0 {
+		leaseRenewalInterval = customAnchorLeaseRenewalInterval
+	}
+	leaseRenewalTicker := time.NewTicker(leaseRenewalInterval)
+	defer leaseRenewalTicker.Stop()
 
 	// When this exits due to the quit signal, we also want to stop all the
 	// active caretakers as well.
@@ -2337,6 +2616,28 @@ func (c *ChainPlanter) gardener() {
 
 	for {
 		select {
+		case <-leaseRenewalTicker.C:
+			batch := c.pendingBatch
+			if batch == nil || batch.GenesisPacket == nil ||
+				!isCustomAnchorPsbt(batch.GenesisPacket.Pkt) {
+
+				continue
+			}
+			switch batch.State() {
+			case BatchStatePending, BatchStateFrozen,
+				BatchStateCommitted:
+
+				ctx, cancel := c.WithCtxQuit()
+				err := renewCustomAnchorLeases(
+					ctx, c.cfg.Wallet, batch.GenesisPacket,
+				)
+				cancel()
+				if err != nil {
+					log.Warnf("Unable to renew custom anchor input "+
+						"leases: %v", err)
+				}
+			}
+
 		// A request for new asset issuance just arrived, add this to
 		// the pending batch and acknowledge the receipt back to the
 		// caller.
@@ -2442,6 +2743,13 @@ func (c *ChainPlanter) gardener() {
 
 			case reqTypeFundBatch:
 				if c.pendingBatch != nil &&
+					c.pendingBatch.State() != BatchStatePending {
+
+					req.Error(fmt.Errorf("batch in state %v cannot be "+
+						"funded", c.pendingBatch.State()))
+					break
+				}
+				if c.pendingBatch != nil &&
 					c.pendingBatch.IsFunded() {
 
 					req.Error(fmt.Errorf("batch already " +
@@ -2486,6 +2794,12 @@ func (c *ChainPlanter) gardener() {
 				if c.pendingBatch == nil {
 					req.Error(fmt.Errorf("no pending " +
 						"batch"))
+					break
+				}
+				if c.pendingBatch.State() != BatchStatePending &&
+					c.pendingBatch.State() != BatchStateFrozen {
+					req.Error(fmt.Errorf("batch in state %v cannot be "+
+						"sealed", c.pendingBatch.State()))
 					break
 				}
 
@@ -2648,6 +2962,10 @@ func (c *ChainPlanter) gardener() {
 // saved to disk and updated in memory.
 func (c *ChainPlanter) fundBatch(ctx context.Context, params FundParams,
 	workingBatch *MintingBatch) error {
+	if workingBatch != nil && workingBatch.State() != BatchStatePending {
+		return fmt.Errorf("batch in state %v cannot be funded",
+			workingBatch.State())
+	}
 
 	var (
 		rootHash *chainhash.Hash
@@ -2694,6 +3012,15 @@ func (c *ChainPlanter) fundBatch(ctx context.Context, params FundParams,
 			if err != nil {
 				return nil, err
 			}
+
+			locked, err := acquireCustomAnchorLeases(
+				ctx, c.cfg.Wallet, funded.Pkt, nil,
+			)
+			if err != nil {
+				return nil, err
+			}
+			funded.LockedUTXOs = locked
+			SetCustomAnchorLockedUTXOs(funded.Pkt, locked)
 
 			return &funded, nil
 		}
@@ -2759,7 +3086,10 @@ func (c *ChainPlanter) fundBatch(ctx context.Context, params FundParams,
 
 		err = c.cfg.Log.CommitMintingBatch(ctx, newBatch)
 		if err != nil {
-			return err
+			releaseErr := releaseCustomAnchorLeases(
+				ctx, c.cfg.Wallet, mintAnchorTx,
+			)
+			return errors.Join(err, releaseErr)
 		}
 
 		c.pendingBatch = newBatch
@@ -2781,7 +3111,13 @@ func (c *ChainPlanter) fundBatch(ctx context.Context, params FundParams,
 		ctx, workingBatch.BatchKey.PubKey, rootHash, *mintAnchorTx,
 	)
 	if err != nil {
-		return fmt.Errorf("unable to commit batch funding: %w", err)
+		releaseErr := releaseCustomAnchorLeases(
+			ctx, c.cfg.Wallet, mintAnchorTx,
+		)
+		return errors.Join(
+			fmt.Errorf("unable to commit batch funding: %w", err),
+			releaseErr,
+		)
 	}
 
 	// All persistence succeeded; commit the funding to memory.
@@ -3554,15 +3890,43 @@ func (c *ChainPlanter) finalizeBatch(params FinalizeParams) (*BatchCaretaker,
 			merged = c.pendingBatch.GenesisPacket.Pkt
 		}
 		if state == BatchStateCommitted {
+			// A retry can select the already persisted packet above. Work on
+			// an independent copy so marker changes cannot split in-memory
+			// state from disk if the subsequent store fails.
+			var mergedBytes bytes.Buffer
+			if err := merged.Serialize(&mergedBytes); err != nil {
+				return nil, fmt.Errorf("unable to copy custom anchor "+
+					"PSBT before finalization: %w", err)
+			}
+			merged, err = psbt.NewFromRawBytes(&mergedBytes, false)
+			if err != nil {
+				return nil, fmt.Errorf("unable to copy custom anchor "+
+					"PSBT before finalization: %w", err)
+			}
+
 			ctx, cancel := c.WithCtxQuit()
 			err = c.validateCustomAnchorFeeRate(ctx, merged)
-			cancel()
 			if err != nil {
+				cancel()
 				return nil, fmt.Errorf("externally signed PSBT has an invalid "+
 					"fee rate: %w", err)
 			}
+
+			previousLocks := fn.CopySlice(
+				c.pendingBatch.GenesisPacket.LockedUTXOs,
+			)
+			locked, err := acquireCustomAnchorLeases(
+				ctx, c.cfg.Wallet, merged, previousLocks,
+			)
+			cancel()
+			if err != nil {
+				return nil, fmt.Errorf("unable to lease custom anchor "+
+					"inputs before finalization: %w", err)
+			}
+			newLocks := newlyAcquiredLeases(locked, previousLocks)
+			SetCustomAnchorLockedUTXOs(merged, locked)
 			setCustomAnchorPublishState(
-				merged, customAnchorPublishPending,
+				merged, customAnchorImportPending,
 			)
 
 			// Store the signed packet before starting the caretaker. If
@@ -3571,6 +3935,7 @@ func (c *ChainPlanter) finalizeBatch(params FinalizeParams) (*BatchCaretaker,
 			// for inspection, cancellation, or idempotent resubmission.
 			signedFundedPsbt := c.pendingBatch.GenesisPacket.FundedPsbt
 			signedFundedPsbt.Pkt = merged
+			signedFundedPsbt.LockedUTXOs = locked
 			ctx, cancel = c.WithCtxQuit()
 			err = c.cfg.Log.StoreSignedGenesisPsbt(
 				ctx, c.pendingBatch.BatchKey.PubKey,
@@ -3578,11 +3943,17 @@ func (c *ChainPlanter) finalizeBatch(params FinalizeParams) (*BatchCaretaker,
 			)
 			cancel()
 			if err != nil {
+				ctx, cancel = c.WithCtxQuit()
+				releaseErr := releaseCustomAnchorOutpoints(
+					ctx, c.cfg.Wallet, newLocks,
+				)
+				cancel()
 				return nil, fmt.Errorf("unable to store externally signed "+
-					"PSBT: %w", err)
+					"PSBT: %w", errors.Join(err, releaseErr))
 			}
 
 			c.pendingBatch.GenesisPacket.Pkt = merged
+			c.pendingBatch.GenesisPacket.LockedUTXOs = locked
 		}
 
 		caretaker := c.newCaretakerForBatch(c.pendingBatch, nil)
@@ -3851,6 +4222,15 @@ func (c *ChainPlanter) prepSeedlingDelegationKey(ctx context.Context,
 // either adds it to an existing pending batch or creates a new batch for it.
 func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 	req *Seedling) error {
+	// This must be the first operation. Once preparation freezes or commits
+	// the asset root, no request validation, key derivation or metadata
+	// assignment may run for an additional seedling.
+	if c.pendingBatch != nil &&
+		c.pendingBatch.State() != BatchStatePending {
+
+		return fmt.Errorf("batch in state %v cannot accept new seedlings",
+			c.pendingBatch.State())
+	}
 
 	// If the seedling has the universe/supply commitment feature enabled,
 	// finalize the delegation key.

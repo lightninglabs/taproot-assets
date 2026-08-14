@@ -31,6 +31,14 @@ type WalletAnchor interface {
 	ImportTaprootOutput(context.Context, *btcec.PublicKey) (btcaddr.Address,
 		error)
 
+	// LeaseInput leases the input if it belongs to the backing wallet. The
+	// returned boolean is false for inputs owned by an external signer.
+	LeaseInput(context.Context, wire.OutPoint) (bool, error)
+
+	// ReleaseInput releases only a lease previously acquired through
+	// LeaseInput. It must not release leases owned by other subsystems.
+	ReleaseInput(context.Context, wire.OutPoint) error
+
 	// UnlockInput unlocks the set of target inputs after a batch or
 	// send transaction is abandoned.
 	UnlockInput(context.Context, wire.OutPoint) error

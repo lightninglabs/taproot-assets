@@ -830,6 +830,59 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 			return 0, err
 		}
 
+		// Import the minting output before any custom transaction is sent
+		// to the chain backend or the durable state advances to Broadcast.
+		// A transient import failure therefore leaves both memory and disk
+		// at Committed and is safe to retry.
+		importCtx, importCancel := b.WithCtxQuit()
+		_, err = b.cfg.Wallet.ImportTaprootOutput(
+			importCtx, mintingOutputKey,
+		)
+		importCancel()
+		switch {
+		case err == nil:
+			break
+
+		case strings.Contains(err.Error(), "already exists"):
+			break
+
+		default:
+			return 0, fmt.Errorf("unable to import key: %w", err)
+		}
+
+		// Only after import succeeds do we cross the durable publication
+		// boundary. Work on a copy so a failed store leaves both memory and
+		// disk at the signed-but-not-publishing Committed state.
+		if isCustomAnchorPsbt(signedPkt) {
+			var publishBytes bytes.Buffer
+			if err := signedPkt.Serialize(&publishBytes); err != nil {
+				return 0, fmt.Errorf("unable to copy custom anchor PSBT: %w",
+					err)
+			}
+			publishPkt, err := psbt.NewFromRawBytes(&publishBytes, false)
+			if err != nil {
+				return 0, fmt.Errorf("unable to copy custom anchor PSBT: %w",
+					err)
+			}
+			setCustomAnchorPublishState(
+				publishPkt, customAnchorPublishPending,
+			)
+			publishFunded := b.cfg.Batch.GenesisPacket.FundedPsbt
+			publishFunded.Pkt = publishPkt
+			storeCtx, storeCancel := b.WithCtxQuit()
+			err = b.cfg.Log.StoreSignedGenesisPsbt(
+				storeCtx, b.cfg.Batch.BatchKey.PubKey, &publishFunded,
+			)
+			storeCancel()
+			if err != nil {
+				return 0, fmt.Errorf("unable to store custom anchor "+
+					"publication state: %w", err)
+			}
+
+			signedPkt = publishPkt
+			b.cfg.Batch.GenesisPacket.Pkt = publishPkt
+		}
+
 		// Custom anchor transactions can contain inputs that aren't owned
 		// by lnd. Ask the chain backend to validate and submit the fully
 		// signed transaction before we persist the irreversible Broadcast
@@ -859,8 +912,25 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 						"publication rejection: %w", storeErr)
 				}
 
+				releaseCtx, releaseCancel := b.WithCtxQuit()
+				releaseErr := releaseCustomAnchorLeases(
+					releaseCtx, b.cfg.Wallet,
+					b.cfg.Batch.GenesisPacket,
+				)
+				releaseCancel()
+				if releaseErr == nil {
+					storeCtx, storeCancel = b.WithCtxQuit()
+					storeErr = b.cfg.Log.StoreSignedGenesisPsbt(
+						storeCtx, b.cfg.Batch.BatchKey.PubKey,
+						&b.cfg.Batch.GenesisPacket.FundedPsbt,
+					)
+					storeCancel()
+				}
+
 				return 0, fmt.Errorf("transaction rejected before "+
-					"broadcast state: %w", publishErr)
+					"broadcast state: %w", errors.Join(
+					publishErr, releaseErr, storeErr,
+				))
 			}
 		}
 
@@ -894,29 +964,6 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		if err != nil {
 			return 0, fmt.Errorf("unable to commit genesis "+
 				"tx: %w", err)
-		}
-
-		// With the genesis transaction committed to disk, we'll also
-		// import this public key into the backing wallet, so it
-		// recognizes the de minimis amt sats under out control.
-		//
-		// TODO(roasbeef): should be idempotent along w/ all other
-		// operations above
-		ctx, cancel = b.WithCtxQuit()
-		defer cancel()
-		_, err = b.cfg.Wallet.ImportTaprootOutput(ctx, mintingOutputKey)
-		switch {
-		case err == nil:
-			break
-
-		// On restart, we'll get an error that the output has already
-		// been added to the wallet, so we'll catch this now and move
-		// along if so.
-		case strings.Contains(err.Error(), "already exists"):
-			break
-
-		default:
-			return 0, fmt.Errorf("unable to import key: %w", err)
 		}
 
 		// If the initial submission failed ambiguously, the transaction
