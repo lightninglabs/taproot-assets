@@ -248,6 +248,23 @@ func (b *BatchCaretaker) Cancel() error {
 			))
 		}
 
+		// A custom batch can hold wallet input leases while it waits for
+		// external signatures. Release those leases only after cancellation
+		// is durable. A wallet RPC failure is best effort because retaining
+		// the active planter slot after the durable state transition would
+		// leave memory and disk inconsistent.
+		if err == nil && b.cfg.Batch.GenesisPacket != nil &&
+			isCustomAnchorPsbt(b.cfg.Batch.GenesisPacket.Pkt) {
+
+			releaseErr := releaseCustomAnchorLeases(
+				ctx, b.cfg.Wallet, b.cfg.Batch.GenesisPacket,
+			)
+			if releaseErr != nil {
+				log.Warnf("Unable to release one or more cancelled "+
+					"custom anchor input leases: %v", releaseErr)
+			}
+		}
+
 		b.cfg.PublishMintEvent(newAssetMintEvent(
 			BatchStateSproutCancelled, b.cfg.Batch,
 		))
