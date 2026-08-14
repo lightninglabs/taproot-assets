@@ -22,6 +22,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapnode"
+	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -224,6 +225,15 @@ func (b *BatchCaretaker) Cancel() error {
 		cancelResp = CancelResp{true, err}
 
 	case BatchStateCommitted:
+		if customAnchorPublicationPending(b.cfg.Batch) {
+
+			err := fmt.Errorf("BatchCaretaker(%x), custom anchor "+
+				"publication status is ambiguous and is not cancellable",
+				batchKey)
+			cancelResp = CancelResp{false, err}
+			break
+		}
+
 		err := b.cfg.Log.UpdateBatchState(
 			ctx, b.cfg.Batch.BatchKey.PubKey,
 			BatchStateSproutCancelled,
@@ -656,6 +666,16 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 
 		genesisTxPkt.UnsignedTx.
 			TxOut[b.anchorOutputIndex].PkScript = genesisScript
+		if isCustomAnchorPsbt(genesisTxPkt) {
+			// Once the asset root changes the output script, an internal
+			// key without a matching PSBT_OUT_TAP_TREE would describe a
+			// contradictory BIP-86 output. Keep the independently validated
+			// BIP32 locator for wallet bookkeeping, but remove the stale
+			// BIP-371 output declarations before external signing.
+			pOut := &genesisTxPkt.Outputs[b.anchorOutputIndex]
+			pOut.TaprootInternalKey = nil
+			pOut.TaprootBip32Derivation = nil
+		}
 
 		log.Infof("BatchCaretaker(%x): committing sprouts to disk",
 			b.batchKey[:])
@@ -759,7 +779,13 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 
 		log.Infof("BatchCaretaker(%x): GenesisPacket finalized "+
 			"(absolute_fee_sats: %d)", b.batchKey[:], chainFees)
-		log.Tracef("GenesisPacket: %v", spew.Sdump(signedPkt))
+		if isCustomAnchorPsbt(signedPkt) {
+			log.Tracef("Custom GenesisPacket finalized: txid=%v, "+
+				"inputs=%d, outputs=%d", signedTx.TxHash(),
+				len(signedTx.TxIn), len(signedTx.TxOut))
+		} else {
+			log.Tracef("GenesisPacket: %v", spew.Sdump(signedPkt))
+		}
 
 		// At this point we have a fully signed PSBT packet which'll
 		// create our set of assets once mined. We'll write this to
@@ -842,9 +868,25 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		// Taproot Asset commitment root and batch tapscript sibling.
 		tapCommitmentRoot := b.cfg.Batch.RootAssetCommitment.
 			TapscriptRoot(nil)
+		mintingInternalKey := b.cfg.Batch.BatchKey
+		if isCustomAnchorPsbt(signedPkt) {
+			pOut := signedPkt.Outputs[b.anchorOutputIndex]
+			if len(pOut.Bip32Derivation) != 1 {
+				return 0, fmt.Errorf("custom anchor output must have " +
+					"exactly one BIP32 derivation")
+			}
+			mintingInternalKey, err = tappsbt.KeyDescFromBip32Derivation(
+				pOut.Bip32Derivation[0],
+			)
+			if err != nil {
+				return 0, fmt.Errorf("unable to derive custom anchor "+
+					"internal key: %w", err)
+			}
+		}
 
 		err = b.cfg.Log.CommitSignedGenesisTx(
 			ctx, b.cfg.Batch.BatchKey.PubKey,
+			mintingInternalKey,
 			&b.cfg.Batch.GenesisPacket.FundedPsbt,
 			b.anchorOutputIndex, merkleRoot, tapCommitmentRoot[:],
 			siblingBytes,
@@ -877,15 +919,13 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 			return 0, fmt.Errorf("unable to import key: %w", err)
 		}
 
-		// If validation failed ambiguously, the transaction might still
-		// have reached the backend. The durable signed transaction and
-		// Broadcast state make an exact retry safe after this caretaker
-		// exits.
+		// If the initial submission failed ambiguously, the transaction
+		// might still have reached the backend. Continue into Broadcast so
+		// the normal retry policy runs and a confirmation watcher is
+		// installed instead of silently leaving the batch unattended.
 		if publishErr != nil {
-			b.cfg.Batch.UpdateState(BatchStateBroadcast)
-
-			return 0, fmt.Errorf("unable to publish transaction: %w",
-				publishErr)
+			log.Warnf("Initial custom anchor publication was ambiguous, "+
+				"retrying from Broadcast: %v", publishErr)
 		}
 
 		log.Infof("BatchCaretaker(%x): transition states: %v -> %v",
@@ -908,7 +948,13 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 
 		log.Infof("BatchCaretaker(%x): extracted finalized GenesisTx",
 			b.batchKey[:])
-		log.Tracef("GenesisTx: %v", spew.Sdump(signedTx))
+		if isCustomAnchorPsbt(b.cfg.Batch.GenesisPacket.Pkt) {
+			log.Tracef("Custom GenesisTx: txid=%v, inputs=%d, "+
+				"outputs=%d", signedTx.TxHash(), len(signedTx.TxIn),
+				len(signedTx.TxOut))
+		} else {
+			log.Tracef("GenesisTx: %v", spew.Sdump(signedTx))
+		}
 
 		// With the final transaction extracted, we'll broadcast the
 		// transaction, then request a confirmation notification.

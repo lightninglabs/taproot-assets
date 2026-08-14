@@ -14,6 +14,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightningnetwork/lnd/keychain"
 )
@@ -220,9 +221,22 @@ func (m *MintingBatch) MintingInternalKey() (*btcec.PublicKey, error) {
 			"anchor output map")
 	}
 
-	internalKey, err := schnorr.ParsePubKey(
-		pkt.Outputs[anchorIdx].TaprootInternalKey,
-	)
+	pOut := pkt.Outputs[anchorIdx]
+	if len(pOut.Bip32Derivation) == 1 {
+		keyDesc, err := tappsbt.KeyDescFromBip32Derivation(
+			pOut.Bip32Derivation[0],
+		)
+		if err != nil {
+			return nil, fmt.Errorf("invalid custom anchor key derivation: %w",
+				err)
+		}
+
+		return keyDesc.PubKey, nil
+	}
+
+	// Retain compatibility with custom batches prepared by earlier builds,
+	// which persisted only the BIP-371 internal-key field.
+	internalKey, err := schnorr.ParsePubKey(pOut.TaprootInternalKey)
 	if err != nil {
 		return nil, fmt.Errorf("invalid custom anchor internal key: %w",
 			err)

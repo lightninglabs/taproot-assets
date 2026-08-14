@@ -12,8 +12,11 @@ import (
 	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightninglabs/taproot-assets/address"
+	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/tapsend"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
 )
 
@@ -36,6 +39,22 @@ func testCustomAnchorPacket(t *testing.T) *psbt.Packet {
 		Value: 2_000, PkScript: pkScript,
 	}
 	pkt.Outputs[0].TaprootInternalKey = schnorr.SerializePubKey(pub)
+	keyDesc := keychain.KeyDescriptor{
+		KeyLocator: keychain.KeyLocator{
+			Family: asset.TaprootAssetsKeyFamily,
+			Index:  1,
+		},
+		PubKey: pub,
+	}
+	bip32Derivation, taprootDerivation :=
+		tappsbt.Bip32DerivationFromKeyDesc(
+			keyDesc, address.TestNet3Tap.HDCoinType,
+		)
+	pkt.Outputs[0].Bip32Derivation = []*psbt.Bip32Derivation{
+		bip32Derivation,
+	}
+	pkt.Outputs[0].TaprootBip32Derivation =
+		[]*psbt.TaprootBip32Derivation{taprootDerivation}
 	pkt.Unknowns = []*psbt.Unknown{{Key: []byte{0x50}, Value: []byte("x")}}
 
 	return pkt
@@ -49,6 +68,29 @@ func TestCustomGenesisPsbtValidation(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, isCustomAnchorPsbt(funded.Pkt))
 	require.True(t, funded.GenesisOutpoint().IsSome())
+
+	missingDerivation := testCustomAnchorPacket(t)
+	missingDerivation.Outputs[0].Bip32Derivation = nil
+	missingDerivation.Outputs[0].TaprootBip32Derivation = nil
+	_, err = customGenesisPsbt(
+		address.TestNet3Tap, nil, missingDerivation, 0, -1,
+		noneUint32(),
+	)
+	require.ErrorContains(t, err, "exactly one BIP32")
+
+	forgedMarker := testCustomAnchorPacket(t)
+	forgedMarker.Unknowns = append(forgedMarker.Unknowns, &psbt.Unknown{
+		Key:   fn.CopySlice(customAnchorPublishMarker),
+		Value: []byte{1},
+	})
+	funded, err = customGenesisPsbt(
+		address.TestNet3Tap, nil, forgedMarker, 0, -1, noneUint32(),
+	)
+	require.NoError(t, err)
+	require.Equal(
+		t, customAnchorPublishNone,
+		getCustomAnchorPublishState(funded.Pkt),
+	)
 
 	bad := testCustomAnchorPacket(t)
 	bad.Inputs = nil
@@ -162,6 +204,32 @@ func TestCustomGenesisPsbtValidation(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestFinalizedAnchorPsbtBoundsWitnessCount(t *testing.T) {
+	pkt := testCustomAnchorPacket(t)
+	pkt.Inputs[0].FinalScriptWitness = append(
+		[]byte{0xff}, bytes.Repeat([]byte{0xff}, 8)...,
+	)
+
+	require.ErrorContains(
+		t, validateFinalizedAnchorPsbt(pkt), "witness item count",
+	)
+}
+
+func TestCustomAnchorPublicationPending(t *testing.T) {
+	pkt := testCustomAnchorPacket(t)
+	markCustomAnchorPsbt(pkt)
+	setCustomAnchorPublishState(pkt, customAnchorPublishPending)
+	batch := &MintingBatch{
+		GenesisPacket: &FundedMintAnchorPsbt{
+			FundedPsbt: tapsend.FundedPsbt{Pkt: pkt},
+		},
+	}
+	require.True(t, customAnchorPublicationPending(batch))
+
+	setCustomAnchorPublishState(pkt, customAnchorPublishRejected)
+	require.False(t, customAnchorPublicationPending(batch))
+}
+
 func TestMergeSignedCustomPsbt(t *testing.T) {
 	stored := testCustomAnchorPacket(t)
 	markCustomAnchorPsbt(stored)
@@ -169,6 +237,7 @@ func TestMergeSignedCustomPsbt(t *testing.T) {
 	signed.Inputs[0].FinalScriptSig = []byte{}
 	signed.Inputs[0].FinalScriptWitness = []byte{1, 0}
 	signed.Inputs[0].TaprootInternalKey = nil
+	stripTapdCustomAnchorMarkers(signed)
 
 	merged, err := mergeSignedCustomPsbt(stored, signed)
 	require.NoError(t, err)
@@ -176,6 +245,7 @@ func TestMergeSignedCustomPsbt(t *testing.T) {
 	require.NotEmpty(t, merged.Inputs[0].FinalScriptWitness)
 	require.Equal(t, stored.Inputs[0].WitnessUtxo,
 		merged.Inputs[0].WitnessUtxo)
+	require.True(t, isCustomAnchorPsbt(merged))
 
 	mutated := clonePsbt(t, signed)
 	mutated.Inputs[0].WitnessUtxo.Value++

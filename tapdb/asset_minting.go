@@ -1861,7 +1861,8 @@ func (a *AssetMintingStore) AddSproutsToBatch(ctx context.Context,
 // TODO(roasbeef): or could just re-read assets from disk and set the script
 // root manually?
 func (a *AssetMintingStore) CommitSignedGenesisTx(ctx context.Context,
-	batchKey *btcec.PublicKey, genesisPkt *tapsend.FundedPsbt,
+	batchKey *btcec.PublicKey, mintingInternalKey keychain.KeyDescriptor,
+	genesisPkt *tapsend.FundedPsbt,
 	anchorOutputIndex uint32, merkleRoot, tapTreeRoot []byte,
 	tapSibling []byte) error {
 
@@ -1882,6 +1883,10 @@ func (a *AssetMintingStore) CommitSignedGenesisTx(ctx context.Context,
 	genTXID := rawGenTx.TxHash()
 
 	rawBatchKey := batchKey.SerializeCompressed()
+	if mintingInternalKey.PubKey == nil {
+		return fmt.Errorf("minting internal key is missing")
+	}
+	rawMintingInternalKey := mintingInternalKey.PubKey.SerializeCompressed()
 
 	anchorOutput := rawGenTx.TxOut[anchorOutputIndex]
 	anchorPoint := wire.OutPoint{
@@ -1901,6 +1906,16 @@ func (a *AssetMintingStore) CommitSignedGenesisTx(ctx context.Context,
 
 	var writeTxOpts AssetStoreTxOptions
 	return a.db.ExecTx(ctx, &writeTxOpts, func(q PendingAssetStore) error {
+		_, err := q.UpsertInternalKey(ctx, InternalKey{
+			RawKey:    rawMintingInternalKey,
+			KeyFamily: int32(mintingInternalKey.Family),
+			KeyIndex:  int32(mintingInternalKey.Index),
+		})
+		if err != nil {
+			return fmt.Errorf("unable to store minting internal key: %w",
+				err)
+		}
+
 		// First, we'll update the genesis packet stored as part of the
 		// batch, as this packet is now fully signed.
 		pktBytes, err := fn.Serialize(genesisPkt.Pkt)
@@ -1933,7 +1948,7 @@ func (a *AssetMintingStore) CommitSignedGenesisTx(ctx context.Context,
 		// this is where all the assets will be anchored within.
 		rootVersion := uint8(commitment.TapCommitmentV2)
 		utxoID, err := q.UpsertManagedUTXO(ctx, RawManagedUTXO{
-			RawKey:           rawBatchKey,
+			RawKey:           rawMintingInternalKey,
 			Outpoint:         anchorOutpoint,
 			AmtSats:          anchorOutput.Value,
 			TaprootAssetRoot: tapTreeRoot,
@@ -1991,7 +2006,20 @@ func (a *AssetMintingStore) StoreSignedGenesisPsbt(ctx context.Context,
 	rawBatchKey := batchKey.SerializeCompressed()
 	var writeTxOpts AssetStoreTxOptions
 	return a.db.ExecTx(ctx, &writeTxOpts, func(q PendingAssetStore) error {
-		err := q.UpdateBatchGenesisTx(ctx, GenesisTxUpdate{
+		batch, err := q.FetchMintingBatch(ctx, rawBatchKey)
+		if err != nil {
+			return fmt.Errorf("unable to fetch batch before storing signed "+
+				"packet: %w", err)
+		}
+		if tapgarden.BatchState(batch.BatchState) !=
+			tapgarden.BatchStateCommitted {
+
+			return fmt.Errorf("cannot store signed genesis packet for "+
+				"batch in state %v",
+				tapgarden.BatchState(batch.BatchState))
+		}
+
+		err = q.UpdateBatchGenesisTx(ctx, GenesisTxUpdate{
 			RawKey:        rawBatchKey,
 			MintingTxPsbt: pktBytes,
 		})

@@ -12,11 +12,15 @@ import (
 	"github.com/btcsuite/btcd/psbt/v2"
 	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
+	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
+	"github.com/lightninglabs/taproot-assets/tappsbt"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -68,6 +72,22 @@ func issue721Anchor(t *testing.T) (*psbt.Packet, *btcec.PublicKey, []byte) {
 		Key: []byte{0x51}, Value: []byte("output-metadata"),
 	}}
 	pkt.Outputs[1].TaprootInternalKey = schnorr.SerializePubKey(internalKey)
+	keyDesc := keychain.KeyDescriptor{
+		KeyLocator: keychain.KeyLocator{
+			Family: asset.TaprootAssetsKeyFamily,
+			Index:  721,
+		},
+		PubKey: internalKey,
+	}
+	bip32Derivation, taprootDerivation :=
+		tappsbt.Bip32DerivationFromKeyDesc(
+			keyDesc, address.TestNet3Tap.HDCoinType,
+		)
+	pkt.Outputs[1].Bip32Derivation = []*psbt.Bip32Derivation{
+		bip32Derivation,
+	}
+	pkt.Outputs[1].TaprootBip32Derivation =
+		[]*psbt.TaprootBip32Derivation{taprootDerivation}
 	pkt.Outputs[1].Unknowns = []*psbt.Unknown{{
 		Key: []byte{0x52}, Value: []byte("anchor-metadata"),
 	}}
@@ -92,6 +112,14 @@ func issue721Fund(t *testing.T, h *mintingTestHarness,
 	pkt *psbt.Packet) *tapgarden.MintingBatch {
 
 	t.Helper()
+	anchorPriv, _ := btcec.PrivKeyFromBytes(bytes.Repeat([]byte{7}, 32))
+	h.keyRing.Keys[keychain.KeyLocator{
+		Family: asset.TaprootAssetsKeyFamily,
+		Index:  721,
+	}] = anchorPriv
+	h.keyRing.On(
+		"IsLocalKey", mock.Anything, mock.Anything,
+	).Maybe()
 	resp, err := h.planter.FundBatch(tapgarden.FundParams{
 		FeeRate:              fn.None[chainfee.SatPerKWeight](),
 		SiblingTapTree:       fn.None[asset.TapscriptTreeNodes](),
@@ -126,6 +154,30 @@ func issue721FinalWitnessWithItem(t *testing.T, item,
 	require.NoError(t, err)
 
 	return buf.Bytes()
+}
+
+func TestIssue721RejectsNonLocalAnchorKey(t *testing.T) {
+	store := newMintingStore(t)
+	h := newMintingTestHarness(t, store)
+	h.refreshChainPlanter()
+	t.Cleanup(func() {
+		_ = h.planter.Stop()
+	})
+
+	h.queueSeedlingsInBatch(false, issue721Seedling())
+	pkt, _, _ := issue721Anchor(t)
+	h.keyRing.On(
+		"IsLocalKey", mock.Anything, mock.Anything,
+	).Maybe()
+	_, err := h.planter.FundBatch(tapgarden.FundParams{
+		FeeRate:              fn.None[chainfee.SatPerKWeight](),
+		SiblingTapTree:       fn.None[asset.TapscriptTreeNodes](),
+		AnchorPsbt:           pkt,
+		AssetAnchorOutIdx:    1,
+		ChangeOutputIndex:    -1,
+		PreCommitOutputIndex: fn.None[uint32](),
+	})
+	require.ErrorContains(t, err, "not controlled by the backing wallet")
 }
 
 // TestIssue721PrepareSignResume exercises the complete caller-owned anchor
@@ -170,7 +222,13 @@ func TestIssue721PrepareSignResume(t *testing.T) {
 	require.NotEqual(t, original.UnsignedTx.TxOut[1].PkScript,
 		preparedPkt.UnsignedTx.TxOut[1].PkScript)
 	require.Equal(t, original.Inputs, preparedPkt.Inputs)
-	require.Equal(t, original.Outputs, preparedPkt.Outputs)
+	require.Equal(t, original.Outputs[0], preparedPkt.Outputs[0])
+	require.Equal(t, original.Outputs[1].Bip32Derivation,
+		preparedPkt.Outputs[1].Bip32Derivation)
+	require.Equal(t, original.Outputs[1].Unknowns,
+		preparedPkt.Outputs[1].Unknowns)
+	require.Nil(t, preparedPkt.Outputs[1].TaprootInternalKey)
+	require.Nil(t, preparedPkt.Outputs[1].TaprootBip32Derivation)
 
 	gotInternalKey, err := prepared.MintingInternalKey()
 	require.NoError(t, err)
@@ -241,18 +299,9 @@ func TestIssue721PrepareSignResume(t *testing.T) {
 	require.Equal(t, tapgarden.BatchStateBroadcast, minted.State())
 }
 
-// TestIssue721PublishRetry verifies a backend publication error leaves a
-// caller-authored batch durably available for retry without re-preparation.
+// TestIssue721PublishRetry verifies a one-shot ambiguous initial submission is
+// retried automatically from Broadcast and installs a confirmation watcher.
 func TestIssue721PublishRetry(t *testing.T) {
-	t.Run("same process", func(t *testing.T) {
-		testIssue721PublishRetry(t, false)
-	})
-	t.Run("after restart", func(t *testing.T) {
-		testIssue721PublishRetry(t, true)
-	})
-}
-
-func testIssue721PublishRetry(t *testing.T, restartBeforeRetry bool) {
 	store := newMintingStore(t)
 	h := newMintingTestHarness(t, store)
 	h.refreshChainPlanter()
@@ -279,73 +328,14 @@ func testIssue721PublishRetry(t *testing.T, restartBeforeRetry bool) {
 	h.finalizeBatch(&wg, respChan, &tapgarden.FinalizeParams{
 		SignedPsbt: signed,
 	})
-	_, err = fn.RecvOrTimeout(
-		h.wallet.ImportPubKeySignal, defaultTimeout,
-	)
-	require.NoError(t, err)
-	h.assertFinalizeBatch(&wg, respChan, "failed to publish transaction")
 	firstAttempt, err := fn.RecvOrTimeout(
 		h.chain.PublishAttempts, defaultTimeout,
 	)
 	require.NoError(t, err)
-
-	pending, err := h.planter.PendingBatch()
-	require.NoError(t, err)
-	require.Equal(t, tapgarden.BatchStateBroadcast, pending.State())
-	persisted := h.fetchSingleBatch(pending.BatchKey.PubKey)
-	require.Equal(t, tapgarden.BatchStateBroadcast, persisted.State())
-	_, err = h.planter.CancelBatch()
-	require.ErrorContains(t, err, "not cancellable")
-
-	if restartBeforeRetry {
-		// A broadcast batch resumes automatically after restart without
-		// returning to an externally cancellable pre-broadcast state.
-		h.refreshChainPlanter()
-		published := h.assertTxPublished()
-		require.Equal(
-			t, (*firstAttempt).WitnessHash(), published.WitnessHash(),
-		)
-		_, err = fn.RecvOrTimeout(h.chain.ConfReqSignal, defaultTimeout)
-		require.NoError(t, err)
-		h.assertNumCaretakersActive(1)
-		persisted = h.fetchSingleBatch(pending.BatchKey.PubKey)
-		require.Equal(t, tapgarden.BatchStateBroadcast, persisted.State())
-
-		return
-	}
-
-	// A Broadcast retry must not replace the transaction that was already
-	// persisted before the ambiguous publication failure. Both witnesses are
-	// valid and have the same txid, but the larger witness has a different
-	// wtxid and weight.
-	changedRetry := clonePacket(t, pending.GenesisPacket.Pkt)
-	changedRetry.Inputs[0].FinalScriptWitness =
-		issue721FinalWitnessWithItem(
-			t, bytes.Repeat([]byte{0x02}, 500), witnessScript,
-		)
-	changedTx, err := psbt.Extract(changedRetry)
-	require.NoError(t, err)
-	require.Equal(t, (*firstAttempt).TxHash(), changedTx.TxHash())
-	require.NotEqual(t, (*firstAttempt).WitnessHash(), changedTx.WitnessHash())
-
-	_, err = h.planter.FinalizeBatch(tapgarden.FinalizeParams{
-		SignedPsbt: changedRetry,
-	})
-	require.ErrorContains(
-		t, err, "broadcast retry changes finalized transaction",
+	_, err = fn.RecvOrTimeout(
+		h.wallet.ImportPubKeySignal, defaultTimeout,
 	)
-	unchanged, err := h.planter.PendingBatch()
 	require.NoError(t, err)
-	unchangedTx, err := psbt.Extract(unchanged.GenesisPacket.Pkt)
-	require.NoError(t, err)
-	require.Equal(
-		t, (*firstAttempt).WitnessHash(), unchangedTx.WitnessHash(),
-	)
-
-	retry := clonePacket(t, pending.GenesisPacket.Pkt)
-	h.finalizeBatch(&wg, respChan, &tapgarden.FinalizeParams{
-		SignedPsbt: retry,
-	})
 	published := h.assertTxPublished()
 	require.Equal(
 		t, (*firstAttempt).WitnessHash(), published.WitnessHash(),
@@ -458,7 +448,7 @@ func TestIssue721ConfirmationRegistrationRetry(t *testing.T) {
 		h.wallet.ImportPubKeySignal, defaultTimeout,
 	)
 	require.NoError(t, err)
-	h.assertTxPublished()
+	published := h.assertTxPublished()
 	h.assertFinalizeBatch(
 		&wg, respChan, "failed to register confirmation",
 	)
@@ -466,6 +456,22 @@ func TestIssue721ConfirmationRegistrationRetry(t *testing.T) {
 	pending, err := h.planter.PendingBatch()
 	require.NoError(t, err)
 	require.Equal(t, tapgarden.BatchStateBroadcast, pending.State())
+	changedRetry := clonePacket(t, pending.GenesisPacket.Pkt)
+	changedRetry.Inputs[0].FinalScriptWitness =
+		issue721FinalWitnessWithItem(
+			t, bytes.Repeat([]byte{0x02}, 500), witnessScript,
+		)
+	changedTx, err := psbt.Extract(changedRetry)
+	require.NoError(t, err)
+	require.Equal(t, published.TxHash(), changedTx.TxHash())
+	require.NotEqual(t, published.WitnessHash(), changedTx.WitnessHash())
+	_, err = h.planter.FinalizeBatch(tapgarden.FinalizeParams{
+		SignedPsbt: changedRetry,
+	})
+	require.ErrorContains(
+		t, err, "broadcast retry changes finalized transaction",
+	)
+
 	retry := clonePacket(t, pending.GenesisPacket.Pkt)
 	h.finalizeBatch(&wg, respChan, &tapgarden.FinalizeParams{
 		SignedPsbt: retry,

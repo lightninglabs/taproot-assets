@@ -364,10 +364,40 @@ func (l *LndRpcChainBridge) ValidateAndPublishTransaction(ctx context.Context,
 // after relaying the transaction, so they must not restore a cancellable
 // pre-broadcast state.
 func isDefinitivePublishError(err error) bool {
-	errMsg := status.Convert(err).Message()
+	errMsg := strings.ToLower(status.Convert(err).Message())
+	if strings.HasPrefix(
+		errMsg, strings.ToLower(lnwallet.ErrMempoolFee.Error()),
+	) {
 
-	return strings.HasPrefix(errMsg, lnwallet.ErrDoubleSpend.Error()) ||
-		strings.HasPrefix(errMsg, lnwallet.ErrMempoolFee.Error())
+		return true
+	}
+
+	// ErrDoubleSpend also represents missing-inputs. A missing parent can
+	// exist in another peer's mempool, so that collapsed lnd error is not a
+	// safe basis for making a signed transaction cancellable.
+	if strings.HasPrefix(
+		errMsg, strings.ToLower(lnwallet.ErrDoubleSpend.Error()),
+	) {
+
+		return false
+	}
+
+	// These are stable families of policy/consensus reject reasons returned
+	// directly by TestMempoolAccept. They establish that the backend did not
+	// relay the transaction. Conflict/missing-input reasons are deliberately
+	// excluded because their view may differ across mempools.
+	definitiveRejectMarkers := []string{
+		"non-final", "non-bip68-final", "dust", "nonstandard",
+		"non-mandatory-script-verify-flag",
+		"mandatory-script-verify-flag", "bad-txns-", "tx-size",
+		"too many sigops", "too-long-mempool-chain",
+		"too many ancestors", "too many descendants",
+		"insufficient fee", "min relay fee", "mempool min fee",
+	}
+
+	return fn.Any(definitiveRejectMarkers, func(marker string) bool {
+		return strings.Contains(errMsg, marker)
+	})
 }
 
 // EstimateFee returns a fee estimate for the confirmation target.

@@ -19,17 +19,24 @@ func TestDefinitivePublishError(t *testing.T) {
 		definitive bool
 	}{
 		{
-			name: "spent input",
+			name: "collapsed missing or spent input is ambiguous",
 			err: status.Error(
 				codes.Unknown, lnwallet.ErrDoubleSpend.Error(),
 			),
-			definitive: true,
+			definitive: false,
 		},
 		{
 			name: "mempool fee with detail",
 			err: status.Error(
 				codes.Unknown, lnwallet.ErrMempoolFee.Error()+
 					": min relay fee not met",
+			),
+			definitive: true,
+		},
+		{
+			name: "non final transaction",
+			err: status.Error(
+				codes.Unknown, "non-final",
 			),
 			definitive: true,
 		},

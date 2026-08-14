@@ -107,6 +107,10 @@ var (
 )
 
 const (
+	// maxCustomAnchorPsbtSize bounds caller-controlled PSBT work performed
+	// synchronously by the mint gardener.
+	maxCustomAnchorPsbtSize = 4 * 1024 * 1024
+
 	// AssetBurnConfirmationText is the text that needs to be set on the
 	// RPC to confirm an asset burn.
 	AssetBurnConfirmationText = "assets will be destroyed"
@@ -963,6 +967,10 @@ func (r *RPCServer) FundBatch(ctx context.Context,
 
 	var anchorPsbt *psbt.Packet
 	if len(req.AnchorPsbt) != 0 {
+		if len(req.AnchorPsbt) > maxCustomAnchorPsbtSize {
+			return nil, fmt.Errorf("anchor PSBT exceeds maximum size of %d "+
+				"bytes", maxCustomAnchorPsbtSize)
+		}
 		var err error
 		anchorPsbt, err = psbt.NewFromRawBytes(
 			bytes.NewReader(req.AnchorPsbt), false,
@@ -1133,6 +1141,10 @@ func (r *RPCServer) FinalizeBatch(ctx context.Context,
 
 	var signedPsbt *psbt.Packet
 	if len(req.SignedPsbt) != 0 {
+		if len(req.SignedPsbt) > maxCustomAnchorPsbtSize {
+			return nil, fmt.Errorf("signed anchor PSBT exceeds maximum size "+
+				"of %d bytes", maxCustomAnchorPsbtSize)
+		}
 		if req.FeeRate != 0 || req.BatchSibling != nil {
 			return nil, fmt.Errorf("signed_psbt cannot be combined with " +
 				"fee rate or tapscript sibling")

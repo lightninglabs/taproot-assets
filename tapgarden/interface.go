@@ -13,6 +13,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapsend"
+	"github.com/lightningnetwork/lnd/keychain"
 )
 
 const (
@@ -256,6 +257,7 @@ type MintingStore interface {
 	// NOTE: The BatchState should transition to the BatchStateBroadcast
 	// state upon a successful call.
 	CommitSignedGenesisTx(ctx context.Context, batchKey *btcec.PublicKey,
+		mintingInternalKey keychain.KeyDescriptor,
 		genesisTx *tapsend.FundedPsbt, anchorOutputIndex uint32,
 		merkleRoot, tapTreeRoot, tapSibling []byte) error
 

@@ -362,6 +362,9 @@ const (
 	customAnchorPublishNone customAnchorPublishState = iota
 	customAnchorPublishPending
 	customAnchorPublishRejected
+
+	maxFinalScriptWitnessSize = 4_000_000
+	maxFinalWitnessItems      = 100_000
 )
 
 func markCustomAnchorPsbt(packet *psbt.Packet) {
@@ -438,6 +441,30 @@ func getCustomAnchorPublishState(
 
 func stripCustomAnchorPublishState(packet *psbt.Packet) {
 	setCustomAnchorPublishState(packet, customAnchorPublishNone)
+}
+
+func stripTapdCustomAnchorMarkers(packet *psbt.Packet) {
+	if packet == nil {
+		return
+	}
+
+	unknowns := packet.Unknowns[:0]
+	for _, unknown := range packet.Unknowns {
+		if bytes.Equal(unknown.Key, customAnchorPsbtMarker) ||
+			bytes.Equal(unknown.Key, customAnchorPublishMarker) {
+
+			continue
+		}
+		unknowns = append(unknowns, unknown)
+	}
+	packet.Unknowns = unknowns
+}
+
+func customAnchorPublicationPending(batch *MintingBatch) bool {
+	return batch != nil && batch.GenesisPacket != nil &&
+		isCustomAnchorPsbt(batch.GenesisPacket.Pkt) &&
+		getCustomAnchorPublishState(batch.GenesisPacket.Pkt) ==
+			customAnchorPublishPending
 }
 
 // PendingGroupWitness specifies the asset group witness for an asset seedling
@@ -1332,6 +1359,10 @@ func customGenesisPsbt(chainParams address.ChainParams,
 		return zero, fmt.Errorf("custom anchor PSBT is missing its " +
 			"unsigned transaction")
 	}
+	// Caller-supplied packets can't set tapd's private lifecycle markers.
+	// They are added only after the packet passes validation and enters the
+	// corresponding durable state.
+	stripTapdCustomAnchorMarkers(packet)
 	if len(packet.UnsignedTx.TxIn) == 0 {
 		return zero, fmt.Errorf("custom anchor PSBT must have at least " +
 			"one input")
@@ -1344,7 +1375,7 @@ func customGenesisPsbt(chainParams address.ChainParams,
 		return zero, fmt.Errorf("custom anchor PSBT output maps don't " +
 			"match unsigned transaction outputs")
 	}
-	if int(assetAnchorOutIdx) >= len(packet.UnsignedTx.TxOut) {
+	if uint64(assetAnchorOutIdx) >= uint64(len(packet.UnsignedTx.TxOut)) {
 		return zero, fmt.Errorf("asset anchor output index %d out of "+
 			"range", assetAnchorOutIdx)
 	}
@@ -1403,6 +1434,12 @@ func customGenesisPsbt(chainParams address.ChainParams,
 		return zero, fmt.Errorf("invalid custom asset anchor internal "+
 			"key: %w", err)
 	}
+	if _, err := customAnchorKeyDesc(
+		chainParams, packet, assetAnchorOutIdx,
+	); err != nil {
+
+		return zero, err
+	}
 	if pOut.TaprootTapTree != nil {
 		return zero, fmt.Errorf("custom asset anchor output must not " +
 			"specify a PSBT tap tree; use the batch sibling fields")
@@ -1423,7 +1460,7 @@ func customGenesisPsbt(chainParams address.ChainParams,
 		if err != nil {
 			return zero, err
 		}
-		if int(idx) >= len(packet.UnsignedTx.TxOut) ||
+		if uint64(idx) >= uint64(len(packet.UnsignedTx.TxOut)) ||
 			idx == assetAnchorOutIdx || idx == uint32(changeOutputIndex) {
 
 			return zero, fmt.Errorf("invalid pre-commitment output "+
@@ -1490,6 +1527,59 @@ func customGenesisPsbt(chainParams address.ChainParams,
 	return NewFundedMintAnchorPsbt(
 		funded, indexes, preCommitOut,
 	)
+}
+
+// customAnchorKeyDesc extracts the lnd key locator that controls a caller's
+// selected anchor internal key. Both BIP32 output records are required and
+// cross-checked so a random point or forged locator can't be persisted as a
+// wallet-managed output.
+func customAnchorKeyDesc(chainParams address.ChainParams, packet *psbt.Packet,
+	assetAnchorOutIdx uint32) (keychain.KeyDescriptor, error) {
+
+	var zero keychain.KeyDescriptor
+	if packet == nil || uint64(assetAnchorOutIdx) >=
+		uint64(len(packet.Outputs)) {
+
+		return zero, fmt.Errorf("custom anchor output metadata is missing")
+	}
+
+	pOut := packet.Outputs[assetAnchorOutIdx]
+	if len(pOut.Bip32Derivation) != 1 ||
+		len(pOut.TaprootBip32Derivation) != 1 {
+
+		return zero, fmt.Errorf("custom asset anchor output must specify " +
+			"exactly one BIP32 and Taproot BIP32 derivation")
+	}
+
+	bip32Derivation := pOut.Bip32Derivation[0]
+	taprootDerivation := pOut.TaprootBip32Derivation[0]
+	desc, err := tappsbt.KeyDescFromBip32Derivation(bip32Derivation)
+	if err != nil {
+		return zero, fmt.Errorf("invalid custom anchor key derivation: %w",
+			err)
+	}
+
+	expectedBip32, expectedTaproot := tappsbt.Bip32DerivationFromKeyDesc(
+		desc, chainParams.HDCoinType,
+	)
+	if !bytes.Equal(expectedBip32.PubKey, bip32Derivation.PubKey) ||
+		!slices.Equal(expectedBip32.Bip32Path, bip32Derivation.Bip32Path) ||
+		!bytes.Equal(
+			expectedTaproot.XOnlyPubKey,
+			taprootDerivation.XOnlyPubKey,
+		) || !slices.Equal(
+		expectedTaproot.Bip32Path, taprootDerivation.Bip32Path,
+	) || len(taprootDerivation.LeafHashes) != 0 ||
+		!bytes.Equal(
+			pOut.TaprootInternalKey,
+			taprootDerivation.XOnlyPubKey,
+		) {
+
+		return zero, fmt.Errorf("custom anchor key derivation doesn't " +
+			"match its internal key or network path")
+	}
+
+	return desc, nil
 }
 
 // validateExclusionProofOutputs ensures every non-anchor P2TR output can be
@@ -2211,10 +2301,7 @@ func (c *ChainPlanter) cancelMintingBatch(ctx context.Context,
 		cancelState = BatchStateSeedlingCancelled
 
 	case BatchStateCommitted:
-		if isCustomAnchorPsbt(c.pendingBatch.GenesisPacket.Pkt) &&
-			getCustomAnchorPublishState(
-				c.pendingBatch.GenesisPacket.Pkt,
-			) == customAnchorPublishPending {
+		if customAnchorPublicationPending(c.pendingBatch) {
 
 			return fmt.Errorf("custom anchor publication status is " +
 				"ambiguous and is not cancellable")
@@ -2586,6 +2673,18 @@ func (c *ChainPlanter) fundBatch(ctx context.Context, params FundParams,
 	computeFunding := func(batch *MintingBatch) (
 		*FundedMintAnchorPsbt, error) {
 		if params.AnchorPsbt != nil {
+			anchorKeyDesc, err := customAnchorKeyDesc(
+				c.cfg.ChainParams, params.AnchorPsbt,
+				params.AssetAnchorOutIdx,
+			)
+			if err != nil {
+				return nil, err
+			}
+			if !c.cfg.KeyRing.IsLocalKey(ctx, anchorKeyDesc) {
+				return nil, fmt.Errorf("custom asset anchor internal " +
+					"key is not controlled by the backing wallet")
+			}
+
 			funded, err := customGenesisPsbt(
 				c.cfg.ChainParams, batch, params.AnchorPsbt,
 				params.AssetAnchorOutIdx,
@@ -3136,8 +3235,8 @@ func mergeSignedCustomPsbt(stored,
 	// Publication state is internal recovery metadata added after the
 	// caller signs. It isn't part of the prepared transaction contract and
 	// therefore isn't required in a resubmitted external packet.
-	stripCustomAnchorPublishState(storedNorm)
-	stripCustomAnchorPublishState(signedNorm)
+	stripTapdCustomAnchorMarkers(storedNorm)
+	stripTapdCustomAnchorMarkers(signedNorm)
 	if !reflect.DeepEqual(storedNorm.UnsignedTx, signedNorm.UnsignedTx) ||
 		!reflect.DeepEqual(storedNorm.Outputs, signedNorm.Outputs) ||
 		!reflect.DeepEqual(storedNorm.XPubs, signedNorm.XPubs) ||
@@ -3241,6 +3340,17 @@ func mergeSignedCustomPsbt(stored,
 // caretaker persists a broadcast state. This keeps a malformed external
 // witness retryable at the prepared state.
 func validateFinalizedAnchorPsbt(packet *psbt.Packet) error {
+	for idx := range packet.Inputs {
+		witness := packet.Inputs[idx].FinalScriptWitness
+		if witness == nil {
+			continue
+		}
+		if err := validateFinalScriptWitness(witness); err != nil {
+			return fmt.Errorf("invalid final witness for input %d: %w",
+				idx, err)
+		}
+	}
+
 	tx, err := psbt.Extract(packet)
 	if err != nil {
 		return err
@@ -3288,6 +3398,45 @@ func validateFinalizedAnchorPsbt(packet *psbt.Packet) error {
 			return fmt.Errorf("invalid witness for input %d: %w", idx,
 				err)
 		}
+	}
+
+	return nil
+}
+
+func validateFinalScriptWitness(serialized []byte) error {
+	if len(serialized) > maxFinalScriptWitnessSize {
+		return fmt.Errorf("serialized witness exceeds %d bytes",
+			maxFinalScriptWitnessSize)
+	}
+
+	reader := bytes.NewReader(serialized)
+	itemCount, err := wire.ReadVarInt(reader, 0)
+	if err != nil {
+		return fmt.Errorf("unable to read witness item count: %w", err)
+	}
+	if itemCount > maxFinalWitnessItems {
+		return fmt.Errorf("witness item count %d exceeds limit %d",
+			itemCount, maxFinalWitnessItems)
+	}
+
+	for itemIdx := uint64(0); itemIdx < itemCount; itemIdx++ {
+		itemSize, err := wire.ReadVarInt(reader, 0)
+		if err != nil {
+			return fmt.Errorf("unable to read witness item %d size: %w",
+				itemIdx, err)
+		}
+		if itemSize > uint64(reader.Len()) {
+			return fmt.Errorf("witness item %d exceeds serialized data",
+				itemIdx)
+		}
+		if _, err := reader.Seek(int64(itemSize), 1); err != nil {
+			return fmt.Errorf("unable to skip witness item %d: %w",
+				itemIdx, err)
+		}
+	}
+	if reader.Len() != 0 {
+		return fmt.Errorf("serialized witness has %d trailing bytes",
+			reader.Len())
 	}
 
 	return nil
@@ -4230,10 +4379,19 @@ func (f *FundedMintAnchorPsbt) Copy() *FundedMintAnchorPsbt {
 			newMintAnchorPsbt.Pkt = copyMalformedPsbt(f.Pkt)
 		} else {
 			var buf bytes.Buffer
-			if err := f.Pkt.Serialize(&buf); err == nil {
-				newMintAnchorPsbt.Pkt, _ = psbt.NewFromRawBytes(
+			serializeErr := f.Pkt.Serialize(&buf)
+			if serializeErr == nil {
+				var parseErr error
+				newMintAnchorPsbt.Pkt, parseErr = psbt.NewFromRawBytes(
 					&buf, false,
 				)
+				if parseErr != nil {
+					log.Warnf("Unable to parse serialized mint anchor "+
+						"PSBT while copying: %v", parseErr)
+				}
+			} else {
+				log.Warnf("Unable to serialize mint anchor PSBT while "+
+					"copying: %v", serializeErr)
 			}
 			if newMintAnchorPsbt.Pkt == nil {
 				newMintAnchorPsbt.Pkt = copyMalformedPsbt(f.Pkt)

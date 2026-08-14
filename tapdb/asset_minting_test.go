@@ -26,6 +26,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
+	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/clock"
@@ -1037,15 +1038,41 @@ func TestCommitBatchChainActions(t *testing.T) {
 	//
 	// TODO(roasbeef): move the tx extraction up one layer?
 	randAssetCtx.genesisPkt.Pkt.Inputs[0].FinalScriptSig = []byte{}
+	customInternalKey, _ := test.RandKeyDesc(t)
+	bip32Derivation, taprootDerivation :=
+		tappsbt.Bip32DerivationFromKeyDesc(
+			customInternalKey, address.TestNet3Tap.HDCoinType,
+		)
+	randAssetCtx.genesisPkt.Pkt.Outputs[0].Bip32Derivation =
+		[]*psbt.Bip32Derivation{bip32Derivation}
+	randAssetCtx.genesisPkt.Pkt.Outputs[0].TaprootBip32Derivation =
+		[]*psbt.TaprootBip32Derivation{taprootDerivation}
+	randAssetCtx.genesisPkt.Pkt.Unknowns = append(
+		randAssetCtx.genesisPkt.Pkt.Unknowns, &psbt.Unknown{
+			Key:   []byte{0xfc, 0x04, 't', 'a', 'p', 'd', 0x01},
+			Value: []byte{1},
+		},
+	)
+	customOutputKey := txscript.ComputeTaprootOutputKey(
+		customInternalKey.PubKey, randAssetCtx.merkleRoot,
+	)
+	customOutputScript, err := txscript.PayToTaprootScript(customOutputKey)
+	require.NoError(t, err)
+	randAssetCtx.genesisPkt.Pkt.UnsignedTx.TxOut[0].PkScript =
+		customOutputScript
 
 	// With our assets inserted, we'll now commit the signed genesis packet
 	// to disk, along with the Taproot Asset script root that's stored
 	// alongside any managed UTXOs.
 	require.NoError(t, assetStore.CommitSignedGenesisTx(
-		ctx, randAssetCtx.batchKey, randAssetCtx.genesisPkt, 0,
+		ctx, randAssetCtx.batchKey, customInternalKey,
+		randAssetCtx.genesisPkt, 0,
 		randAssetCtx.merkleRoot, randAssetCtx.scriptRoot,
 		randAssetCtx.tapSiblingBytes,
 	))
+	require.ErrorContains(t, assetStore.StoreSignedGenesisPsbt(
+		ctx, randAssetCtx.batchKey, randAssetCtx.genesisPkt,
+	), "batch in state BatchStateBroadcast")
 
 	// The batch updated above should be found, with the batch state
 	// updated, and also the genesis transaction updated to match what we
@@ -1084,6 +1111,12 @@ func TestCommitBatchChainActions(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, randAssetCtx.merkleRoot, managedUTXO.MerkleRoot)
+	require.Equal(
+		t, customInternalKey.PubKey.SerializeCompressed(),
+		managedUTXO.RawKey,
+	)
+	require.Equal(t, int32(customInternalKey.Family), managedUTXO.KeyFamily)
+	require.Equal(t, int32(customInternalKey.Index), managedUTXO.KeyIndex)
 	require.Equal(t, randAssetCtx.scriptRoot, managedUTXO.TaprootAssetRoot)
 	require.Equal(
 		t, randAssetCtx.tapSiblingBytes, managedUTXO.TapscriptSibling,
