@@ -292,6 +292,18 @@ message MintingBatch {
     // The genesis transaction as a PSBT packet. Only populated if the batch has
     // been committed.
     bytes batch_psbt = 7;
+
+    // The latest prepared or broadcast custom-anchor wallet lease renewal
+    // degradation. Empty after a successful renewal or wallet acceptance.
+    string custom_anchor_lease_error = 8;
+
+    // The latest ambiguous publication error for a custom-anchor transaction
+    // that remains watched and retried byte-identically.
+    string custom_anchor_publish_error = 9;
+
+    // Historical custom-anchor key health requiring operator intervention.
+    // Empty when the managed anchor key is healthy or was repaired.
+    string custom_anchor_key_error = 10;
 }
 
 message VerboseBatch {

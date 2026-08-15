@@ -2,6 +2,7 @@ package tapgarden
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"testing"
 
@@ -14,11 +15,96 @@ import (
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/tapnode/tapnodemock"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
 )
+
+func TestCustomAnchorLeaseMarkerValidation(t *testing.T) {
+	pkt := testCustomAnchorPacket(t)
+	markCustomAnchorPsbt(pkt)
+
+	ops, state, err := parseCustomAnchorLockedUTXOs(pkt)
+	require.NoError(t, err)
+	require.Nil(t, ops)
+	require.Equal(t, customAnchorLeaseMarkerLegacy, state)
+
+	op := pkt.UnsignedTx.TxIn[0].PreviousOutPoint
+	SetCustomAnchorLockedUTXOs(pkt, []wire.OutPoint{op})
+	ops, state, err = parseCustomAnchorLockedUTXOs(pkt)
+	require.NoError(t, err)
+	require.Equal(t, customAnchorLeaseMarkerCurrent, state)
+	require.Equal(t, []wire.OutPoint{op}, ops)
+
+	var marker *psbt.Unknown
+	for _, unknown := range pkt.Unknowns {
+		if bytes.Equal(unknown.Key, customAnchorPsbtMarker) {
+			marker = unknown
+		}
+	}
+	require.NotNil(t, marker)
+	marker.Value = []byte{1, 1, 0, 0, 0}
+	_, _, err = parseCustomAnchorLockedUTXOs(pkt)
+	require.ErrorContains(t, err, "marker length")
+	require.Nil(t, CustomAnchorLockedUTXOs(pkt))
+
+	marker.Value = []byte{1}
+	pkt.Unknowns = append(pkt.Unknowns, &psbt.Unknown{
+		Key: fn.CopySlice(customAnchorPsbtMarker), Value: []byte{1},
+	})
+	_, _, err = parseCustomAnchorLockedUTXOs(pkt)
+	require.ErrorContains(t, err, "duplicate custom anchor lease marker")
+
+	// The setter canonicalizes any retained duplicates into one current
+	// marker before the packet is stored again.
+	SetCustomAnchorLockedUTXOs(pkt, []wire.OutPoint{op})
+	markerCount := 0
+	for _, unknown := range pkt.Unknowns {
+		if bytes.Equal(unknown.Key, customAnchorPsbtMarker) {
+			markerCount++
+		}
+	}
+	require.Equal(t, 1, markerCount)
+	ops, state, err = parseCustomAnchorLockedUTXOs(pkt)
+	require.NoError(t, err)
+	require.Equal(t, customAnchorLeaseMarkerCurrent, state)
+	require.Equal(t, []wire.OutPoint{op}, ops)
+
+	foreign := op
+	foreign.Index++
+	SetCustomAnchorLockedUTXOs(pkt, []wire.OutPoint{foreign})
+	_, _, err = parseCustomAnchorLockedUTXOs(pkt)
+	require.ErrorContains(t, err, "is not in the transaction")
+}
+
+func TestLegacyCustomAnchorLeaseMarkerReacquiresOwnedInputs(t *testing.T) {
+	pkt := testCustomAnchorPacket(t)
+	markCustomAnchorPsbt(pkt)
+	op := pkt.UnsignedTx.TxIn[0].PreviousOutPoint
+	wallet := tapnodemock.NewWalletAnchor()
+	wallet.SetOwnedInput(op, true)
+	funded := &FundedMintAnchorPsbt{
+		FundedPsbt: tapsend.FundedPsbt{Pkt: pkt},
+	}
+
+	require.NoError(t, renewCustomAnchorLeases(
+		context.Background(), wallet, funded,
+	))
+	require.Equal(t, op, <-wallet.LeaseInputSignal)
+	require.Equal(t, []wire.OutPoint{op}, funded.LockedUTXOs)
+	ops, state, err := parseCustomAnchorLockedUTXOs(pkt)
+	require.NoError(t, err)
+	require.Equal(t, customAnchorLeaseMarkerCurrent, state)
+	require.Equal(t, []wire.OutPoint{op}, ops)
+	select {
+	case duplicate := <-wallet.LeaseInputSignal:
+		t.Fatalf("legacy input leased twice during marker upgrade: %v",
+			duplicate)
+	default:
+	}
+}
 
 func testCustomAnchorPacket(t *testing.T) *psbt.Packet {
 	t.Helper()
@@ -227,7 +313,7 @@ func TestCustomAnchorPublicationPending(t *testing.T) {
 	require.True(t, customAnchorPublicationPending(batch))
 
 	setCustomAnchorPublishState(pkt, customAnchorPublishRejected)
-	require.False(t, customAnchorPublicationPending(batch))
+	require.True(t, customAnchorPublicationPending(batch))
 }
 
 func TestMergeSignedCustomPsbt(t *testing.T) {

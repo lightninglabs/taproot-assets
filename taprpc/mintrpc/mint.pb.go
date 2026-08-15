@@ -634,9 +634,18 @@ type MintingBatch struct {
 	HeightHint uint32 `protobuf:"varint,6,opt,name=height_hint,json=heightHint,proto3" json:"height_hint,omitempty"`
 	// The genesis transaction as a PSBT packet. Only populated if the batch has
 	// been committed.
-	BatchPsbt     []byte `protobuf:"bytes,7,opt,name=batch_psbt,json=batchPsbt,proto3" json:"batch_psbt,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	BatchPsbt []byte `protobuf:"bytes,7,opt,name=batch_psbt,json=batchPsbt,proto3" json:"batch_psbt,omitempty"`
+	// The latest prepared or broadcast custom-anchor wallet lease renewal
+	// degradation. Empty after a successful renewal or wallet acceptance.
+	CustomAnchorLeaseError string `protobuf:"bytes,8,opt,name=custom_anchor_lease_error,json=customAnchorLeaseError,proto3" json:"custom_anchor_lease_error,omitempty"`
+	// The latest ambiguous publication error for a custom-anchor transaction
+	// that remains watched and retried byte-identically.
+	CustomAnchorPublishError string `protobuf:"bytes,9,opt,name=custom_anchor_publish_error,json=customAnchorPublishError,proto3" json:"custom_anchor_publish_error,omitempty"`
+	// Historical custom-anchor key health requiring operator intervention.
+	// Empty when the managed anchor key is healthy or was repaired.
+	CustomAnchorKeyError string `protobuf:"bytes,10,opt,name=custom_anchor_key_error,json=customAnchorKeyError,proto3" json:"custom_anchor_key_error,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *MintingBatch) Reset() {
@@ -716,6 +725,27 @@ func (x *MintingBatch) GetBatchPsbt() []byte {
 		return x.BatchPsbt
 	}
 	return nil
+}
+
+func (x *MintingBatch) GetCustomAnchorLeaseError() string {
+	if x != nil {
+		return x.CustomAnchorLeaseError
+	}
+	return ""
+}
+
+func (x *MintingBatch) GetCustomAnchorPublishError() string {
+	if x != nil {
+		return x.CustomAnchorPublishError
+	}
+	return ""
+}
+
+func (x *MintingBatch) GetCustomAnchorKeyError() string {
+	if x != nil {
+		return x.CustomAnchorKeyError
+	}
+	return ""
 }
 
 type VerboseBatch struct {
@@ -1738,7 +1768,7 @@ const file_mintrpc_mint_proto_rawDesc = "" +
 	"\x05asset\x18\x01 \x01(\v2\x12.mintrpc.MintAssetR\x05asset\x12%\n" +
 	"\x0eshort_response\x18\x02 \x01(\bR\rshortResponse\"O\n" +
 	"\x11MintAssetResponse\x12:\n" +
-	"\rpending_batch\x18\x01 \x01(\v2\x15.mintrpc.MintingBatchR\fpendingBatch\"\x83\x02\n" +
+	"\rpending_batch\x18\x01 \x01(\v2\x15.mintrpc.MintingBatchR\fpendingBatch\"\xb4\x03\n" +
 	"\fMintingBatch\x12\x1b\n" +
 	"\tbatch_key\x18\x01 \x01(\fR\bbatchKey\x12\x1d\n" +
 	"\n" +
@@ -1750,7 +1780,11 @@ const file_mintrpc_mint_proto_rawDesc = "" +
 	"\vheight_hint\x18\x06 \x01(\rR\n" +
 	"heightHint\x12\x1d\n" +
 	"\n" +
-	"batch_psbt\x18\a \x01(\fR\tbatchPsbt\"|\n" +
+	"batch_psbt\x18\a \x01(\fR\tbatchPsbt\x129\n" +
+	"\x19custom_anchor_lease_error\x18\b \x01(\tR\x16customAnchorLeaseError\x12=\n" +
+	"\x1bcustom_anchor_publish_error\x18\t \x01(\tR\x18customAnchorPublishError\x125\n" +
+	"\x17custom_anchor_key_error\x18\n" +
+	" \x01(\tR\x14customAnchorKeyError\"|\n" +
 	"\fVerboseBatch\x12+\n" +
 	"\x05batch\x18\x01 \x01(\v2\x15.mintrpc.MintingBatchR\x05batch\x12?\n" +
 	"\x0funsealed_assets\x18\x02 \x03(\v2\x16.mintrpc.UnsealedAssetR\x0eunsealedAssets\"\xda\x03\n" +

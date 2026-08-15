@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"sync"
 	"testing"
 
 	btcaddr "github.com/btcsuite/btcd/address/v2"
@@ -27,6 +28,8 @@ import (
 
 // WalletAnchor is an in-memory mock implementation of tapnode.WalletAnchor.
 type WalletAnchor struct {
+	mu sync.RWMutex
+
 	FundPsbtSignal     chan *tapsend.FundedPsbt
 	SignPsbtSignal     chan struct{}
 	ImportPubKeySignal chan *btcec.PublicKey
@@ -43,6 +46,48 @@ type WalletAnchor struct {
 	LeaseErrors   map[wire.OutPoint]error
 	ReleaseErrors map[wire.OutPoint]error
 	ImportErr     error
+}
+
+// SetOwnedInput updates whether an input is controlled by the mock wallet.
+func (m *WalletAnchor) SetOwnedInput(op wire.OutPoint, owned bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.OwnedInputs[op] = owned
+}
+
+// SetLeaseError updates the error returned when an input is leased.
+func (m *WalletAnchor) SetLeaseError(op wire.OutPoint, err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if err == nil {
+		delete(m.LeaseErrors, op)
+		return
+	}
+
+	m.LeaseErrors[op] = err
+}
+
+// SetReleaseError updates the error returned when an input is released.
+func (m *WalletAnchor) SetReleaseError(op wire.OutPoint, err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if err == nil {
+		delete(m.ReleaseErrors, op)
+		return
+	}
+
+	m.ReleaseErrors[op] = err
+}
+
+// SetImportError updates the error returned when a Taproot output is imported.
+func (m *WalletAnchor) SetImportError(err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.ImportErr = err
 }
 
 // NewWalletAnchor returns a freshly-initialised mock WalletAnchor.
@@ -186,8 +231,11 @@ func (m *WalletAnchor) ImportTaprootOutput(ctx context.Context,
 	case <-ctx.Done():
 		return nil, fmt.Errorf("shutting down")
 	}
-	if m.ImportErr != nil {
-		return nil, m.ImportErr
+	m.mu.RLock()
+	importErr := m.ImportErr
+	m.mu.RUnlock()
+	if importErr != nil {
+		return nil, importErr
 	}
 
 	return btcaddr.NewAddressTaproot(
@@ -196,23 +244,35 @@ func (m *WalletAnchor) ImportTaprootOutput(ctx context.Context,
 }
 
 // LeaseInput leases the input if the mock marks it as wallet-owned.
-func (m *WalletAnchor) LeaseInput(_ context.Context,
+func (m *WalletAnchor) LeaseInput(ctx context.Context,
 	op wire.OutPoint) (bool, error) {
 
-	if err := m.LeaseErrors[op]; err != nil {
-		return false, err
+	m.mu.RLock()
+	leaseErr := m.LeaseErrors[op]
+	owned := m.OwnedInputs[op]
+	m.mu.RUnlock()
+	if leaseErr != nil {
+		return false, leaseErr
 	}
-	if !m.OwnedInputs[op] {
+	if !owned {
 		return false, nil
 	}
-	m.LeaseInputSignal <- op
-	return true, nil
+	select {
+	case m.LeaseInputSignal <- op:
+		return true, nil
+
+	case <-ctx.Done():
+		return false, ctx.Err()
+	}
 }
 
 // ReleaseInput releases a custom-anchor lease held by the mock wallet.
 func (m *WalletAnchor) ReleaseInput(_ context.Context, op wire.OutPoint) error {
 	m.ReleaseInputSignal <- op
-	return m.ReleaseErrors[op]
+	m.mu.RLock()
+	releaseErr := m.ReleaseErrors[op]
+	m.mu.RUnlock()
+	return releaseErr
 }
 
 // UnlockInput unlocks the set of target inputs after a batch or send

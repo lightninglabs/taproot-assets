@@ -260,6 +260,15 @@ type PendingAssetStore interface {
 		arg UpsertBatchPreCommitParams) (int64, error)
 }
 
+type customAnchorKeyRepairQueries interface {
+	FetchCustomAnchorKeyRepairCandidates(context.Context) (
+		[]sqlc.FetchCustomAnchorKeyRepairCandidatesRow, error)
+	RepairCustomAnchorInternalKey(context.Context,
+		sqlc.RepairCustomAnchorInternalKeyParams) (int64, error)
+	UpsertWalletVerifiedInternalKey(context.Context,
+		sqlc.UpsertWalletVerifiedInternalKeyParams) (int64, error)
+}
+
 var (
 	// ErrFetchMintingBatches is returned when fetching multiple minting
 	// batches fails.
@@ -1853,6 +1862,103 @@ func (a *AssetMintingStore) AddSproutsToBatch(ctx context.Context,
 	})
 }
 
+// FetchCustomAnchorKeyRepairCandidates returns historical mint rows with the
+// retained data needed for the wallet-aware repair audit.
+func (a *AssetMintingStore) FetchCustomAnchorKeyRepairCandidates(
+	ctx context.Context) ([]tapgarden.CustomAnchorKeyRepairCandidate, error) {
+
+	var candidates []tapgarden.CustomAnchorKeyRepairCandidate
+	readOpts := NewAssetStoreReadTx()
+	err := a.db.ExecTx(ctx, &readOpts, func(q PendingAssetStore) error {
+		repairQueries, ok := q.(customAnchorKeyRepairQueries)
+		if !ok {
+			return fmt.Errorf("custom anchor key repair queries unavailable")
+		}
+
+		rows, err := repairQueries.FetchCustomAnchorKeyRepairCandidates(ctx)
+		if err != nil {
+			return err
+		}
+
+		for _, row := range rows {
+			assetOutputIndex := ^uint32(0)
+			if row.AssetsOutputIndex.Valid &&
+				row.AssetsOutputIndex.Int32 >= 0 {
+
+				assetOutputIndex = uint32(row.AssetsOutputIndex.Int32)
+			}
+
+			candidates = append(candidates,
+				tapgarden.CustomAnchorKeyRepairCandidate{
+					BatchKey:           row.BatchKey,
+					MintingTxPsbt:      row.MintingTxPsbt,
+					AssetOutputIndex:   assetOutputIndex,
+					Outpoint:           row.Outpoint,
+					ManagedInternalKey: row.ManagedInternalKey,
+					MerkleRoot:         row.MerkleRoot,
+				},
+			)
+		}
+
+		return nil
+	})
+
+	return candidates, err
+}
+
+// RepairCustomAnchorInternalKey compare-and-swaps the exact poisoned managed
+// UTXO to a descriptor that the caller has already proven belongs to the
+// wallet and binds the candidate's committed output.
+func (a *AssetMintingStore) RepairCustomAnchorInternalKey(ctx context.Context,
+	candidate tapgarden.CustomAnchorKeyRepairCandidate,
+	desc keychain.KeyDescriptor) error {
+
+	if desc.PubKey == nil {
+		return fmt.Errorf("verified custom anchor key is missing")
+	}
+
+	var writeOpts AssetStoreTxOptions
+	return a.db.ExecTx(ctx, &writeOpts, func(q PendingAssetStore) error {
+		repairQueries, ok := q.(customAnchorKeyRepairQueries)
+		if !ok {
+			return fmt.Errorf("custom anchor key repair queries unavailable")
+		}
+
+		rawKey := desc.PubKey.SerializeCompressed()
+		_, err := repairQueries.UpsertWalletVerifiedInternalKey(
+			ctx, sqlc.UpsertWalletVerifiedInternalKeyParams{
+				RawKey:    rawKey,
+				KeyFamily: int32(desc.Family),
+				KeyIndex:  int32(desc.Index),
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("unable to store verified custom anchor key: %w", err)
+		}
+
+		updated, err := repairQueries.RepairCustomAnchorInternalKey(
+			ctx, sqlc.RepairCustomAnchorInternalKeyParams{
+				BatchKey: candidate.BatchKey,
+				AssetOutputIndex: sql.NullInt32{
+					Int32: int32(candidate.AssetOutputIndex),
+					Valid: true,
+				},
+				ExpectedOldKey: candidate.BatchKey,
+				ReplacementKey: rawKey,
+				Outpoint:       candidate.Outpoint,
+			},
+		)
+		if err != nil {
+			return err
+		}
+		if updated != 1 {
+			return fmt.Errorf("custom anchor key repair compare-and-swap updated %d rows", updated)
+		}
+
+		return nil
+	})
+}
+
 // CommitSignedGenesisTx binds a fully signed genesis transaction to a pending
 // batch on disk. The anchor output index and script root are also stored to
 // ensure we can reconstruct the private key needed to sign for the batch. The
@@ -1907,11 +2013,17 @@ func (a *AssetMintingStore) CommitSignedGenesisTx(ctx context.Context,
 
 	var writeTxOpts AssetStoreTxOptions
 	return a.db.ExecTx(ctx, &writeTxOpts, func(q PendingAssetStore) error {
-		_, err := q.UpsertInternalKey(ctx, InternalKey{
-			RawKey:    rawMintingInternalKey,
-			KeyFamily: int32(mintingInternalKey.Family),
-			KeyIndex:  int32(mintingInternalKey.Index),
-		})
+		repairQueries, ok := q.(customAnchorKeyRepairQueries)
+		if !ok {
+			return fmt.Errorf("wallet-verified internal key query unavailable")
+		}
+
+		_, err := repairQueries.UpsertWalletVerifiedInternalKey(
+			ctx, sqlc.UpsertWalletVerifiedInternalKeyParams{
+				RawKey:    rawMintingInternalKey,
+				KeyFamily: int32(mintingInternalKey.Family),
+				KeyIndex:  int32(mintingInternalKey.Index),
+			})
 		if err != nil {
 			return fmt.Errorf("unable to store minting internal key: %w",
 				err)

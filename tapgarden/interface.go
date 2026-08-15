@@ -308,6 +308,32 @@ type MintingStore interface {
 		groupKey btcec.PublicKey) (fn.Option[DelegationKey], error)
 }
 
+// CustomAnchorKeyRepairCandidate contains the retained database state needed
+// for a wallet-aware audit of a historical custom mint anchor. The store does
+// not decide whether the key is local; that proof is performed by the planter
+// after its KeyRing is available.
+type CustomAnchorKeyRepairCandidate struct {
+	BatchKey           []byte
+	MintingTxPsbt      []byte
+	AssetOutputIndex   uint32
+	Outpoint           []byte
+	ManagedInternalKey []byte
+	MerkleRoot         []byte
+}
+
+// CustomAnchorKeyRepairStore is an optional extension implemented by stores
+// that can enumerate and compare-and-swap historical custom anchor key rows.
+// The repair method must only be called after the descriptor has been proven
+// local and shown to bind the candidate's committed output.
+type CustomAnchorKeyRepairStore interface {
+	FetchCustomAnchorKeyRepairCandidates(
+		ctx context.Context) ([]CustomAnchorKeyRepairCandidate, error)
+
+	RepairCustomAnchorInternalKey(ctx context.Context,
+		candidate CustomAnchorKeyRepairCandidate,
+		desc keychain.KeyDescriptor) error
+}
+
 var (
 	// ErrNoGenesis is returned when fetching an asset genesis fails.
 	ErrNoGenesis = errors.New("unable to fetch genesis asset")

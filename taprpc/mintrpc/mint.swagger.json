@@ -392,7 +392,7 @@
         "anchor_psbt": {
           "type": "string",
           "format": "byte",
-          "description": "An optional caller-funded anchor PSBT. Input zero remains the asset\ngenesis point and the packet must not contain signatures yet. The selected\nasset anchor output must not contain PSBT_OUT_TAP_TREE because PrepareBatch\nreplaces its script tree with the asset commitment and the optional\nbatch_sibling."
+          "description": "An optional caller-funded anchor PSBT. Input zero remains the asset\ngenesis point and the packet must not contain signatures yet. The\nselected asset anchor output must not contain PSBT_OUT_TAP_TREE because\nPrepareBatch replaces its script tree with the asset commitment and the\noptional batch_sibling."
         },
         "asset_anchor_output_index": {
           "type": "integer",
@@ -587,6 +587,18 @@
           "type": "string",
           "format": "byte",
           "description": "The genesis transaction as a PSBT packet. Only populated if the batch has\nbeen committed."
+        },
+        "custom_anchor_lease_error": {
+          "type": "string",
+          "description": "The latest prepared or broadcast custom-anchor wallet lease renewal\ndegradation. Empty after a successful renewal or wallet acceptance."
+        },
+        "custom_anchor_publish_error": {
+          "type": "string",
+          "description": "The latest ambiguous publication error for a custom-anchor transaction\nthat remains watched and retried byte-identically."
+        },
+        "custom_anchor_key_error": {
+          "type": "string",
+          "description": "Historical custom-anchor key health requiring operator intervention.\nEmpty when the managed anchor key is healthy or was repaired."
         }
       }
     },

@@ -234,7 +234,7 @@ func TestIssue721PrepareSignResume(t *testing.T) {
 	original := clonePacket(t, pkt)
 	callerBytes := serializePacket(t, pkt)
 	ownedInput := pkt.UnsignedTx.TxIn[0].PreviousOutPoint
-	h.wallet.OwnedInputs[ownedInput] = true
+	h.wallet.SetOwnedInput(ownedInput, true)
 
 	funded := issue721Fund(t, h, pkt)
 	initialLease, err := fn.RecvOrTimeout(
@@ -376,8 +376,9 @@ func TestIssue721PrepareSignResume(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.True(t, (*importedKey).IsEqual(expectedOutputKey))
-	published := h.assertTxPublished()
 	confReq, err := fn.RecvOrTimeout(h.chain.ConfReqSignal, defaultTimeout)
+	require.NoError(t, err)
+	published, err := psbt.Extract(valid)
 	require.NoError(t, err)
 	require.Equal(
 		t, published.TxOut[1].PkScript, h.chain.ConfPkScripts[*confReq],
@@ -398,6 +399,7 @@ func TestIssue721PrepareSignResume(t *testing.T) {
 func TestIssue721PublishRetry(t *testing.T) {
 	store := newMintingStore(t)
 	h := newMintingTestHarness(t, store)
+	h.leaseRenewalInterval = 100 * time.Millisecond
 	h.refreshChainPlanter()
 	t.Cleanup(func() {
 		if h.planter != nil {
@@ -407,7 +409,14 @@ func TestIssue721PublishRetry(t *testing.T) {
 
 	h.queueSeedlingsInBatch(false, issue721Seedling())
 	pkt, _, witnessScript := issue721Anchor(t)
+	ownedInput := pkt.UnsignedTx.TxIn[0].PreviousOutPoint
+	h.wallet.SetOwnedInput(ownedInput, true)
 	issue721Fund(t, h, pkt)
+	initialLease, err := fn.RecvOrTimeout(
+		h.wallet.LeaseInputSignal, defaultTimeout,
+	)
+	require.NoError(t, err)
+	require.Equal(t, ownedInput, *initialLease)
 	prepared, err := h.planter.PrepareBatch()
 	require.NoError(t, err)
 
@@ -422,6 +431,11 @@ func TestIssue721PublishRetry(t *testing.T) {
 	h.finalizeBatch(&wg, respChan, &tapgarden.FinalizeParams{
 		SignedPsbt: signed,
 	})
+	finalizeLease, err := fn.RecvOrTimeout(
+		h.wallet.LeaseInputSignal, defaultTimeout,
+	)
+	require.NoError(t, err)
+	require.Equal(t, ownedInput, *finalizeLease)
 	_, err = fn.RecvOrTimeout(
 		h.wallet.ImportPubKeySignal, defaultTimeout,
 	)
@@ -430,21 +444,63 @@ func TestIssue721PublishRetry(t *testing.T) {
 		h.chain.PublishAttempts, defaultTimeout,
 	)
 	require.NoError(t, err)
-	published := h.assertTxPublished()
-	require.Equal(
-		t, (*firstAttempt).WitnessHash(), published.WitnessHash(),
+
+	// Degrade lease renewal before the first Broadcast retry. The watcher
+	// must still be installed, while active publication is suppressed until
+	// the recorded local input is protected again.
+	h.wallet.SetLeaseError(
+		ownedInput, fmt.Errorf("temporary broadcast renewal failure"),
 	)
 	_, err = fn.RecvOrTimeout(h.chain.ConfReqSignal, defaultTimeout)
 	require.NoError(t, err)
 	minted := h.assertFinalizeBatch(&wg, respChan, "")
 	require.Equal(t, tapgarden.BatchStateBroadcast, minted.State())
+	select {
+	case attempt := <-h.chain.PublishAttempts:
+		t.Fatalf("published without a renewed lease: %v", attempt.TxHash())
+	case published := <-h.chain.PublishReq:
+		t.Fatalf("published without a renewed lease: %v", published.TxHash())
+	case <-time.After(2 * h.leaseRenewalInterval):
+	}
+
+	batches, err := h.planter.ListBatches(tapgarden.ListBatchesParams{
+		BatchKey: prepared.BatchKey.PubKey,
+	})
+	require.NoError(t, err)
+	require.Len(t, batches, 1)
+	require.Contains(
+		t, batches[0].CustomAnchorLeaseError,
+		"temporary broadcast renewal failure",
+	)
+
+	// Recovery first renews the local lease, then retries the exact persisted
+	// transaction and clears the queryable degradation.
+	h.wallet.SetLeaseError(ownedInput, nil)
+	tickerLease, err := fn.RecvOrTimeout(
+		h.wallet.LeaseInputSignal, defaultTimeout,
+	)
+	require.NoError(t, err)
+	require.Equal(t, ownedInput, *tickerLease)
+	published := h.assertTxPublished()
+	require.Equal(
+		t, (*firstAttempt).WitnessHash(), published.WitnessHash(),
+	)
+	require.Eventually(t, func() bool {
+		batches, err := h.planter.ListBatches(
+			tapgarden.ListBatchesParams{
+				BatchKey: prepared.BatchKey.PubKey,
+			},
+		)
+		return err == nil && len(batches) == 1 &&
+			batches[0].CustomAnchorLeaseError == ""
+	}, defaultTimeout, 10*time.Millisecond)
 }
 
-// TestIssue721DefinitivePublishFailureCancellable verifies a conclusive
-// backend rejection never advances a custom batch to Broadcast. The signed
-// packet is retained durably in Committed across restart, where the caller can
-// still cancel and rebuild the transaction with a different input.
-func TestIssue721DefinitivePublishFailureCancellable(t *testing.T) {
+// TestIssue721ClassifiedPublishFailureRemainsBroadcast verifies that reject
+// classification is diagnostic only after WalletKit sees fully signed bytes.
+// The caller may have relayed the transaction independently, so the exact tx
+// remains watched/retried in Broadcast and its leases aren't released.
+func TestIssue721ClassifiedPublishFailureRemainsBroadcast(t *testing.T) {
 	store := newMintingStore(t)
 	h := newMintingTestHarness(t, store)
 	h.refreshChainPlanter()
@@ -457,7 +513,7 @@ func TestIssue721DefinitivePublishFailureCancellable(t *testing.T) {
 	h.queueSeedlingsInBatch(false, issue721Seedling())
 	pkt, _, witnessScript := issue721Anchor(t)
 	ownedInput := pkt.UnsignedTx.TxIn[0].PreviousOutPoint
-	h.wallet.OwnedInputs[ownedInput] = true
+	h.wallet.SetOwnedInput(ownedInput, true)
 	issue721Fund(t, h, pkt)
 	initialLease, err := fn.RecvOrTimeout(
 		h.wallet.LeaseInputSignal, defaultTimeout,
@@ -480,6 +536,11 @@ func TestIssue721DefinitivePublishFailureCancellable(t *testing.T) {
 	h.finalizeBatch(&wg, respChan, &tapgarden.FinalizeParams{
 		SignedPsbt: signed,
 	})
+	finalizeLease, err := fn.RecvOrTimeout(
+		h.wallet.LeaseInputSignal, defaultTimeout,
+	)
+	require.NoError(t, err)
+	require.Equal(t, ownedInput, *finalizeLease)
 	_, err = fn.RecvOrTimeout(
 		h.wallet.ImportPubKeySignal, defaultTimeout,
 	)
@@ -489,36 +550,34 @@ func TestIssue721DefinitivePublishFailureCancellable(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.Equal(t, signedTx.WitnessHash(), (*attempt).WitnessHash())
-	h.assertFinalizeBatch(
-		&wg, respChan, "transaction rejected before broadcast state",
-	)
 
-	pending, err := h.planter.PendingBatch()
+	// Before the byte-identical retry, the Broadcast watcher is installed
+	// and the recorded local input lease is renewed.
+	_, err = fn.RecvOrTimeout(h.chain.ConfReqSignal, defaultTimeout)
 	require.NoError(t, err)
-	require.Equal(t, tapgarden.BatchStateCommitted, pending.State())
-	persisted := h.fetchSingleBatch(pending.BatchKey.PubKey)
-	require.Equal(t, tapgarden.BatchStateCommitted, persisted.State())
+	broadcastLease, err := fn.RecvOrTimeout(
+		h.wallet.LeaseInputSignal, defaultTimeout,
+	)
+	require.NoError(t, err)
+	require.Equal(t, ownedInput, *broadcastLease)
+	published := h.assertTxPublished()
+	require.Equal(t, signedTx.WitnessHash(), published.WitnessHash())
+	minted := h.assertFinalizeBatch(&wg, respChan, "")
+	require.Equal(t, tapgarden.BatchStateBroadcast, minted.State())
+
+	persisted := h.fetchSingleBatch(prepared.BatchKey.PubKey)
+	require.Equal(t, tapgarden.BatchStateBroadcast, persisted.State())
 	persistedTx, err := psbt.Extract(persisted.GenesisPacket.Pkt)
 	require.NoError(t, err)
 	require.Equal(t, signedTx.WitnessHash(), persistedTx.WitnessHash())
-	h.assertNumCaretakersActive(0)
-
-	// A restored custom Committed batch remains paused and retains the exact
-	// finalized transaction rather than attempting to publish it again.
-	h.refreshChainPlanter()
-	restored, err := h.planter.PendingBatch()
-	require.NoError(t, err)
-	require.Equal(t, tapgarden.BatchStateCommitted, restored.State())
-	restoredTx, err := psbt.Extract(restored.GenesisPacket.Pkt)
-	require.NoError(t, err)
-	require.Equal(t, signedTx.WitnessHash(), restoredTx.WitnessHash())
-	h.assertNumCaretakersActive(0)
-
-	batchKey, err := h.planter.CancelBatch()
-	require.NoError(t, err)
-	require.True(t, batchKey.IsEqual(restored.BatchKey.PubKey))
-	cancelled := h.fetchSingleBatch(batchKey)
-	require.Equal(t, tapgarden.BatchStateSproutCancelled, cancelled.State())
+	h.assertNumCaretakersActive(1)
+	_, err = h.planter.CancelBatch()
+	require.ErrorContains(t, err, "not cancellable")
+	select {
+	case released := <-h.wallet.ReleaseInputSignal:
+		t.Fatalf("broadcast input lease unexpectedly released: %v", released)
+	default:
+	}
 }
 
 // TestIssue721ImportRetry verifies that a transient wallet import failure is
@@ -543,7 +602,7 @@ func TestIssue721ImportRetry(t *testing.T) {
 		t, witnessScript,
 	)
 
-	h.wallet.ImportErr = fmt.Errorf("temporary import failure")
+	h.wallet.SetImportError(fmt.Errorf("temporary import failure"))
 	var wg sync.WaitGroup
 	respChan := make(chan *FinalizeBatchResp, 1)
 	h.finalizeBatch(&wg, respChan, &tapgarden.FinalizeParams{
@@ -565,7 +624,7 @@ func TestIssue721ImportRetry(t *testing.T) {
 	persisted := h.fetchSingleBatch(pending.BatchKey.PubKey)
 	require.Equal(t, tapgarden.BatchStateCommitted, persisted.State())
 
-	h.wallet.ImportErr = nil
+	h.wallet.SetImportError(nil)
 	retry := clonePacket(t, pending.GenesisPacket.Pkt)
 	h.finalizeBatch(&wg, respChan, &tapgarden.FinalizeParams{
 		SignedPsbt: retry,
@@ -574,7 +633,6 @@ func TestIssue721ImportRetry(t *testing.T) {
 		h.wallet.ImportPubKeySignal, defaultTimeout,
 	)
 	require.NoError(t, err)
-	h.assertTxPublished()
 	_, err = fn.RecvOrTimeout(h.chain.ConfReqSignal, defaultTimeout)
 	require.NoError(t, err)
 	minted := h.assertFinalizeBatch(&wg, respChan, "")
@@ -594,7 +652,7 @@ func TestIssue721ImportRetryAfterRestart(t *testing.T) {
 	h.queueSeedlingsInBatch(false, issue721Seedling())
 	pkt, _, witnessScript := issue721Anchor(t)
 	ownedInput := pkt.UnsignedTx.TxIn[0].PreviousOutPoint
-	h.wallet.OwnedInputs[ownedInput] = true
+	h.wallet.SetOwnedInput(ownedInput, true)
 	issue721Fund(t, h, pkt)
 	initialLease, err := fn.RecvOrTimeout(
 		h.wallet.LeaseInputSignal, defaultTimeout,
@@ -608,7 +666,7 @@ func TestIssue721ImportRetryAfterRestart(t *testing.T) {
 		t, witnessScript,
 	)
 
-	h.wallet.ImportErr = fmt.Errorf("temporary import failure")
+	h.wallet.SetImportError(fmt.Errorf("temporary import failure"))
 	var wg sync.WaitGroup
 	respChan := make(chan *FinalizeBatchResp, 1)
 	h.finalizeBatch(&wg, respChan, &tapgarden.FinalizeParams{
@@ -632,7 +690,7 @@ func TestIssue721ImportRetryAfterRestart(t *testing.T) {
 
 	// The signed, pre-publication packet resumes automatically. Import is
 	// retried before the first publication attempt after restart.
-	h.wallet.ImportErr = nil
+	h.wallet.SetImportError(nil)
 	h.refreshChainPlanter()
 	restartLease, err := fn.RecvOrTimeout(
 		h.wallet.LeaseInputSignal, defaultTimeout,
@@ -641,7 +699,6 @@ func TestIssue721ImportRetryAfterRestart(t *testing.T) {
 	require.Equal(t, ownedInput, *restartLease)
 	_, err = fn.RecvOrTimeout(h.wallet.ImportPubKeySignal, defaultTimeout)
 	require.NoError(t, err)
-	h.assertTxPublished()
 	_, err = fn.RecvOrTimeout(h.chain.ConfReqSignal, defaultTimeout)
 	require.NoError(t, err)
 	h.assertNumCaretakersActive(1)
@@ -664,7 +721,7 @@ func TestIssue721ImportFailureAfterRestartIsAdopted(t *testing.T) {
 	h.queueSeedlingsInBatch(false, issue721Seedling())
 	pkt, _, witnessScript := issue721Anchor(t)
 	ownedInput := pkt.UnsignedTx.TxIn[0].PreviousOutPoint
-	h.wallet.OwnedInputs[ownedInput] = true
+	h.wallet.SetOwnedInput(ownedInput, true)
 	issue721Fund(t, h, pkt)
 	initialLease, err := fn.RecvOrTimeout(
 		h.wallet.LeaseInputSignal, defaultTimeout,
@@ -680,7 +737,7 @@ func TestIssue721ImportFailureAfterRestartIsAdopted(t *testing.T) {
 
 	// The first import failure durably leaves the signed packet in the
 	// import-pending state.
-	h.wallet.ImportErr = fmt.Errorf("temporary import failure")
+	h.wallet.SetImportError(fmt.Errorf("temporary import failure"))
 	var wg sync.WaitGroup
 	respChan := make(chan *FinalizeBatchResp, 1)
 	h.finalizeBatch(&wg, respChan, &tapgarden.FinalizeParams{
@@ -777,9 +834,8 @@ func TestIssue721ImportFailureAfterRestartIsAdopted(t *testing.T) {
 }
 
 // TestIssue721PublishFailureAfterRestartIsAdopted verifies that a recovered
-// publish-pending caretaker is cleaned up after a definitive backend rejection
-// and leaves the durably rejected batch cancellable without a stale caretaker
-// or wallet lease.
+// publish-pending caretaker remains adopted after a classified backend reject,
+// installs its watcher and retries without exposing cancellation or leases.
 func TestIssue721PublishFailureAfterRestartIsAdopted(t *testing.T) {
 	store := newMintingStore(t)
 	h := newMintingTestHarness(t, store)
@@ -793,7 +849,7 @@ func TestIssue721PublishFailureAfterRestartIsAdopted(t *testing.T) {
 	h.queueSeedlingsInBatch(false, issue721Seedling())
 	pkt, _, witnessScript := issue721Anchor(t)
 	ownedInput := pkt.UnsignedTx.TxIn[0].PreviousOutPoint
-	h.wallet.OwnedInputs[ownedInput] = true
+	h.wallet.SetOwnedInput(ownedInput, true)
 	issue721Fund(t, h, pkt)
 	initialLease, err := fn.RecvOrTimeout(
 		h.wallet.LeaseInputSignal, defaultTimeout,
@@ -832,32 +888,205 @@ func TestIssue721PublishFailureAfterRestartIsAdopted(t *testing.T) {
 	require.ErrorContains(t, err, "batch recovery is in progress")
 	_, err = fn.RecvOrTimeout(h.wallet.ImportPubKeySignal, defaultTimeout)
 	require.NoError(t, err)
-	_, err = fn.RecvOrTimeout(h.chain.PublishAttempts, defaultTimeout)
-	require.NoError(t, err)
-	released, err := fn.RecvOrTimeout(
-		h.wallet.ReleaseInputSignal, defaultTimeout,
+	preflightLease, err := fn.RecvOrTimeout(
+		h.wallet.LeaseInputSignal, defaultTimeout,
 	)
 	require.NoError(t, err)
-	require.Equal(t, ownedInput, *released)
-
-	h.assertNumCaretakersActive(0)
-	pending, err := h.planter.PendingBatch()
+	require.Equal(t, ownedInput, *preflightLease)
+	firstAttempt, err := fn.RecvOrTimeout(
+		h.chain.PublishAttempts, defaultTimeout,
+	)
 	require.NoError(t, err)
-	require.Equal(t, tapgarden.BatchStateCommitted, pending.State())
-	require.Empty(t, pending.GenesisPacket.LockedUTXOs)
-	persisted := h.fetchSingleBatch(pending.BatchKey.PubKey)
-	require.Empty(t, persisted.GenesisPacket.LockedUTXOs)
-
-	batchKey, err := h.planter.CancelBatch()
+	_, err = fn.RecvOrTimeout(h.chain.ConfReqSignal, defaultTimeout)
 	require.NoError(t, err)
-	require.True(t, batchKey.IsEqual(prepared.BatchKey.PubKey))
-	cancelled := h.fetchSingleBatch(batchKey)
-	require.Equal(t, tapgarden.BatchStateSproutCancelled, cancelled.State())
+	retryLease, err := fn.RecvOrTimeout(
+		h.wallet.LeaseInputSignal, defaultTimeout,
+	)
+	require.NoError(t, err)
+	require.Equal(t, ownedInput, *retryLease)
+	published := h.assertTxPublished()
+	require.Equal(t, (*firstAttempt).WitnessHash(), published.WitnessHash())
+	require.Eventually(t, func() bool {
+		return h.fetchSingleBatch(prepared.BatchKey.PubKey).State() ==
+			tapgarden.BatchStateBroadcast
+	}, defaultTimeout, 10*time.Millisecond)
+	h.assertNumCaretakersActive(1)
 	select {
 	case op := <-h.wallet.ReleaseInputSignal:
-		t.Fatalf("lease released twice after definitive rejection: %v", op)
+		t.Fatalf("lease released after classified rejection: %v", op)
 	default:
 	}
+}
+
+// TestIssue721PublishPendingRestartLeaseFailure verifies that a retained
+// publication marker crosses into durable Broadcast and installs its watcher
+// even if the local lease can't be reacquired after restart. Active
+// publication remains suppressed until renewal later succeeds.
+func TestIssue721PublishPendingRestartLeaseFailure(t *testing.T) {
+	store := newMintingStore(t)
+	h := newMintingTestHarness(t, store)
+	h.leaseRenewalInterval = 20 * time.Millisecond
+	h.refreshChainPlanter()
+	t.Cleanup(func() {
+		if h.planter != nil {
+			_ = h.planter.Stop()
+		}
+	})
+
+	h.queueSeedlingsInBatch(false, issue721Seedling())
+	pkt, _, witnessScript := issue721Anchor(t)
+	ownedInput := pkt.UnsignedTx.TxIn[0].PreviousOutPoint
+	h.wallet.SetOwnedInput(ownedInput, true)
+	issue721Fund(t, h, pkt)
+	_, err := fn.RecvOrTimeout(h.wallet.LeaseInputSignal, defaultTimeout)
+	require.NoError(t, err)
+	prepared, err := h.planter.PrepareBatch()
+	require.NoError(t, err)
+
+	signed := clonePacket(t, prepared.GenesisPacket.Pkt)
+	signed.Inputs[0].FinalScriptWitness = issue721FinalWitness(
+		t, witnessScript,
+	)
+	signed.Unknowns = append(signed.Unknowns, &psbt.Unknown{
+		Key:   []byte{0xfc, 0x04, 't', 'a', 'p', 'd', 0x02},
+		Value: []byte{1},
+	})
+	funded := prepared.GenesisPacket.FundedPsbt
+	funded.Pkt = signed
+	require.NoError(t, store.StoreSignedGenesisPsbt(
+		t.Context(), prepared.BatchKey.PubKey, &funded,
+	))
+	expected, err := psbt.Extract(signed)
+	require.NoError(t, err)
+
+	h.wallet.SetLeaseError(
+		ownedInput, fmt.Errorf("restart lease unavailable"),
+	)
+	h.refreshChainPlanter()
+	_, err = fn.RecvOrTimeout(h.wallet.ImportPubKeySignal, defaultTimeout)
+	require.NoError(t, err)
+	_, err = fn.RecvOrTimeout(h.chain.ConfReqSignal, defaultTimeout)
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		return h.fetchSingleBatch(prepared.BatchKey.PubKey).State() ==
+			tapgarden.BatchStateBroadcast
+	}, defaultTimeout, 10*time.Millisecond)
+
+	select {
+	case attempt := <-h.chain.PublishAttempts:
+		t.Fatalf("publish attempted without restart lease: %v", attempt.TxHash())
+	case published := <-h.chain.PublishReq:
+		t.Fatalf("published without restart lease: %v", published.TxHash())
+	case released := <-h.wallet.ReleaseInputSignal:
+		t.Fatalf("publication-pending lease released: %v", released)
+	case <-time.After(2 * h.leaseRenewalInterval):
+	}
+	_, err = h.planter.CancelBatch()
+	require.ErrorContains(t, err, "not cancellable")
+
+	batches, err := h.planter.ListBatches(tapgarden.ListBatchesParams{
+		BatchKey: prepared.BatchKey.PubKey,
+	})
+	require.NoError(t, err)
+	require.Len(t, batches, 1)
+	require.Contains(t, batches[0].CustomAnchorLeaseError,
+		"restart lease unavailable")
+
+	h.wallet.SetLeaseError(ownedInput, nil)
+	renewed, err := fn.RecvOrTimeout(
+		h.wallet.LeaseInputSignal, defaultTimeout,
+	)
+	require.NoError(t, err)
+	require.Equal(t, ownedInput, *renewed)
+	published := h.assertTxPublished()
+	require.Equal(t, expected.WitnessHash(), published.WitnessHash())
+	require.Eventually(t, func() bool {
+		batches, err := h.planter.ListBatches(
+			tapgarden.ListBatchesParams{
+				BatchKey: prepared.BatchKey.PubKey,
+			},
+		)
+		return err == nil && len(batches) == 1 &&
+			batches[0].CustomAnchorLeaseError == ""
+	}, defaultTimeout, 10*time.Millisecond)
+}
+
+// TestIssue721CorruptLeaseMarkerWatchesWithoutPublishing verifies malformed
+// retained lease metadata never becomes an external-only fail-open. A prior
+// publication boundary still reaches Broadcast and installs its watcher, but
+// no active publication or cancellation is allowed until operator recovery.
+func TestIssue721CorruptLeaseMarkerWatchesWithoutPublishing(t *testing.T) {
+	store := newMintingStore(t)
+	h := newMintingTestHarness(t, store)
+	h.refreshChainPlanter()
+	t.Cleanup(func() {
+		if h.planter != nil {
+			_ = h.planter.Stop()
+		}
+	})
+
+	h.queueSeedlingsInBatch(false, issue721Seedling())
+	pkt, _, witnessScript := issue721Anchor(t)
+	ownedInput := pkt.UnsignedTx.TxIn[0].PreviousOutPoint
+	h.wallet.SetOwnedInput(ownedInput, true)
+	issue721Fund(t, h, pkt)
+	_, err := fn.RecvOrTimeout(h.wallet.LeaseInputSignal, defaultTimeout)
+	require.NoError(t, err)
+	prepared, err := h.planter.PrepareBatch()
+	require.NoError(t, err)
+
+	signed := clonePacket(t, prepared.GenesisPacket.Pkt)
+	signed.Inputs[0].FinalScriptWitness = issue721FinalWitness(
+		t, witnessScript,
+	)
+	for _, unknown := range signed.Unknowns {
+		if bytes.Equal(unknown.Key,
+			[]byte{0xfc, 0x04, 't', 'a', 'p', 'd', 0x01}) {
+
+			unknown.Value = []byte{1, 1, 0, 0, 0}
+		}
+	}
+	signed.Unknowns = append(signed.Unknowns, &psbt.Unknown{
+		Key:   []byte{0xfc, 0x04, 't', 'a', 'p', 'd', 0x02},
+		Value: []byte{1},
+	})
+	funded := prepared.GenesisPacket.FundedPsbt
+	funded.Pkt = signed
+	require.NoError(t, store.StoreSignedGenesisPsbt(
+		t.Context(), prepared.BatchKey.PubKey, &funded,
+	))
+
+	h.refreshChainPlanter()
+	_, err = fn.RecvOrTimeout(h.wallet.ImportPubKeySignal, defaultTimeout)
+	require.NoError(t, err)
+	_, err = fn.RecvOrTimeout(h.chain.ConfReqSignal, defaultTimeout)
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		return h.fetchSingleBatch(prepared.BatchKey.PubKey).State() ==
+			tapgarden.BatchStateBroadcast
+	}, defaultTimeout, 10*time.Millisecond)
+
+	select {
+	case leased := <-h.wallet.LeaseInputSignal:
+		t.Fatalf("corrupt marker unexpectedly leased input: %v", leased)
+	case attempt := <-h.chain.PublishAttempts:
+		t.Fatalf("corrupt marker unexpectedly published: %v", attempt.TxHash())
+	case published := <-h.chain.PublishReq:
+		t.Fatalf("corrupt marker unexpectedly published: %v", published.TxHash())
+	case released := <-h.wallet.ReleaseInputSignal:
+		t.Fatalf("corrupt marker unexpectedly released input: %v", released)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	batches, err := h.planter.ListBatches(tapgarden.ListBatchesParams{
+		BatchKey: prepared.BatchKey.PubKey,
+	})
+	require.NoError(t, err)
+	require.Len(t, batches, 1)
+	require.Contains(t, batches[0].CustomAnchorLeaseError,
+		"invalid custom anchor lease marker")
+	_, err = h.planter.CancelBatch()
+	require.ErrorContains(t, err, "not cancellable")
 }
 
 // TestIssue721RecoveredCaretakerFastConfirmation verifies that confirmation
@@ -896,7 +1125,8 @@ func TestIssue721RecoveredCaretakerFastConfirmation(t *testing.T) {
 	h.refreshChainPlanter()
 	_, err = fn.RecvOrTimeout(h.wallet.ImportPubKeySignal, defaultTimeout)
 	require.NoError(t, err)
-	published := h.assertTxPublished()
+	published, err := psbt.Extract(signed)
+	require.NoError(t, err)
 
 	// A single-transaction block has the transaction ID as its merkle root.
 	merkleRoot := published.TxHash()
@@ -938,7 +1168,7 @@ func TestIssue721CaretakerCancelReleasesAfterDurableState(t *testing.T) {
 	h.queueSeedlingsInBatch(false, issue721Seedling())
 	pkt, _, _ := issue721Anchor(t)
 	ownedInput := pkt.UnsignedTx.TxIn[0].PreviousOutPoint
-	h.wallet.OwnedInputs[ownedInput] = true
+	h.wallet.SetOwnedInput(ownedInput, true)
 	issue721Fund(t, h, pkt)
 	leased, err := fn.RecvOrTimeout(
 		h.wallet.LeaseInputSignal, defaultTimeout,
@@ -985,6 +1215,7 @@ func TestIssue721CaretakerCancelReleasesAfterDurableState(t *testing.T) {
 func TestIssue721ImportRestartLeaseFailurePauses(t *testing.T) {
 	store := newMintingStore(t)
 	h := newMintingTestHarness(t, store)
+	h.leaseRenewalInterval = 20 * time.Millisecond
 	h.refreshChainPlanter()
 	t.Cleanup(func() {
 		if h.planter != nil {
@@ -995,7 +1226,7 @@ func TestIssue721ImportRestartLeaseFailurePauses(t *testing.T) {
 	h.queueSeedlingsInBatch(false, issue721Seedling())
 	pkt, _, witnessScript := issue721Anchor(t)
 	op := pkt.UnsignedTx.TxIn[0].PreviousOutPoint
-	h.wallet.OwnedInputs[op] = true
+	h.wallet.SetOwnedInput(op, true)
 	issue721Fund(t, h, pkt)
 	<-h.wallet.LeaseInputSignal
 	prepared, err := h.planter.PrepareBatch()
@@ -1005,7 +1236,7 @@ func TestIssue721ImportRestartLeaseFailurePauses(t *testing.T) {
 		t, witnessScript,
 	)
 
-	h.wallet.ImportErr = fmt.Errorf("temporary import failure")
+	h.wallet.SetImportError(fmt.Errorf("temporary import failure"))
 	var wg sync.WaitGroup
 	respChan := make(chan *FinalizeBatchResp, 1)
 	h.finalizeBatch(&wg, respChan, &tapgarden.FinalizeParams{
@@ -1016,13 +1247,21 @@ func TestIssue721ImportRestartLeaseFailurePauses(t *testing.T) {
 	require.NoError(t, err)
 	h.assertFinalizeBatch(&wg, respChan, "temporary import failure")
 
-	h.wallet.ImportErr = nil
-	h.wallet.LeaseErrors[op] = fmt.Errorf("lease no longer available")
+	h.wallet.SetImportError(nil)
+	h.wallet.SetLeaseError(op, fmt.Errorf("lease no longer available"))
 	h.refreshChainPlanter()
 	pending, err := h.planter.PendingBatch()
 	require.NoError(t, err)
 	require.Equal(t, tapgarden.BatchStateCommitted, pending.State())
 	h.assertNumCaretakersActive(0)
+	batches, err := h.planter.ListBatches(tapgarden.ListBatchesParams{
+		BatchKey: prepared.BatchKey.PubKey,
+	})
+	require.NoError(t, err)
+	require.Len(t, batches, 1)
+	require.Contains(
+		t, batches[0].CustomAnchorLeaseError, "lease no longer available",
+	)
 	select {
 	case <-h.wallet.ImportPubKeySignal:
 		t.Fatal("wallet output imported after lease renewal failure")
@@ -1031,13 +1270,27 @@ func TestIssue721ImportRestartLeaseFailurePauses(t *testing.T) {
 	default:
 	}
 
-	delete(h.wallet.LeaseErrors, op)
+	h.wallet.SetLeaseError(op, nil)
+	renewed, err := fn.RecvOrTimeout(
+		h.wallet.LeaseInputSignal, defaultTimeout,
+	)
+	require.NoError(t, err)
+	require.Equal(t, op, *renewed)
+	require.Eventually(t, func() bool {
+		batches, err := h.planter.ListBatches(
+			tapgarden.ListBatchesParams{
+				BatchKey: prepared.BatchKey.PubKey,
+			},
+		)
+		return err == nil && len(batches) == 1 &&
+			batches[0].CustomAnchorLeaseError == ""
+	}, defaultTimeout, 10*time.Millisecond)
 	_, err = h.planter.CancelBatch()
 	require.NoError(t, err)
 }
 
-// TestIssue721RetryStoreFailureIsAtomic ensures marker updates during a retry
-// never alias the persisted/in-memory rejected packet before the store commits.
+// TestIssue721RetryStoreFailureIsAtomic ensures signed packet and import marker
+// updates never alias the prepared packet before the store commits.
 func TestIssue721RetryStoreFailureIsAtomic(t *testing.T) {
 	store := &issue721FailSignedStore{MintingStore: newMintingStore(t)}
 	h := newMintingTestHarness(t, store)
@@ -1058,33 +1311,29 @@ func TestIssue721RetryStoreFailureIsAtomic(t *testing.T) {
 		t, witnessScript,
 	)
 
-	h.chain.FailPublishDefinitively()
+	before, err := h.planter.PendingBatch()
+	require.NoError(t, err)
+	beforeBytes := serializePacket(t, before.GenesisPacket.Pkt)
+	store.fail = true
 	var wg sync.WaitGroup
 	respChan := make(chan *FinalizeBatchResp, 1)
 	h.finalizeBatch(&wg, respChan, &tapgarden.FinalizeParams{
 		SignedPsbt: signed,
 	})
-	_, err = fn.RecvOrTimeout(h.wallet.ImportPubKeySignal, defaultTimeout)
-	require.NoError(t, err)
-	_, err = fn.RecvOrTimeout(h.chain.PublishAttempts, defaultTimeout)
-	require.NoError(t, err)
 	h.assertFinalizeBatch(
-		&wg, respChan, "transaction rejected before broadcast state",
+		&wg, respChan, "injected signed PSBT store failure",
 	)
-
-	before, err := h.planter.PendingBatch()
-	require.NoError(t, err)
-	beforeBytes := serializePacket(t, before.GenesisPacket.Pkt)
-	store.fail = true
-	retry := clonePacket(t, before.GenesisPacket.Pkt)
-	_, err = h.planter.FinalizeBatch(tapgarden.FinalizeParams{
-		SignedPsbt: retry,
-	})
-	require.ErrorContains(t, err, "injected signed PSBT store failure")
 	after, err := h.planter.PendingBatch()
 	require.NoError(t, err)
 	require.Equal(t, beforeBytes, serializePacket(t, after.GenesisPacket.Pkt))
 	require.Equal(t, tapgarden.BatchStateCommitted, after.State())
+	select {
+	case <-h.wallet.ImportPubKeySignal:
+		t.Fatal("wallet import attempted after signed packet store failure")
+	case <-h.chain.PublishAttempts:
+		t.Fatal("publication attempted after signed packet store failure")
+	default:
+	}
 
 	store.fail = false
 	_, err = h.planter.CancelBatch()
@@ -1122,7 +1371,7 @@ func TestIssue721MixedInputLeaseLifecycle(t *testing.T) {
 		}},
 	})
 	original := clonePacket(t, pkt)
-	h.wallet.OwnedInputs[local] = true
+	h.wallet.SetOwnedInput(local, true)
 
 	funded := issue721Fund(t, h, pkt)
 	leased, err := fn.RecvOrTimeout(
@@ -1172,21 +1421,71 @@ func TestIssue721PeriodicLeaseRenewal(t *testing.T) {
 	h.queueSeedlingsInBatch(false, issue721Seedling())
 	pkt, _, _ := issue721Anchor(t)
 	op := pkt.UnsignedTx.TxIn[0].PreviousOutPoint
-	h.wallet.OwnedInputs[op] = true
+	h.wallet.SetOwnedInput(op, true)
 	issue721Fund(t, h, pkt)
 	initial, err := fn.RecvOrTimeout(
 		h.wallet.LeaseInputSignal, defaultTimeout,
 	)
 	require.NoError(t, err)
 	require.Equal(t, op, *initial)
+	h.wallet.SetLeaseError(op, fmt.Errorf("temporary renewal degradation"))
+	require.Eventually(t, func() bool {
+		pending, err := h.planter.PendingBatch()
+		return err == nil && pending.CustomAnchorLeaseError != ""
+	}, defaultTimeout, 10*time.Millisecond)
+
+	// Status is queryable after the one-shot event and clears after a later
+	// successful renewal, so late RPC clients don't depend on event replay.
+	h.wallet.SetLeaseError(op, nil)
 	renewed, err := fn.RecvOrTimeout(
 		h.wallet.LeaseInputSignal, defaultTimeout,
 	)
 	require.NoError(t, err)
 	require.Equal(t, op, *renewed)
+	require.Eventually(t, func() bool {
+		pending, err := h.planter.PendingBatch()
+		return err == nil && pending.CustomAnchorLeaseError == ""
+	}, defaultTimeout, 10*time.Millisecond)
 
 	_, err = h.planter.CancelBatch()
 	require.NoError(t, err)
+}
+
+// TestIssue721LeaseRenewalDoesNotBlockShutdown verifies that a slow lease
+// renewal cannot wedge the gardener during shutdown. The wallet mock's signal
+// channel models an RPC whose result consumer is temporarily unavailable.
+func TestIssue721LeaseRenewalDoesNotBlockShutdown(t *testing.T) {
+	store := newMintingStore(t)
+	h := newMintingTestHarness(t, store)
+	h.leaseRenewalInterval = time.Millisecond
+	h.refreshChainPlanter()
+
+	h.queueSeedlingsInBatch(false, issue721Seedling())
+	pkt, _, _ := issue721Anchor(t)
+	op := pkt.UnsignedTx.TxIn[0].PreviousOutPoint
+	h.wallet.SetOwnedInput(op, true)
+	issue721Fund(t, h, pkt)
+
+	// Leave the lease notifications unread until the buffered mock RPC
+	// blocks. Stop closes the planter context, which must release the call
+	// and let the gardener exit promptly.
+	require.Eventually(t, func() bool {
+		return len(h.wallet.LeaseInputSignal) ==
+			cap(h.wallet.LeaseInputSignal)
+	}, defaultTimeout, time.Millisecond)
+
+	stopResult := make(chan error, 1)
+	go func() {
+		stopResult <- h.planter.Stop()
+	}()
+
+	select {
+	case err := <-stopResult:
+		require.NoError(t, err)
+
+	case <-time.After(defaultTimeout):
+		t.Fatal("planter shutdown blocked on custom anchor lease renewal")
+	}
 }
 
 func TestIssue721LeaseFailureAndCancelReleaseOrdering(t *testing.T) {
@@ -1218,9 +1517,9 @@ func TestIssue721LeaseFailureAndCancelReleaseOrdering(t *testing.T) {
 			},
 			WitnessScript: pkt.Inputs[0].WitnessScript,
 		})
-		h.wallet.OwnedInputs[first] = true
-		h.wallet.OwnedInputs[second] = true
-		h.wallet.LeaseErrors[second] = fmt.Errorf("foreign lease conflict")
+		h.wallet.SetOwnedInput(first, true)
+		h.wallet.SetOwnedInput(second, true)
+		h.wallet.SetLeaseError(second, fmt.Errorf("foreign lease conflict"))
 		original := serializePacket(t, pkt)
 		_, err := h.planter.FundBatch(tapgarden.FundParams{
 			AnchorPsbt: pkt, AssetAnchorOutIdx: 1,
@@ -1256,12 +1555,12 @@ func TestIssue721LeaseFailureAndCancelReleaseOrdering(t *testing.T) {
 			},
 			WitnessScript: pkt.Inputs[0].WitnessScript,
 		})
-		h.wallet.OwnedInputs[first] = true
-		h.wallet.OwnedInputs[second] = true
+		h.wallet.SetOwnedInput(first, true)
+		h.wallet.SetOwnedInput(second, true)
 		issue721Fund(t, h, pkt)
 		<-h.wallet.LeaseInputSignal
 		<-h.wallet.LeaseInputSignal
-		h.wallet.ReleaseErrors[second] = fmt.Errorf("release failed")
+		h.wallet.SetReleaseError(second, fmt.Errorf("release failed"))
 
 		batchKey, err := h.planter.CancelBatch()
 		require.NoError(t, err)
@@ -1305,7 +1604,6 @@ func TestIssue721ConfirmationRegistrationRetry(t *testing.T) {
 		h.wallet.ImportPubKeySignal, defaultTimeout,
 	)
 	require.NoError(t, err)
-	published := h.assertTxPublished()
 	h.assertFinalizeBatch(
 		&wg, respChan, "failed to register confirmation",
 	)
@@ -1313,6 +1611,8 @@ func TestIssue721ConfirmationRegistrationRetry(t *testing.T) {
 	pending, err := h.planter.PendingBatch()
 	require.NoError(t, err)
 	require.Equal(t, tapgarden.BatchStateBroadcast, pending.State())
+	published, err := psbt.Extract(pending.GenesisPacket.Pkt)
+	require.NoError(t, err)
 	changedRetry := clonePacket(t, pending.GenesisPacket.Pkt)
 	changedRetry.Inputs[0].FinalScriptWitness =
 		issue721FinalWitnessWithItem(
@@ -1333,9 +1633,9 @@ func TestIssue721ConfirmationRegistrationRetry(t *testing.T) {
 	h.finalizeBatch(&wg, respChan, &tapgarden.FinalizeParams{
 		SignedPsbt: retry,
 	})
-	h.assertTxPublished()
 	_, err = fn.RecvOrTimeout(h.chain.ConfReqSignal, defaultTimeout)
 	require.NoError(t, err)
+	h.assertTxPublished()
 	minted := h.assertFinalizeBatch(&wg, respChan, "")
 	require.Equal(t, tapgarden.BatchStateBroadcast, minted.State())
 }
@@ -1482,7 +1782,6 @@ func TestIssue721CustomRestartStates(t *testing.T) {
 			h.wallet.ImportPubKeySignal, defaultTimeout,
 		)
 		require.NoError(t, err)
-		h.assertTxPublished()
 		_, err = fn.RecvOrTimeout(h.chain.ConfReqSignal, defaultTimeout)
 		require.NoError(t, err)
 		h.assertNumCaretakersActive(1)
@@ -1505,6 +1804,188 @@ func TestIssue721CustomRestartStates(t *testing.T) {
 		wg.Wait()
 		h.assertNumCaretakersActive(1)
 	})
+}
+
+func TestIssue721LegacyRawOnlyPreflightIsNonMutating(t *testing.T) {
+	for _, state := range []tapgarden.BatchState{
+		tapgarden.BatchStatePending,
+		tapgarden.BatchStateFrozen,
+	} {
+		state := state
+		t.Run(state.String(), func(t *testing.T) {
+			store := newMintingStore(t)
+			h := newMintingTestHarness(t, store)
+			h.refreshChainPlanter()
+			t.Cleanup(func() {
+				if h.planter != nil {
+					_ = h.planter.Stop()
+				}
+			})
+
+			h.queueSeedlingsInBatch(false, issue721Seedling())
+			pkt, _, _ := issue721Anchor(t)
+			batch := issue721Fund(t, h, pkt)
+			legacy := batch.GenesisPacket.Copy()
+			legacy.Pkt.Outputs[1].Bip32Derivation = nil
+			legacy.Pkt.Outputs[1].TaprootBip32Derivation = nil
+			require.NoError(t, store.CommitBatchFunding(
+				t.Context(), batch.BatchKey.PubKey, nil, *legacy,
+			))
+			if state == tapgarden.BatchStateFrozen {
+				require.NoError(t, store.UpdateBatchState(
+					t.Context(), batch.BatchKey.PubKey, state,
+				))
+			}
+
+			h.refreshChainPlanter()
+			before, err := h.planter.PendingBatch()
+			require.NoError(t, err)
+			beforeBytes := serializePacket(t, before.GenesisPacket.Pkt)
+			_, err = h.planter.PrepareBatch()
+			require.ErrorIs(
+				t, err, tapgarden.ErrLegacyCustomAnchorKeyLocator,
+			)
+
+			after, err := h.planter.PendingBatch()
+			require.NoError(t, err)
+			require.Equal(t, state, after.State())
+			require.Equal(t, beforeBytes,
+				serializePacket(t, after.GenesisPacket.Pkt))
+			persisted := h.fetchSingleBatch(batch.BatchKey.PubKey)
+			require.Equal(t, state, persisted.State())
+			require.Equal(t, beforeBytes,
+				serializePacket(t, persisted.GenesisPacket.Pkt))
+		})
+	}
+}
+
+func TestIssue721LegacyRawOnlyFinalizeRemainsCancellable(t *testing.T) {
+	store := newMintingStore(t)
+	h := newMintingTestHarness(t, store)
+	h.refreshChainPlanter()
+	t.Cleanup(func() {
+		if h.planter != nil {
+			_ = h.planter.Stop()
+		}
+	})
+
+	h.queueSeedlingsInBatch(false, issue721Seedling())
+	pkt, _, witnessScript := issue721Anchor(t)
+	issue721Fund(t, h, pkt)
+	prepared, err := h.planter.PrepareBatch()
+	require.NoError(t, err)
+
+	legacy := prepared.GenesisPacket.Copy()
+	legacy.Pkt.Outputs[1].Bip32Derivation = nil
+	legacy.Pkt.Outputs[1].TaprootInternalKey =
+		fn.CopySlice(pkt.Outputs[1].TaprootInternalKey)
+	require.NoError(t, store.StoreSignedGenesisPsbt(
+		t.Context(), prepared.BatchKey.PubKey, &legacy.FundedPsbt,
+	))
+	h.refreshChainPlanter()
+
+	pending, err := h.planter.PendingBatch()
+	require.NoError(t, err)
+	before := serializePacket(t, pending.GenesisPacket.Pkt)
+	signed := clonePacket(t, pending.GenesisPacket.Pkt)
+	signed.Inputs[0].FinalScriptWitness = issue721FinalWitness(
+		t, witnessScript,
+	)
+	_, err = h.planter.FinalizeBatch(tapgarden.FinalizeParams{
+		SignedPsbt: signed,
+	})
+	require.ErrorIs(t, err, tapgarden.ErrLegacyCustomAnchorKeyLocator)
+
+	after, err := h.planter.PendingBatch()
+	require.NoError(t, err)
+	require.Equal(t, tapgarden.BatchStateCommitted, after.State())
+	require.Equal(t, before, serializePacket(t, after.GenesisPacket.Pkt))
+	select {
+	case <-h.wallet.ImportPubKeySignal:
+		t.Fatal("legacy raw-only batch imported before key preflight")
+	case <-h.chain.PublishAttempts:
+		t.Fatal("legacy raw-only batch published before key preflight")
+	default:
+	}
+	_, err = h.planter.CancelBatch()
+	require.NoError(t, err)
+}
+
+func TestIssue721LegacyRejectedMarkerIsPublicationPending(t *testing.T) {
+	store := newMintingStore(t)
+	h := newMintingTestHarness(t, store)
+	h.refreshChainPlanter()
+	t.Cleanup(func() {
+		if h.planter != nil {
+			_ = h.planter.Stop()
+		}
+	})
+
+	h.queueSeedlingsInBatch(false, issue721Seedling())
+	pkt, _, witnessScript := issue721Anchor(t)
+	ownedInput := pkt.UnsignedTx.TxIn[0].PreviousOutPoint
+	h.wallet.SetOwnedInput(ownedInput, true)
+	issue721Fund(t, h, pkt)
+	_, err := fn.RecvOrTimeout(h.wallet.LeaseInputSignal, defaultTimeout)
+	require.NoError(t, err)
+	prepared, err := h.planter.PrepareBatch()
+	require.NoError(t, err)
+
+	signed := clonePacket(t, prepared.GenesisPacket.Pkt)
+	signed.Inputs[0].FinalScriptWitness = issue721FinalWitness(
+		t, witnessScript,
+	)
+	signed.Unknowns = append(signed.Unknowns, &psbt.Unknown{
+		Key:   []byte{0xfc, 0x04, 't', 'a', 'p', 'd', 0x02},
+		Value: []byte{2}, // Historical customAnchorPublishRejected.
+	})
+	funded := prepared.GenesisPacket.FundedPsbt
+	funded.Pkt = signed
+	require.NoError(t, store.StoreSignedGenesisPsbt(
+		t.Context(), prepared.BatchKey.PubKey, &funded,
+	))
+
+	// The historical build already attempted these fully signed bytes. On
+	// restart, treat them as ambiguous: retain the lease, deny cancellation,
+	// install a watcher and retry the identical transaction.
+	h.chain.FailPublishOnce()
+	h.refreshChainPlanter()
+	startupLease, err := fn.RecvOrTimeout(
+		h.wallet.LeaseInputSignal, defaultTimeout,
+	)
+	require.NoError(t, err)
+	require.Equal(t, ownedInput, *startupLease)
+	_, err = h.planter.CancelBatch()
+	require.ErrorContains(t, err, "batch recovery is in progress")
+	_, err = fn.RecvOrTimeout(h.wallet.ImportPubKeySignal, defaultTimeout)
+	require.NoError(t, err)
+	preflightLease, err := fn.RecvOrTimeout(
+		h.wallet.LeaseInputSignal, defaultTimeout,
+	)
+	require.NoError(t, err)
+	require.Equal(t, ownedInput, *preflightLease)
+	firstAttempt, err := fn.RecvOrTimeout(
+		h.chain.PublishAttempts, defaultTimeout,
+	)
+	require.NoError(t, err)
+	_, err = fn.RecvOrTimeout(h.chain.ConfReqSignal, defaultTimeout)
+	require.NoError(t, err)
+	retryLease, err := fn.RecvOrTimeout(
+		h.wallet.LeaseInputSignal, defaultTimeout,
+	)
+	require.NoError(t, err)
+	require.Equal(t, ownedInput, *retryLease)
+	published := h.assertTxPublished()
+	require.Equal(t, (*firstAttempt).WitnessHash(), published.WitnessHash())
+	require.Eventually(t, func() bool {
+		return h.fetchSingleBatch(prepared.BatchKey.PubKey).State() ==
+			tapgarden.BatchStateBroadcast
+	}, defaultTimeout, 10*time.Millisecond)
+	select {
+	case released := <-h.wallet.ReleaseInputSignal:
+		t.Fatalf("legacy rejected-marker lease released: %v", released)
+	default:
+	}
 }
 
 func clonePacket(t *testing.T, pkt *psbt.Packet) *psbt.Packet {

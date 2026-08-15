@@ -78,6 +78,20 @@ type MintingBatch struct {
 	// combined with the Taproot Asset commitment to derive the
 	// MintingOutputKey.
 	tapSibling *chainhash.Hash
+
+	// CustomAnchorLeaseError is the latest prepared-phase lease renewal
+	// degradation. It is transient status: Finalize still reacquires every
+	// recorded wallet-owned input and fails closed if that cannot succeed.
+	CustomAnchorLeaseError string
+
+	// CustomAnchorPublishError is the latest ambiguous wallet publication
+	// error for a byte-identical transaction that remains watched and retried.
+	CustomAnchorPublishError string
+
+	// CustomAnchorKeyError describes an historical custom-anchor managed
+	// UTXO whose internal key couldn't be repaired automatically. This is
+	// startup audit health, not a minting state transition.
+	CustomAnchorKeyError string
 }
 
 // VerboseBatch is a MintingBatch that includes seedlings with their pending
@@ -104,10 +118,13 @@ func (m *MintingBatch) Copy() *MintingBatch {
 		HeightHint:   m.HeightHint,
 		// The following values are expected to not change once they are
 		// set, so a shallow copy is sufficient.
-		BatchKey:            m.BatchKey,
-		RootAssetCommitment: m.RootAssetCommitment,
-		SupplyCommitments:   m.SupplyCommitments,
-		tapSibling:          m.tapSibling,
+		BatchKey:                 m.BatchKey,
+		RootAssetCommitment:      m.RootAssetCommitment,
+		SupplyCommitments:        m.SupplyCommitments,
+		tapSibling:               m.tapSibling,
+		CustomAnchorLeaseError:   m.CustomAnchorLeaseError,
+		CustomAnchorPublishError: m.CustomAnchorPublishError,
+		CustomAnchorKeyError:     m.CustomAnchorKeyError,
 	}
 	batchCopy.UpdateState(m.State())
 

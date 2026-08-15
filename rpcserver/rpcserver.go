@@ -6275,10 +6275,13 @@ func marshalMintingBatch(batch *tapgarden.MintingBatch,
 	}
 
 	rpcBatch := &mintrpc.MintingBatch{
-		BatchKey:   batch.BatchKey.PubKey.SerializeCompressed(),
-		State:      rpcBatchState,
-		CreatedAt:  batch.CreationTime.UTC().Unix(),
-		HeightHint: batch.HeightHint,
+		BatchKey:                 batch.BatchKey.PubKey.SerializeCompressed(),
+		State:                    rpcBatchState,
+		CreatedAt:                batch.CreationTime.UTC().Unix(),
+		HeightHint:               batch.HeightHint,
+		CustomAnchorLeaseError:   batch.CustomAnchorLeaseError,
+		CustomAnchorPublishError: batch.CustomAnchorPublishError,
+		CustomAnchorKeyError:     batch.CustomAnchorKeyError,
 	}
 
 	// If we have the genesis packet available (funded+signed), then we'll

@@ -99,6 +99,7 @@ type Querier interface {
 	FetchInternalKeyLocator(ctx context.Context, rawKey []byte) (FetchInternalKeyLocatorRow, error)
 	FetchManagedUTXO(ctx context.Context, arg FetchManagedUTXOParams) (FetchManagedUTXORow, error)
 	FetchManagedUTXOs(ctx context.Context) ([]FetchManagedUTXOsRow, error)
+	FetchCustomAnchorKeyRepairCandidates(ctx context.Context) ([]FetchCustomAnchorKeyRepairCandidatesRow, error)
 	// Fetch records from the supply_pre_commits table with optional
 	// filtering.
 	FetchMintSupplyPreCommits(ctx context.Context, arg FetchMintSupplyPreCommitsParams) ([]FetchMintSupplyPreCommitsRow, error)
@@ -274,6 +275,8 @@ type Querier interface {
 	UpsertGenesisAsset(ctx context.Context, arg UpsertGenesisAssetParams) (int64, error)
 	UpsertGenesisPoint(ctx context.Context, prevOut []byte) (int64, error)
 	UpsertInternalKey(ctx context.Context, arg UpsertInternalKeyParams) (int64, error)
+	UpsertWalletVerifiedInternalKey(ctx context.Context, arg UpsertWalletVerifiedInternalKeyParams) (int64, error)
+	RepairCustomAnchorInternalKey(ctx context.Context, arg RepairCustomAnchorInternalKeyParams) (int64, error)
 	UpsertManagedUTXO(ctx context.Context, arg UpsertManagedUTXOParams) (int64, error)
 	// Upsert a supply pre-commit that is tied to a minting batch.
 	// The batch is resolved from @batch_key

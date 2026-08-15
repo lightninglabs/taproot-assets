@@ -1038,7 +1038,16 @@ func TestCommitBatchChainActions(t *testing.T) {
 	//
 	// TODO(roasbeef): move the tx extraction up one layer?
 	randAssetCtx.genesisPkt.Pkt.Inputs[0].FinalScriptSig = []byte{}
-	customInternalKey, _ := test.RandKeyDesc(t)
+	customInternalKey, customPriv := test.RandKeyDesc(t)
+	customInternalKey.KeyLocator = keychain.KeyLocator{
+		Family: asset.TaprootAssetsKeyFamily,
+		Index:  721,
+	}
+	customInternalKey.PubKey = customPriv.PubKey()
+	_, err := db.UpsertInternalKey(ctx, InternalKey{
+		RawKey: customInternalKey.PubKey.SerializeCompressed(),
+	})
+	require.NoError(t, err)
 	bip32Derivation, taprootDerivation :=
 		tappsbt.Bip32DerivationFromKeyDesc(
 			customInternalKey, address.TestNet3Tap.HDCoinType,
@@ -1294,6 +1303,43 @@ func TestCommitBatchChainActions(t *testing.T) {
 	}
 }
 
+func TestCommitSignedGenesisTxConflictingLocatorRollback(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	assetStore, _, db := newAssetStore(t)
+	randAssetCtx := addRandAssets(t, ctx, assetStore, 1)
+	randAssetCtx.genesisPkt.Pkt.Inputs[0].FinalScriptSig = []byte{}
+
+	customInternalKey, _ := test.RandKeyDesc(t)
+	rawKey := customInternalKey.PubKey.SerializeCompressed()
+	conflicting := InternalKey{
+		RawKey: rawKey, KeyFamily: int32(customInternalKey.Family),
+		KeyIndex: int32(customInternalKey.Index) + 1,
+	}
+	_, err := db.UpsertInternalKey(ctx, conflicting)
+	require.NoError(t, err)
+
+	err = assetStore.CommitSignedGenesisTx(
+		ctx, randAssetCtx.batchKey, customInternalKey,
+		randAssetCtx.genesisPkt, 0, randAssetCtx.merkleRoot,
+		randAssetCtx.scriptRoot, randAssetCtx.tapSiblingBytes,
+	)
+	require.ErrorIs(t, err, sql.ErrNoRows)
+
+	// The locator and minting batch stay unchanged because the descriptor
+	// upsert and all Broadcast bookkeeping share one transaction.
+	locator, err := db.FetchInternalKeyLocator(ctx, rawKey)
+	require.NoError(t, err)
+	require.Equal(t, conflicting.KeyFamily, locator.KeyFamily)
+	require.Equal(t, conflicting.KeyIndex, locator.KeyIndex)
+	persisted, err := assetStore.FetchMintingBatch(
+		ctx, randAssetCtx.batchKey,
+	)
+	require.NoError(t, err)
+	require.Equal(t, tapgarden.BatchStateCommitted, persisted.State())
+}
+
 // TestDuplicateGroupKey tests that if we attempt to insert a group key with
 // the exact same tweaked key blob, then the noop UPSERT logic triggers, and we
 // get the ID of that same key.
@@ -1340,6 +1386,162 @@ func TestDuplicateGroupKey(t *testing.T) {
 	groupID2, err := db.UpsertAssetGroupKey(ctx, assetKey)
 	require.NoError(t, err)
 	require.Equal(t, groupID, groupID2)
+}
+
+func TestInternalKeyLocatorUpsertMatrix(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	_, _, db := newAssetStore(t)
+	rawKey := test.RandPubKey(t).SerializeCompressed()
+
+	placeholder := sqlc.UpsertInternalKeyParams{RawKey: rawKey}
+	keyID, err := db.UpsertInternalKey(ctx, placeholder)
+	require.NoError(t, err)
+
+	verified := sqlc.UpsertWalletVerifiedInternalKeyParams{
+		RawKey: rawKey, KeyFamily: 212, KeyIndex: 721,
+	}
+
+	// A generic, unverified caller cannot promote the placeholder, but must
+	// still receive its existing ID. Default import-then-use paths insert a
+	// raw placeholder before later encountering the full descriptor and need
+	// this ID to create dependent rows.
+	defaultCallerID, err := db.UpsertInternalKey(ctx,
+		sqlc.UpsertInternalKeyParams{
+			RawKey: rawKey, KeyFamily: verified.KeyFamily,
+			KeyIndex: verified.KeyIndex,
+		})
+	require.NoError(t, err)
+	require.Equal(t, keyID, defaultCallerID)
+	locator, err := db.FetchInternalKeyLocator(ctx, rawKey)
+	require.NoError(t, err)
+	require.Zero(t, locator.KeyFamily)
+	require.Zero(t, locator.KeyIndex)
+
+	// The wallet-verified capability promotes exactly the placeholder and is
+	// idempotent for the same locator.
+	verifiedID, err := db.UpsertWalletVerifiedInternalKey(ctx, verified)
+	require.NoError(t, err)
+	require.Equal(t, keyID, verifiedID)
+	verifiedID2, err := db.UpsertWalletVerifiedInternalKey(ctx, verified)
+	require.NoError(t, err)
+	require.Equal(t, keyID, verifiedID2)
+	locator, err = db.FetchInternalKeyLocator(ctx, rawKey)
+	require.NoError(t, err)
+	require.Equal(t, verified.KeyFamily, locator.KeyFamily)
+	require.Equal(t, verified.KeyIndex, locator.KeyIndex)
+
+	// A later generic placeholder import preserves and returns the known
+	// locator instead of erasing it.
+	preservedID, err := db.UpsertInternalKey(ctx, placeholder)
+	require.NoError(t, err)
+	require.Equal(t, keyID, preservedID)
+	locator, err = db.FetchInternalKeyLocator(ctx, rawKey)
+	require.NoError(t, err)
+	require.Equal(t, verified.KeyFamily, locator.KeyFamily)
+	require.Equal(t, verified.KeyIndex, locator.KeyIndex)
+
+	// Neither generic nor verified paths overwrite a conflicting known
+	// locator. The generic path remains a successful ID lookup for backwards
+	// compatibility, while the verified path reports the conflict.
+	conflictingGenericID, err := db.UpsertInternalKey(
+		ctx, sqlc.UpsertInternalKeyParams{
+			RawKey: rawKey, KeyFamily: verified.KeyFamily,
+			KeyIndex: verified.KeyIndex + 1,
+		},
+	)
+	require.NoError(t, err)
+	require.Equal(t, keyID, conflictingGenericID)
+	_, err = db.UpsertWalletVerifiedInternalKey(
+		ctx, sqlc.UpsertWalletVerifiedInternalKeyParams{
+			RawKey: rawKey, KeyFamily: verified.KeyFamily,
+			KeyIndex: verified.KeyIndex + 1,
+		},
+	)
+	require.ErrorIs(t, err, sql.ErrNoRows)
+	locator, err = db.FetchInternalKeyLocator(ctx, rawKey)
+	require.NoError(t, err)
+	require.Equal(t, verified.KeyFamily, locator.KeyFamily)
+	require.Equal(t, verified.KeyIndex, locator.KeyIndex)
+
+	for _, known := range []sqlc.UpsertInternalKeyParams{
+		{RawKey: test.RandPubKey(t).SerializeCompressed(), KeyIndex: 7},
+		{RawKey: test.RandPubKey(t).SerializeCompressed(), KeyFamily: 7},
+	} {
+		known := known
+		knownID, err := db.UpsertInternalKey(ctx, known)
+		require.NoError(t, err)
+		genericConflictID, err := db.UpsertInternalKey(
+			ctx, sqlc.UpsertInternalKeyParams{
+				RawKey: known.RawKey, KeyFamily: 9, KeyIndex: 9,
+			},
+		)
+		require.NoError(t, err)
+		require.Equal(t, knownID, genericConflictID)
+
+		_, err = db.UpsertWalletVerifiedInternalKey(
+			ctx, sqlc.UpsertWalletVerifiedInternalKeyParams{
+				RawKey: known.RawKey, KeyFamily: 9, KeyIndex: 9,
+			},
+		)
+		require.ErrorIs(t, err, sql.ErrNoRows)
+		partial, err := db.FetchInternalKeyLocator(ctx, known.RawKey)
+		require.NoError(t, err)
+		require.Equal(t, known.KeyFamily, partial.KeyFamily)
+		require.Equal(t, known.KeyIndex, partial.KeyIndex)
+	}
+}
+
+// TestGenericInternalKeyImportThenUse verifies the default script-key storage
+// path can reuse an earlier proof-import placeholder without either failing or
+// treating the later, unverified descriptor as authority to promote it.
+func TestGenericInternalKeyImportThenUse(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	_, _, db := newAssetStore(t)
+	rawKey, _ := test.RandKeyDesc(t)
+	rawKey.Family = 212
+	rawKey.Index = 721
+	rawKeyBytes := rawKey.PubKey.SerializeCompressed()
+
+	placeholderID, err := db.UpsertInternalKey(
+		ctx, sqlc.UpsertInternalKeyParams{RawKey: rawKeyBytes},
+	)
+	require.NoError(t, err)
+
+	tweak := test.RandBytes(32)
+	tweakedKey := txscript.ComputeTaprootOutputKey(rawKey.PubKey, tweak)
+	scriptKey := asset.ScriptKey{
+		PubKey: tweakedKey,
+		TweakedScriptKey: &asset.TweakedScriptKey{
+			RawKey: rawKey,
+			Tweak:  tweak,
+		},
+	}
+
+	scriptKeyID, err := upsertScriptKey(ctx, scriptKey, db)
+	require.NoError(t, err)
+	require.NotZero(t, scriptKeyID)
+	storedScriptKeyID, err := db.FetchScriptKeyIDByTweakedKey(
+		ctx, tweakedKey.SerializeCompressed(),
+	)
+	require.NoError(t, err)
+	require.Equal(t, scriptKeyID, storedScriptKeyID)
+
+	reusedID, err := db.UpsertInternalKey(
+		ctx, sqlc.UpsertInternalKeyParams{
+			RawKey: rawKeyBytes, KeyFamily: int32(rawKey.Family),
+			KeyIndex: int32(rawKey.Index),
+		},
+	)
+	require.NoError(t, err)
+	require.Equal(t, placeholderID, reusedID)
+	locator, err := db.FetchInternalKeyLocator(ctx, rawKeyBytes)
+	require.NoError(t, err)
+	require.Zero(t, locator.KeyFamily)
+	require.Zero(t, locator.KeyIndex)
 }
 
 // TestGroupStore tests all the queries exposed via the GroupStore interface,
