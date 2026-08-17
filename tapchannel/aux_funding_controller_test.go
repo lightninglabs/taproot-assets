@@ -3,8 +3,13 @@ package tapchannel
 import (
 	"context"
 	"net/url"
+	"strings"
+	"sync"
 	"testing"
+	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
@@ -14,6 +19,10 @@ import (
 	cmsg "github.com/lightninglabs/taproot-assets/tapchannelmsg"
 	mboxrpc "github.com/lightninglabs/taproot-assets/taprpc/authmailboxrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/universerpc"
+	"github.com/lightningnetwork/lnd/funding"
+	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/msgmux"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -307,6 +316,386 @@ func TestValidateFundingProofs(t *testing.T) {
 		)
 		require.NotContains(t, err.Error(), "reuses input")
 		require.ErrorContains(t, err, "has a challenge witness")
+	})
+}
+
+// noopErrReporter ignores reported funding errors.
+type noopErrReporter struct{}
+
+// ReportError implements the ErrorReporter interface.
+func (noopErrReporter) ReportError(context.Context, btcec.PublicKey,
+	funding.PendingChanID, error) {
+}
+
+// TestAssignFundingProofsConcurrency ensures that handing funding output
+// proofs to the event loop neither blocks nor races with concurrent funding
+// messages for the same flow. The race detector makes this meaningful.
+func TestAssignFundingProofsConcurrency(t *testing.T) {
+	t.Parallel()
+
+	f := NewFundingController(FundingControllerCfg{
+		ErrReporter: noopErrReporter{},
+	})
+	f.Wg.Add(1)
+	go f.chanFunder()
+	t.Cleanup(func() {
+		close(f.Quit)
+		f.Wg.Wait()
+		f.msgQueue.Stop()
+	})
+
+	ctx := context.Background()
+	peer := *test.RandPubKey(t)
+	pid := funding.PendingChanID{7}
+
+	// Seed a funding flow; processing fails at the proof courier check
+	// (none is configured), but the flow entry itself remains.
+	seeded := f.SendMessage(ctx, msgmux.PeerMsg{
+		PeerPub: peer,
+		Message: cmsg.NewAssetFundingCreated(pid, nil),
+	})
+	require.True(t, seeded)
+
+	// Concurrently assign funding output proofs and process incoming
+	// funding messages for the same flow.
+	fundingProof := randFundingProof(t)
+	var wg sync.WaitGroup
+	for i := 0; i < 5; i++ {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+
+			err := f.assignFundingProofs(
+				pid, []*proof.Proof{&fundingProof},
+			)
+			require.NoError(t, err)
+		}()
+		go func() {
+			defer wg.Done()
+
+			ok := f.SendMessage(ctx, msgmux.PeerMsg{
+				PeerPub: peer,
+				Message: cmsg.NewAssetFundingCreated(pid, nil),
+			})
+			require.True(t, ok)
+		}()
+	}
+	wg.Wait()
+
+	// The event loop must still be responsive.
+	res := f.DeriveTapscriptRoot(funding.PendingChanID{8})
+	root, err := res.Unpack()
+	require.NoError(t, err)
+	require.True(t, root.IsNone())
+
+	// Handing proofs to a flow that does not exist must fail loudly
+	// instead of silently dropping them.
+	err = f.assignFundingProofs(
+		funding.PendingChanID{9}, []*proof.Proof{&fundingProof},
+	)
+	require.ErrorContains(t, err, "no funding flow")
+}
+
+// TestFundingFlowLimits exercises the bounds on peer-creatable funding
+// state: flows per peer, pending chunked proofs, chunks per proof, and
+// funding outputs per flow, as well as the reclamation of assembled chunks
+// and of expired flows.
+func TestFundingFlowLimits(t *testing.T) {
+	t.Parallel()
+
+	t.Run("flows per peer", func(t *testing.T) {
+		flows := make(fundingFlowIndex)
+		peer := *test.RandPubKey(t)
+
+		for i := 0; i < maxActiveFlowsPerPeer; i++ {
+			pid := funding.PendingChanID{byte(i + 1)}
+			_, _, err := flows.fromMsg(nil, msgmux.PeerMsg{
+				PeerPub: peer,
+				Message: cmsg.NewAssetFundingCreated(
+					pid, nil,
+				),
+			})
+			require.NoError(t, err)
+		}
+		require.Len(t, flows, maxActiveFlowsPerPeer)
+
+		_, _, err := flows.fromMsg(nil, msgmux.PeerMsg{
+			PeerPub: peer,
+			Message: cmsg.NewAssetFundingCreated(
+				funding.PendingChanID{0xff}, nil,
+			),
+		})
+		require.ErrorContains(t, err, "too many active funding flows")
+
+		// A different peer is not affected by the limit.
+		_, _, err = flows.fromMsg(nil, msgmux.PeerMsg{
+			PeerPub: *test.RandPubKey(t),
+			Message: cmsg.NewAssetFundingCreated(
+				funding.PendingChanID{0xfe}, nil,
+			),
+		})
+		require.NoError(t, err)
+	})
+
+	t.Run("pending proof streams", func(t *testing.T) {
+		fundingState := &pendingAssetFunding{
+			inputProofChunks: make(
+				map[chainhash.Hash][]cmsg.ProofChunk,
+			),
+		}
+
+		for i := 0; i < maxFundingInputProofs; i++ {
+			var sum [32]byte
+			sum[0] = byte(i + 1)
+			_, err := fundingState.addInputProofChunk(
+				cmsg.NewProofChunk(sum, []byte{1}, false),
+			).Unpack()
+			require.NoError(t, err)
+		}
+
+		var sum [32]byte
+		sum[31] = 0xff
+		_, err := fundingState.addInputProofChunk(
+			cmsg.NewProofChunk(sum, []byte{1}, false),
+		).Unpack()
+		require.ErrorContains(t, err, "too many pending input proofs")
+	})
+
+	t.Run("chunks per proof", func(t *testing.T) {
+		fundingState := &pendingAssetFunding{
+			inputProofChunks: make(
+				map[chainhash.Hash][]cmsg.ProofChunk,
+			),
+		}
+
+		var sum [32]byte
+		sum[0] = 1
+		for i := 0; i < maxProofChunks; i++ {
+			_, err := fundingState.addInputProofChunk(
+				cmsg.NewProofChunk(sum, []byte{1}, false),
+			).Unpack()
+			require.NoError(t, err)
+		}
+
+		_, err := fundingState.addInputProofChunk(
+			cmsg.NewProofChunk(sum, []byte{1}, false),
+		).Unpack()
+		require.ErrorContains(t, err, "too many chunks")
+	})
+
+	t.Run("assembled chunks are reclaimed", func(t *testing.T) {
+		fundingState := &pendingAssetFunding{
+			inputProofChunks: make(
+				map[chainhash.Hash][]cmsg.ProofChunk,
+			),
+		}
+
+		inputProof := randFundingProof(t)
+		chunks, err := cmsg.CreateProofChunks(inputProof, 100)
+		require.NoError(t, err)
+		require.Greater(t, len(chunks), 1)
+
+		for idx, chunk := range chunks {
+			finalProof, err := fundingState.addInputProofChunk(
+				chunk,
+			).Unpack()
+			require.NoError(t, err)
+
+			if idx < len(chunks)-1 {
+				require.True(t, finalProof.IsNone())
+			} else {
+				require.False(t, finalProof.IsNone())
+			}
+		}
+
+		require.Empty(t, fundingState.inputProofChunks)
+	})
+
+	t.Run("funding output limit", func(t *testing.T) {
+		fundingCommitment, err := commitment.FromAssets(
+			fn.Ptr(commitment.TapCommitmentV2),
+			asset.RandAsset(t, asset.Normal),
+		)
+		require.NoError(t, err)
+
+		inputFile, err := proof.NewFile(proof.V0)
+		require.NoError(t, err)
+		fundingState := &pendingAssetFunding{
+			fundingAssetCommitment: fundingCommitment,
+			inputProofFiles: map[asset.PrevID]*proof.File{
+				{OutPoint: test.RandOp(t)}: inputFile,
+			},
+		}
+
+		outputs := make([]*cmsg.AssetOutput, maxNumAssetIDs+1)
+		for idx := range outputs {
+			suffix := randFundingProof(t)
+			outputs[idx] = cmsg.NewAssetOutput(
+				suffix.Asset.ID(), suffix.Asset.Amount,
+				suffix,
+			)
+		}
+
+		err = validateFundingProofs(
+			context.Background(), proof.MockVerifierCtx,
+			fundingState, outputs,
+		)
+		require.ErrorContains(t, err, "too many funding outputs")
+	})
+
+	t.Run("expired flows are swept", func(t *testing.T) {
+		flows := make(fundingFlowIndex)
+		now := time.Now()
+
+		fresh := funding.PendingChanID{1}
+		expired := funding.PendingChanID{2}
+		flows[fresh] = &pendingAssetFunding{createdAt: now}
+		flows[expired] = &pendingAssetFunding{
+			createdAt: now.Add(-fundingFlowMaxAge - time.Minute),
+		}
+
+		flows.sweepExpired(now)
+		require.Contains(t, flows, fresh)
+		require.NotContains(t, flows, expired)
+	})
+}
+
+// TestFundingFlowFailureIsTerminal ensures a responder flow that failed
+// validation accepts no further messages and fails descriptor and tapscript
+// root requests loudly instead of producing empty channel state.
+func TestFundingFlowFailureIsTerminal(t *testing.T) {
+	t.Parallel()
+
+	f := NewFundingController(FundingControllerCfg{
+		ErrReporter: noopErrReporter{},
+	})
+	f.Wg.Add(1)
+	go f.chanFunder()
+	t.Cleanup(func() {
+		close(f.Quit)
+		f.Wg.Wait()
+		f.msgQueue.Stop()
+	})
+
+	ctx := context.Background()
+	peer := *test.RandPubKey(t)
+	pid := funding.PendingChanID{9}
+
+	// This message creates a responder flow and fails validation (no
+	// proof courier is configured), which must mark the flow as failed.
+	ok := f.SendMessage(ctx, msgmux.PeerMsg{
+		PeerPub: peer,
+		Message: cmsg.NewAssetFundingCreated(pid, nil),
+	})
+	require.True(t, ok)
+
+	// Message processing is asynchronous, so poll until the failure has
+	// been recorded. A funding descriptor request must then fail instead
+	// of returning a descriptor built from zero asset outputs.
+	require.Eventually(t, func() bool {
+		res := f.DescFromPendingChanID(
+			pid, lnwallet.AuxChanState{},
+			lntypes.Dual[lnwallet.CommitmentKeyRing]{}, false,
+		)
+		_, err := res.Unpack()
+
+		return err != nil &&
+			strings.Contains(err.Error(), "funding flow failed")
+	}, 3*time.Second, 10*time.Millisecond)
+
+	// The tapscript root request must fail the same way.
+	rootRes := f.DeriveTapscriptRoot(pid)
+	_, err := rootRes.Unpack()
+	require.ErrorContains(t, err, "funding flow failed")
+}
+
+// TestFundingAckHandling ensures that funding acks can never wedge the
+// funding controller's event loop: unsolicited acks create no state, acks
+// are only accepted from the bound peer on initiator flows, and duplicates
+// are rejected without blocking.
+func TestFundingAckHandling(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	f := &FundingController{}
+
+	peer := *test.RandPubKey(t)
+	otherPeer := *test.RandPubKey(t)
+
+	newAck := func(peerPub btcec.PublicKey, pid funding.PendingChanID,
+		accept bool) msgmux.PeerMsg {
+
+		return msgmux.PeerMsg{
+			PeerPub: peerPub,
+			Message: cmsg.NewAssetFundingAck(pid, accept),
+		}
+	}
+
+	t.Run("unsolicited ack creates no flow", func(t *testing.T) {
+		flows := make(fundingFlowIndex)
+		pid := funding.PendingChanID{1}
+
+		_, err := f.processFundingMsg(
+			ctx, flows, newAck(peer, pid, true),
+		)
+		require.ErrorContains(t, err, "no funding flow for ack")
+		require.NotContains(t, flows, pid)
+	})
+
+	t.Run("ack for flow we did not initiate", func(t *testing.T) {
+		flows := make(fundingFlowIndex)
+		pid := funding.PendingChanID{2}
+		flows[pid] = &pendingAssetFunding{
+			pid:            pid,
+			peerPub:        peer,
+			fundingAckChan: make(chan bool, 1),
+		}
+
+		_, err := f.processFundingMsg(
+			ctx, flows, newAck(peer, pid, true),
+		)
+		require.ErrorContains(t, err, "did not initiate")
+	})
+
+	t.Run("ack from wrong peer", func(t *testing.T) {
+		flows := make(fundingFlowIndex)
+		pid := funding.PendingChanID{3}
+		flows[pid] = &pendingAssetFunding{
+			pid:            pid,
+			peerPub:        peer,
+			initiator:      true,
+			fundingAckChan: make(chan bool, 1),
+		}
+
+		_, err := f.processFundingMsg(
+			ctx, flows, newAck(otherPeer, pid, true),
+		)
+		require.ErrorContains(t, err, "wrong peer")
+	})
+
+	t.Run("duplicate acks do not block", func(t *testing.T) {
+		flows := make(fundingFlowIndex)
+		pid := funding.PendingChanID{4}
+		flows[pid] = &pendingAssetFunding{
+			pid:            pid,
+			peerPub:        peer,
+			initiator:      true,
+			fundingAckChan: make(chan bool, 1),
+		}
+
+		_, err := f.processFundingMsg(
+			ctx, flows, newAck(peer, pid, true),
+		)
+		require.NoError(t, err)
+
+		// A second ack must be rejected instead of blocking the
+		// event loop until the buffered value is consumed.
+		_, err = f.processFundingMsg(
+			ctx, flows, newAck(peer, pid, true),
+		)
+		require.ErrorContains(t, err, "duplicate funding ack")
+
+		require.True(t, <-flows[pid].fundingAckChan)
 	})
 }
 
