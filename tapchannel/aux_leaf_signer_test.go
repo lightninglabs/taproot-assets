@@ -678,6 +678,7 @@ func TestVerifyHtlcSignatureMultiAsset(t *testing.T) {
 	vPackets, err := htlcSecondLevelPacketsFromCommit(
 		testChainParams, chanState, &commitTx, keyRing, htlcOutputs,
 		baseJob, fn.Some(baseJob.HTLC.Timeout), baseJob.HTLC.HtlcIndex,
+		false,
 	)
 	require.NoError(t, err)
 	require.Len(t, vPackets, len(htlcOutputs))

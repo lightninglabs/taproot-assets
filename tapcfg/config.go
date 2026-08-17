@@ -324,8 +324,10 @@ type WalletConfig struct {
 	// be anchored to outpoints that may carry relatively small bitcoin
 	// amounts it is useful to pick a high value for this argument as in
 	// high fee environments the total fees paid may outweigh the anchor
-	// amount. The allowed values for this argument range from 0.00 to 1.00.
-	PsbtMaxFeeRatio float64 `long:"psbt-max-fee-ratio" description:"The maximum fees to total output amount ratio to use when funding PSBTs for asset transfers. Value must be between 0.00 and 1.00"`
+	// amount. The value must be greater than 0.00. Values above 1.00 are
+	// allowed and are useful when spending tiny asset-bearing UTXOs, but
+	// need an lnd version whose FundPsbt accepts them.
+	PsbtMaxFeeRatio float64 `long:"psbt-max-fee-ratio" description:"The maximum fees to total output amount ratio to use when funding PSBTs for asset transfers. Value must be greater than 0.00 and at most 5.00. Values above 1.00 need an lnd version whose FundPsbt accepts them."`
 
 	// DisableSweepOrphanUtxos, when true, disables sweeping of orphaned
 	// UTXOs into anchor transactions created during sends and burns.
@@ -1118,14 +1120,13 @@ func ValidateConfig(cfg Config, cfgLogger btclog.Logger) (*Config, error) {
 		return nil, err
 	}
 
-	// Let's validate that the wallet's psbt max fee ratio is within the
-	// expected range.
-	switch {
-	case cfg.Wallet.PsbtMaxFeeRatio < 0.00:
-		fallthrough
-	case cfg.Wallet.PsbtMaxFeeRatio > 1.00:
-		return nil, fmt.Errorf("psbt-max-fee-ratio must be set in " +
-			"range of 0.00 to 1.00")
+	// Let's validate that the wallet's psbt max fee ratio is positive.
+	// Values above 1.0 are allowed: spending tiny asset-bearing UTXOs
+	// (e.g. post-sweep outputs near dust) can legitimately produce txs
+	// where the fee is several times the total output BTC value.
+	if cfg.Wallet.PsbtMaxFeeRatio <= 0.00 {
+		return nil, fmt.Errorf("psbt-max-fee-ratio must be greater " +
+			"than 0.00")
 	}
 
 	// Validate the healthcheck config.
