@@ -231,3 +231,41 @@ func TestSumOverflow(t *testing.T) {
 	// An empty list should sum to zero.
 	require.Equal(t, uint64(0), Sum(nil))
 }
+
+// TestAssetBalanceListDecodeOverflow tests that decoding an asset balance
+// list whose amounts sum past the maximum uint64 value fails, while a list
+// summing to exactly the maximum uint64 value still decodes.
+func TestAssetBalanceListDecodeOverflow(t *testing.T) {
+	t.Parallel()
+
+	// Two balances of 2^63 each sum to 2^64, which overflows a uint64.
+	// Decoding such a list must fail.
+	overflowList := &AssetBalanceListRecord{
+		Balances: []*AssetBalance{
+			NewAssetBalance([32]byte{1}, 1<<63),
+			NewAssetBalance([32]byte{1}, 1<<63),
+		},
+	}
+
+	var buf bytes.Buffer
+	require.NoError(t, overflowList.Encode(&buf))
+
+	var decoded AssetBalanceListRecord
+	err := decoded.Decode(&buf)
+	require.ErrorIs(t, err, ErrListInvalid)
+
+	// A list summing to exactly the maximum uint64 value must still
+	// decode.
+	maxList := &AssetBalanceListRecord{
+		Balances: []*AssetBalance{
+			NewAssetBalance([32]byte{1}, math.MaxUint64-1),
+			NewAssetBalance([32]byte{1}, 1),
+		},
+	}
+
+	buf.Reset()
+	require.NoError(t, maxList.Encode(&buf))
+
+	require.NoError(t, decoded.Decode(&buf))
+	require.Equal(t, uint64(math.MaxUint64), decoded.Sum())
+}
