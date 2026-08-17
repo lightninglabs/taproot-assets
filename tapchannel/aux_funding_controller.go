@@ -326,6 +326,14 @@ type FundingController struct {
 
 	finalizedChans chan funding.PendingChanID
 
+	// validatedFundingsMtx guards validatedFundings.
+	validatedFundingsMtx sync.Mutex
+
+	// validatedFundings tracks the channel funding outpoints whose
+	// funding proofs have already been validated against the confirmed
+	// funding transaction during this process lifetime.
+	validatedFundings map[wire.OutPoint]struct{}
+
 	// ContextGuard provides a wait group and main quit channel that can be
 	// used to create guarded contexts.
 	*fn.ContextGuard
@@ -336,12 +344,13 @@ func NewFundingController(cfg FundingControllerCfg) *FundingController {
 	msgs := fn.NewConcurrentQueue[msgmux.PeerMsg](fn.DefaultQueueSize)
 	msgs.Start()
 	return &FundingController{
-		cfg:             cfg,
-		msgQueue:        msgs,
-		bindFundingReqs: make(chan *bindFundingReq, 10),
-		newFundingReqs:  make(chan *FundReq, 10),
-		rootReqs:        make(chan *assetRootReq, 10),
-		finalizedChans:  make(chan funding.PendingChanID, 10),
+		cfg:               cfg,
+		msgQueue:          msgs,
+		bindFundingReqs:   make(chan *bindFundingReq, 10),
+		newFundingReqs:    make(chan *FundReq, 10),
+		rootReqs:          make(chan *assetRootReq, 10),
+		finalizedChans:    make(chan funding.PendingChanID, 10),
+		validatedFundings: make(map[wire.OutPoint]struct{}),
 		ContextGuard: &fn.ContextGuard{
 			DefaultTimeout: DefaultTimeout,
 			Quit:           make(chan struct{}),
@@ -437,6 +446,12 @@ type pendingAssetFunding struct {
 	pushAmt btcutil.Amount
 
 	inputProofs []*proof.Proof
+
+	// inputProofFiles holds a single-proof file for each verified input
+	// ownership proof, keyed by the input's PrevID. On the responder
+	// side this is populated as input ownership proofs arrive and are
+	// verified.
+	inputProofFiles map[asset.PrevID]*proof.File
 
 	feeRate chainfee.SatPerKWeight
 
@@ -827,6 +842,9 @@ func (f *fundingFlowIndex) fromMsg(chainParams *address.ChainParams,
 			fundingFinalizedSignal: make(chan struct{}),
 			inputProofChunks: make(
 				map[chainhash.Hash][]cmsg.ProofChunk,
+			),
+			inputProofFiles: make(
+				map[asset.PrevID]*proof.File,
 			),
 		}
 		(*f)[pid] = assetFunding
@@ -1584,13 +1602,12 @@ func (f *FundingController) processFundingMsg(ctx context.Context,
 			log.Infof("Validating input proof, prev_out=%v",
 				p.OutPoint())
 
-			vCtx := proof.VerifierCtx{
-				HeaderVerifier: f.cfg.HeaderVerifier,
-				MerkleVerifier: proof.DefaultMerkleVerifier,
-				GroupVerifier:  f.cfg.GroupVerifier,
-				ChainLookupGen: f.cfg.ChainBridge,
-				IgnoreChecker:  f.cfg.IgnoreChecker,
+			if p.Asset.ScriptKey.PubKey == nil {
+				return fmt.Errorf("input proof asset has no " +
+					"script key")
 			}
+
+			vCtx := f.proofVerifierCtx()
 
 			l, err := f.cfg.ChainBridge.GenProofChainLookup(&p)
 			if err != nil {
@@ -1607,8 +1624,31 @@ func (f *FundingController) processFundingMsg(ctx context.Context,
 					"ownership proof: %w", err)
 			}
 
-			// Now that we know the proof is valid, we'll add it to
-			// the funding state.
+			// The ownership proof demonstrates control of a
+			// chain-anchored leaf. The funding flow does not
+			// exchange the leaf's history, so its provenance
+			// rests on the genesis lookup above. Store the proof
+			// as a single-proof file, keyed by the input it
+			// satisfies, for the suffix verification later on.
+			prevID := asset.PrevID{
+				OutPoint: p.OutPoint(),
+				ID:       p.Asset.ID(),
+				ScriptKey: asset.ToSerialized(
+					p.Asset.ScriptKey.PubKey,
+				),
+			}
+			if _, ok := assetFunding.inputProofFiles[prevID]; ok {
+				return fmt.Errorf("duplicate input proof "+
+					"for %v", prevID)
+			}
+
+			inputFile, err := proof.NewFile(proof.V0, p)
+			if err != nil {
+				return fmt.Errorf("unable to create input "+
+					"proof file: %w", err)
+			}
+
+			assetFunding.inputProofFiles[prevID] = inputFile
 			assetFunding.addInputProof(&p)
 
 			return nil
@@ -1665,27 +1705,27 @@ func (f *FundingController) processFundingMsg(ctx context.Context,
 	// AcceptChannel. This includes the suffix proofs for the funding
 	// output/transaction created by the funding output.
 	case *cmsg.AssetFundingCreated:
-		log.Infof("Storing funding output proofs")
+		log.Infof("Validating funding output proofs")
 
-		fundingProofs := fn.Map(
-			assetProof.FundingOutputs.Val.Outputs,
-			func(o *cmsg.AssetOutput) *proof.Proof {
-				return &o.Proof.Val
-			},
+		fundingOutputs := assetProof.FundingOutputs.Val.Outputs
+		err := validateFundingProofs(
+			ctx, f.proofVerifierCtx(), assetFunding,
+			fundingOutputs,
 		)
-
-		err := f.validateProofs(fundingProofs)
 		if err != nil {
 			return tempPID, fmt.Errorf("unable to verify funding "+
 				"proofs: %w", err)
 		}
 
+		fundingProofs := fn.Map(
+			fundingOutputs, func(o *cmsg.AssetOutput) *proof.Proof {
+				return &o.Proof.Val
+			},
+		)
+
 		// We'll just place this in the internal funding state, so we
 		// can derive the funding desc when we need to.
-		assetFunding.fundingOutputProofs = append(
-			assetFunding.fundingOutputProofs,
-			fundingProofs...,
-		)
+		assetFunding.fundingOutputProofs = fundingProofs
 
 	// The remote party is accepting or rejecting our funding attempt.
 	// We'll send the response back to the main goroutine waiting to
@@ -2247,17 +2287,425 @@ func (f *FundingController) channelAcceptor(_ context.Context,
 	}, nil
 }
 
-// validateProofs validates the inclusion/exclusion/split proofs and the
-// transfer witness of the given proofs.
-func (f *FundingController) validateProofs(proofs []*proof.Proof) error {
-	for _, p := range proofs {
-		_, err := p.VerifyProofs()
-		if err != nil {
-			return fmt.Errorf("unable to verify proofs: %w", err)
+// proofVerifierCtx returns the proof verification dependencies owned by the
+// funding controller.
+func (f *FundingController) proofVerifierCtx() proof.VerifierCtx {
+	return proof.VerifierCtx{
+		HeaderVerifier: f.cfg.HeaderVerifier,
+		MerkleVerifier: proof.DefaultMerkleVerifier,
+		GroupVerifier:  f.cfg.GroupVerifier,
+		ChainLookupGen: f.cfg.ChainBridge,
+		IgnoreChecker:  f.cfg.IgnoreChecker,
+	}
+}
+
+// validateFundingProofs fully validates peer-supplied funding proof suffixes
+// before they become channel state. The suffix anchor itself is not confirmed
+// yet, so VerifyProofSuffix skips only its final chain and time lock checks;
+// all input proofs, proof integrity checks and the asset VM are still run.
+func validateFundingProofs(ctx context.Context, vCtx proof.VerifierCtx,
+	fundingState *pendingAssetFunding,
+	outputs []*cmsg.AssetOutput) error {
+
+	if fundingState.fundingAssetCommitment == nil {
+		return fmt.Errorf("funding asset commitment is missing")
+	}
+	if len(fundingState.fundingOutputProofs) != 0 {
+		return fmt.Errorf("funding output proofs already received")
+	}
+	if len(outputs) == 0 {
+		return fmt.Errorf("funding output proofs are missing")
+	}
+
+	// The suffixes are verified against the input proof files collected
+	// while processing the input ownership proofs. Those files are
+	// rooted at the ownership proofs themselves: they establish control
+	// of chain-anchored inputs, not the inputs' history back to
+	// genesis, which the funding flow does not exchange.
+	inputProofFiles := fundingState.inputProofFiles
+	if len(inputProofFiles) == 0 {
+		return fmt.Errorf("no verified funding input proofs")
+	}
+
+	expectedAssetKeys := expectedFundingAssetKeys(
+		fundingState.fundingAssetCommitment,
+	)
+
+	expectedRoot := fundingState.fundingAssetCommitment.TapscriptRoot(nil)
+	seenAssetKeys := make(map[fundingAssetKey]struct{}, len(outputs))
+	seenFundingInputs := make(map[asset.PrevID]struct{})
+	var (
+		anchorHash     chainhash.Hash
+		haveAnchorHash bool
+	)
+
+	// First pass: cheap structural checks plus funding wide input
+	// accounting, before any expensive proof verification runs.
+	for idx, output := range outputs {
+		if output == nil {
+			return fmt.Errorf("funding output %d is nil", idx)
+		}
+
+		proofSuffix := &output.Proof.Val
+		assetID := proofSuffix.Asset.ID()
+		switch {
+		case output.AssetID.Val != assetID:
+			return fmt.Errorf("funding output %d asset ID "+
+				"does not match proof", idx)
+
+		case output.Amount.Val != proofSuffix.Asset.Amount:
+			return fmt.Errorf("funding output %d amount does not "+
+				"match proof", idx)
+
+		case len(proofSuffix.AdditionalInputs) != 0:
+			return fmt.Errorf("funding proof %d contains "+
+				"peer-supplied additional inputs", idx)
+
+		// Funding outputs never legitimately carry a time lock, and
+		// the suffix verification cannot evaluate one before the
+		// funding transaction confirms, so locked outputs are
+		// rejected outright.
+		case proofSuffix.Asset.LockTime != 0 ||
+			proofSuffix.Asset.RelativeLockTime != 0:
+
+			return fmt.Errorf("funding proof %d carries a time "+
+				"lock", idx)
+
+		case proofSuffix.InclusionProof.OutputIndex !=
+			FundingOutputIndex:
+
+			return fmt.Errorf("funding proof %d commits to anchor "+
+				"output %d, expected %d", idx,
+				proofSuffix.InclusionProof.OutputIndex,
+				FundingOutputIndex)
+		}
+
+		proofAnchorHash := proofSuffix.AnchorTx.TxHash()
+		if haveAnchorHash && proofAnchorHash != anchorHash {
+			return fmt.Errorf("funding proof %d has anchor "+
+				"transaction %v, expected %v", idx,
+				proofAnchorHash, anchorHash)
+		}
+		anchorHash = proofAnchorHash
+		haveAnchorHash = true
+
+		// Each asset input may only be consumed by a single funding
+		// output. Without this, a peer could inflate the channel
+		// balance by backing several funding outputs with the same
+		// input. The full PrevID identifies an input here: different
+		// assets may legitimately share one anchor outpoint.
+		for _, witness := range proofSuffix.Asset.Witnesses() {
+			prevID := witness.PrevID
+			if prevID == nil {
+				return fmt.Errorf("funding proof %d has an "+
+					"input witness without previous ID",
+					idx)
+			}
+
+			if _, ok := seenFundingInputs[*prevID]; ok {
+				return fmt.Errorf("funding proof %d reuses "+
+					"input %v", idx, *prevID)
+			}
+			seenFundingInputs[*prevID] = struct{}{}
 		}
 	}
 
+	// Second pass: full cryptographic verification of every suffix
+	// against the verified input proofs.
+	verifier := &proof.BaseVerifier{}
+	for idx, output := range outputs {
+		proofSuffix := &output.Proof.Val
+
+		snapshot, err := proof.VerifyProofSuffix(
+			ctx, proofSuffix, inputProofFiles, verifier, vCtx,
+		)
+		if err != nil {
+			return fmt.Errorf("funding proof %d is invalid: %w",
+				idx, err)
+		}
+
+		actualRoot := snapshot.ScriptRoot.TapscriptRoot(nil)
+		if actualRoot != expectedRoot {
+			return fmt.Errorf("funding proof %d commits to "+
+				"unexpected asset root", idx)
+		}
+
+		assetKey := newFundingAssetKey(&proofSuffix.Asset)
+		if _, ok := expectedAssetKeys[assetKey]; !ok {
+			return fmt.Errorf("funding proof %d contains "+
+				"unexpected asset", idx)
+		}
+		if _, ok := seenAssetKeys[assetKey]; ok {
+			return fmt.Errorf("funding proof %d duplicates "+
+				"asset", idx)
+		}
+		seenAssetKeys[assetKey] = struct{}{}
+	}
+
+	if len(seenAssetKeys) != len(expectedAssetKeys) {
+		return fmt.Errorf("funding proofs cover %d assets, expected %d",
+			len(seenAssetKeys), len(expectedAssetKeys))
+	}
+
 	return nil
+}
+
+// fundingAssetKey uniquely identifies an asset leaf within a funding
+// commitment. The asset commitment key alone is not sufficient: for an
+// ungrouped asset it hashes only the script key, so two assets with
+// different IDs but the same script key would collide without the tap
+// commitment key namespacing.
+type fundingAssetKey struct {
+	tapCommitmentKey   [32]byte
+	assetCommitmentKey [32]byte
+}
+
+// newFundingAssetKey returns the funding commitment key pair of an asset.
+func newFundingAssetKey(a *asset.Asset) fundingAssetKey {
+	return fundingAssetKey{
+		tapCommitmentKey:   a.TapCommitmentKey(),
+		assetCommitmentKey: a.AssetCommitmentKey(),
+	}
+}
+
+// expectedFundingAssetKeys returns the commitment keys of the assets that a
+// set of funding proofs must cover. Alt leaves (such as STXO spend markers)
+// are committed alongside the funding assets but have no funding proof of
+// their own.
+func expectedFundingAssetKeys(
+	commit *commitment.TapCommitment) map[fundingAssetKey]struct{} {
+
+	committedAssets := commit.CommittedAssets()
+	assetKeys := make(map[fundingAssetKey]struct{}, len(committedAssets))
+	for _, committedAsset := range committedAssets {
+		if committedAsset.IsAltLeaf() {
+			continue
+		}
+
+		assetKeys[newFundingAssetKey(committedAsset)] = struct{}{}
+	}
+
+	return assetKeys
+}
+
+// validateConfirmedFunding binds the funding proof suffixes stored in the
+// channel's custom blob to the confirmed funding transaction before the
+// channel is activated. It is idempotent per funding outpoint for the
+// lifetime of the process.
+func (f *FundingController) validateConfirmedFunding(ctx context.Context,
+	channel lnwallet.AuxChanState, chanAssetState *cmsg.OpenChannel) error {
+
+	f.validatedFundingsMtx.Lock()
+	_, alreadyValidated := f.validatedFundings[channel.FundingOutpoint]
+	f.validatedFundingsMtx.Unlock()
+
+	if alreadyValidated {
+		return nil
+	}
+
+	// Fetch the confirmed funding transaction and its block using the
+	// channel's short channel ID.
+	fundingParams, err := proofParamsForShortChanID(
+		ctx, f.cfg.ChainBridge, channel.ShortChannelID,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to fetch confirmed funding "+
+			"transaction: %w", err)
+	}
+
+	err = validateConfirmedFundingProofs(
+		channel, chanAssetState.Assets(), fundingParams,
+	)
+	if err != nil {
+		return err
+	}
+
+	f.validatedFundingsMtx.Lock()
+	f.validatedFundings[channel.FundingOutpoint] = struct{}{}
+	f.validatedFundingsMtx.Unlock()
+
+	return nil
+}
+
+// validateConfirmedFundingProofs binds the funding proof suffixes stored in
+// the channel's custom blob to the confirmed funding transaction. The
+// suffixes were fully verified before the funding descriptor was handed to
+// lnd, but at that point the real funding transaction did not exist yet, so
+// their anchor identity remained unbound. Each suffix must anchor to the
+// channel's funding outpoint, which transitively upgrades the
+// pre-confirmation verification to the confirmed transaction, and that
+// transaction must spend every claimed input exactly once.
+func validateConfirmedFundingProofs(channel lnwallet.AuxChanState,
+	outputs []*cmsg.AssetOutput,
+	fundingParams proof.BaseProofParams) error {
+
+	if len(outputs) == 0 {
+		return fmt.Errorf("channel has no asset funding outputs")
+	}
+	fundingTx := fundingParams.Tx
+	if fundingTx == nil {
+		return fmt.Errorf("confirmed funding transaction is missing")
+	}
+
+	// The confirmed transaction referenced by the short channel ID must
+	// be the funding transaction lnd bound the channel to.
+	fundingTxHash := fundingTx.TxHash()
+	if fundingTxHash != channel.FundingOutpoint.Hash {
+		return fmt.Errorf("confirmed transaction %v does not match "+
+			"channel funding outpoint %v", fundingTxHash,
+			channel.FundingOutpoint)
+	}
+	if channel.FundingOutpoint.Index != FundingOutputIndex {
+		return fmt.Errorf("channel funding outpoint index is %d, "+
+			"expected %d", channel.FundingOutpoint.Index,
+			FundingOutputIndex)
+	}
+
+	if channel.TapscriptRoot.IsNone() {
+		return fmt.Errorf("channel has no tapscript root")
+	}
+	expectedRoot := channel.TapscriptRoot.UnsafeFromSome()
+
+	// The funding output assets must reproduce exactly the commitment
+	// root committed to on chain: no assets missing, none added.
+	err := checkFundingCommitmentRoot(outputs, expectedRoot)
+	if err != nil {
+		return err
+	}
+
+	seenFundingInputs := make(map[asset.PrevID]struct{})
+	seenAssetKeys := make(map[fundingAssetKey]struct{}, len(outputs))
+
+	for idx, output := range outputs {
+		if output == nil {
+			return fmt.Errorf("funding output %d is nil", idx)
+		}
+
+		proofSuffix := &output.Proof.Val
+		assetID := proofSuffix.Asset.ID()
+		switch {
+		case output.AssetID.Val != assetID:
+			return fmt.Errorf("funding output %d asset ID "+
+				"does not match proof", idx)
+
+		case output.Amount.Val != proofSuffix.Asset.Amount:
+			return fmt.Errorf("funding output %d amount does not "+
+				"match proof", idx)
+
+		case len(proofSuffix.AdditionalInputs) != 0:
+			return fmt.Errorf("funding proof %d contains "+
+				"additional inputs", idx)
+
+		case proofSuffix.InclusionProof.OutputIndex !=
+			FundingOutputIndex:
+
+			return fmt.Errorf("funding proof %d commits to anchor "+
+				"output %d, expected %d", idx,
+				proofSuffix.InclusionProof.OutputIndex,
+				FundingOutputIndex)
+		}
+
+		// Bind the suffix to the real funding transaction before any
+		// anchor data is overwritten. A doppelganger transaction with
+		// the same commitment output has a different hash and fails
+		// here. The suffix, including its inclusion proof and
+		// witnesses, was fully verified against its claimed anchor
+		// transaction before the funding descriptor was released, so
+		// anchor identity is all that is left to bind.
+		if proofSuffix.OutPoint() != channel.FundingOutpoint {
+			return fmt.Errorf("funding proof %d anchors to %v, "+
+				"channel funding outpoint is %v", idx,
+				proofSuffix.OutPoint(),
+				channel.FundingOutpoint)
+		}
+
+		for _, witness := range proofSuffix.Asset.Witnesses() {
+			prevID := witness.PrevID
+			if prevID == nil {
+				return fmt.Errorf("funding proof %d has an "+
+					"input witness without previous ID",
+					idx)
+			}
+
+			if _, ok := seenFundingInputs[*prevID]; ok {
+				return fmt.Errorf("funding proof %d reuses "+
+					"input %v", idx, *prevID)
+			}
+			seenFundingInputs[*prevID] = struct{}{}
+
+			// The confirmed funding transaction must spend every
+			// claimed input outpoint.
+			ok := proof.TxSpendsPrevOut(
+				fundingTx, &prevID.OutPoint,
+			)
+			if !ok {
+				return fmt.Errorf("confirmed funding "+
+					"transaction does not spend input %v",
+					*prevID)
+			}
+		}
+
+		assetKey := newFundingAssetKey(&proofSuffix.Asset)
+		if _, ok := seenAssetKeys[assetKey]; ok {
+			return fmt.Errorf("funding proof %d duplicates "+
+				"asset", idx)
+		}
+		seenAssetKeys[assetKey] = struct{}{}
+	}
+
+	return nil
+}
+
+// checkFundingCommitmentRoot reconstructs the funding commitment from the
+// funding output assets and requires it to reproduce the channel's on chain
+// tapscript root. This proves exact asset coverage: an asset missing from or
+// added to the commitment changes the root.
+func checkFundingCommitmentRoot(outputs []*cmsg.AssetOutput,
+	expectedRoot chainhash.Hash) error {
+
+	rebuild := func(stxo bool) (chainhash.Hash, error) {
+		var zero chainhash.Hash
+		rebuilt := &pendingAssetFunding{}
+		for idx, output := range outputs {
+			if output == nil {
+				return zero, fmt.Errorf("funding output %d "+
+					"is nil", idx)
+			}
+
+			fundingAsset := output.Proof.Val.Asset.Copy()
+			err := rebuilt.addToFundingCommitment(
+				fundingAsset, stxo,
+			)
+			if err != nil {
+				return zero, fmt.Errorf("unable to rebuild "+
+					"funding commitment: %w", err)
+			}
+		}
+
+		return rebuilt.fundingAssetCommitment.TapscriptRoot(nil), nil
+	}
+
+	// The channel blob does not record whether STXO alt leaves were used
+	// during funding, so either variant reproducing the on chain root is
+	// accepted.
+	rootNoStxo, err := rebuild(false)
+	if err != nil {
+		return err
+	}
+	if rootNoStxo == expectedRoot {
+		return nil
+	}
+
+	rootStxo, err := rebuild(true)
+	if err != nil {
+		return err
+	}
+	if rootStxo == expectedRoot {
+		return nil
+	}
+
+	return fmt.Errorf("funding outputs do not reproduce the channel " +
+		"tapscript root")
 }
 
 // validateWitness validates the state transition witness for the given asset.
@@ -2475,6 +2923,22 @@ func (f *FundingController) ChannelReady(channel lnwallet.AuxChanState) error {
 	)
 	if err != nil {
 		return fmt.Errorf("unable to decode channel asset state: %w",
+			err)
+	}
+
+	ctx, cancel := f.WithCtxQuitNoTimeout()
+	defer cancel()
+
+	// Before the channel becomes usable (and before any RFQ offers are
+	// installed for it), bind the stored funding proof suffixes to the
+	// confirmed funding transaction. The pre-confirmation validation
+	// could not know the real funding transaction, so this is where a
+	// doppelganger anchor, an unspent claimed input or an immature time
+	// lock is caught. Returning an error here stops lnd from activating
+	// the channel.
+	err = f.validateConfirmedFunding(ctx, channel, chanAssetState)
+	if err != nil {
+		return fmt.Errorf("unable to validate confirmed funding: %w",
 			err)
 	}
 
