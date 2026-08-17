@@ -242,6 +242,11 @@
   transfers until restart in the event of a silently-dropped TCP
   connection.
 
+* [PR#2239](https://github.com/lightninglabs/taproot-assets/pull/2239)
+  fixes a check-then-track race in the RFQ order policies by which
+  concurrently intercepted HTLCs could collectively exceed the agreed
+  maximum amount of an accepted quote.
+
 ## Functional Updates
 
 - [PR#1775](https://github.com/lightninglabs/taproot-assets/pull/1775)
