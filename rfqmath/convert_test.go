@@ -391,7 +391,7 @@ func TestConvertMilliSatoshiToUnits(t *testing.T) {
 			},
 			expectedUnits:             1,
 			expectedMinTransportUnits: 1,
-			expectedMinTransportMSat:  22_124_000,
+			expectedMinTransportMSat:  21_200_000,
 		},
 		{
 			// 5k USD per BTC @ decimal display 6.
@@ -402,7 +402,7 @@ func TestConvertMilliSatoshiToUnits(t *testing.T) {
 			}.ScaleTo(6),
 			expectedUnits:             10_000,
 			expectedMinTransportUnits: 1,
-			expectedMinTransportMSat:  22_124_000,
+			expectedMinTransportMSat:  21_200_000,
 		},
 		{
 			// 50k USD per BTC @ decimal display 6.
@@ -413,7 +413,7 @@ func TestConvertMilliSatoshiToUnits(t *testing.T) {
 			}.ScaleTo(6),
 			expectedUnits:             1000,
 			expectedMinTransportUnits: 1,
-			expectedMinTransportMSat:  4_096_308,
+			expectedMinTransportMSat:  3_172_308,
 		},
 		{
 			// 50M USD per BTC @ decimal display 6.
@@ -423,8 +423,8 @@ func TestConvertMilliSatoshiToUnits(t *testing.T) {
 				Scale:       2,
 			}.ScaleTo(6),
 			expectedUnits:             62595061158,
-			expectedMinTransportUnits: 1076,
-			expectedMinTransportMSat:  2_125_972,
+			expectedMinTransportUnits: 608,
+			expectedMinTransportMSat:  1_201_972,
 		},
 		{
 			// 50k USD per BTC @ decimal display 6.
@@ -435,7 +435,7 @@ func TestConvertMilliSatoshiToUnits(t *testing.T) {
 			}.ScaleTo(6),
 			expectedUnits:             2_570,
 			expectedMinTransportUnits: 1,
-			expectedMinTransportMSat:  4_096_304,
+			expectedMinTransportMSat:  3_172_304,
 		},
 		{
 			// 7.341M JPY per BTC @ decimal display 6.
@@ -445,8 +445,8 @@ func TestConvertMilliSatoshiToUnits(t *testing.T) {
 				Scale:       0,
 			}.ScaleTo(6),
 			expectedUnits:             367_092,
-			expectedMinTransportUnits: 155,
-			expectedMinTransportMSat:  2_137_620,
+			expectedMinTransportUnits: 88,
+			expectedMinTransportMSat:  1_213_620,
 		},
 		{
 			// 7.341M JPY per BTC @ decimal display 2.
@@ -456,8 +456,8 @@ func TestConvertMilliSatoshiToUnits(t *testing.T) {
 				Scale:       0,
 			}.ScaleTo(4),
 			expectedUnits:             3_670,
-			expectedMinTransportUnits: 155,
-			expectedMinTransportMSat:  2_137_620,
+			expectedMinTransportUnits: 88,
+			expectedMinTransportMSat:  1_213_620,
 		},
 	}
 
