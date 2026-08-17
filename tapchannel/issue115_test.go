@@ -33,6 +33,7 @@ func TestIssue115ForeignAssetIdRejected(t *testing.T) {
 	prevState := tapchannelmsg.NewCommitment(
 		nil, []*tapchannelmsg.AssetOutput{channel.assetOutput}, nil,
 		nil, lnwallet.CommitAuxLeaves{}, false, false,
+		tapchannelmsg.SigHashAll,
 	)
 	chanAssetState := tapchannelmsg.NewOpenChannel(
 		[]*tapchannelmsg.AssetOutput{channel.assetOutput}, 0, nil,
@@ -73,6 +74,7 @@ func TestIssue115ForeignAssetIdRejected(t *testing.T) {
 		lnwire.MilliSatoshi(1_000_000_000), makeView(fundedAsset),
 		testChainParams, lndmock.RandCommitmentKeyRing(t),
 		STXOFeatures{},
+		false,
 	)
 	require.NoError(t, err, "HTLC declaring the funded asset must pass")
 
@@ -88,6 +90,7 @@ func TestIssue115ForeignAssetIdRejected(t *testing.T) {
 			lnwire.MilliSatoshi(1_000_000_000),
 			makeView(foreignAsset), testChainParams,
 			lndmock.RandCommitmentKeyRing(t), STXOFeatures{},
+			false,
 		)
 		require.Error(t, err,
 			"whoseCommit=%v: HTLC declaring an asset the channel "+
@@ -108,6 +111,7 @@ func TestIssue115ForeignAssetIdRejected(t *testing.T) {
 		lnwire.MilliSatoshi(1_000_000_000), makeView(groupPlaceholder),
 		testChainParams, lndmock.RandCommitmentKeyRing(t),
 		STXOFeatures{},
+		false,
 	)
 	require.NoError(t, err,
 		"the funding group's placeholder ID must be accepted")
@@ -123,6 +127,7 @@ func TestIssue115ForeignAssetIdRejected(t *testing.T) {
 		makeView(foreignPlaceholder),
 		testChainParams, lndmock.RandCommitmentKeyRing(t),
 		STXOFeatures{},
+		false,
 	)
 	require.Error(t, err,
 		"a foreign group's placeholder ID must be rejected")

@@ -5,8 +5,6 @@ import (
 	"math"
 
 	"github.com/btcsuite/btcd/btcutil/v2"
-	"github.com/lightningnetwork/lnd/input"
-	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -16,16 +14,49 @@ import (
 var ErrMsatOverflow = errors.New("rfqmath: mSat amount exceeds uint64")
 
 var (
-	// DefaultOnChainHtlcSat is the default amount that we consider as the
-	// smallest HTLC amount that can be sent on-chain. We use 6x the dust
-	// limit to provide enough headroom for the baked-in second-level HTLC
-	// transaction fees under SigHashDefault (where the sweeper cannot add
-	// wallet inputs) and to comfortably clear the mempool minimum relay
-	// fee even when nodes compute fee rate using raw serialized size
-	// rather than virtual size.
-	DefaultOnChainHtlcSat = 6 * lnwallet.DustLimitForSize(
-		input.UnknownWitnessSize,
-	)
+	// DefaultOnChainHtlcSat is the default amount that we consider as
+	// the smallest HTLC amount that can be sent on-chain. Under
+	// DeterministicHTLCs the on-chain value of an HTLC is split three
+	// ways by the pre-signed second-level tx:
+	//
+	//   1. Its baked-in fee, which lnd sets to 1.1x the relay floor
+	//      (chainfee.FeePerKwFloor) over the second-level weight
+	//      including the anchor output: ~227 sats for the timeout
+	//      variant, ~243 sats for the success variant. The fee cannot
+	//      be changed later, since the peer's signature commits to the
+	//      whole transaction.
+	//
+	//   2. A 330-sat (lnwallet.AnchorSize) CPFP anchor output, which is
+	//      how the transaction gets fee-bumped: the sweeper spends it
+	//      with a wallet-funded child.
+	//
+	//   3. The remaining second-level HTLC output, which must clear the
+	//      354-sat dust limit AND still be able to fund the sweep that
+	//      finally claims it (the CSV sweep, or the justice sweep after
+	//      a breach), which needs sweepAnchorOutputAmt on its own
+	//      output.
+	//
+	// That puts the strict minimum at ~930 sats (243 + 330 + 354). 1200
+	// sats keeps headroom for point 3 and rounds the user-facing minimum
+	// to a clean value. Replaces the prior 6x-the-dust-limit multiplier;
+	// the anchor (rather than fee headroom on the HTLC itself) handles
+	// fee bumping under DeterministicHTLCs.
+	//
+	// TODO(GeorgeTsagk): revisit this once package relay is available.
+	// Both deductions above exist only because the pre-signed parent has
+	// to be independently relayable today, and that is also why it is
+	// pinned to a mere 1.1x the relay floor (~1.11 sat/vB): a parent the
+	// mempool rejects cannot be CPFP'd by its own anchor, so it becomes
+	// unrelayable whenever the dynamic mempool minimum climbs above that
+	// (i.e. any time the mempool is full and evicting above ~1 sat/vB).
+	// Submitting the parent together with its fee-paying child via
+	// package relay removes both constraints at once: the package feerate
+	// is what gets evaluated, so the parent no longer needs its own fee,
+	// and with a TRUC/v3 parent the anchor can be a 0-value P2A output.
+	// Deduction 1 and 2 then go to zero, and this constant can drop to
+	// roughly what point 3 alone requires (~600 sats), which also lowers
+	// the minimum asset payment we quote over RFQ.
+	DefaultOnChainHtlcSat = btcutil.Amount(1200)
 
 	// DefaultOnChainHtlcMSat is the default amount that we consider as the
 	// smallest HTLC amount that can be sent on-chain in milli-satoshis.

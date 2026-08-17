@@ -122,6 +122,7 @@ func FetchLeavesFromCommit(chainParams *address.ChainParams,
 
 	stxoFeatures := CommitmentSTXOFeatures(commitment)
 	warnMissingSpenderLeaves(chanState.FundingOutpoint, stxoFeatures)
+	sigHashDefault := commitment.SigHashDefault.Val
 
 	incomingHtlcs := commitment.IncomingHtlcAssets.Val.HtlcOutputs
 	incomingHtlcLeaves := commitment.AuxLeaves.Val.IncomingHtlcLeaves.
@@ -154,7 +155,7 @@ func FetchLeavesFromCommit(chainParams *address.ChainParams,
 			leaf, err := CreateSecondLevelHtlcTx(
 				chanState, com.CommitTx, htlc.Amt.ToSatoshis(),
 				keys, chainParams, htlcOutputs, cltvTimeout,
-				htlc.HtlcIndex, stxoFeatures,
+				htlc.HtlcIndex, stxoFeatures, sigHashDefault,
 			)
 			if err != nil {
 				return lfn.Err[returnType](fmt.Errorf("unable "+
@@ -195,7 +196,7 @@ func FetchLeavesFromCommit(chainParams *address.ChainParams,
 			leaf, err := CreateSecondLevelHtlcTx(
 				chanState, com.CommitTx, htlc.Amt.ToSatoshis(),
 				keys, chainParams, htlcOutputs, cltvTimeout,
-				htlc.HtlcIndex, stxoFeatures,
+				htlc.HtlcIndex, stxoFeatures, sigHashDefault,
 			)
 			if err != nil {
 				return lfn.Err[returnType](fmt.Errorf("unable "+
@@ -225,18 +226,17 @@ func FetchLeavesFromCommit(chainParams *address.ChainParams,
 
 // FetchLeavesFromRevocation attempts to fetch the auxiliary leaves
 // from a channel revocation that stores balance + blob information.
-// The additional parameters (chanState, keys, commitTx, chainParams)
-// are needed to compute second-level HTLC auxiliary leaves at runtime,
-// since these are not stored in the commitment blob.
-func FetchLeavesFromRevocation(r *channeldb.RevocationLog,
-	chanState lnwl.AuxChanState, keys lnwl.CommitmentKeyRing,
-	commitTx *wire.MsgTx,
+// The req carries the chanState, keys, and commitTx needed to compute
+// second-level HTLC auxiliary leaves at runtime, since these are not
+// stored in the commitment blob. chainParams is passed alongside since
+// it is a server-level concern, not part of the lnwallet request.
+func FetchLeavesFromRevocation(req lnwl.RevocationLeavesReq,
 	chainParams *address.ChainParams) lfn.Result[lnwl.CommitDiffAuxResult] {
 
 	type returnType = lnwl.CommitDiffAuxResult
 
 	return lfn.MapOptionZ(
-		r.CustomBlob.ValOpt(),
+		req.Revocation.CustomBlob.ValOpt(),
 		func(blob tlv.Blob) lfn.Result[lnwl.CommitDiffAuxResult] {
 			commitment, err := cmsg.DecodeCommitment(blob)
 			if err != nil {
@@ -249,10 +249,11 @@ func FetchLeavesFromRevocation(r *channeldb.RevocationLog,
 			// If we have the commit tx and chain params, we
 			// can compute the second-level HTLC aux leaves
 			// that aren't stored in the commitment blob.
-			if commitTx != nil && chainParams != nil {
+			if req.CommitTx != nil && chainParams != nil {
 				err = populateSecondLevelLeaves(
-					r, commitment, chanState, keys,
-					commitTx, chainParams, &leaves,
+					req.Revocation, commitment,
+					req.ChanState, req.Keys, req.CommitTx,
+					chainParams, &leaves,
 				)
 				if err != nil {
 					return lfn.Err[returnType](
@@ -281,6 +282,7 @@ func populateSecondLevelLeaves(r *channeldb.RevocationLog,
 	leaves *lnwl.CommitAuxLeaves) error {
 
 	stxoFeatures := CommitmentSTXOFeatures(commitment)
+	sigHashDefault := commitment.SigHashDefault.Val
 
 	incomingHtlcs := commitment.IncomingHtlcAssets.Val.HtlcOutputs
 	incomingHtlcLeaves := commitment.AuxLeaves.Val.
@@ -318,6 +320,7 @@ func populateSecondLevelLeaves(r *channeldb.RevocationLog,
 				chanState, commitTx, htlcAmt,
 				keys, chainParams, htlcOutputs,
 				cltvTimeout, htlcIdx, stxoFeatures,
+				sigHashDefault,
 			)
 			if err != nil {
 				return fmt.Errorf("unable to create "+
@@ -350,7 +353,7 @@ func populateSecondLevelLeaves(r *channeldb.RevocationLog,
 				chanState, commitTx, htlcAmt,
 				keys, chainParams, htlcOutputs,
 				fn.None[uint32](), htlcIdx,
-				stxoFeatures,
+				stxoFeatures, sigHashDefault,
 			)
 			if err != nil {
 				return fmt.Errorf("unable to create "+

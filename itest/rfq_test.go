@@ -533,9 +533,12 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 	expectedAssetID := mintedAssetIdBytes
 	require.Equal(t.t, expectedAssetID, actualAssetID)
 	// The original 42000-msat quote is below the real asset channel's
-	// 354000-msat HTLC dust threshold. Preserve that negotiation, then
-	// negotiate a second quote large enough for an actual asset HTLC.
-	const paymentAskAmt = uint64(420_000)
+	// HTLC dust threshold. Preserve that negotiation, then negotiate a
+	// second quote large enough for an actual asset HTLC. With
+	// deterministic HTLCs the threshold also covers the pre-signed
+	// second-level fee and its anchor, so we use the on-chain carrier
+	// value asset HTLCs normally get.
+	paymentAskAmt := uint64(rfqmath.DefaultOnChainHtlcMSat)
 	oracle.On(
 		"QueryAssetRates", oraclerpc.TransactionType_SALE,
 		buySpecifier, mock.Anything, btcSpecifier,
