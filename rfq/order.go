@@ -146,7 +146,10 @@ func computeHtlcAssetAmount(ctx context.Context, policy Policy,
 // asset sale/purchase channel HTLC is accepted or rejected.
 type Policy interface {
 	// CheckHtlcCompliance returns an error if the given HTLC intercept
-	// descriptor does not satisfy the subject policy.
+	// descriptor does not satisfy the subject policy. If the HTLC complies
+	// with the policy, it is tracked atomically as part of the check, such
+	// that concurrently checked HTLCs cannot collectively exceed the
+	// policy's agreed maximum amount.
 	CheckHtlcCompliance(ctx context.Context, htlc lndclient.InterceptedHtlc,
 		specifierChecker rfqmsg.SpecifierChecker) error
 
@@ -259,7 +262,10 @@ func NewAssetSalePolicy(quote rfqmsg.BuyAccept, noop bool,
 }
 
 // CheckHtlcCompliance returns an error if the given HTLC intercept descriptor
-// does not satisfy the subject policy.
+// does not satisfy the subject policy. If the HTLC complies with the policy,
+// it is tracked atomically as part of the check, such that concurrently
+// checked HTLCs cannot collectively exceed the policy's agreed maximum
+// amount.
 //
 // The HTLC examined by this function was likely created by a peer unaware of
 // the RFQ agreement (i.e., they are simply paying an invoice), with the SCID
@@ -269,10 +275,12 @@ func NewAssetSalePolicy(quote rfqmsg.BuyAccept, noop bool,
 func (c *AssetSalePolicy) CheckHtlcCompliance(_ context.Context,
 	htlc lndclient.InterceptedHtlc, _ rfqmsg.SpecifierChecker) error {
 
-	// Since we will be reading CurrentAmountMsat value we acquire a read
-	// lock.
-	c.stateMutex.RLock()
-	defer c.stateMutex.RUnlock()
+	// We acquire a write lock such that the compliance check and the
+	// tracking of the HTLC are executed atomically. Otherwise concurrent
+	// HTLCs could all pass the check below before any of them is tracked,
+	// exceeding the policy's agreed maximum amount.
+	c.stateMutex.Lock()
+	defer c.stateMutex.Unlock()
 
 	// Check that the channel SCID is as expected.
 	htlcScid := SerialisedScid(htlc.OutgoingChannelID.ToUint64())
@@ -323,6 +331,10 @@ func (c *AssetSalePolicy) CheckHtlcCompliance(_ context.Context,
 			c.expiry)
 	}
 
+	// The HTLC complies with the policy. Track it whilst still holding the
+	// write lock, such that the check above and the tracking are atomic.
+	c.trackAcceptedHtlc(htlc.IncomingCircuitKey, htlc.AmountOutMsat)
+
 	return nil
 }
 
@@ -333,6 +345,14 @@ func (c *AssetSalePolicy) TrackAcceptedHtlc(circuitKey models.CircuitKey,
 
 	c.stateMutex.Lock()
 	defer c.stateMutex.Unlock()
+
+	c.trackAcceptedHtlc(circuitKey, amt)
+}
+
+// trackAcceptedHtlc accounts for the newly accepted HTLC. The caller must
+// hold the policy's state mutex.
+func (c *AssetSalePolicy) trackAcceptedHtlc(circuitKey models.CircuitKey,
+	amt lnwire.MilliSatoshi) {
 
 	// If we already tracked this HTLC, we only account for the difference,
 	// as UntrackHtlc will only ever subtract the amount once.
@@ -535,15 +555,20 @@ func NewAssetPurchasePolicy(quote rfqmsg.SellAccept) *AssetPurchasePolicy {
 }
 
 // CheckHtlcCompliance returns an error if the given HTLC intercept descriptor
-// does not satisfy the subject policy.
+// does not satisfy the subject policy. If the HTLC complies with the policy,
+// it is tracked atomically as part of the check, such that concurrently
+// checked HTLCs cannot collectively exceed the policy's maximum agreed BTC
+// payment.
 func (c *AssetPurchasePolicy) CheckHtlcCompliance(ctx context.Context,
 	htlc lndclient.InterceptedHtlc,
 	specifierChecker rfqmsg.SpecifierChecker) error {
 
-	// Since we will be reading CurrentAmountMsat value we acquire a read
-	// lock.
-	c.stateMutex.RLock()
-	defer c.stateMutex.RUnlock()
+	// We acquire a write lock such that the compliance check and the
+	// tracking of the HTLC are executed atomically. Otherwise concurrent
+	// HTLCs could all pass the check below before any of them is tracked,
+	// exceeding the policy's maximum agreed BTC payment.
+	c.stateMutex.Lock()
+	defer c.stateMutex.Unlock()
 
 	// Check that the HTLC contains the accepted quote ID.
 	htlcRecord, err := parseHtlcCustomRecords(htlc.InWireCustomRecords)
@@ -616,6 +641,10 @@ func (c *AssetPurchasePolicy) CheckHtlcCompliance(ctx context.Context,
 			c.expiry)
 	}
 
+	// The HTLC complies with the policy. Track it whilst still holding the
+	// write lock, such that the check above and the tracking are atomic.
+	c.trackAcceptedHtlc(htlc.IncomingCircuitKey, htlc.AmountOutMsat)
+
 	return nil
 }
 
@@ -626,6 +655,14 @@ func (c *AssetPurchasePolicy) TrackAcceptedHtlc(circuitKey models.CircuitKey,
 
 	c.stateMutex.Lock()
 	defer c.stateMutex.Unlock()
+
+	c.trackAcceptedHtlc(circuitKey, amt)
+}
+
+// trackAcceptedHtlc accounts for the newly accepted HTLC. The caller must
+// hold the policy's state mutex.
+func (c *AssetPurchasePolicy) trackAcceptedHtlc(circuitKey models.CircuitKey,
+	amt lnwire.MilliSatoshi) {
 
 	// If we already tracked this HTLC, we only account for the difference,
 	// as UntrackHtlc will only ever subtract the amount once.
@@ -759,7 +796,8 @@ func NewAssetForwardPolicy(incoming, outgoing Policy) (*AssetForwardPolicy,
 }
 
 // CheckHtlcCompliance returns an error if the given HTLC intercept descriptor
-// does not satisfy the subject policy.
+// does not satisfy the subject policy. If the HTLC complies with the policy,
+// it is tracked atomically as part of the check.
 func (a *AssetForwardPolicy) CheckHtlcCompliance(ctx context.Context,
 	htlc lndclient.InterceptedHtlc, sChk rfqmsg.SpecifierChecker) error {
 
@@ -773,6 +811,10 @@ func (a *AssetForwardPolicy) CheckHtlcCompliance(ctx context.Context,
 	if err := a.outgoingPolicy.CheckHtlcCompliance(
 		ctx, htlc, sChk,
 	); err != nil {
+		// The incoming policy has already tracked the HTLC. Roll back
+		// that tracking, as the HTLC will be rejected.
+		a.incomingPolicy.UntrackHtlc(htlc.IncomingCircuitKey)
+
 		return fmt.Errorf("error checking forward policy, outbound "+
 			"HTLC does not comply with policy: %w", err)
 	}
@@ -1120,7 +1162,9 @@ func (h *OrderHandler) resolveIncomingHtlc(ctx context.Context,
 
 	// At this point, we know that a policy exists and has not expired
 	// whilst sitting in the local cache. We can now check that the HTLC
-	// complies with the policy.
+	// complies with the policy. The compliance check atomically tracks the
+	// HTLC if it complies, such that concurrently handled HTLCs cannot
+	// collectively exceed the policy's agreed maximum amount.
 	err = policy.CheckHtlcCompliance(ctx, htlc, h.cfg.SpecifierChecker)
 	if err != nil {
 		log.Warnf("HTLC does not comply with policy: %v "+
@@ -1132,10 +1176,6 @@ func (h *OrderHandler) resolveIncomingHtlc(ctx context.Context,
 	}
 
 	h.htlcToPolicy.Store(htlc.IncomingCircuitKey, policy)
-
-	// The HTLC passed the compliance checks, so now we keep track of the
-	// accepted HTLC.
-	policy.TrackAcceptedHtlc(htlc.IncomingCircuitKey, htlc.AmountOutMsat)
 
 	// Log the forwarding event when the HTLC is accepted. We store the
 	// circuit key
