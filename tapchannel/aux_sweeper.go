@@ -46,6 +46,16 @@ const (
 	// outputs on chain, we'll need an increased budget (the amount we
 	// should spend on fees) to make sure the outputs are always swept.
 	sweeperBudgetMultiplier = 20
+
+	// sweepAnchorOutputAmt is the BTC value placed on the asset-bearing
+	// output of a sweep transaction. We use a value just above the
+	// taproot dust limit (rather than tapsend.DummyAmtSats=1000) so the
+	// sweep can be funded entirely from the small second-level HTLC
+	// output value (~626 sats at floor rate) without pulling in any
+	// wallet UTXOs, since the wallet's UTXO accounting can be off by
+	// the AnchorSize amount in chains where the immediate parent tx
+	// contains an anchor output.
+	sweepAnchorOutputAmt = btcutil.Amount(400)
 )
 
 // resolutionReq carries a request to resolve a contract output along with a
@@ -233,11 +243,15 @@ func (a *AuxSweeper) createSweepVpackets(sweepInputs []*cmsg.AssetOutput,
 		})
 
 		htlcIndex := resReq.HtlcID.UnwrapOr(math.MaxUint64)
+		// addAnchor is false here: we're allocating for the SWEEP of
+		// the second-level HTLC output, not constructing the
+		// second-level tx itself. The on-chain anchor (if any) is
+		// independent of this sweep.
 		alloc, err := createSecondLevelHtlcAllocations(
 			resReq.ChanType, resReq.Initiator, sweepInputs,
 			resReq.HtlcAmt, resReq.CommitCsvDelay, *resReq.KeyRing,
 			fn.Some(resReq.ContractPoint.Index), cltvTimeout,
-			htlcIndex,
+			htlcIndex, false,
 		)
 		if err != nil {
 			return lfn.Err[returnType](err)
@@ -279,7 +293,7 @@ func (a *AuxSweeper) createSweepVpackets(sweepInputs []*cmsg.AssetOutput,
 			OutputIndex:  0,
 			Amount:       sweepAssetSum,
 			AssetVersion: asset.V1,
-			BtcAmount:    tapsend.DummyAmtSats,
+			BtcAmount:    sweepAnchorOutputAmt,
 			GenScriptKey: scriptKeyGen,
 		})
 	}
@@ -3365,12 +3379,19 @@ func (a *AuxSweeper) resolveContract(
 			)
 		}
 
+		// The on-chain second-level tx carries an anchor at index 1
+		// when it was signed under DeterministicHTLCs. Detect that
+		// via the actual tx output count so the allocations and
+		// exclusion proofs we build here mirror the on-chain layout.
+		secondLevelHasAnchor := secondLevelTx != nil &&
+			len(secondLevelTx.TxOut) > 1
+
 		secondLevelPkts, secondLevelAllocs, err :=
 			CreateSecondLevelHtlcPackets(
 				auxChanState, req.CommitTx,
 				secondLevelBtcAmt, *req.KeyRing,
 				&a.cfg.ChainParams, assetOutputs,
-				cltvTimeout, htlcID,
+				cltvTimeout, htlcID, secondLevelHasAnchor,
 			)
 		if err != nil {
 			return lfn.Errf[returnType]("unable to create "+
@@ -4170,7 +4191,7 @@ func (a *AuxSweeper) sweepContracts(inputs []input.Input,
 	return lfn.Ok(sweep.SweepOutput{
 		TxOut: wire.TxOut{
 			PkScript: anchorPkScript,
-			Value:    int64(tapsend.DummyAmtSats),
+			Value:    int64(sweepAnchorOutputAmt),
 		},
 		IsExtra:     true,
 		InternalKey: lfn.Some(internalKey),
@@ -4635,19 +4656,18 @@ func ExtraBudgetForInputs(inputs []input.Input) lfn.Result[btcutil.Amount] {
 		return i.ResolutionBlob().IsSome()
 	})
 
+	_ = inputsWithBlobs
+	// extraBudget is intentionally zero: LND's sweeper interprets the
+	// returned budget as additional sats it is allowed to spend on fees
+	// on top of the input value. Any positive value drives LND to pull
+	// wallet UTXOs into the sweep tx; under DeterministicHTLCs the
+	// chained anchor outputs make btcwallet's UTXO accounting drift
+	// from btcd's by AnchorSize-sized increments, which causes mempool
+	// rejection on the resulting bundled sweep. The HTLC-second-level
+	// inputs already carry enough BTC value (after the 2nd-level
+	// fee + anchor are deducted) to cover floor-rate sweep fees, so
+	// they self-fund without any extra budget.
 	var extraBudget btcutil.Amount
-	if len(inputsWithBlobs) != 0 {
-		// In this case, just 1k sats (tapsend.DummyAmtSats) may not be
-		// enough budget to pay for sweeping. So instead, we'll use a
-		// multiple of this to ensure that any time we care about an
-		// output, we're pretty much always able to sweep it.
-		//
-		// TODO(roasbeef): return the sats equiv budget of the asset
-		// amount
-		extraBudget = tapsend.DummyAmtSats * btcutil.Amount(
-			sweeperBudgetMultiplier*len(inputsWithBlobs),
-		)
-	}
 
 	return lfn.Ok(extraBudget)
 }

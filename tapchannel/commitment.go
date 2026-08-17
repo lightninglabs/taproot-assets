@@ -1322,11 +1322,17 @@ func collectOutputs(a *tapsend.Allocation,
 // createSecondLevelHtlcAllocations creates the allocations for the second level
 // HTLCs. This will be used to generate the vPkts that corresponds to the second
 // level HTLC sweep.
+//
+// When addAnchor is true, a second AllocationTypeNoAssets entry for the
+// CPFP anchor output at index 1 is appended, and AnchorSize sats are
+// taken from the HTLC allocation's BtcAmount to fund it. This mirrors
+// the BTC-level layout produced by lnwallet.CreateHtlcSuccessTx /
+// CreateHtlcTimeoutTx under DeterministicHTLCs.
 func createSecondLevelHtlcAllocations(chanType channeldb.ChannelType,
 	initiator bool, htlcOutputs []*cmsg.AssetOutput, htlcAmt btcutil.Amount,
 	commitCsvDelay uint32, keys lnwallet.CommitmentKeyRing,
 	outputIndex fn.Option[uint32], htlcTimeout fn.Option[uint32],
-	htlcIndex uint64) ([]*tapsend.Allocation, error) {
+	htlcIndex uint64, addAnchor bool) ([]*tapsend.Allocation, error) {
 
 	// TODO(roasbeef): thaw height not implemented for taproot chans rn
 	// (lease expiry)
@@ -1361,13 +1367,14 @@ func createSecondLevelHtlcAllocations(chanType channeldb.ChannelType,
 		schnorr.SerializePubKey(htlcTree.TaprootKey),
 		schnorr.SerializePubKey(tweakedTree.TaprootKey))
 
+	htlcOutputIndex := outputIndex.UnwrapOr(0)
 	allocations := []*tapsend.Allocation{{
 		Type: tapsend.SecondLevelHtlcAllocation,
 		// If we're making the second-level transaction just to sign,
 		// then we'll have an output index of zero. Otherwise, we'll
 		// want to use the output index as appears in the final
 		// commitment transaction.
-		OutputIndex:  outputIndex.UnwrapOr(0),
+		OutputIndex:  htlcOutputIndex,
 		Amount:       cmsg.OutputSum(htlcOutputs),
 		AssetVersion: asset.V1,
 		BtcAmount:    htlcAmt,
@@ -1388,21 +1395,57 @@ func createSecondLevelHtlcAllocations(chanType channeldb.ChannelType,
 		HtlcIndex: htlcIndex,
 	}}
 
+	if addAnchor {
+		// The CPFP anchor that lnwallet.CreateHtlc{Success,Timeout}Tx
+		// appends at index 1. Anyone-can-spend after 16 CSV blocks
+		// via script path, or by the broadcaster (key-path) using
+		// ToLocalKey before then. Tapd must include it in the
+		// allocations so exclusion proofs are generated for it.
+		anchor, err := input.NewAnchorScriptTree(keys.ToLocalKey)
+		if err != nil {
+			return nil, fmt.Errorf("error creating second-level "+
+				"anchor script tree: %w", err)
+		}
+		anchorLeaves, anchorTree, err := LeavesFromTapscriptScriptTree(
+			anchor,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error creating second-level "+
+				"anchor sibling: %w", err)
+		}
+
+		allocations = append(allocations, &tapsend.Allocation{
+			// Anchor outputs never carry assets.
+			Type:           tapsend.AllocationTypeNoAssets,
+			OutputIndex:    htlcOutputIndex + 1,
+			Amount:         0,
+			BtcAmount:      lnwallet.AnchorSize,
+			InternalKey:    anchorTree.InternalKey,
+			NonAssetLeaves: anchorLeaves,
+			SortTaprootKeyBytes: schnorr.SerializePubKey(
+				anchorTree.TaprootKey,
+			),
+		})
+	}
+
 	return allocations, nil
 }
 
 // CreateSecondLevelHtlcPackets creates the virtual packets for the second level
-// HTLC.
+// HTLC. When addAnchor is true (DeterministicHTLCs), the allocations
+// include a CPFP anchor output at index 1 mirroring the BTC-level layout
+// from lnwallet.CreateHtlc{Success,Timeout}Tx.
 func CreateSecondLevelHtlcPackets(chanState lnwallet.AuxChanState,
 	commitTx *wire.MsgTx, htlcAmt btcutil.Amount,
 	keys lnwallet.CommitmentKeyRing, chainParams *address.ChainParams,
 	htlcOutputs []*cmsg.AssetOutput, htlcTimeout fn.Option[uint32],
-	htlcIndex uint64) ([]*tappsbt.VPacket, []*tapsend.Allocation, error) {
+	htlcIndex uint64,
+	addAnchor bool) ([]*tappsbt.VPacket, []*tapsend.Allocation, error) {
 
 	allocations, err := createSecondLevelHtlcAllocations(
 		chanState.ChanType, chanState.IsInitiator,
 		htlcOutputs, htlcAmt, uint32(chanState.LocalChanCfg.CsvDelay),
-		keys, fn.None[uint32](), htlcTimeout, htlcIndex,
+		keys, fn.None[uint32](), htlcTimeout, htlcIndex, addAnchor,
 	)
 	if err != nil {
 		return nil, nil, err
@@ -1445,18 +1488,21 @@ func CreateSecondLevelHtlcPackets(chanState lnwallet.AuxChanState,
 }
 
 // CreateSecondLevelHtlcTx creates the auxiliary leaf for a successful or timed
-// out second level HTLC transaction.
+// out second level HTLC transaction. addAnchor signals that the BTC-level
+// second-level tx includes a CPFP anchor output at index 1 (under
+// DeterministicHTLCs) — the allocation set then carries an exclusion-only
+// entry for that output.
 func CreateSecondLevelHtlcTx(chanState lnwallet.AuxChanState,
 	commitTx *wire.MsgTx, htlcAmt btcutil.Amount,
 	keys lnwallet.CommitmentKeyRing, chainParams *address.ChainParams,
 	htlcOutputs []*cmsg.AssetOutput, htlcTimeout fn.Option[uint32],
-	htlcIndex uint64, stxo bool) (input.AuxTapLeaf, error) {
+	htlcIndex uint64, stxo, addAnchor bool) (input.AuxTapLeaf, error) {
 
 	none := input.NoneTapLeaf()
 
 	vPackets, allocations, err := CreateSecondLevelHtlcPackets(
 		chanState, commitTx, htlcAmt, keys, chainParams, htlcOutputs,
-		htlcTimeout, htlcIndex,
+		htlcTimeout, htlcIndex, addAnchor,
 	)
 	if err != nil {
 		return none, fmt.Errorf("error creating second level HTLC "+

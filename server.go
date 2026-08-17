@@ -1009,10 +1009,7 @@ func (s *Server) FetchLeavesFromRevocation(
 
 	// The aux leaf creator is fully stateless, and we don't need to wait
 	// for the server to be started before being able to use it.
-	return tapchannel.FetchLeavesFromRevocation(
-		req.Revocation, req.ChanState, req.Keys, req.CommitTx,
-		s.chainParams,
-	)
+	return tapchannel.FetchLeavesFromRevocation(req, s.chainParams)
 }
 
 // ApplyHtlcView serves as the state transition function for the custom

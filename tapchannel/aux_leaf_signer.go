@@ -386,6 +386,7 @@ func verifyHtlcSignature(chainParams *address.ChainParams,
 	vPackets, err := htlcSecondLevelPacketsFromCommit(
 		chainParams, chanState, commitTx, baseJob.KeyRing, htlcOutputs,
 		baseJob, htlcTimeout, baseJob.HTLC.HtlcIndex,
+		sigHashDefaultFromCommitBlob(baseJob.CommitBlob),
 	)
 	if err != nil {
 		return fmt.Errorf("error generating second level packets: %w",
@@ -605,6 +606,7 @@ func (s *AuxLeafSigner) generateHtlcSignature(chanState lnwallet.AuxChanState,
 	vPackets, err := htlcSecondLevelPacketsFromCommit(
 		s.cfg.ChainParams, chanState, commitTx, baseJob.KeyRing,
 		htlcOutputs, baseJob, htlcTimeout, baseJob.HTLC.HtlcIndex,
+		sigHashDefaultFromCommitBlob(baseJob.CommitBlob),
 	)
 	if err != nil {
 		return lnwallet.AuxSigJobResp{}, fmt.Errorf("error generating "+
@@ -701,11 +703,13 @@ func htlcSecondLevelPacketsFromCommit(chainParams *address.ChainParams,
 	chanState lnwallet.AuxChanState, commitTx *wire.MsgTx,
 	keyRing lnwallet.CommitmentKeyRing, htlcOutputs []*cmsg.AssetOutput,
 	baseJob lnwallet.BaseAuxJob, htlcTimeout fn.Option[uint32],
-	htlcIndex uint64) ([]*tappsbt.VPacket, error) {
+	htlcIndex uint64,
+	addAnchor bool) ([]*tappsbt.VPacket, error) {
 
 	packets, _, err := CreateSecondLevelHtlcPackets(
 		chanState, commitTx, baseJob.HTLC.Amount.ToSatoshis(),
 		keyRing, chainParams, htlcOutputs, htlcTimeout, htlcIndex,
+		addAnchor,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error creating second level HTLC "+
@@ -713,6 +717,25 @@ func htlcSecondLevelPacketsFromCommit(chainParams *address.ChainParams,
 	}
 
 	return packets, nil
+}
+
+// sigHashDefaultFromCommitBlob extracts the cached DeterministicHTLCs
+// flag from a commitment blob. Returns false when the blob is absent or
+// malformed (the safe default — no anchor on the 2nd-level tx).
+func sigHashDefaultFromCommitBlob(
+	blob lfn.Option[tlv.Blob]) bool {
+
+	raw, err := blob.UnwrapOrErr(fmt.Errorf("no commit blob"))
+	if err != nil {
+		return false
+	}
+
+	c, err := cmsg.DecodeCommitment(raw)
+	if err != nil {
+		return false
+	}
+
+	return c.SigHashDefault.Val
 }
 
 // schnorrSigValidator validates a single Schnorr signature against the given
