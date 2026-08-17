@@ -132,6 +132,169 @@ func WithSkipTimeLockValidationForAllProofs() VerifyOption {
 type BaseVerifier struct {
 }
 
+// VerifyProofSuffix verifies an unconfirmed transition proof suffix against
+// the proof files of the assets it spends. The suffix must not carry
+// additional inputs itself; every input, including the primary one, is
+// supplied through inputProofFiles, keyed by the witness PrevID it satisfies.
+//
+// Verification of each input file starts at the first proof contained in
+// that file. Nothing here requires a file to begin at a genesis proof: a
+// file whose first proof carries a challenge witness proves control of the
+// current script key only, and establishes no provenance at all. Callers
+// that need full provenance must supply files rooted at genesis or otherwise
+// independently trusted.
+//
+// The suffix's anchor transaction has not been confirmed yet, so only its
+// block header, transaction merkle proof and time lock checks are skipped.
+// Everything else still runs: proof integrity, inclusion/exclusion proofs,
+// anchor input spending checks, and the asset VM. Consequently, the chain
+// fields of the returned snapshot (anchor block, height, merkle inclusion
+// and time lock maturity) are unverified for the suffix and must not be
+// relied upon until the anchor transaction confirms.
+//
+// The caller also remains responsible for binding the suffix to its
+// expected context: the identity of the anchor transaction, the committed
+// asset root, the anchor output index, and the exact set of assets and
+// amounts the suffix is supposed to cover.
+func VerifyProofSuffix(ctx context.Context, suffix *Proof,
+	inputProofFiles map[asset.PrevID]*File, verifier Verifier,
+	vCtx VerifierCtx) (*AssetSnapshot, error) {
+
+	if suffix == nil {
+		return nil, fmt.Errorf("proof suffix is nil")
+	}
+	if verifier == nil {
+		return nil, fmt.Errorf("proof verifier is nil")
+	}
+	if len(suffix.ChallengeWitness) != 0 {
+		return nil, fmt.Errorf("proof suffix has a challenge witness")
+	}
+	if len(suffix.AdditionalInputs) != 0 {
+		return nil, fmt.Errorf("proof suffix carries additional " +
+			"inputs; inputs must be supplied through the input " +
+			"proof files")
+	}
+
+	primaryPrevID, err := suffix.Asset.PrimaryPrevID()
+	if err != nil {
+		return nil, fmt.Errorf("unable to determine primary input: %w",
+			err)
+	}
+	if primaryPrevID == nil {
+		return nil, fmt.Errorf("primary input is nil")
+	}
+	if suffix.PrevOut != primaryPrevID.OutPoint {
+		return nil, fmt.Errorf("proof suffix previous outpoint %v "+
+			"does not match primary input %v", suffix.PrevOut,
+			primaryPrevID.OutPoint)
+	}
+
+	// Work on a copy because the additional inputs are populated from the
+	// verified input proof files below, and we must not mutate the suffix
+	// that the caller will persist.
+	suffixCopy := *suffix
+
+	witnesses := suffix.Asset.Witnesses()
+	seenInputs := make(map[asset.PrevID]struct{}, len(witnesses))
+	var primaryInputFile *File
+
+	for idx := range witnesses {
+		prevID := witnesses[idx].PrevID
+		if prevID == nil {
+			return nil, fmt.Errorf("input witness %d has no "+
+				"previous ID", idx)
+		}
+		if _, ok := seenInputs[*prevID]; ok {
+			return nil, fmt.Errorf("duplicate input witness %v",
+				*prevID)
+		}
+		seenInputs[*prevID] = struct{}{}
+
+		// The anchor transaction must actually consume every claimed
+		// input, not just the primary one. Multiple assets may reside
+		// in a single UTXO, so re-checking an already spent outpoint
+		// for another witness is fine.
+		if !TxSpendsPrevOut(&suffix.AnchorTx, &prevID.OutPoint) {
+			return nil, fmt.Errorf("anchor transaction does not "+
+				"spend input %v", *prevID)
+		}
+
+		inputFile, ok := inputProofFiles[*prevID]
+		if !ok || inputFile == nil {
+			return nil, fmt.Errorf("no verified input proof for %v",
+				*prevID)
+		}
+
+		lastProof, err := inputFile.LastProof()
+		if err != nil {
+			return nil, fmt.Errorf("unable to read input proof "+
+				"%v: %w", *prevID, err)
+		}
+		lastPrevID := asset.PrevID{
+			OutPoint: lastProof.OutPoint(),
+			ID:       lastProof.Asset.ID(),
+			ScriptKey: asset.ToSerialized(
+				lastProof.Asset.ScriptKey.PubKey,
+			),
+		}
+		if lastPrevID != *prevID {
+			return nil, fmt.Errorf("input proof mismatch: "+
+				"expected %v, got %v", *prevID, lastPrevID)
+		}
+
+		if *prevID == *primaryPrevID {
+			primaryInputFile, err = cloneProofFile(inputFile)
+			if err != nil {
+				return nil, fmt.Errorf("unable to copy "+
+					"primary input proof: %w", err)
+			}
+			continue
+		}
+
+		suffixCopy.AdditionalInputs = append(
+			suffixCopy.AdditionalInputs, *inputFile,
+		)
+	}
+
+	if primaryInputFile == nil {
+		return nil, fmt.Errorf("primary input proof not found")
+	}
+	if err := primaryInputFile.AppendProof(suffixCopy); err != nil {
+		return nil, fmt.Errorf("unable to append proof suffix: %w", err)
+	}
+
+	var proofFileBuf bytes.Buffer
+	if err := primaryInputFile.Encode(&proofFileBuf); err != nil {
+		return nil, fmt.Errorf("unable to encode proof file: %w", err)
+	}
+
+	return verifier.Verify(
+		ctx, bytes.NewReader(proofFileBuf.Bytes()), vCtx,
+		WithSkipChainVerificationForFinalProof(),
+		WithSkipTimeLockValidationForFinalProof(),
+	)
+}
+
+// cloneProofFile returns an independent copy of a proof file.
+func cloneProofFile(file *File) (*File, error) {
+	if file == nil {
+		return nil, fmt.Errorf("proof file is nil")
+	}
+
+	var fileBuf bytes.Buffer
+	if err := file.Encode(&fileBuf); err != nil {
+		return nil, err
+	}
+
+	fileCopy := NewEmptyFile(file.Version)
+	err := fileCopy.Decode(bytes.NewReader(fileBuf.Bytes()))
+	if err != nil {
+		return nil, err
+	}
+
+	return fileCopy, nil
+}
+
 // P2TROutputsSTXOs is used to track stxo proofs per p2tr output in the anchor
 // transaction.
 type P2TROutputsSTXOs = map[uint32]fn.Set[asset.SerializedKey]

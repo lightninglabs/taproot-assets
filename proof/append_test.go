@@ -147,6 +147,180 @@ func TestFinalProofSkipTimeLockCSV(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// TestVerifyProofSuffix ensures an unconfirmed proof suffix is verified
+// against the fully verified histories of its inputs. The final chain data is
+// intentionally skipped, while the input chain and asset VM remain enforced.
+func makeSuffixInputFiles(t *testing.T,
+	proofFile *File) (*Proof, map[asset.PrevID]*File) {
+
+	t.Helper()
+
+	require.Equal(t, 2, proofFile.NumProofs())
+	inputProof, err := proofFile.ProofAt(0)
+	require.NoError(t, err)
+	suffix, err := proofFile.ProofAt(1)
+	require.NoError(t, err)
+
+	inputFile, err := NewFile(V0, *inputProof)
+	require.NoError(t, err)
+	prevID := asset.PrevID{
+		OutPoint: inputProof.OutPoint(),
+		ID:       inputProof.Asset.ID(),
+		ScriptKey: asset.ToSerialized(
+			inputProof.Asset.ScriptKey.PubKey,
+		),
+	}
+
+	return suffix, map[asset.PrevID]*File{
+		prevID: inputFile,
+	}
+}
+
+func TestVerifyProofSuffix(t *testing.T) {
+	t.Parallel()
+
+	makeInputFiles := makeSuffixInputFiles
+
+	t.Run("valid unconfirmed suffix", func(t *testing.T) {
+		proofFile := buildTransitionProofFile(t, 0, 0)
+		suffix, inputFiles := makeInputFiles(t, proofFile)
+
+		// A proof suffix has no real block data until its anchor
+		// confirms. Make that explicit and ensure the header verifier
+		// is only called for the already confirmed input proof.
+		suffix.BlockHeader = wire.BlockHeader{}
+		suffix.BlockHeight = 0
+		suffix.TxMerkleProof = TxMerkleProof{}
+
+		headerCalls := 0
+		vCtx := MockVerifierCtx
+		vCtx.HeaderVerifier = func(header wire.BlockHeader,
+			height uint32) error {
+
+			headerCalls++
+			require.NotEqual(t, wire.BlockHeader{}, header)
+			require.NotZero(t, height)
+
+			return nil
+		}
+
+		snapshot, err := VerifyProofSuffix(
+			context.Background(), suffix, inputFiles,
+			&BaseVerifier{}, vCtx,
+		)
+		require.NoError(t, err)
+		require.True(t, suffix.Asset.DeepEqual(snapshot.Asset))
+		require.Equal(t, 1, headerCalls)
+	})
+
+	t.Run("fabricated anchor input", func(t *testing.T) {
+		proofFile := buildTransitionProofFile(t, 0, 0)
+		suffix, inputFiles := makeInputFiles(t, proofFile)
+
+		fakePrevOut := test.RandOp(t)
+		suffix.PrevOut = fakePrevOut
+		suffix.AnchorTx.TxIn[0].PreviousOutPoint = fakePrevOut
+
+		// The old structural-only validation accepts this mutation
+		// because the anchor transaction inputs and asset VM aren't
+		// inspected.
+		_, err := suffix.VerifyProofs()
+		require.NoError(t, err)
+
+		_, err = VerifyProofSuffix(
+			context.Background(), suffix, inputFiles,
+			&BaseVerifier{}, MockVerifierCtx,
+		)
+		require.ErrorContains(t, err, "does not match primary input")
+	})
+
+	t.Run("invalid asset witness", func(t *testing.T) {
+		proofFile := buildTransitionProofFile(
+			t, 0, 0, func(a *asset.Asset) {
+				witnesses := a.Witnesses()
+				witnesses[0].TxWitness[0][0] ^= 1
+			},
+		)
+		suffix, inputFiles := makeInputFiles(t, proofFile)
+
+		// The proof commits to the tampered asset, so its structural
+		// proof remains valid. Only executing the VM detects the bad
+		// witness.
+		_, err := suffix.VerifyProofs()
+		require.NoError(t, err)
+
+		_, err = VerifyProofSuffix(
+			context.Background(), suffix, inputFiles,
+			&BaseVerifier{}, MockVerifierCtx,
+		)
+		require.Error(t, err)
+		var vmErr vm.Error
+		require.ErrorAs(t, err, &vmErr)
+		require.Equal(t, vm.ErrInvalidTransferWitness, vmErr.Kind)
+	})
+
+	t.Run("peer-supplied additional inputs", func(t *testing.T) {
+		proofFile := buildTransitionProofFile(t, 0, 0)
+		suffix, inputFiles := makeInputFiles(t, proofFile)
+
+		suffix.AdditionalInputs = []File{*proofFile}
+
+		_, err := VerifyProofSuffix(
+			context.Background(), suffix, inputFiles,
+			&BaseVerifier{}, MockVerifierCtx,
+		)
+		require.ErrorContains(t, err, "carries additional inputs")
+	})
+
+	t.Run("valid multi-input suffix", func(t *testing.T) {
+		suffix, inputFiles := buildMergeSuffix(t, false)
+
+		snapshot, err := VerifyProofSuffix(
+			context.Background(), suffix, inputFiles,
+			&BaseVerifier{}, MockVerifierCtx,
+		)
+		require.NoError(t, err)
+		require.Equal(t, suffix.OutPoint(), snapshot.OutPoint)
+		require.Equal(t, suffix.Asset.Amount, snapshot.Asset.Amount)
+		require.Equal(
+			t, asset.ToSerialized(suffix.Asset.ScriptKey.PubKey),
+			asset.ToSerialized(snapshot.Asset.ScriptKey.PubKey),
+		)
+	})
+
+	t.Run("anchor omits additional input", func(t *testing.T) {
+		suffix, inputFiles := buildMergeSuffix(t, false)
+
+		// Drop the anchor transaction input that consumes the split
+		// leaf. The asset level witnesses still verify, so only the
+		// anchor input spending check can catch this.
+		require.Len(t, suffix.AnchorTx.TxIn, 2)
+		suffix.AnchorTx.TxIn = suffix.AnchorTx.TxIn[:1]
+
+		_, err := VerifyProofSuffix(
+			context.Background(), suffix, inputFiles,
+			&BaseVerifier{}, MockVerifierCtx,
+		)
+		require.ErrorContains(t, err, "does not spend input")
+	})
+
+	t.Run("inputs sharing one anchor outpoint", func(t *testing.T) {
+		suffix, inputFiles := buildMergeSuffix(t, true)
+
+		// Both asset inputs reside in the same Bitcoin UTXO, which the
+		// anchor transaction spends exactly once.
+		require.Len(t, suffix.AnchorTx.TxIn, 1)
+
+		snapshot, err := VerifyProofSuffix(
+			context.Background(), suffix, inputFiles,
+			&BaseVerifier{}, MockVerifierCtx,
+		)
+		require.NoError(t, err)
+		require.Equal(t, suffix.OutPoint(), snapshot.OutPoint)
+		require.Equal(t, suffix.Asset.Amount, snapshot.Asset.Amount)
+	})
+}
+
 // runAppendTransitionTest runs the test that makes sure a proof can be appended
 // to an existing proof for an asset transition of the given type and amount.
 func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
@@ -606,7 +780,7 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 // buildTransitionProofFile constructs a proof file with a genesis proof and a
 // single transfer proof that uses the given lock times.
 func buildTransitionProofFile(t *testing.T, lockTime,
-	relativeLockTime uint64) *File {
+	relativeLockTime uint64, assetMutators ...func(*asset.Asset)) *File {
 
 	t.Helper()
 
@@ -624,6 +798,9 @@ func buildTransitionProofFile(t *testing.T, lockTime,
 	newAsset.RelativeLockTime = relativeLockTime
 
 	signAssetTransfer(t, &genesisProof, &newAsset, senderPrivKey, nil)
+	for _, mutate := range assetMutators {
+		mutate(&newAsset)
+	}
 
 	assetCommitment, err := commitment.NewAssetCommitment(&newAsset)
 	require.NoError(t, err)
@@ -694,6 +871,327 @@ func buildTransitionProofFile(t *testing.T, lockTime,
 	require.NoError(t, f.AppendProof(genesisProof))
 	require.NoError(t, f.AppendProof(*transitionProof))
 	return f
+}
+
+// buildMergeSuffix constructs an unconfirmed two-input merge suffix. A
+// genesis asset is split into a transfer root and a split leaf, which are
+// then merged back into a single output by the suffix. If sharedAnchorOut is
+// true, both split outputs are committed to the same anchor output, so the
+// merge spends two asset inputs that share one Bitcoin outpoint.
+func buildMergeSuffix(t *testing.T, sharedAnchorOut bool) (*Proof,
+	map[asset.PrevID]*File) {
+
+	t.Helper()
+
+	amt := uint64(100)
+	genesisProof, senderPrivKey := genRandomGenesisWithProof(
+		t, asset.Normal, &amt, nil, true, nil, nil, nil, nil, asset.V0,
+	)
+	genesisBlob, err := EncodeAsProofFile(&genesisProof)
+	require.NoError(t, err)
+
+	// Split the genesis asset into a transfer root and a split leaf.
+	rootPrivKey := test.RandPrivKey()
+	leafPrivKey := test.RandPrivKey()
+	rootScriptKey := asset.NewScriptKeyBip86(
+		test.PubToKeyDesc(rootPrivKey.PubKey()),
+	)
+	leafScriptKey := asset.NewScriptKeyBip86(
+		test.PubToKeyDesc(leafPrivKey.PubKey()),
+	)
+
+	leafOutputIndex := uint32(1)
+	if sharedAnchorOut {
+		leafOutputIndex = 0
+	}
+
+	assetID := genesisProof.Asset.ID()
+	rootLocator := &commitment.SplitLocator{
+		OutputIndex: 0,
+		AssetID:     assetID,
+		ScriptKey:   asset.ToSerialized(rootScriptKey.PubKey),
+		Amount:      60,
+	}
+	leafLocator := &commitment.SplitLocator{
+		OutputIndex: leafOutputIndex,
+		AssetID:     assetID,
+		ScriptKey:   asset.ToSerialized(leafScriptKey.PubKey),
+		Amount:      40,
+	}
+	genesisOutpoint := wire.OutPoint{
+		Hash:  genesisProof.AnchorTx.TxHash(),
+		Index: genesisProof.InclusionProof.OutputIndex,
+	}
+	splitCommitment, err := commitment.NewSplitCommitment(
+		context.Background(), []commitment.SplitCommitmentInput{{
+			Asset:    &genesisProof.Asset,
+			OutPoint: genesisOutpoint,
+		}}, rootLocator, leafLocator,
+	)
+	require.NoError(t, err)
+
+	rootAsset := splitCommitment.RootAsset
+	leafAsset := &splitCommitment.SplitAssets[*leafLocator].Asset
+	leafAssetNoSplitProof := leafAsset.Copy()
+	leafAssetNoSplitProof.PrevWitnesses[0].SplitCommitment = nil
+
+	signAssetTransfer(
+		t, &genesisProof, rootAsset, senderPrivKey,
+		[]*asset.Asset{leafAsset},
+	)
+
+	// Commit the split outputs to their anchor output(s).
+	var rootTap, leafTap *commitment.TapCommitment
+	if sharedAnchorOut {
+		sharedAssetCommitment, err := commitment.NewAssetCommitment(
+			rootAsset, leafAssetNoSplitProof,
+		)
+		require.NoError(t, err)
+		rootTap, err = commitment.NewTapCommitment(
+			nil, sharedAssetCommitment,
+		)
+		require.NoError(t, err)
+		leafTap = rootTap
+	} else {
+		rootAssetCommitment, err := commitment.NewAssetCommitment(
+			rootAsset,
+		)
+		require.NoError(t, err)
+		rootTap, err = commitment.NewTapCommitment(
+			nil, rootAssetCommitment,
+		)
+		require.NoError(t, err)
+
+		leafAssetCommitment, err := commitment.NewAssetCommitment(
+			leafAssetNoSplitProof,
+		)
+		require.NoError(t, err)
+		leafTap, err = commitment.NewTapCommitment(
+			nil, leafAssetCommitment,
+		)
+		require.NoError(t, err)
+	}
+
+	rootInternalKey := test.RandPubKey(t)
+	leafInternalKey := rootInternalKey
+	if !sharedAnchorOut {
+		leafInternalKey = test.RandPubKey(t)
+	}
+
+	rootTapscriptRoot := rootTap.TapscriptRoot(nil)
+	rootTaprootKey := txscript.ComputeTaprootOutputKey(
+		rootInternalKey, rootTapscriptRoot[:],
+	)
+	splitTx := &wire.MsgTx{
+		Version: 2,
+		TxIn: []*wire.TxIn{{
+			PreviousOutPoint: genesisOutpoint,
+		}},
+		TxOut: []*wire.TxOut{{
+			PkScript: test.ComputeTaprootScript(t, rootTaprootKey),
+			Value:    330,
+		}},
+	}
+	if !sharedAnchorOut {
+		leafTapscriptRoot := leafTap.TapscriptRoot(nil)
+		leafTaprootKey := txscript.ComputeTaprootOutputKey(
+			leafInternalKey, leafTapscriptRoot[:],
+		)
+		splitTx.TxOut = append(splitTx.TxOut, &wire.TxOut{
+			PkScript: test.ComputeTaprootScript(t, leafTaprootKey),
+			Value:    330,
+		})
+	}
+
+	splitMerkleTree := blockchain.BuildMerkleTreeStore(
+		[]*btcutil.Tx{btcutil.NewTx(splitTx)}, false,
+	)
+	splitMerkleRoot := splitMerkleTree[len(splitMerkleTree)-1]
+	genesisHash := genesisProof.BlockHeader.BlockHash()
+	splitBlockHeader := wire.NewBlockHeader(
+		0, &genesisHash, splitMerkleRoot, 0, 0,
+	)
+	splitBlock := &wire.MsgBlock{
+		Header:       *splitBlockHeader,
+		Transactions: []*wire.MsgTx{splitTx},
+	}
+
+	// With two anchor outputs, each proof needs an exclusion proof for the
+	// respective other output.
+	var rootExclusions, leafExclusions []TaprootProof
+	if !sharedAnchorOut {
+		_, rootInLeafExclusion, err := leafTap.Proof(
+			rootAsset.TapCommitmentKey(),
+			rootAsset.AssetCommitmentKey(),
+		)
+		require.NoError(t, err)
+		rootExclusions = []TaprootProof{{
+			OutputIndex: 1,
+			InternalKey: leafInternalKey,
+			CommitmentProof: &CommitmentProof{
+				Proof: *rootInLeafExclusion,
+			},
+		}}
+
+		_, leafInRootExclusion, err := rootTap.Proof(
+			leafAsset.TapCommitmentKey(),
+			leafAsset.AssetCommitmentKey(),
+		)
+		require.NoError(t, err)
+		leafExclusions = []TaprootProof{{
+			OutputIndex: 0,
+			InternalKey: rootInternalKey,
+			CommitmentProof: &CommitmentProof{
+				Proof: *leafInRootExclusion,
+			},
+		}}
+	}
+
+	rootParams := &TransitionParams{
+		BaseProofParams: BaseProofParams{
+			Block:            splitBlock,
+			Tx:               splitTx,
+			TxIndex:          0,
+			OutputIndex:      0,
+			InternalKey:      rootInternalKey,
+			TaprootAssetRoot: rootTap,
+			ExclusionProofs:  rootExclusions,
+		},
+		NewAsset: rootAsset,
+	}
+	rootBlob, _, err := AppendTransition(
+		genesisBlob, rootParams, MockVerifierCtx,
+		WithVersion(TransitionV0), WithNoSTXOProofs(),
+	)
+	require.NoError(t, err)
+
+	leafParams := &TransitionParams{
+		BaseProofParams: BaseProofParams{
+			Block:            splitBlock,
+			Tx:               splitTx,
+			TxIndex:          0,
+			OutputIndex:      int(leafOutputIndex),
+			InternalKey:      leafInternalKey,
+			TaprootAssetRoot: leafTap,
+			ExclusionProofs:  leafExclusions,
+		},
+		NewAsset:             leafAsset,
+		RootInternalKey:      rootInternalKey,
+		RootOutputIndex:      0,
+		RootTaprootAssetTree: rootTap,
+	}
+	leafBlob, _, err := AppendTransition(
+		genesisBlob, leafParams, MockVerifierCtx,
+		WithVersion(TransitionV0), WithNoSTXOProofs(),
+	)
+	require.NoError(t, err)
+
+	// Now merge the two split outputs back into a single asset output with
+	// an unconfirmed suffix.
+	rootPrevID := &asset.PrevID{
+		OutPoint: wire.OutPoint{
+			Hash:  splitTx.TxHash(),
+			Index: 0,
+		},
+		ID:        assetID,
+		ScriptKey: asset.ToSerialized(rootScriptKey.PubKey),
+	}
+	leafPrevID := &asset.PrevID{
+		OutPoint: wire.OutPoint{
+			Hash:  splitTx.TxHash(),
+			Index: leafOutputIndex,
+		},
+		ID:        assetID,
+		ScriptKey: asset.ToSerialized(leafScriptKey.PubKey),
+	}
+
+	mergePrivKey := test.RandPrivKey()
+	mergedAsset := genesisProof.Asset.Copy()
+	mergedAsset.Amount = amt
+	mergedAsset.ScriptKey = asset.NewScriptKeyBip86(
+		test.PubToKeyDesc(mergePrivKey.PubKey()),
+	)
+	mergedAsset.PrevWitnesses = []asset.Witness{
+		{PrevID: rootPrevID}, {PrevID: leafPrevID},
+	}
+
+	mergeInputs := commitment.InputSet{
+		*rootPrevID: rootAsset,
+		*leafPrevID: leafAsset,
+	}
+	virtualTx, _, err := tapscript.VirtualTx(mergedAsset, mergeInputs)
+	require.NoError(t, err)
+	mergedAsset.PrevWitnesses[0].TxWitness = genTaprootKeySpend(
+		t, *rootPrivKey, virtualTx, rootAsset, mergedAsset, 0,
+	)
+	mergedAsset.PrevWitnesses[1].TxWitness = genTaprootKeySpend(
+		t, *leafPrivKey, virtualTx, leafAsset, mergedAsset, 1,
+	)
+
+	mergeAssetCommitment, err := commitment.NewAssetCommitment(mergedAsset)
+	require.NoError(t, err)
+	mergeTap, err := commitment.NewTapCommitment(nil, mergeAssetCommitment)
+	require.NoError(t, err)
+
+	mergeInternalKey := test.RandPubKey(t)
+	mergeTapscriptRoot := mergeTap.TapscriptRoot(nil)
+	mergeTaprootKey := txscript.ComputeTaprootOutputKey(
+		mergeInternalKey, mergeTapscriptRoot[:],
+	)
+	mergeTx := &wire.MsgTx{
+		Version: 2,
+		TxIn: []*wire.TxIn{{
+			PreviousOutPoint: rootPrevID.OutPoint,
+		}},
+		TxOut: []*wire.TxOut{{
+			PkScript: test.ComputeTaprootScript(t, mergeTaprootKey),
+			Value:    330,
+		}},
+	}
+	if !sharedAnchorOut {
+		mergeTx.TxIn = append(mergeTx.TxIn, &wire.TxIn{
+			PreviousOutPoint: leafPrevID.OutPoint,
+		})
+	}
+
+	mergeMerkleTree := blockchain.BuildMerkleTreeStore(
+		[]*btcutil.Tx{btcutil.NewTx(mergeTx)}, false,
+	)
+	mergeMerkleRoot := mergeMerkleTree[len(mergeMerkleTree)-1]
+	splitHash := splitBlockHeader.BlockHash()
+	mergeBlockHeader := wire.NewBlockHeader(
+		0, &splitHash, mergeMerkleRoot, 0, 0,
+	)
+
+	mergeParams := &TransitionParams{
+		BaseProofParams: BaseProofParams{
+			Block: &wire.MsgBlock{
+				Header:       *mergeBlockHeader,
+				Transactions: []*wire.MsgTx{mergeTx},
+			},
+			Tx:               mergeTx,
+			TxIndex:          0,
+			OutputIndex:      0,
+			InternalKey:      mergeInternalKey,
+			TaprootAssetRoot: mergeTap,
+		},
+		NewAsset: mergedAsset,
+	}
+	suffix, err := CreateTransitionProof(
+		rootPrevID.OutPoint, mergeParams, WithVersion(TransitionV0),
+		WithNoSTXOProofs(),
+	)
+	require.NoError(t, err)
+
+	rootFile := NewEmptyFile(V0)
+	require.NoError(t, rootFile.Decode(bytes.NewReader(rootBlob)))
+	leafFile := NewEmptyFile(V0)
+	require.NoError(t, leafFile.Decode(bytes.NewReader(leafBlob)))
+
+	return suffix, map[asset.PrevID]*File{
+		*rootPrevID: rootFile,
+		*leafPrevID: leafFile,
+	}
 }
 
 // signAssetTransfer creates a virtual transaction for an asset transfer and
