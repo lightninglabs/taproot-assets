@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -474,11 +475,21 @@ func (a *AssetBalance) Decode(r io.Reader) error {
 }
 
 // Sum returns the sum of the amounts of all the asset Balances in the list.
+// If the sum would overflow a uint64, it saturates at the maximum uint64
+// value instead of wrapping around.
 func Sum(balances []*AssetBalance) uint64 {
 	var sum uint64
 	for _, balance := range balances {
-		sum += balance.Amount.Val
+		newSum := sum + balance.Amount.Val
+		if newSum < sum {
+			// The sum overflowed, saturate at the maximum uint64
+			// value.
+			return math.MaxUint64
+		}
+
+		sum = newSum
 	}
+
 	return sum
 }
 

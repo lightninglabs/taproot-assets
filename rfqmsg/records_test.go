@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"math"
 	"testing"
 
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -198,4 +199,35 @@ func TestHtlc(t *testing.T) {
 			assetHtlcTestCase(t, tc)
 		})
 	}
+}
+
+// TestSumOverflow ensures that summing asset balances does not silently
+// overflow the uint64 sum. A peer can craft a balance list with amounts that
+// wrap around to zero (e.g. [2^63, 2^63]), which would make a value-carrying
+// HTLC appear worthless to downstream consumers of the sum.
+func TestSumOverflow(t *testing.T) {
+	t.Parallel()
+
+	// Two balances of 2^63 each sum to 2^64, which overflows a uint64.
+	// The sum must saturate at the maximum uint64 value instead of
+	// wrapping around to zero.
+	balances := []*AssetBalance{
+		NewAssetBalance([32]byte{1}, 1<<63),
+		NewAssetBalance([32]byte{1}, 1<<63),
+	}
+
+	require.Equal(t, uint64(math.MaxUint64), Sum(balances))
+
+	list := &AssetBalanceListRecord{Balances: balances}
+	require.Equal(t, uint64(math.MaxUint64), list.Sum())
+
+	// A sum that doesn't overflow should be unaffected.
+	normal := []*AssetBalance{
+		NewAssetBalance([32]byte{1}, 1000),
+		NewAssetBalance([32]byte{2}, 2000),
+	}
+	require.Equal(t, uint64(3000), Sum(normal))
+
+	// An empty list should sum to zero.
+	require.Equal(t, uint64(0), Sum(nil))
 }
