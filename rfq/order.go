@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -27,6 +28,36 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
+
+const (
+	// minInterceptorRetryBackoff is the initial delay we wait before we
+	// re-establish a torn down HTLC interception stream.
+	minInterceptorRetryBackoff = 500 * time.Millisecond
+
+	// maxInterceptorRetryBackoff is the maximum delay we wait before we
+	// re-establish a torn down HTLC interception stream.
+	maxInterceptorRetryBackoff = 30 * time.Second
+
+	// interceptorHealthyUptime is the duration an interception stream needs
+	// to be up for before we consider it healthy and reset the retry
+	// backoff.
+	interceptorHealthyUptime = time.Minute
+
+	// resolvedHtlcRetention is the duration after which we forget that we
+	// resolved an HTLC, in case we never learn about its final state. This
+	// is a fallback only, entries are normally removed as soon as lnd
+	// reports the HTLC as settled or failed.
+	resolvedHtlcRetention = 24 * time.Hour
+)
+
+// recoverableInterceptorErrs is the list of error strings that indicate that
+// the HTLC interception stream was torn down for a reason that we can recover
+// from by re-establishing the stream. See lnd's ErrCannotResume, ErrCannotFail
+// and ErrFwdNotExists.
+var recoverableInterceptorErrs = []string{
+	"in the on-chain flow",
+	"forward does not exist",
+}
 
 // parseHtlcCustomRecords parses a HTLC custom record to extract any data which
 // is relevant to the RFQ service. If the custom records map is nil or a
@@ -274,7 +305,13 @@ func (c *AssetSalePolicy) CheckHtlcCompliance(_ context.Context,
 			"mSat: %w", err)
 	}
 
-	if (c.CurrentAmountMsat + htlc.AmountOutMsat) > policyMaxOutMsat {
+	// lnd may offer the same HTLC to us more than once, and asks
+	// interceptor clients to handle those replays idempotently. If we
+	// already track this HTLC, its amount is part of CurrentAmountMsat
+	// already and must not be counted a second time.
+	currentAmtMsat := c.currentAmountExcluding(htlc.IncomingCircuitKey)
+
+	if (currentAmtMsat + htlc.AmountOutMsat) > policyMaxOutMsat {
 		return fmt.Errorf("HTLC out amount is greater than the policy "+
 			"maximum (htlc_out_msat=%d, policy_max_out_msat=%d)",
 			htlc.AmountOutMsat, policyMaxOutMsat)
@@ -297,9 +334,31 @@ func (c *AssetSalePolicy) TrackAcceptedHtlc(circuitKey models.CircuitKey,
 	c.stateMutex.Lock()
 	defer c.stateMutex.Unlock()
 
+	// If we already tracked this HTLC, we only account for the difference,
+	// as UntrackHtlc will only ever subtract the amount once.
+	if prevAmt, ok := c.htlcToAmt[circuitKey]; ok {
+		c.CurrentAmountMsat -= prevAmt
+	}
+
 	c.CurrentAmountMsat += amt
 
 	c.htlcToAmt[circuitKey] = amt
+}
+
+// currentAmountExcluding returns the total amount currently tracked by this
+// policy, without the amount of the given HTLC, if that HTLC is already being
+// tracked.
+//
+// NOTE: The caller must hold at least the read lock of the state mutex.
+func (c *AssetSalePolicy) currentAmountExcluding(
+	circuitKey models.CircuitKey) lnwire.MilliSatoshi {
+
+	prevAmt, ok := c.htlcToAmt[circuitKey]
+	if !ok {
+		return c.CurrentAmountMsat
+	}
+
+	return c.CurrentAmountMsat - prevAmt
 }
 
 // UntrackHtlc stops tracking the uniquely identified HTLC.
@@ -540,7 +599,11 @@ func (c *AssetPurchasePolicy) CheckHtlcCompliance(ctx context.Context,
 
 	// Ensure that the outbound HTLC amount is less than the maximum agreed
 	// BTC payment.
-	if (c.CurrentAmountMsat + htlc.AmountOutMsat) > c.PaymentMaxAmt {
+	// See the comment on the sale policy's compliance check: a replayed
+	// HTLC must not be counted twice.
+	currentAmtMsat := c.currentAmountExcluding(htlc.IncomingCircuitKey)
+
+	if (currentAmtMsat + htlc.AmountOutMsat) > c.PaymentMaxAmt {
 		return fmt.Errorf("HTLC out amount is more than the maximum "+
 			"agreed BTC payment (htlc_out_msat=%d, "+
 			"payment_max_amt=%d)", htlc.AmountOutMsat,
@@ -564,9 +627,31 @@ func (c *AssetPurchasePolicy) TrackAcceptedHtlc(circuitKey models.CircuitKey,
 	c.stateMutex.Lock()
 	defer c.stateMutex.Unlock()
 
+	// If we already tracked this HTLC, we only account for the difference,
+	// as UntrackHtlc will only ever subtract the amount once.
+	if prevAmt, ok := c.htlcToAmt[circuitKey]; ok {
+		c.CurrentAmountMsat -= prevAmt
+	}
+
 	c.CurrentAmountMsat += amt
 
 	c.htlcToAmt[circuitKey] = amt
+}
+
+// currentAmountExcluding returns the total amount currently tracked by this
+// policy, without the amount of the given HTLC, if that HTLC is already being
+// tracked.
+//
+// NOTE: The caller must hold at least the read lock of the state mutex.
+func (c *AssetPurchasePolicy) currentAmountExcluding(
+	circuitKey models.CircuitKey) lnwire.MilliSatoshi {
+
+	prevAmt, ok := c.htlcToAmt[circuitKey]
+	if !ok {
+		return c.CurrentAmountMsat
+	}
+
+	return c.CurrentAmountMsat - prevAmt
 }
 
 // UntrackHtlc stops tracking the uniquely identified HTLC.
@@ -888,6 +973,14 @@ type OrderHandler struct {
 	// needed for logging. This is populated when an HTLC is accepted.
 	htlcToForward lnutils.SyncMap[models.CircuitKey, *ForwardInput]
 
+	// resolvedHtlcs maps the circuit key of every HTLC we already sent a
+	// resolution for to the time we sent it. lnd only accepts a single
+	// resolution per intercepted HTLC and terminates the whole interception
+	// stream if we send another one. Entries are removed again once lnd
+	// tells us the HTLC reached its final state, and are swept by age as a
+	// fallback.
+	resolvedHtlcs lnutils.SyncMap[models.CircuitKey, time.Time]
+
 	// forwardStore persists forwarding events for accounting.
 	forwardStore ForwardStore
 
@@ -910,11 +1003,79 @@ func NewOrderHandler(cfg OrderHandlerCfg) (*OrderHandler, error) {
 	}, nil
 }
 
-// handleIncomingHtlc handles an incoming HTLC.
+// handleIncomingHtlc handles an incoming HTLC. It makes sure we never send more
+// than a single resolution per HTLC, then hands the HTLC over to
+// resolveIncomingHtlc for the actual policy evaluation.
 //
 // NOTE: This function must be thread safe. It is used by an external
 // interceptor service.
 func (h *OrderHandler) handleIncomingHtlc(ctx context.Context,
+	htlc lndclient.InterceptedHtlc) (*lndclient.InterceptedHtlcResponse,
+	error) {
+
+	// We claim the HTLC before resolving it, so we can be sure we only ever
+	// send a single resolution for it. lnd offers an HTLC to the
+	// interceptor a second time if it ends up being resolved on chain (see
+	// lnd's incoming contest resolver, which notifies the interceptor
+	// through the preimage beacon). Any resolution we send for such an HTLC
+	// is rejected by lnd, which terminates the whole interception stream
+	// and would take the RFQ subsystem (and with it the daemon) down with
+	// it. There is nothing we can do about an HTLC that is already being
+	// resolved on chain, so we simply don't answer. lnd doesn't require an
+	// answer either, it removes those HTLCs from its held set again with
+	// the next block.
+	//
+	// NOTE: A replay on its own is not proof that an HTLC is being resolved
+	// on chain, lnd asks interceptor clients to handle replayed circuit
+	// keys idempotently. What makes this safe is that with lnd's default
+	// configuration a disconnecting interceptor releases the off-chain held
+	// HTLCs (see releaseAllOffChainHeld in lnd's interceptable switch), so
+	// the ones that are still replayed to us afterwards are the on-chain
+	// ones. With lnd's requireinterceptor option the off-chain held HTLCs
+	// are retained instead, and we would also stay silent for those, which
+	// leaves them held until lnd's own expiry safety net fails them back.
+	_, alreadyResolved := h.resolvedHtlcs.LoadOrStore(
+		htlc.IncomingCircuitKey, time.Now(),
+	)
+	if alreadyResolved {
+		log.Warnf("HTLC %v was already resolved by us, not responding "+
+			"again (it is most likely being resolved on chain)",
+			htlc.IncomingCircuitKey)
+
+		// We can neither return a response nor an error here, as both
+		// would tear down the interception stream. So we just wait
+		// until the stream itself goes away.
+		select {
+		case <-ctx.Done():
+		case <-h.Quit:
+		}
+
+		// We only ever get here because the stream or the whole daemon
+		// is shutting down. Any error we return now is the one the
+		// interceptor exits with, so it must be one that isn't treated
+		// as critical, otherwise we'd report a critical error on every
+		// shutdown that happens while we hold an HTLC.
+		return nil, context.Canceled
+	}
+
+	resp, err := h.resolveIncomingHtlc(ctx, htlc)
+	if err != nil {
+		// We're not going to send a resolution after all, so we forget
+		// about this HTLC again.
+		h.resolvedHtlcs.Delete(htlc.IncomingCircuitKey)
+
+		return nil, err
+	}
+
+	return resp, nil
+}
+
+// resolveIncomingHtlc decides how an incoming HTLC should be resolved, based on
+// the RFQ policy that applies to it.
+//
+// NOTE: This function must be thread safe. It is used by an external
+// interceptor service.
+func (h *OrderHandler) resolveIncomingHtlc(ctx context.Context,
 	htlc lndclient.InterceptedHtlc) (*lndclient.InterceptedHtlcResponse,
 	error) {
 
@@ -1028,22 +1189,80 @@ func (h *OrderHandler) handleIncomingHtlc(ctx context.Context,
 	return policy.GenerateInterceptorResponse(htlc)
 }
 
-// setupHtlcIntercept sets up HTLC interception.
+// setupHtlcIntercept sets up HTLC interception and keeps the interception
+// stream alive for as long as the given context is alive.
+//
+// lnd tears down the whole interception stream if we send a resolution it can't
+// apply, which can happen for HTLCs that are (already) being resolved on chain.
+// Those errors are recoverable: we simply re-establish the stream. Any other
+// error is returned to the caller, which treats it as critical.
 func (h *OrderHandler) setupHtlcIntercept(ctx context.Context) error {
-	// Intercept incoming HTLCs. This call passes the handleIncomingHtlc
-	// function to the interceptor. The interceptor will call this function
-	// in a separate goroutine.
-	err := h.cfg.HtlcInterceptor.InterceptHtlcs(ctx, h.handleIncomingHtlc)
-	if err != nil {
-		if fn.IsCanceled(err) {
+	backoff := minInterceptorRetryBackoff
+
+	for {
+		// Intercept incoming HTLCs. This call passes the
+		// handleIncomingHtlc function to the interceptor. The
+		// interceptor will call this function in a separate goroutine.
+		// The call blocks until the stream is torn down.
+		startTime := time.Now()
+		err := h.cfg.HtlcInterceptor.InterceptHtlcs(
+			ctx, h.handleIncomingHtlc,
+		)
+
+		switch {
+		case err == nil, fn.IsCanceled(err):
+			return nil
+
+		case !isRecoverableInterceptorErr(err):
+			return fmt.Errorf("unable to setup incoming HTLC "+
+				"interceptor: %w", err)
+		}
+
+		// The stream was torn down because lnd rejected one of our
+		// resolutions. That is not fatal, we just need to re-establish
+		// it. If the last stream was up for a while, we start over with
+		// the minimum backoff.
+		if time.Since(startTime) >= interceptorHealthyUptime {
+			backoff = minInterceptorRetryBackoff
+		}
+
+		log.Warnf("HTLC interception stream terminated, re-"+
+			"establishing in %v: %v", backoff, err)
+
+		select {
+		case <-time.After(backoff):
+		case <-ctx.Done():
+			return nil
+
+		case <-h.Quit:
 			return nil
 		}
 
-		return fmt.Errorf("unable to setup incoming HTLC "+
-			"interceptor: %w", err)
+		backoff = min(backoff*2, maxInterceptorRetryBackoff)
+	}
+}
+
+// isRecoverableInterceptorErr returns true if the given error, which terminated
+// the HTLC interception stream, is one we can recover from by simply
+// re-establishing the stream.
+//
+// The errors we look for are lnd's ErrCannotResume/ErrCannotFail (returned for
+// HTLCs that are being resolved on chain) and ErrFwdNotExists (returned if an
+// HTLC is no longer held by lnd's interceptable switch). We have to match on
+// the error string, as these errors reach us as opaque gRPC status errors.
+func isRecoverableInterceptorErr(err error) bool {
+	if err == nil {
+		return false
 	}
 
-	return nil
+	errStr := err.Error()
+	for _, recoverable := range recoverableInterceptorErrs {
+		if strings.Contains(errStr, recoverable) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // mainEventLoop executes the main event handling loop.
@@ -1060,6 +1279,7 @@ func (h *OrderHandler) mainEventLoop() {
 			log.Debug("Cleaning up any stale policy from the " +
 				"order handler")
 			h.cleanupStalePolicies()
+			h.cleanupResolvedHtlcs()
 		case <-h.Quit:
 			log.Debug("Received quit signal. Stopping negotiator " +
 				"event loop")
@@ -1081,11 +1301,6 @@ func (h *OrderHandler) subscribeHtlcs(ctx context.Context) error {
 	for {
 		select {
 		case event := <-events:
-			// We only care about forwarding events.
-			if event.GetEventType() != routerrpc.HtlcEvent_FORWARD {
-				continue
-			}
-
 			// Retrieve the event instances that may be relevant.
 			failEvent := event.GetForwardFailEvent()
 			linkFail := event.GetLinkFailEvent()
@@ -1100,20 +1315,41 @@ func (h *OrderHandler) subscribeHtlcs(ctx context.Context) error {
 				HtlcID: event.IncomingHtlcId,
 			}
 
-			switch {
-			case settleEvent != nil:
-				// HTLC settled successfully - update the
-				// forwarding event record.
-				h.handleHtlcSettle(ctx, circuitKey)
+			// Once an HTLC reached a final state, we can
+			// forget that we sent a resolution for it.
+			if failEvent != nil || linkFail != nil ||
+				settleEvent != nil || finalHtlcEvent != nil {
 
-			case finalHtlcEvent != nil:
-				// HTLC resolved on-chain (force close
-				// scenario).
+				h.resolvedHtlcs.Delete(circuitKey)
+			}
+
+			// A final HTLC event is the only signal we get for an
+			// HTLC that was resolved on chain: the incoming link is
+			// gone by then, so there is neither a settle nor a
+			// forward fail event. lnd doesn't set an event type on
+			// those events, so we must handle them before we filter
+			// on forwards below, or the accounting for every
+			// on-chain resolution is silently skipped.
+			if finalHtlcEvent != nil {
 				if finalHtlcEvent.Settled {
 					h.handleHtlcSettle(ctx, circuitKey)
 				} else {
 					h.handleHtlcFail(ctx, circuitKey)
 				}
+
+				continue
+			}
+
+			// Everything below only applies to forwards.
+			if event.GetEventType() != routerrpc.HtlcEvent_FORWARD {
+				continue
+			}
+
+			switch {
+			case settleEvent != nil:
+				// HTLC settled successfully - update the
+				// forwarding event record.
+				h.handleHtlcSettle(ctx, circuitKey)
 
 			case failEvent != nil:
 				fallthrough
@@ -1695,6 +1931,32 @@ func (h *OrderHandler) cleanupStalePolicies() {
 	if staleCounter > 0 {
 		log.Tracef("Removed stale policies from the order handler: "+
 			"(count=%d)", staleCounter)
+	}
+}
+
+// cleanupResolvedHtlcs removes entries from the resolved HTLC set that we never
+// saw a final state for. Entries are normally removed as soon as lnd reports
+// the HTLC as settled or failed, this is only a fallback to make sure the set
+// can't grow indefinitely.
+func (h *OrderHandler) cleanupResolvedHtlcs() {
+	staleCounter := 0
+
+	h.resolvedHtlcs.ForEach(
+		func(key models.CircuitKey, resolvedAt time.Time) error {
+			if time.Since(resolvedAt) < resolvedHtlcRetention {
+				return nil
+			}
+
+			staleCounter++
+			h.resolvedHtlcs.Delete(key)
+
+			return nil
+		},
+	)
+
+	if staleCounter > 0 {
+		log.Tracef("Removed stale resolved HTLCs from the order "+
+			"handler: (count=%d)", staleCounter)
 	}
 }
 
