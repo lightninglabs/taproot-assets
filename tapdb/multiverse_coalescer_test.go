@@ -478,11 +478,16 @@ func TestMultiverseRootCoalescerProps(t *testing.T) {
 // panic, simulating an unexpected failure inside a flush.
 type panicFlushDB struct {
 	BatchedMultiverse
+
+	// flushCount is the number of transactions attempted, every one
+	// of which panics.
+	flushCount atomic.Int32
 }
 
-func (panicFlushDB) ExecTx(context.Context, TxOptions,
+func (p *panicFlushDB) ExecTx(context.Context, TxOptions,
 	func(BaseMultiverseStore) error) error {
 
+	p.flushCount.Add(1)
 	panic("flush boom")
 }
 
@@ -496,7 +501,12 @@ func TestMultiverseRootCoalescerFlushPanic(t *testing.T) {
 	ctx := context.Background()
 
 	var writeMu sync.Mutex
-	coalescer := newMultiverseRootCoalescer(panicFlushDB{}, &writeMu)
+	coalescer := newMultiverseRootCoalescer(&panicFlushDB{}, &writeMu)
+
+	// The panic path applies the retry backoff before the flusher
+	// winds down; keep it short so the assertions below see the
+	// settled state promptly.
+	coalescer.initialRetryBackoff = time.Millisecond
 
 	newID := func() universe.Identifier {
 		var id universe.Identifier
@@ -548,6 +558,80 @@ func TestMultiverseRootCoalescerFlushPanic(t *testing.T) {
 	// out, or the deletion paths would deadlock.
 	require.True(t, writeMu.TryLock())
 	writeMu.Unlock()
+}
+
+// TestMultiverseRootCoalescerPanicBackoff asserts that a panicked
+// round is dropped rather than retried, that the flusher then waits
+// out the retry backoff before touching any further work — a
+// deterministically panicking flush must not burn a tight loop of
+// failing transactions under continuous ingest — and that stop cuts
+// the wait short.
+func TestMultiverseRootCoalescerPanicBackoff(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	var writeMu sync.Mutex
+	db := &panicFlushDB{}
+	coalescer := newMultiverseRootCoalescer(db, &writeMu)
+
+	// A backoff far beyond the test's lifetime: any flush attempt
+	// after the panic means the backoff was skipped.
+	coalescer.initialRetryBackoff = time.Hour
+	coalescer.maxRetryBackoff = time.Hour
+
+	newID := func() universe.Identifier {
+		var id universe.Identifier
+		id.ProofType = universe.ProofTypeIssuance
+		copy(id.AssetID[:], test.RandBytes(32))
+		return id
+	}
+
+	_, err := coalescer.updateRoot(ctx, newID())
+	require.ErrorContains(t, err, "panic")
+	require.EqualValues(t, 1, db.flushCount.Load())
+
+	// The panicked round must have been dropped, not requeued, and
+	// the flusher must still hold its role, parked in the backoff.
+	coalescer.mu.Lock()
+	require.Empty(t, coalescer.pending)
+	require.Empty(t, coalescer.order)
+	require.True(t, coalescer.flushing)
+	coalescer.mu.Unlock()
+
+	// An update queued behind the backoff must not trigger another
+	// flush attempt while the flusher waits.
+	resultChan := make(chan error, 1)
+	go func() {
+		_, err := coalescer.updateRoot(ctx, newID())
+		resultChan <- err
+	}()
+
+	require.Never(t, func() bool {
+		return db.flushCount.Load() > 1
+	}, 100*time.Millisecond, 10*time.Millisecond)
+
+	// Stop must interrupt the backoff promptly, failing the queued
+	// waiter without ever flushing it.
+	stopped := make(chan struct{})
+	go func() {
+		coalescer.stop()
+		close(stopped)
+	}()
+
+	select {
+	case <-stopped:
+	case <-time.After(5 * time.Second):
+		t.Fatal("stop did not interrupt the panic backoff")
+	}
+
+	select {
+	case err := <-resultChan:
+		require.ErrorIs(t, err, errCoalescerStopped)
+	case <-time.After(time.Second):
+		t.Fatal("queued waiter was not failed on stop")
+	}
+	require.EqualValues(t, 1, db.flushCount.Load())
 }
 
 // TestMultiverseRootCoalescerMissingUniverse asserts that an update for

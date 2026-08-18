@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/universe"
 )
@@ -386,20 +387,32 @@ func (c *multiverseRootCoalescer) runFlusher() {
 
 		// A panic is presumed to be a bug rather than a transient
 		// database failure; retrying would re-trigger it at every
-		// backoff. The round's universes stay diverged until their
-		// next update or startup reconciliation.
+		// backoff, so the round is dropped instead of requeued.
+		// Its universes stay diverged until their next update or
+		// startup reconciliation, so name them. The backoff below
+		// still applies: without it, continuous ingest would feed
+		// a deterministically panicking flush a tight loop of new
+		// rounds.
 		if errors.Is(err, errFlushPanicked) {
-			continue
+			ids := fn.Map(
+				batch, func(u *pendingRootUpdate) string {
+					return u.id.StringForLog()
+				},
+			)
+			log.Criticalf("Multiverse flush panicked; dropping "+
+				"round, universes diverged until their next "+
+				"update or restart: %v", ids)
+		} else {
+			// The round's waiters have been served the typed
+			// error, but its universes still hold committed
+			// roots the multiverse does not commit to. Re-mark
+			// them dirty and retry after the backoff, so
+			// recovery requires no further writes.
+			c.requeue(batch)
+
+			log.Warnf("Retrying multiverse flush of %d "+
+				"universes in %v", len(batch), backoff)
 		}
-
-		// The round's waiters have been served the typed error, but
-		// its universes still hold committed roots the multiverse
-		// does not commit to. Re-mark them dirty and retry after
-		// the backoff, so recovery requires no further writes.
-		c.requeue(batch)
-
-		log.Warnf("Retrying multiverse flush of %d universes in %v",
-			len(batch), backoff)
 
 		select {
 		case <-time.After(backoff):
