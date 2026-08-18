@@ -131,6 +131,10 @@ var testCases = []*ccTestCase{
 		name: "list invoices and payments",
 		test: testCustomChannelsListInvoicesAndPayments,
 	},
+	{
+		name: "on chain htlc intercept",
+		test: testCustomChannelsOnChainHtlcIntercept,
+	},
 }
 
 // TestCustomChannels is the main entry point for running custom channel
