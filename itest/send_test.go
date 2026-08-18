@@ -2227,9 +2227,12 @@ func testRestoreLndFromSeed(t *harnessTest) {
 		"lnd-seed-restored", lndDefaultArgs, password, mnemonic, "",
 		2500, nil,
 	)
-	bob.updateLndNode(seedLnd)
-
-	require.NoError(t.t, bob.start(false))
+	// We stand up a genuinely fresh tapd for the restored LND instead of
+	// restarting the previous harness. Stopping a harness only removes its
+	// base directory, which wipes the state of an sqlite backed node but
+	// leaves a postgres database untouched, so restarting would come back
+	// with all of Bob's assets still present.
+	bob = setupTapdHarness(t.t, t, seedLnd, t.universeServer)
 
 	importResp, err := bob.ImportAssetsFromBackup(
 		ctxb, &wrpc.ImportAssetsFromBackupRequest{
