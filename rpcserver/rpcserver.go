@@ -12281,6 +12281,68 @@ func (r *RPCServer) ProofVerifierCtx(ctx context.Context) proof.VerifierCtx {
 	}
 }
 
+// keyFamilyMarkers returns a marker for the last key index our key family has
+// consumed, which an import uses to restore LND's key family counter after the
+// LND wallet was recovered from seed.
+//
+// NOTE: This must not consume a key index itself, otherwise every export would
+// permanently burn one. The counter is read through ListAccounts, and the
+// marker's key is then derived read-only.
+func (r *RPCServer) keyFamilyMarkers(
+	ctx context.Context) ([]*backup.KeyDescriptorBackup, error) {
+
+	keyFam := keychain.KeyFamily(asset.TaprootAssetsKeyFamily)
+
+	accounts, err := r.cfg.Lnd.WalletKit.ListAccounts(
+		ctx, "", walletrpc.AddressType_UNKNOWN,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to list wallet accounts: %w",
+			err)
+	}
+
+	// The account of a key family is the one under the BIP-0043 purpose LND
+	// derives its keys from, with the family as the last path element.
+	var (
+		purpose  = fmt.Sprintf("/%d'/", keychain.BIP0043Purpose)
+		suffix   = fmt.Sprintf("/%d'", keyFam)
+		keyCount uint32
+	)
+	for _, account := range accounts {
+		path := account.DerivationPath
+		if !strings.Contains(path, purpose) {
+			continue
+		}
+
+		if strings.HasSuffix(path, suffix) {
+			keyCount = account.ExternalKeyCount
+
+			break
+		}
+	}
+
+	// A key family that never handed out a key has no watermark to record.
+	if keyCount == 0 {
+		return nil, nil
+	}
+
+	// The key count is the index the *next* key will have, so the last key
+	// we consumed is the one below it.
+	marker, err := r.cfg.Lnd.WalletKit.DeriveKey(ctx, &keychain.KeyLocator{
+		Family: keyFam,
+		Index:  keyCount - 1,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("unable to derive key at index %d: %w",
+			keyCount-1, err)
+	}
+
+	return []*backup.KeyDescriptorBackup{{
+		PubKey:     marker.PubKey,
+		KeyLocator: marker.KeyLocator,
+	}}, nil
+}
+
 // ExportAssetWalletBackup exports a backup of all active assets in the wallet.
 // The backup includes all data necessary to restore the assets in case of
 // database or system failure.
@@ -12335,22 +12397,18 @@ func (r *RPCServer) ExportAssetWalletBackup(ctx context.Context,
 		}
 	}
 
-	// Delegate to the backup package.
-	keyMarker, err := r.cfg.Lnd.WalletKit.DeriveNextKey(
-		ctx, int32(asset.TaprootAssetsKeyFamily),
-	)
+	// Record the highest key index our key family has consumed so far, so
+	// that an import can restore LND's counter after a seed recovery.
+	keyMarkers, err := r.keyFamilyMarkers(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to derive backup key family "+
 			"marker: %w", err)
 	}
 
+	// Delegate to the backup package.
 	blob, err := backup.ExportBackup(
 		ctx, mode, confirmedAssets, r.cfg.ProofArchive,
-		r.cfg.TapAddrBook, fedURLs,
-		[]*backup.KeyDescriptorBackup{{
-			PubKey:     keyMarker.PubKey,
-			KeyLocator: keyMarker.KeyLocator,
-		}},
+		r.cfg.TapAddrBook, fedURLs, keyMarkers,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to export backup: %w", err)

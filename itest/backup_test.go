@@ -208,9 +208,9 @@ func testBackupRestoreTransferred(t *harnessTest) {
 	)
 	require.NoError(t.t, err)
 
-	// Every backup mode must carry the key-family recovery marker. Each
-	// export derives the next marker, so their indexes should increase
-	// monotonically in export order.
+	// Every backup mode must carry the key-family recovery marker.
+	// Exporting a backup does not consume a key index, so all three
+	// exports must report the very same watermark.
 	var markerIndexes []uint32
 	for _, backupBlob := range [][]byte{
 		rawBackup.Backup,
@@ -225,8 +225,8 @@ func testBackupRestoreTransferred(t *harnessTest) {
 			decoded.KeyFamilyMarkers[0].KeyLocator.Index,
 		)
 	}
-	require.Less(t.t, markerIndexes[0], markerIndexes[1])
-	require.Less(t.t, markerIndexes[1], markerIndexes[2])
+	require.Equal(t.t, markerIndexes[0], markerIndexes[1])
+	require.Equal(t.t, markerIndexes[1], markerIndexes[2])
 
 	require.Less(t.t, len(compactBackup.Backup),
 		len(rawBackup.Backup),

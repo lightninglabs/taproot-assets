@@ -5,11 +5,13 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/wire/v2"
+	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/backup"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
@@ -22,7 +24,10 @@ import (
 	"github.com/lightninglabs/taproot-assets/taprpc/tapdevrpc"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"github.com/lightninglabs/taproot-assets/tapsend"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
+	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/stretchr/testify/require"
@@ -2202,6 +2207,11 @@ func testRestoreLndFromSeed(t *harnessTest) {
 			struct{}{}
 	}
 
+	// Exporting a backup must not consume a key index itself, otherwise
+	// every export would permanently burn one.
+	keyCountBeforeExport := assetKeyFamilyIndex(t, seedLnd)
+	require.NotZero(t.t, keyCountBeforeExport)
+
 	backupResp, err := bob.ExportAssetWalletBackup(
 		ctxb, &wrpc.ExportAssetWalletBackupRequest{
 			Mode: wrpc.BackupMode_RAW,
@@ -2209,9 +2219,21 @@ func testRestoreLndFromSeed(t *harnessTest) {
 	)
 	require.NoError(t.t, err)
 
+	require.Equal(
+		t.t, keyCountBeforeExport, assetKeyFamilyIndex(t, seedLnd),
+		"exporting a backup consumed a key index",
+	)
+
 	decodedBackup, err := backup.DecodeWalletBackup(backupResp.Backup)
 	require.NoError(t.t, err)
 	require.NotEmpty(t.t, decodedBackup.KeyFamilyMarkers)
+
+	// The marker must record the last key we actually consumed, which is
+	// the index below the one the next key will get.
+	require.EqualValues(
+		t.t, keyCountBeforeExport-1,
+		decodedBackup.KeyFamilyMarkers[0].KeyLocator.Index,
+	)
 
 	// We now destroy both Bob's tapd state and LND wallet, then restore LND
 	// only from aezeed. This reproduces a full disaster recovery instead of
@@ -2241,6 +2263,13 @@ func testRestoreLndFromSeed(t *harnessTest) {
 	)
 	require.NoError(t.t, err)
 	require.NotZero(t.t, importResp.NumImported)
+
+	// The restored LND started out with an empty key family, so the import
+	// must have moved its index back past every key the backup covers.
+	require.GreaterOrEqual(
+		t.t, assetKeyFamilyIndex(t, seedLnd), keyCountBeforeExport,
+		"import did not restore the key family index",
+	)
 
 	// The first address after restore must not reuse a key that was issued
 	// before the backup. Without restoring LND's family index, the address
@@ -2278,6 +2307,27 @@ func testRestoreLndFromSeed(t *harnessTest) {
 	)
 	AssertNonInteractiveRecvComplete(t.t, alice, 2)
 	AssertSendEventsComplete(t.t, aliceAddr.ScriptKey, sendEvents)
+}
+
+// assetKeyFamilyIndex returns the index that the next key derived from the
+// given LND node's Taproot Assets key family will have.
+func assetKeyFamilyIndex(t *harnessTest, lnd *node.HarnessNode) uint32 {
+	accounts := lnd.RPC.ListAccounts(&walletrpc.ListAccountsRequest{})
+
+	purpose := fmt.Sprintf("/%d'/", keychain.BIP0043Purpose)
+	suffix := fmt.Sprintf("/%d'", asset.TaprootAssetsKeyFamily)
+	for _, account := range accounts.Accounts {
+		path := account.DerivationPath
+		if !strings.Contains(path, purpose) {
+			continue
+		}
+
+		if strings.HasSuffix(path, suffix) {
+			return account.ExternalKeyCount
+		}
+	}
+
+	return 0
 }
 
 // addProofTestVectorFromFile adds a proof test vector by extracting it from the
