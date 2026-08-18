@@ -1,6 +1,9 @@
 package rfq
 
 import (
+	"context"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -222,4 +225,192 @@ func TestPolicyAccountingIdempotent(t *testing.T) {
 		p.UntrackHtlc(circuitKey)
 		require.Zero(t, p.CurrentAmountMsat)
 	})
+}
+
+// TestAssetSalePolicyConcurrentHtlcCap tests that concurrently accepted
+// HTLCs referencing the same asset sale policy never exceed the policy's
+// agreed maximum amount, even though the HTLC interceptor invokes the
+// handler in a new goroutine per HTLC.
+func TestAssetSalePolicyConcurrentHtlcCap(t *testing.T) {
+	t.Parallel()
+
+	spec := asset.NewSpecifierFromId(asset.ID{0x01})
+	peer := route.Vertex{0x0A}
+	rate := rfqmsg.NewAssetRate(
+		rfqmath.NewBigIntFixedPoint(100, 0),
+		time.Now().Add(time.Hour),
+	)
+
+	buyReq := &rfqmsg.BuyRequest{
+		Peer:           peer,
+		AssetSpecifier: spec,
+		AssetMaxAmt:    1000,
+	}
+	accept := rfqmsg.BuyAccept{
+		Peer:      peer,
+		Request:   *buyReq,
+		AssetRate: rate,
+	}
+	policy := NewAssetSalePolicy(accept, false, nil)
+
+	// Compute the policy's maximum outgoing amount in millisatoshis. A
+	// single HTLC of this size exactly exhausts the policy.
+	maxAssetAmount := rfqmath.NewBigIntFixedPoint(
+		policy.MaxOutboundAssetAmount, 0,
+	)
+	capMsat, err := rfqmath.UnitsToMilliSatoshi(
+		maxAssetAmount, policy.AskAssetRate,
+	)
+	require.NoError(t, err)
+
+	// Fire many concurrent HTLCs at the policy, mimicking the HTLC
+	// interceptor invoking the handler in a new goroutine per HTLC. Each
+	// HTLC carries the full cap amount, so exactly one HTLC's worth can be
+	// accepted.
+	const numHtlcs = 32
+
+	var (
+		wg       sync.WaitGroup
+		accepted atomic.Int32
+	)
+	start := make(chan struct{})
+
+	for i := 0; i < numHtlcs; i++ {
+		wg.Add(1)
+
+		go func(i int) {
+			defer wg.Done()
+			<-start
+
+			htlc := lndclient.InterceptedHtlc{
+				IncomingCircuitKey: models.CircuitKey{
+					ChanID: lnwire.NewShortChanIDFromInt(1),
+					HtlcID: uint64(i),
+				},
+				OutgoingChannelID: lnwire.NewShortChanIDFromInt(
+					uint64(policy.AcceptedQuoteId.Scid()),
+				),
+				AmountOutMsat: capMsat,
+			}
+
+			// A compliant HTLC is tracked by the policy
+			// atomically as part of the compliance check.
+			err := policy.CheckHtlcCompliance(
+				context.Background(), htlc, nil,
+			)
+			if err != nil {
+				return
+			}
+
+			accepted.Add(1)
+		}(i)
+	}
+
+	close(start)
+	wg.Wait()
+
+	// Exactly one HTLC's worth must have been accepted: the tracked total
+	// equals the agreed maximum exactly. A check-then-track race would let
+	// multiple HTLCs through and exceed the cap, while a policy that never
+	// tracks accepted HTLCs would leave the total at zero.
+	require.EqualValues(t, 1, accepted.Load())
+	require.Equal(t, capMsat, policy.CurrentAmountMsat)
+}
+
+// TestAssetPurchasePolicyConcurrentHtlcCap tests that concurrently accepted
+// HTLCs referencing the same asset purchase policy never exceed the policy's
+// maximum agreed BTC payment, even though the HTLC interceptor invokes the
+// handler in a new goroutine per HTLC.
+func TestAssetPurchasePolicyConcurrentHtlcCap(t *testing.T) {
+	t.Parallel()
+
+	spec := asset.NewSpecifierFromId(asset.ID{0x01})
+	peer := route.Vertex{0x0A}
+	rate := rfqmsg.NewAssetRate(
+		rfqmath.NewBigIntFixedPoint(100, 0),
+		time.Now().Add(time.Hour),
+	)
+
+	sellReq := &rfqmsg.SellRequest{
+		Peer:           peer,
+		AssetSpecifier: spec,
+		PaymentMaxAmt:  1000,
+	}
+	accept := rfqmsg.SellAccept{
+		Peer:      peer,
+		Request:   *sellReq,
+		AssetRate: rate,
+	}
+	policy := NewAssetPurchasePolicy(accept)
+
+	// Build the HTLC custom records once. Every HTLC carries an asset
+	// balance large enough to cover the outgoing msat amount.
+	htlcRecord := rfqmsg.NewHtlc(
+		[]*rfqmsg.AssetBalance{
+			rfqmsg.NewAssetBalance(asset.ID{0x01}, 1),
+		},
+		fn.Some(policy.AcceptedQuoteId),
+		fn.None[[]rfqmsg.ID](),
+	)
+	customRecords, err := lnwire.ParseCustomRecords(htlcRecord.Bytes())
+	require.NoError(t, err)
+
+	specifierChecker := rfqmsg.SpecifierChecker(
+		func(_ context.Context, _ asset.Specifier,
+			_ asset.ID) (bool, error) {
+
+			return true, nil
+		},
+	)
+
+	// Fire many concurrent HTLCs at the policy, mimicking the HTLC
+	// interceptor invoking the handler in a new goroutine per HTLC. Each
+	// HTLC carries the full maximum payment amount, so exactly one HTLC's
+	// worth can be accepted.
+	const numHtlcs = 32
+
+	var (
+		wg       sync.WaitGroup
+		accepted atomic.Int32
+	)
+	start := make(chan struct{})
+
+	for i := 0; i < numHtlcs; i++ {
+		wg.Add(1)
+
+		go func(i int) {
+			defer wg.Done()
+			<-start
+
+			htlc := lndclient.InterceptedHtlc{
+				IncomingCircuitKey: models.CircuitKey{
+					ChanID: lnwire.NewShortChanIDFromInt(1),
+					HtlcID: uint64(i),
+				},
+				AmountOutMsat:       policy.PaymentMaxAmt,
+				InWireCustomRecords: customRecords,
+			}
+
+			// A compliant HTLC is tracked by the policy
+			// atomically as part of the compliance check.
+			err := policy.CheckHtlcCompliance(
+				context.Background(), htlc, specifierChecker,
+			)
+			if err != nil {
+				return
+			}
+
+			accepted.Add(1)
+		}(i)
+	}
+
+	close(start)
+	wg.Wait()
+
+	// Exactly one HTLC's worth must have been accepted: the tracked total
+	// equals the maximum agreed payment exactly. A check-then-track race
+	// would let multiple HTLCs through and exceed the cap, while a policy
+	// that never tracks accepted HTLCs would leave the total at zero.
+	require.EqualValues(t, 1, accepted.Load())
+	require.Equal(t, policy.PaymentMaxAmt, policy.CurrentAmountMsat)
 }
