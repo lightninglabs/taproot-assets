@@ -630,16 +630,28 @@ func (f *FederationEnvoy) handleBatchPushRequest(
 	// First, we'll attempt to registrar the proof leaf with the local
 	// registrar server.
 	err := f.cfg.LocalRegistrar.UpsertProofLeafBatch(ctx, pushReq.Batch)
-	if err != nil {
+	switch {
+	// The proof leaves are durably stored; only their entries in the
+	// shared multiverse trees are still outstanding, and the archive
+	// repairs that in the background. The proofs must not be stranded
+	// local-only, so the federation push below proceeds.
+	case errors.Is(err, ErrMultiversePending):
+		log.Warnf("Proof batch stored with multiverse updates "+
+			"pending, proceeding with federation push "+
+			"(num_leaves=%d): %v", len(pushReq.Batch), err)
+		pushReq.err <- err
+
+	case err != nil:
 		err = fmt.Errorf("unable to insert proof batch into local "+
 			"universe: %w", err)
 		pushReq.err <- err
 		return err
-	}
 
-	// Now that we know we were able to register the proof, we'll return
-	// back to the caller.
-	pushReq.resp <- struct{}{}
+	default:
+		// Now that we know we were able to register the proof, we'll
+		// return back to the caller.
+		pushReq.resp <- struct{}{}
+	}
 
 	// Fetch all universe servers in our federation.
 	fedServers, err := f.tryFetchServers()

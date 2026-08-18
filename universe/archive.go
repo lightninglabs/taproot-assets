@@ -564,10 +564,22 @@ func (a *Archive) UpsertProofLeafBatch(ctx context.Context,
 		return err
 	}
 
+	// A pending error from either upsert means its leaves are durably
+	// stored with only their multiverse entries outstanding, which the
+	// archive repairs in the background. The rest of the batch must
+	// still be inserted and the proof events logged, so the error is
+	// carried to the end instead of returned where it occurs.
+	var upsertErr error
+
 	log.InfoS(ctx, "Inserting verified group anchor proofs into Universe",
 		"count", len(anchorItems))
 	err = a.cfg.Multiverse.UpsertProofLeafBatch(ctx, anchorItems)
-	if err != nil {
+	switch {
+	case errors.Is(err, ErrMultiversePending):
+		upsertErr = fmt.Errorf("upsert group anchor proof leaf "+
+			"batch (count=%d): %w", len(anchorItems), err)
+
+	case err != nil:
 		return fmt.Errorf("upsert group anchor proof leaf batch "+
 			"(count=%d): %w", len(anchorItems), err)
 	}
@@ -580,13 +592,20 @@ func (a *Archive) UpsertProofLeafBatch(ctx context.Context,
 	log.InfoS(ctx, "Inserting verified proofs into Universe",
 		"count", len(nonAnchorItems))
 	err = a.cfg.Multiverse.UpsertProofLeafBatch(ctx, nonAnchorItems)
-	if err != nil {
+	switch {
+	case errors.Is(err, ErrMultiversePending):
+		upsertErr = fmt.Errorf("upsert proof leaf batch "+
+			"(count=%d): %w", len(nonAnchorItems), err)
+
+	case err != nil:
 		return fmt.Errorf("upsert proof leaf batch (count=%d): %w",
 			len(nonAnchorItems), err)
 	}
 
 	// Log a sync event for the newly inserted leaf in the background as an
-	// async goroutine.
+	// async goroutine. This runs for the pending case too: the universe
+	// leaves are durably stored, only their multiverse entries are still
+	// outstanding.
 	ids := fn.Map(items, func(item *Item) Identifier {
 		return item.ID
 	})
@@ -599,7 +618,7 @@ func (a *Archive) UpsertProofLeafBatch(ctx context.Context,
 		}
 	}()
 
-	return nil
+	return upsertErr
 }
 
 // UniverseKey represents the key used to locate an item within a universe.
