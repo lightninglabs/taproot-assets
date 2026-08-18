@@ -1269,8 +1269,24 @@ func (h *OrderHandler) subscribeHtlcs(ctx context.Context) error {
 				h.resolvedHtlcs.Delete(circuitKey)
 			}
 
-			// We only care about forwarding events for the rest of
-			// the handling below.
+			// A final HTLC event is the only signal we get for an
+			// HTLC that was resolved on chain: the incoming link is
+			// gone by then, so there is neither a settle nor a
+			// forward fail event. lnd doesn't set an event type on
+			// those events, so we must handle them before we filter
+			// on forwards below, or the accounting for every
+			// on-chain resolution is silently skipped.
+			if finalHtlcEvent != nil {
+				if finalHtlcEvent.Settled {
+					h.handleHtlcSettle(ctx, circuitKey)
+				} else {
+					h.handleHtlcFail(ctx, circuitKey)
+				}
+
+				continue
+			}
+
+			// Everything below only applies to forwards.
 			if event.GetEventType() != routerrpc.HtlcEvent_FORWARD {
 				continue
 			}
@@ -1280,15 +1296,6 @@ func (h *OrderHandler) subscribeHtlcs(ctx context.Context) error {
 				// HTLC settled successfully - update the
 				// forwarding event record.
 				h.handleHtlcSettle(ctx, circuitKey)
-
-			case finalHtlcEvent != nil:
-				// HTLC resolved on-chain (force close
-				// scenario).
-				if finalHtlcEvent.Settled {
-					h.handleHtlcSettle(ctx, circuitKey)
-				} else {
-					h.handleHtlcFail(ctx, circuitKey)
-				}
 
 			case failEvent != nil:
 				fallthrough
