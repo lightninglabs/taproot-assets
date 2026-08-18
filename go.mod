@@ -15,9 +15,9 @@ require (
 	github.com/btcsuite/btcd/wire/v2 v2.0.0
 	github.com/btcsuite/btclog v1.0.0
 	github.com/btcsuite/btclog/v2 v2.0.1-0.20250728225537-6090e87c6c5b
-	github.com/btcsuite/btcwallet v0.18.0
+	github.com/btcsuite/btcwallet v0.18.1-0.20261020132555-16cfb4483d1f
 	github.com/btcsuite/btcwallet/wallet/txsizes v1.3.0
-	github.com/btcsuite/btcwallet/wtxmgr v1.6.0
+	github.com/btcsuite/btcwallet/wtxmgr v1.6.1-0.20261020132555-16cfb4483d1f
 	github.com/caddyserver/certmagic v0.17.2
 	github.com/davecgh/go-spew v1.1.1
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0
@@ -39,9 +39,9 @@ require (
 	github.com/lightningnetwork/lnd v0.21.0-beta.rc2.0.20260903094101-d66a7c137d32
 	github.com/lightningnetwork/lnd/cert v1.2.2
 	github.com/lightningnetwork/lnd/clock v1.1.1
-	github.com/lightningnetwork/lnd/fn/v2 v2.0.9
+	github.com/lightningnetwork/lnd/fn/v2 v2.0.10
 	github.com/lightningnetwork/lnd/ticker v1.1.1
-	github.com/lightningnetwork/lnd/tlv v1.4.0
+	github.com/lightningnetwork/lnd/tlv v1.4.1
 	github.com/lightningnetwork/lnd/tor v1.2.0
 	github.com/ory/dockertest/v3 v3.10.0
 	github.com/pmezard/go-difflib v1.0.0
@@ -233,3 +233,15 @@ replace github.com/prometheus/common => github.com/prometheus/common v0.66.1
 
 // Note this is a temporary replace and will be removed when taprpc is tagged.
 replace github.com/lightninglabs/taproot-assets/taprpc => ./taprpc
+
+// TEMPORARY: the key family index advance below calls an RPC that is not in
+// any released LND yet. These point at the branches of
+// lightningnetwork/lnd#11095 and lightninglabs/lndclient#288, and must both
+// be dropped in favor of normal version bumps before this can be merged.
+//
+// NOTE: The LND ref is the PR branch rebased onto the LND version this repo
+// already depends on, since LND master has since changed the itest harness
+// API that our own itests use.
+replace github.com/lightningnetwork/lnd => github.com/GeorgeTsagk/lnd v0.0.0-20261022093937-d9cb4c73cdd0
+
+replace github.com/lightninglabs/lndclient => github.com/lightninglabs/lndclient v1.0.1-0.20261022102327-c62cb8b878a0
