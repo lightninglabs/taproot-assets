@@ -11,3 +11,8 @@
   events, which `lnd` sends without an event type and which were
   therefore dropped, and makes the quote accounting idempotent for HTLCs
   that `lnd` offers more than once.
+
+* [PR#2239](https://github.com/lightninglabs/taproot-assets/pull/2239)
+  fixes a check-then-track race in the RFQ order policies by which
+  concurrently intercepted HTLCs could collectively exceed the agreed
+  maximum amount of an accepted quote.
