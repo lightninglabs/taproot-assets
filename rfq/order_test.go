@@ -2,6 +2,7 @@ package rfq
 
 import (
 	"context"
+	"math"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -413,4 +414,107 @@ func TestAssetPurchasePolicyConcurrentHtlcCap(t *testing.T) {
 	// that never tracks accepted HTLCs would leave the total at zero.
 	require.EqualValues(t, 1, accepted.Load())
 	require.Equal(t, policy.PaymentMaxAmt, policy.CurrentAmountMsat)
+}
+
+// TestGenerateInterceptorResponseOverflow tests that
+// GenerateInterceptorResponse handles HTLC asset balances whose sum
+// approaches or exceeds the uint64 limit without overflowing.
+func TestGenerateInterceptorResponseOverflow(t *testing.T) {
+	t.Parallel()
+
+	specifier := asset.NewSpecifierFromId(asset.ID{0x01})
+	peer := route.Vertex{0x0A}
+
+	// Use a high units-per-BTC rate so that the resulting milli-satoshi
+	// amounts still fit in a uint64.
+	rate := rfqmsg.NewAssetRate(
+		rfqmath.NewBigIntFixedPoint(1_000_000_000_000, 0),
+		time.Now().Add(time.Hour),
+	)
+
+	sellReq := &rfqmsg.SellRequest{
+		Peer:           peer,
+		AssetSpecifier: specifier,
+		PaymentMaxAmt:  1000,
+	}
+
+	accept := rfqmsg.SellAccept{
+		Peer:      peer,
+		Request:   *sellReq,
+		AssetRate: rate,
+	}
+
+	policy := NewAssetPurchasePolicy(accept)
+
+	testCases := []struct {
+		name     string
+		balances []uint64
+	}{
+		{
+			name:     "sum wraps to zero with rounding correction",
+			balances: []uint64{math.MaxUint64},
+		},
+		{
+			// A multi-balance sum beyond the uint64 limit is
+			// already rejected when the wire record is decoded,
+			// so this case sits exactly at the limit and lets
+			// the rounding correction push it over.
+			name:     "sum at limit wraps with rounding correction",
+			balances: []uint64{math.MaxUint64 - 1, 1},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			assetBalances := make(
+				[]*rfqmsg.AssetBalance, len(tc.balances),
+			)
+			for i, amt := range tc.balances {
+				assetBalances[i] = rfqmsg.NewAssetBalance(
+					asset.ID{0x01}, amt,
+				)
+			}
+
+			htlcRecord := rfqmsg.NewHtlc(
+				assetBalances, fn.None[rfqmsg.ID](),
+				fn.None[[]rfqmsg.ID](),
+			)
+
+			customRecords, err := htlcRecord.ToCustomRecords()
+			require.NoError(t, err)
+
+			resp, err := policy.GenerateInterceptorResponse(
+				lndclient.InterceptedHtlc{
+					InWireCustomRecords: customRecords,
+				},
+			)
+			require.NoError(t, err)
+
+			// Compute the expected incoming amount using big
+			// integer arithmetic, including the rounding
+			// correction of one asset unit.
+			expectedAmt := rfqmath.NewBigIntFromUint64(0)
+			for _, amt := range tc.balances {
+				expectedAmt = expectedAmt.Add(
+					rfqmath.NewBigIntFromUint64(amt),
+				)
+			}
+			expectedAmt = expectedAmt.Add(
+				rfqmath.NewBigIntFromUint64(1),
+			)
+
+			expectedFp := new(rfqmath.BigIntFixedPoint).SetIntValue(
+				expectedAmt,
+			)
+			expectedMsat, err := rfqmath.UnitsToMilliSatoshi(
+				expectedFp, policy.BidAssetRate,
+			)
+			require.NoError(t, err)
+
+			require.Equal(t, expectedMsat, resp.IncomingAmount)
+			require.NotZero(t, resp.IncomingAmount)
+		})
+	}
 }
