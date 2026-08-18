@@ -305,7 +305,13 @@ func (c *AssetSalePolicy) CheckHtlcCompliance(_ context.Context,
 			"mSat: %w", err)
 	}
 
-	if (c.CurrentAmountMsat + htlc.AmountOutMsat) > policyMaxOutMsat {
+	// lnd may offer the same HTLC to us more than once, and asks
+	// interceptor clients to handle those replays idempotently. If we
+	// already track this HTLC, its amount is part of CurrentAmountMsat
+	// already and must not be counted a second time.
+	currentAmtMsat := c.currentAmountExcluding(htlc.IncomingCircuitKey)
+
+	if (currentAmtMsat + htlc.AmountOutMsat) > policyMaxOutMsat {
 		return fmt.Errorf("HTLC out amount is greater than the policy "+
 			"maximum (htlc_out_msat=%d, policy_max_out_msat=%d)",
 			htlc.AmountOutMsat, policyMaxOutMsat)
@@ -328,9 +334,31 @@ func (c *AssetSalePolicy) TrackAcceptedHtlc(circuitKey models.CircuitKey,
 	c.stateMutex.Lock()
 	defer c.stateMutex.Unlock()
 
+	// If we already tracked this HTLC, we only account for the difference,
+	// as UntrackHtlc will only ever subtract the amount once.
+	if prevAmt, ok := c.htlcToAmt[circuitKey]; ok {
+		c.CurrentAmountMsat -= prevAmt
+	}
+
 	c.CurrentAmountMsat += amt
 
 	c.htlcToAmt[circuitKey] = amt
+}
+
+// currentAmountExcluding returns the total amount currently tracked by this
+// policy, without the amount of the given HTLC, if that HTLC is already being
+// tracked.
+//
+// NOTE: The caller must hold at least the read lock of the state mutex.
+func (c *AssetSalePolicy) currentAmountExcluding(
+	circuitKey models.CircuitKey) lnwire.MilliSatoshi {
+
+	prevAmt, ok := c.htlcToAmt[circuitKey]
+	if !ok {
+		return c.CurrentAmountMsat
+	}
+
+	return c.CurrentAmountMsat - prevAmt
 }
 
 // UntrackHtlc stops tracking the uniquely identified HTLC.
@@ -571,7 +599,11 @@ func (c *AssetPurchasePolicy) CheckHtlcCompliance(ctx context.Context,
 
 	// Ensure that the outbound HTLC amount is less than the maximum agreed
 	// BTC payment.
-	if (c.CurrentAmountMsat + htlc.AmountOutMsat) > c.PaymentMaxAmt {
+	// See the comment on the sale policy's compliance check: a replayed
+	// HTLC must not be counted twice.
+	currentAmtMsat := c.currentAmountExcluding(htlc.IncomingCircuitKey)
+
+	if (currentAmtMsat + htlc.AmountOutMsat) > c.PaymentMaxAmt {
 		return fmt.Errorf("HTLC out amount is more than the maximum "+
 			"agreed BTC payment (htlc_out_msat=%d, "+
 			"payment_max_amt=%d)", htlc.AmountOutMsat,
@@ -595,9 +627,31 @@ func (c *AssetPurchasePolicy) TrackAcceptedHtlc(circuitKey models.CircuitKey,
 	c.stateMutex.Lock()
 	defer c.stateMutex.Unlock()
 
+	// If we already tracked this HTLC, we only account for the difference,
+	// as UntrackHtlc will only ever subtract the amount once.
+	if prevAmt, ok := c.htlcToAmt[circuitKey]; ok {
+		c.CurrentAmountMsat -= prevAmt
+	}
+
 	c.CurrentAmountMsat += amt
 
 	c.htlcToAmt[circuitKey] = amt
+}
+
+// currentAmountExcluding returns the total amount currently tracked by this
+// policy, without the amount of the given HTLC, if that HTLC is already being
+// tracked.
+//
+// NOTE: The caller must hold at least the read lock of the state mutex.
+func (c *AssetPurchasePolicy) currentAmountExcluding(
+	circuitKey models.CircuitKey) lnwire.MilliSatoshi {
+
+	prevAmt, ok := c.htlcToAmt[circuitKey]
+	if !ok {
+		return c.CurrentAmountMsat
+	}
+
+	return c.CurrentAmountMsat - prevAmt
 }
 
 // UntrackHtlc stops tracking the uniquely identified HTLC.

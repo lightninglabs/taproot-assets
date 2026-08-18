@@ -4,10 +4,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
+	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/stretchr/testify/require"
@@ -152,4 +154,72 @@ func TestNewAssetPurchasePolicyFillCap(t *testing.T) {
 			)
 		})
 	}
+}
+
+// TestPolicyAccountingIdempotent tests that tracking and checking the same
+// HTLC twice doesn't count its amount twice. lnd asks interceptor clients to
+// handle replayed HTLCs idempotently, and it does replay held HTLCs to every
+// newly connected interceptor.
+func TestPolicyAccountingIdempotent(t *testing.T) {
+	t.Parallel()
+
+	const htlcAmt = 1000
+
+	circuitKey := testCircuitKey(1)
+	htlc := lndclient.InterceptedHtlc{
+		IncomingCircuitKey: circuitKey,
+		AmountOutMsat:      htlcAmt,
+	}
+
+	t.Run("sale policy", func(t *testing.T) {
+		p := &AssetSalePolicy{
+			htlcToAmt: make(
+				map[models.CircuitKey]lnwire.MilliSatoshi,
+			),
+		}
+
+		p.TrackAcceptedHtlc(circuitKey, htlcAmt)
+		p.TrackAcceptedHtlc(circuitKey, htlcAmt)
+		require.EqualValues(t, htlcAmt, p.CurrentAmountMsat)
+
+		// The already tracked amount must not be counted again.
+		require.EqualValues(
+			t, 0, p.currentAmountExcluding(circuitKey),
+		)
+		require.EqualValues(
+			t, htlcAmt, p.currentAmountExcluding(testCircuitKey(2)),
+		)
+
+		// Untracking releases the amount exactly once.
+		p.UntrackHtlc(circuitKey)
+		require.Zero(t, p.CurrentAmountMsat)
+	})
+
+	t.Run("purchase policy", func(t *testing.T) {
+		p := &AssetPurchasePolicy{
+			htlcToAmt: make(
+				map[models.CircuitKey]lnwire.MilliSatoshi,
+			),
+			PaymentMaxAmt: htlcAmt,
+		}
+
+		p.TrackAcceptedHtlc(circuitKey, htlcAmt)
+		p.TrackAcceptedHtlc(circuitKey, htlcAmt)
+		require.EqualValues(t, htlcAmt, p.CurrentAmountMsat)
+
+		// A replay of the very same HTLC must not be counted against
+		// the quote a second time, which is what would make it exceed
+		// the policy maximum.
+		require.EqualValues(
+			t, 0, p.currentAmountExcluding(circuitKey),
+		)
+		require.Less(
+			t, uint64(p.currentAmountExcluding(circuitKey)+
+				htlc.AmountOutMsat),
+			uint64(p.PaymentMaxAmt)+1,
+		)
+
+		p.UntrackHtlc(circuitKey)
+		require.Zero(t, p.CurrentAmountMsat)
+	})
 }
