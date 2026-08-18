@@ -7,13 +7,6 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
-const (
-	// maxKeyIndexAdvance bounds the number of DeriveNextKey RPCs an import
-	// can trigger for one family. This protects against resource exhaustion
-	// from a backup with a valid-looking but unreasonable marker.
-	maxKeyIndexAdvance = 10_000
-)
-
 // advanceKeyFamilyIndexes advances each local LND key family through the
 // highest locator represented in a wallet backup. Explicit markers cover all
 // keys consumed before export, including keys for assets that were later
@@ -79,41 +72,16 @@ func advanceKeyFamilyIndexes(ctx context.Context, wallet *WalletBackup,
 	}
 
 	for family, marker := range highest {
-		next, err := keyRing.DeriveNextKey(ctx, family)
+		// Storing a key records every key in the family that precedes
+		// it, so this single call advances LND's counter through the
+		// marker. LND keeps the operation monotonic, never rewinds a
+		// family, and bounds the number of keys it derives, so a marker
+		// that is already covered is a no-op and an unreasonable marker
+		// is rejected instead of causing excessive derivation.
+		_, err := keyRing.DeriveAndStoreKey(ctx, marker.KeyLocator)
 		if err != nil {
-			return fmt.Errorf("derive first key for family %d: %w",
-				family, err)
-		}
-		if next.Family != family {
-			return fmt.Errorf("derived unexpected key family %d, "+
-				"want %d", next.Family, family)
-		}
-		if next.Index >= marker.Index {
-			continue
-		}
-
-		gap := marker.Index - next.Index
-		if gap > maxKeyIndexAdvance {
-			return fmt.Errorf(
-				"key family %d requires advancing %d indexes, "+
-					"maximum is %d", family, gap,
-				maxKeyIndexAdvance,
-			)
-		}
-
-		for next.Index < marker.Index {
-			next, err = keyRing.DeriveNextKey(ctx, family)
-			if err != nil {
-				return fmt.Errorf("advance key family %d: %w",
-					family, err)
-			}
-			if next.Family != family {
-				return fmt.Errorf(
-					"derived unexpected key family %d, "+
-						"want "+
-						"%d", next.Family, family,
-				)
-			}
+			return fmt.Errorf("advance key family %d through "+
+				"index %d: %w", family, marker.Index, err)
 		}
 
 		log.Infof("Advanced LND key family %d through index %d",

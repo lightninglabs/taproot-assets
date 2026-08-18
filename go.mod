@@ -232,3 +232,15 @@ replace github.com/prometheus/common => github.com/prometheus/common v0.66.1
 
 // Note this is a temporary replace and will be removed when taprpc is tagged.
 replace github.com/lightninglabs/taproot-assets/taprpc => ./taprpc
+
+// TEMPORARY: the key family index advance below calls an RPC that is not in
+// any released LND yet. These point at the branches of
+// lightningnetwork/lnd#11095 and lightninglabs/lndclient#288, and must both
+// be dropped in favor of normal version bumps before this can be merged.
+//
+// NOTE: The LND ref is the PR branch rebased onto the LND version this repo
+// already depends on, since LND master has since changed the itest harness
+// API that our own itests use.
+replace github.com/lightningnetwork/lnd => github.com/GeorgeTsagk/lnd v0.0.0-20260818092258-a7b9eb0643fd
+
+replace github.com/lightninglabs/lndclient => github.com/lightninglabs/lndclient v1.0.1-0.20260818101846-2c8ee79e1fdc

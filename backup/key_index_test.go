@@ -41,14 +41,19 @@ func testKeyDesc(family keychain.KeyFamily,
 	}
 }
 
-func (t *testKeyRing) DeriveNextKey(_ context.Context,
-	family keychain.KeyFamily) (keychain.KeyDescriptor, error) {
+// DeriveAndStoreKey mirrors LND's behavior: recording a key implies recording
+// every key in the family that precedes it, so the family's next index moves
+// past the requested one, and an index the family already passed is a no-op.
+func (t *testKeyRing) DeriveAndStoreKey(_ context.Context,
+	keyLoc keychain.KeyLocator) (keychain.KeyDescriptor, error) {
 
-	index := t.next[family]
-	t.next[family]++
-	t.calls[family]++
+	t.calls[keyLoc.Family]++
 
-	return testKeyDesc(family, index), nil
+	if keyLoc.Index >= t.next[keyLoc.Family] {
+		t.next[keyLoc.Family] = keyLoc.Index + 1
+	}
+
+	return testKeyDesc(keyLoc.Family, keyLoc.Index), nil
 }
 
 func (t *testKeyRing) IsLocalKey(_ context.Context,
@@ -92,7 +97,9 @@ func TestAdvanceKeyFamilyIndexes(t *testing.T) {
 		)
 		require.NoError(t, err)
 		require.Equal(t, uint32(6), ring.next[family])
-		require.Equal(t, uint32(6), ring.calls[family])
+
+		// A single call is enough now, LND fills in the gap.
+		require.Equal(t, uint32(1), ring.calls[family])
 	})
 
 	t.Run("never rewinds", func(t *testing.T) {
@@ -108,7 +115,10 @@ func TestAdvanceKeyFamilyIndexes(t *testing.T) {
 			context.Background(), wallet, ring,
 		)
 		require.NoError(t, err)
-		require.Equal(t, uint32(9), ring.next[family])
+
+		// The marker is below where the family already is, so LND
+		// leaves the index alone.
+		require.Equal(t, uint32(8), ring.next[family])
 		require.Equal(t, uint32(1), ring.calls[family])
 	})
 
@@ -143,20 +153,5 @@ func TestAdvanceKeyFamilyIndexes(t *testing.T) {
 		)
 		require.NoError(t, err)
 		require.Zero(t, ring.calls[family])
-	})
-
-	t.Run("advance limit", func(t *testing.T) {
-		ring := newTestKeyRing()
-		wallet := &WalletBackup{
-			KeyFamilyMarkers: []*KeyDescriptorBackup{
-				keyMarker(family, maxKeyIndexAdvance+1),
-			},
-		}
-
-		err := advanceKeyFamilyIndexes(
-			context.Background(), wallet, ring,
-		)
-		require.ErrorContains(t, err, "requires advancing")
-		require.Equal(t, uint32(1), ring.calls[family])
 	})
 }

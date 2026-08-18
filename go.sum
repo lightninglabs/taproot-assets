@@ -603,6 +603,8 @@ github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03
 github.com/BurntSushi/toml v1.4.0 h1:kuoIxZQy2WRRk1pttg9asf+WVv6tWQuBNVmK8+nqPr0=
 github.com/BurntSushi/toml v1.4.0/go.mod h1:ukJfTF/6rtPPRCnwkur4qwRxa8vTRFBF0uk2lLoLwho=
 github.com/BurntSushi/xgb v0.0.0-20160522181843-27f122750802/go.mod h1:IVnqGOEym/WlBOVXweHU+Q+/VP0lqqI8lqeDx9IjBqo=
+github.com/GeorgeTsagk/lnd v0.0.0-20260818092258-a7b9eb0643fd h1:QdCdIy+9IyLgDj7lyDHTzM/DG2bW+Rots+VgzAYwvXg=
+github.com/GeorgeTsagk/lnd v0.0.0-20260818092258-a7b9eb0643fd/go.mod h1:LWfQaNNXlZghUJqIIh+JsgfxiVtC+ecZkrIe5bm9o4U=
 github.com/JohnCGriffin/overflow v0.0.0-20211019200055-46fa312c352c/go.mod h1:X0CRv0ky0k6m906ixxpzmDRLvX58TFUKS2eePweuyxk=
 github.com/Microsoft/go-winio v0.6.2 h1:F2VQgta7ecxGYO8k3ZZz3RS8fVIXVxONVUPlNERoyfY=
 github.com/Microsoft/go-winio v0.6.2/go.mod h1:yd8OoFMLzJbo9gZq8j5qaps8bJ9aShtEA8Ipt1oGCvU=
@@ -1070,8 +1072,8 @@ github.com/lightninglabs/lightning-node-connect/hashmailrpc v1.0.4-0.20250610182
 github.com/lightninglabs/lightning-node-connect/hashmailrpc v1.0.4-0.20250610182311-2f1d46ef18b7/go.mod h1:bDnEKRN1u13NFBuy/C+bFLhxA5bfd3clT25y76QY0AM=
 github.com/lightninglabs/lightning-node-connect/mailbox v1.0.2-0.20250610182311-2f1d46ef18b7 h1:EU/pEkszIbIJOHwOr67G9Gjmyy4CUXk6StRi9C26sUw=
 github.com/lightninglabs/lightning-node-connect/mailbox v1.0.2-0.20250610182311-2f1d46ef18b7/go.mod h1:cQA5pybYbERkMlE8j49LITZZozQZIXABbWJLIpMWnus=
-github.com/lightninglabs/lndclient v1.0.1-0.20260701212139-09c54915cfba h1:PbtOHmA9P41mjWt7HDZDDzYshv8fmyhIBPkdOf8wKws=
-github.com/lightninglabs/lndclient v1.0.1-0.20260701212139-09c54915cfba/go.mod h1:DtZg/wz7YFXVCwOwYOJyWKQBnUp1NFg4RQdax3MSYbc=
+github.com/lightninglabs/lndclient v1.0.1-0.20260818101846-2c8ee79e1fdc h1:sbGyJV+oZ6ZRz4OX/TgnwPajhTevXYn3NJNArjg3vhQ=
+github.com/lightninglabs/lndclient v1.0.1-0.20260818101846-2c8ee79e1fdc/go.mod h1:v6fWXFKVaox2yr/dmpfhOdWqrgCKEDt2ZFVnyw419SI=
 github.com/lightninglabs/migrate/v4 v4.18.2-9023d66a-fork-pr-2.0.20251211093704-71c1eef09789 h1:7kX7vUgHUazAHcCJ6uzBDa4/2MEGEbMEfa01GtfqmTQ=
 github.com/lightninglabs/migrate/v4 v4.18.2-9023d66a-fork-pr-2.0.20251211093704-71c1eef09789/go.mod h1:99BKpIi6ruaaXRM1A77eqZ+FWPQ3cfRa+ZVy5bmWMaY=
 github.com/lightninglabs/neutrino v0.18.0 h1:UsyeU3twkCSAXxUssVg8vGXcHkWKzHZ3xQCej57t5t0=
@@ -1082,8 +1084,6 @@ github.com/lightninglabs/protobuf-go-hex-display v1.34.2-hex-display h1:w7FM5LH9
 github.com/lightninglabs/protobuf-go-hex-display v1.34.2-hex-display/go.mod h1:qYOHts0dSfpeUzUFpOMr/WGzszTmLH+DiWniOlNbLDw=
 github.com/lightningnetwork/lightning-onion v1.4.0 h1:qWE1icOH4AKXRcq1KCzt6P/TesqptgBTP++V7wowTc0=
 github.com/lightningnetwork/lightning-onion v1.4.0/go.mod h1:YDPkvVTVQ6FBBE6Yj93tDd7zA3iTSrryi9xq46i7bKE=
-github.com/lightningnetwork/lnd v0.21.0-beta.rc2.0.20260630214209-40c64f9db30d h1:mDcB9mwuwJXRbDmxps6mBgGs318Iz5ZbOrt0ieEx0os=
-github.com/lightningnetwork/lnd v0.21.0-beta.rc2.0.20260630214209-40c64f9db30d/go.mod h1:LWfQaNNXlZghUJqIIh+JsgfxiVtC+ecZkrIe5bm9o4U=
 github.com/lightningnetwork/lnd/actor v0.0.6 h1:Ge8N2wivARG+27qJBwTlB0vwsypStZYZy8vk4Zl38sU=
 github.com/lightningnetwork/lnd/actor v0.0.6/go.mod h1:YAsoniSbY/cAM9HTVNfZLvt7RI6swDxy6wzPspTcMZg=
 github.com/lightningnetwork/lnd/cert v1.2.2 h1:71YK6hogeJtxSxw2teq3eGeuy4rHGKcFf0d0Uy4qBjI=

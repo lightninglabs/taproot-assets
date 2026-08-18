@@ -57,8 +57,10 @@ type KeyRegistrar interface {
 // KeyRing derives and identifies keys controlled by LND. It is used to
 // restore monotonically increasing key-family indexes after seed recovery.
 type KeyRing interface {
-	// DeriveNextKey derives and persists the next key in a family.
-	DeriveNextKey(context.Context, keychain.KeyFamily) (
+	// DeriveAndStoreKey derives the key at the given locator and records it
+	// in the LND wallet, which advances the key family's derivation index
+	// past that key.
+	DeriveAndStoreKey(context.Context, keychain.KeyLocator) (
 		keychain.KeyDescriptor, error)
 
 	// IsLocalKey reports whether a descriptor belongs to the connected LND
