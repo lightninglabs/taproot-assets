@@ -1081,15 +1081,21 @@ func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
 	// after the eviction above, from a snapshot predating this call's
 	// own insert, and that receipt would not reflect the leaf this
 	// call committed.
+	// Every rebuild failure below carries ErrMultiversePending: the
+	// caller's leaf and the flushed multiverse update are both durable
+	// by now, so an error here means only that a composing receipt
+	// could not be assembled, never that the proof failed to store.
 	if !mssmt.IsEqualNode(update.universeRoot, uniProof.UniverseRoot) {
 		proofs, err := b.fetchProofLeaf(ctx, id, key, true)
 		if err != nil {
-			return nil, fmt.Errorf("failed superseded proof "+
-				"fetch: %w", err)
+			return nil, fmt.Errorf("%w: failed superseded "+
+				"proof fetch: %w",
+				universe.ErrMultiversePending, err)
 		}
 		if len(proofs) != 1 {
-			return nil, fmt.Errorf("expected one proof for "+
-				"superseded upsert, got %d", len(proofs))
+			return nil, fmt.Errorf("%w: expected one proof "+
+				"for superseded upsert, got %d",
+				universe.ErrMultiversePending, len(proofs))
 		}
 
 		return proofs[0], nil

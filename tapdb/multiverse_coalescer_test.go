@@ -1287,6 +1287,10 @@ type hookFlushDB struct {
 	// failFrom, if positive, fails every flush whose ordinal (from
 	// one) is greater than or equal to it.
 	failFrom atomic.Int32
+
+	// failReads, if set, fails every read-only transaction, leaving
+	// write and flush transactions untouched.
+	failReads atomic.Bool
 }
 
 func (h *hookFlushDB) ExecTx(ctx context.Context, opts TxOptions,
@@ -1302,6 +1306,10 @@ func (h *hookFlushDB) ExecTx(ctx context.Context, opts TxOptions,
 		if from := h.failFrom.Load(); from > 0 && n >= from {
 			return fmt.Errorf("flush unavailable")
 		}
+	}
+
+	if h.failReads.Load() && opts.ReadOnly() {
+		return fmt.Errorf("reads unavailable")
 	}
 
 	return h.BatchedMultiverse.ExecTx(ctx, opts, txBody)
@@ -1366,6 +1374,55 @@ func TestUpsertProofLeafSuperseded(t *testing.T) {
 	// root rather than the root of the caller's own transaction.
 	assertReceiptComposes(t, id, receipt)
 	require.True(t, mssmt.IsEqualNode(superseding, receipt.UniverseRoot))
+}
+
+// TestUpsertProofLeafSupersededRebuildFailure forces the rebuild of a
+// superseded receipt to fail and asserts the returned error carries
+// universe.ErrMultiversePending: the caller's leaf and the flushed
+// multiverse update are both durable by then, so the error must not
+// read as a failure to store the proof.
+func TestUpsertProofLeafSupersededRebuildFailure(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	multiverse, hookDB := newHookedMultiverse(t)
+
+	items := genUniverseItems(t, 2)
+	id := items[0].ID
+
+	// Arm the hook: a second leaf supersedes the caller's before its
+	// flush, and every read transaction fails from then on, so the
+	// superseded-receipt rebuild cannot run. The flush itself is a
+	// write transaction and commits unhindered.
+	var (
+		superseding mssmt.Node
+		hookErr     error
+	)
+	hook := func() {
+		superseding, hookErr = insertUniverseLeafOnly(
+			ctx, multiverse, items[1],
+		)
+		hookDB.failReads.Store(true)
+	}
+	hookDB.beforeFlush.Store(&hook)
+
+	_, err := multiverse.UpsertProofLeaf(
+		ctx, items[0].ID, items[0].Key, items[0].Leaf,
+		items[0].MetaReveal,
+	)
+	require.NoError(t, hookErr)
+	require.NotNil(t, superseding)
+	require.ErrorIs(t, err, universe.ErrMultiversePending)
+	require.ErrorContains(t, err, "reads unavailable")
+
+	// Once reads recover, the caller's leaf must be served under a
+	// composing receipt without any further write: the failure was in
+	// assembling the receipt, not in storing the proof.
+	hookDB.failReads.Store(false)
+	receipts, err := multiverse.FetchProofLeaf(ctx, id, items[0].Key)
+	require.NoError(t, err)
+	require.Len(t, receipts, 1)
+	assertReceiptComposes(t, id, receipts[0])
 }
 
 // TestUpsertProofLeafSupersededStaleCache asserts that the

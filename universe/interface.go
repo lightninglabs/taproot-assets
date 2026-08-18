@@ -34,9 +34,11 @@ var (
 	ErrNoUniverseProofFound = fmt.Errorf("no universe proof found")
 
 	// ErrMultiversePending is returned, wrapped, by multiverse upsert
-	// operations when the universe leaves committed durably but the
-	// update of the shared multiverse trees did not. The write is not
-	// lost: the archive retries the multiverse update in the
+	// operations that fail after the universe leaves committed
+	// durably: either the update of the shared multiverse trees is
+	// still outstanding, or it committed too and only a composing
+	// receipt could not be assembled. The write is not lost: the
+	// archive retries an outstanding multiverse update in the
 	// background until the database recovers, and any update
 	// abandoned by a shutdown is repaired by reconciliation at the
 	// next startup. Callers should treat this as a transient,
