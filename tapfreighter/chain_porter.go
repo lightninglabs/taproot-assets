@@ -1598,78 +1598,23 @@ func (p *ChainPorter) verifyOutputProofPreBroadcast(ctx context.Context,
 			"output_idx=%d)", pktIdx, outIdx)
 	}
 
-	var suffixBuf bytes.Buffer
-	err := vOut.ProofSuffix.Encode(&suffixBuf)
-	if err != nil {
-		return fmt.Errorf("unable to encode proof "+
-			"suffix (vpkt_idx=%d, "+
-			"output_idx=%d): %w", pktIdx,
-			outIdx, err)
-	}
-
-	proofSuffix := &proof.Proof{}
-	if err := proofSuffix.Decode(
-		bytes.NewReader(suffixBuf.Bytes()),
-	); err != nil {
-		return fmt.Errorf("unable to decode proof "+
-			"suffix (vpkt_idx=%d, "+
-			"output_idx=%d): %w", pktIdx,
-			outIdx, err)
-	}
-
-	for idx := 1; idx < len(inputsForAsset); idx++ {
-		additionalInputProofFile, err :=
-			p.fetchInputProof(ctx, inputsForAsset[idx])
+	inputProofFiles := make(
+		map[asset.PrevID]*proof.File, len(inputsForAsset),
+	)
+	for idx := range inputsForAsset {
+		prevID := inputsForAsset[idx]
+		inputProofFile, err := p.fetchInputProof(ctx, prevID)
 		if err != nil {
-			return fmt.Errorf("error fetching "+
-				"additional input proof %d "+
+			return fmt.Errorf("error fetching input proof %d "+
 				"(vpkt_idx=%d, "+
 				"output_idx=%d): %w", idx,
 				pktIdx, outIdx, err)
 		}
-
-		proofSuffix.AdditionalInputs = append(
-			proofSuffix.AdditionalInputs,
-			*additionalInputProofFile,
-		)
+		inputProofFiles[prevID] = inputProofFile
 	}
 
-	inputProofFile, err := p.fetchInputProof(
-		ctx, inputsForAsset[0],
-	)
-	if err != nil {
-		return fmt.Errorf("error fetching input "+
-			"proof (vpkt_idx=%d, "+
-			"output_idx=%d): %w", pktIdx,
-			outIdx, err)
-	}
-
-	if err := inputProofFile.AppendProof(
-		*proofSuffix,
-	); err != nil {
-		return fmt.Errorf("error appending "+
-			"proof suffix (vpkt_idx=%d, "+
-			"output_idx=%d): %w", pktIdx,
-			outIdx, err)
-	}
-
-	var proofFileBuf bytes.Buffer
-	err = inputProofFile.Encode(&proofFileBuf)
-	if err != nil {
-		return fmt.Errorf("error encoding proof "+
-			"file (vpkt_idx=%d, "+
-			"output_idx=%d): %w", pktIdx,
-			outIdx, err)
-	}
-
-	// We skip locktime checks on the final proof (when a locktime is set)
-	// since pre-broadcast validation has no confirmed block to evaluate
-	// against.
-	_, err = verifier.Verify(
-		ctx, bytes.NewReader(proofFileBuf.Bytes()),
-		vCtx,
-		proof.WithSkipChainVerificationForFinalProof(),
-		proof.WithSkipTimeLockValidationForFinalProof(),
+	_, err := proof.VerifyProofSuffix(
+		ctx, vOut.ProofSuffix, inputProofFiles, verifier, vCtx,
 	)
 	if err != nil {
 		return fmt.Errorf("output proof verification "+
