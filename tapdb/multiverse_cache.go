@@ -379,6 +379,22 @@ func (r *rootPageCache) wipe(cacheSize uint64) {
 	r.Store(rootCache)
 }
 
+// syncerCacheOp is a buffered incremental mutation of the syncer
+// cache: an install of a root, or a removal of a universe. Mutations
+// arriving while a wholesale fill is reading the database are buffered
+// and replayed onto the snapshot at install time, so the fill never
+// needs to hold the cache's write lock across its reads.
+type syncerCacheOp struct {
+	// remove is true for a removal, false for an install.
+	remove bool
+
+	// key is the universe being removed, when remove is true.
+	key universe.IdentifierKey
+
+	// root is the root being installed, when remove is false.
+	root universe.Root
+}
+
 // syncerRootNodeCache is used to cache the set of active root nodes for the
 // multiverse tree, which is specifically kept for the universe sync.
 type syncerRootNodeCache struct {
@@ -386,6 +402,39 @@ type syncerRootNodeCache struct {
 
 	// enabled is a flag that indicates if the cache is enabled.
 	enabled bool
+
+	// initialized indicates that the cache has been populated with the
+	// complete set of universe roots. Both serving and incremental
+	// maintenance are gated on it: the read path treats the cache as
+	// the authoritative full set, so a partially seeded cache must
+	// never be observable.
+	initialized bool
+
+	// fillMu serializes wholesale fills of the cache: the first
+	// caller to need a fill performs the paginated database read, and
+	// every concurrent caller waits here for it instead of scanning
+	// the database again. It is never held by the incremental
+	// maintenance paths, so a slow fill cannot stall them.
+	fillMu sync.Mutex
+
+	// filling is true while a wholesale fill is reading the database.
+	// Incremental installs and removals arriving in that window are
+	// buffered in pendingOps rather than applied or dropped.
+	filling bool
+
+	// generation counts invalidations. A fill started under one
+	// generation installs nothing if the cache was invalidated while
+	// it read: its snapshot may straddle the invalidating event.
+	generation uint64
+
+	// pendingOps buffers the incremental mutations that arrived while
+	// a fill was reading the database, in arrival order. They are
+	// replayed onto the snapshot at install time: their values are
+	// flush-derived or post-deletion state, so replaying them moves
+	// entries toward the present, and any entry it could briefly
+	// regress is corrected by a later flush callback already ordered
+	// behind them.
+	pendingOps []syncerCacheOp
 
 	// preAllocSize is the pre-allocated size of the cache.
 	preAllocSize uint64
@@ -451,8 +500,8 @@ func isQueryForSyncerCache(q universe.RootNodesQuery) bool {
 // are needed, then we return nothing so we go to the database to fetch the
 // information. The boolean indicates if there are more roots available because
 // the caller has reached the end of the list with the given offset.
-func (r *syncerRootNodeCache) fetchRoots(q universe.RootNodesQuery,
-	haveWriteLock bool) ([]universe.Root, bool) {
+func (r *syncerRootNodeCache) fetchRoots(
+	q universe.RootNodesQuery) ([]universe.Root, bool) {
 
 	// We shouldn't be called for a query that can't be served from the
 	// cache. But in case we are, we'll just short-cut here.
@@ -460,17 +509,14 @@ func (r *syncerRootNodeCache) fetchRoots(q universe.RootNodesQuery,
 		return nil, false
 	}
 
-	// If we've acquired the write lock because we're doing a last lookup
-	// before potentially populating the cache, we don't need to acquire the
-	// read lock. If we're just normally reading from the cache, we'll need
-	// to acquire the read lock.
-	if !haveWriteLock {
-		r.RLock()
-		defer r.RUnlock()
-	}
+	r.RLock()
+	defer r.RUnlock()
 
-	// If the cache is empty, we'll short-cut as well.
-	if len(r.universeRoots) == 0 {
+	// If the cache has not been populated wholesale yet, we can't
+	// serve from it: it may hold a subset of roots installed by flush
+	// callbacks, and the pagination below treats the cache as the
+	// complete set.
+	if !r.initialized {
 		// This is a miss, but we'll return nil to indicate that we
 		// don't have any roots.
 		r.Miss()
@@ -527,21 +573,15 @@ func (r *syncerRootNodeCache) fetchRoots(q universe.RootNodesQuery,
 }
 
 // fetchRoot reads the cached root for the given ID.
-func (r *syncerRootNodeCache) fetchRoot(id universe.Identifier,
-	haveWriteLock bool) *universe.Root {
+func (r *syncerRootNodeCache) fetchRoot(
+	id universe.Identifier) *universe.Root {
 
 	if !r.enabled {
 		return nil
 	}
 
-	// If we've acquired the write lock because we're doing a last lookup
-	// before potentially populating the cache, we don't need to acquire the
-	// read lock. If we're just normally reading from the cache, we'll need
-	// to acquire the read lock.
-	if !haveWriteLock {
-		r.RLock()
-		defer r.RUnlock()
-	}
+	r.RLock()
+	defer r.RUnlock()
 
 	root, ok := r.universeRoots[id.Key()]
 	if !ok {
@@ -583,6 +623,8 @@ func (r *syncerRootNodeCache) replaceCache(newRoots []universe.Root) {
 	}
 
 	r.sortKeys()
+
+	r.initialized = true
 }
 
 // addOrReplace adds a single root to the cache if it isn't already present or
@@ -595,6 +637,29 @@ func (r *syncerRootNodeCache) addOrReplace(root universe.Root) {
 	r.Lock()
 	defer r.Unlock()
 
+	// While a wholesale fill reads the database, buffer the install:
+	// the fill replays it onto its snapshot, which may predate the
+	// flush this root stems from.
+	if r.filling {
+		r.pendingOps = append(r.pendingOps, syncerCacheOp{root: root})
+		return
+	}
+
+	// Until the cache has been populated wholesale, incremental
+	// installs must not apply: they would seed a partial cache that
+	// the read path would then serve as the complete set.
+	if !r.initialized {
+		return
+	}
+
+	r.addOrReplaceLocked(root)
+}
+
+// addOrReplaceLocked installs a single root.
+//
+// NOTE: This method must be called while holding the syncer cache
+// lock.
+func (r *syncerRootNodeCache) addOrReplaceLocked(root universe.Root) {
 	if _, ok := r.universeRoots[root.ID.Key()]; ok {
 		// If the root is already in the cache, we'll just replace it in
 		// the map. The key list doesn't need to be updated, as the key
@@ -619,6 +684,31 @@ func (r *syncerRootNodeCache) remove(key universe.IdentifierKey) {
 	r.Lock()
 	defer r.Unlock()
 
+	// While a wholesale fill reads the database, buffer the removal:
+	// the fill replays it onto its snapshot, whose pages may have
+	// been read before the deletion committed.
+	if r.filling {
+		r.pendingOps = append(r.pendingOps, syncerCacheOp{
+			remove: true,
+			key:    key,
+		})
+		return
+	}
+
+	// An uninitialized cache holds nothing to remove; it will be
+	// populated from post-deletion state when it is next filled.
+	if !r.initialized {
+		return
+	}
+
+	r.removeLocked(key)
+}
+
+// removeLocked removes a single root.
+//
+// NOTE: This method must be called while holding the syncer cache
+// lock.
+func (r *syncerRootNodeCache) removeLocked(key universe.IdentifierKey) {
 	idx := sort.Search(len(r.universeKeyList), func(i int) bool {
 		return bytes.Compare(r.universeKeyList[i][:], key[:]) >= 0
 	})
@@ -631,12 +721,95 @@ func (r *syncerRootNodeCache) remove(key universe.IdentifierKey) {
 	}
 }
 
-// isEmpty returns true if the cache is empty.
-func (r *syncerRootNodeCache) isEmpty() bool {
+// beginFill marks a wholesale fill as in progress and returns the
+// generation it started under. From here until the fill completes or
+// aborts, incremental installs and removals are buffered rather than
+// applied, and the cache's write lock is free for them: the fill's
+// database reads happen without it.
+func (r *syncerRootNodeCache) beginFill() uint64 {
+	r.Lock()
+	defer r.Unlock()
+
+	r.filling = true
+	r.pendingOps = nil
+
+	return r.generation
+}
+
+// completeFill atomically installs the snapshot a fill read, replaying
+// the mutations buffered while it ran, and marks the cache
+// initialized. It installs nothing and returns false if the cache was
+// invalidated after beginFill: the snapshot's pages may straddle the
+// invalidating event, so the next syncer query starts a fresh fill.
+func (r *syncerRootNodeCache) completeFill(gen uint64,
+	newRoots []universe.Root) bool {
+
+	r.Lock()
+	defer r.Unlock()
+
+	r.filling = false
+	ops := r.pendingOps
+	r.pendingOps = nil
+
+	if r.generation != gen {
+		return false
+	}
+
+	r.replaceCache(newRoots)
+
+	for _, op := range ops {
+		if op.remove {
+			r.removeLocked(op.key)
+			continue
+		}
+
+		r.addOrReplaceLocked(op.root)
+	}
+
+	return true
+}
+
+// abortFill abandons an in-progress fill, discarding the buffered
+// mutations, and leaves the cache uninitialized.
+func (r *syncerRootNodeCache) abortFill() {
+	r.Lock()
+	defer r.Unlock()
+
+	r.filling = false
+	r.pendingOps = nil
+}
+
+// needsFill returns true if the cache has not yet been populated with
+// the complete set of universe roots.
+func (r *syncerRootNodeCache) needsFill() bool {
 	r.RLock()
 	defer r.RUnlock()
 
-	return len(r.universeKeyList) == 0
+	return !r.initialized
+}
+
+// invalidate empties the cache and marks it uninitialized, so the next
+// syncer query repopulates it wholesale from the database. This is the
+// recovery path for failed multiverse flushes — the flush callback
+// that maintains the cache incrementally only runs for flushes that
+// commit, so the roots of a failed round would otherwise stay stale
+// until their universes are written again — and for partial leaf
+// deletions, where the deleted universe may or may not survive. It
+// also discards any fill in flight: the fill's snapshot may straddle
+// the event that forced the invalidation.
+func (r *syncerRootNodeCache) invalidate() {
+	if !r.enabled {
+		return
+	}
+
+	r.Lock()
+	defer r.Unlock()
+
+	r.universeKeyList = nil
+	r.universeRoots = make(map[universe.IdentifierKey]universe.Root)
+	r.initialized = false
+	r.generation++
+	r.pendingOps = nil
 }
 
 // rootNodeCache is used to cache the set of active root nodes for the

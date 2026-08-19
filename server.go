@@ -900,6 +900,12 @@ func (s *Server) Stop() error {
 		}
 	}
 
+	// Every subsystem that writes universe proofs has stopped, so wind
+	// down the multiverse store's background flusher. Any multiverse
+	// update it abandons is repaired by startup reconciliation on the
+	// next run.
+	s.cfg.DatabaseConfig.Multiverse.Stop()
+
 	close(s.quit)
 
 	s.wg.Wait()

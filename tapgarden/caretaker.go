@@ -1315,7 +1315,17 @@ func (b *BatchCaretaker) batchStreamUniverseItems(ctx context.Context,
 				numTotal)
 
 			err := uni.UpsertProofLeafBatch(ctx, batch)
-			if err != nil {
+			switch {
+			// The leaves are durably stored; only their
+			// multiverse entries are still outstanding, and the
+			// universe archive repairs those in the background.
+			// The batch must not be failed over writes that
+			// landed.
+			case errors.Is(err, universe.ErrMultiversePending):
+				log.Warnf("Batch minting proofs stored with "+
+					"multiverse updates pending: %v", err)
+
+			case err != nil:
 				return fmt.Errorf("unable to register "+
 					"proof leaf batch: %w", err)
 			}

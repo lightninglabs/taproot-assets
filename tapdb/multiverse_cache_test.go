@@ -87,10 +87,9 @@ func TestMultiverseRootsCachePerformance(t *testing.T) {
 		t, numMisses, multiverse.rootNodeCache.miss.Load(),
 	)
 
-	// The new syncer cache should only have two misses, one from when the
-	// cache was empty, one from after acquiring the write lock and all
-	// other queries should be hits.
-	require.EqualValues(t, 2, multiverse.syncerCache.miss.Load())
+	// The new syncer cache should only have a single miss, from when
+	// the cache was still empty; all other queries should be hits.
+	require.EqualValues(t, 1, multiverse.syncerCache.miss.Load())
 	require.EqualValues(t, numHits, multiverse.syncerCache.hit.Load())
 }
 
@@ -682,11 +681,14 @@ func TestMultiverseSyncerCache(t *testing.T) {
 	require.Len(t, originalRoots, numAssets)
 	assertAllLeavesInRoots(t, allLeaves, originalRoots)
 
-	// Because we've enabled the cache from the beginning, the leaves
-	// inserted into the DB above should already be in the cache. That means
-	// we should have zero misses.
+	// The cache only serves once it has been populated wholesale, so
+	// the first page query filled it (its one pre-fill lookup is the
+	// only miss); every page after that was served from the cache.
+	// The inserts above did not seed the cache: incremental installs
+	// apply only to an initialized cache, as a partially seeded cache
+	// would be served as though it were complete.
 	hitsPerFetch := numAssets / pageSize
-	require.EqualValues(t, 0, multiverse.syncerCache.miss.Load())
+	require.EqualValues(t, 1, multiverse.syncerCache.miss.Load())
 	require.EqualValues(t, hitsPerFetch, multiverse.syncerCache.hit.Load())
 
 	// We now randomly remove and re-insert some of the assets. The result
@@ -716,11 +718,205 @@ func TestMultiverseSyncerCache(t *testing.T) {
 		require.Equal(t, originalRoots, roots)
 
 		// No matter how we manipulate the entries, we should always hit
-		// the cache for syncer queries.
+		// the cache for syncer queries; the miss count stays at the
+		// single pre-fill lookup of the very first query.
 		hits := hitsPerFetch * (i + 2)
-		require.EqualValues(t, 0, multiverse.syncerCache.miss.Load())
+		require.EqualValues(t, 1, multiverse.syncerCache.miss.Load())
 		require.EqualValues(t, hits, multiverse.syncerCache.hit.Load())
 	}
+}
+
+// syncerTestRoot builds a distinct universe root for direct syncer
+// cache tests.
+func syncerTestRoot(seed byte, sum uint64) universe.Root {
+	var id universe.Identifier
+	id.AssetID[0] = seed
+	id.ProofType = universe.ProofTypeIssuance
+
+	var hash mssmt.NodeHash
+	hash[0] = seed
+	hash[1] = byte(sum)
+
+	return universe.Root{
+		ID:   id,
+		Node: mssmt.NewComputedBranch(hash, sum),
+	}
+}
+
+// TestSyncerCacheFillBuffersMutations asserts that incremental installs
+// and removals arriving while a wholesale fill reads the database are
+// neither dropped nor stalled: they are buffered and replayed onto the
+// snapshot when the fill installs it, so the installed cache reflects
+// them even where the snapshot's pages predate them.
+func TestSyncerCacheFillBuffersMutations(t *testing.T) {
+	t.Parallel()
+
+	cache := newSyncerRootNodeCache(true, 10)
+
+	rootA := syncerTestRoot(1, 1)
+	rootB := syncerTestRoot(2, 1)
+	rootC := syncerTestRoot(3, 1)
+
+	// A fill begins; its snapshot will hold A and a stale B.
+	gen := cache.beginFill()
+
+	// While the fill reads, a flush installs a fresh B and a new C,
+	// and a deletion removes A. None of these may block, and none may
+	// be lost.
+	freshB := syncerTestRoot(2, 7)
+	cache.addOrReplace(freshB)
+	cache.addOrReplace(rootC)
+	cache.remove(rootA.ID.Key())
+
+	// Install the stale snapshot: the buffered operations must win
+	// over it.
+	installed := cache.completeFill(gen, []universe.Root{rootA, rootB})
+	require.True(t, installed)
+	require.False(t, cache.needsFill())
+
+	require.Nil(t, cache.fetchRoot(rootA.ID))
+
+	gotB := cache.fetchRoot(rootB.ID)
+	require.NotNil(t, gotB)
+	require.True(t, mssmt.IsEqualNode(freshB.Node, gotB.Node))
+
+	require.NotNil(t, cache.fetchRoot(rootC.ID))
+}
+
+// TestSyncerCacheFillDiscardedOnInvalidate asserts that a fill whose
+// read window contained an invalidation installs nothing: its snapshot
+// may straddle the invalidating event, so the cache stays uninitialized
+// and the next fill starts afresh.
+func TestSyncerCacheFillDiscardedOnInvalidate(t *testing.T) {
+	t.Parallel()
+
+	cache := newSyncerRootNodeCache(true, 10)
+
+	gen := cache.beginFill()
+	cache.invalidate()
+
+	installed := cache.completeFill(gen, []universe.Root{
+		syncerTestRoot(1, 1),
+	})
+	require.False(t, installed)
+	require.True(t, cache.needsFill())
+	require.Nil(t, cache.fetchRoot(syncerTestRoot(1, 1).ID))
+
+	// A subsequent, uninterrupted fill installs normally.
+	gen = cache.beginFill()
+	installed = cache.completeFill(gen, []universe.Root{
+		syncerTestRoot(2, 1),
+	})
+	require.True(t, installed)
+	require.False(t, cache.needsFill())
+	require.NotNil(t, cache.fetchRoot(syncerTestRoot(2, 1).ID))
+}
+
+// TestSyncerCacheDeleteProofLeaf asserts that deleting a single proof
+// leaf keeps the syncer cache consistent with the database: a universe
+// that survives the deletion must remain visible to syncer queries
+// under its new root, and a universe whose last leaf was deleted must
+// disappear.
+func TestSyncerCacheDeleteProofLeaf(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	multiverse, _ := newTestMultiverse(t)
+	multiverse.syncerCache.enabled = true
+	multiverse.cfg.Caches.SyncerCacheEnabled = true
+
+	// One universe with two leaves, plus a few other universes so the
+	// cache stays populated throughout: a cache that drained to empty
+	// and refilled would mask an erroneous eviction.
+	items := genUniverseItemsWithType(t, universe.ProofTypeIssuance, 2)
+	id := items[0].ID
+	for _, item := range items {
+		_, err := multiverse.UpsertProofLeaf(
+			ctx, item.ID, item.Key, item.Leaf, item.MetaReveal,
+		)
+		require.NoError(t, err)
+	}
+
+	const numOthers = 3
+	for i := 0; i < numOthers; i++ {
+		other := genRandomAsset(t)
+		_, err := multiverse.UpsertProofLeaf(
+			ctx, other.ID, other.Key, other.Leaf,
+			other.MetaReveal,
+		)
+		require.NoError(t, err)
+	}
+
+	// Fill the syncer cache and pin the universe's pre-deletion root.
+	q := universe.RootNodesQuery{
+		SortDirection: universe.SortAscending,
+		Limit:         universe.RequestPageSize,
+	}
+	roots, err := multiverse.RootNodes(ctx, q)
+	require.NoError(t, err)
+	require.Len(t, roots, numOthers+1)
+	require.False(t, multiverse.syncerCache.needsFill())
+
+	findRoot := func(roots []universe.Root) *universe.Root {
+		for i := range roots {
+			if roots[i].ID.Key() == id.Key() {
+				return &roots[i]
+			}
+		}
+
+		return nil
+	}
+	preDeletion := findRoot(roots)
+	require.NotNil(t, preDeletion)
+
+	// Delete one of the universe's two leaves. The universe survives
+	// under a new root, and syncer queries must keep returning it.
+	_, err = multiverse.DeleteProofLeaf(ctx, id, items[0].Key)
+	require.NoError(t, err)
+
+	roots, err = multiverse.RootNodes(ctx, q)
+	require.NoError(t, err)
+	require.Len(t, roots, numOthers+1)
+
+	surviving := findRoot(roots)
+	require.NotNil(t, surviving, "surviving universe missing from "+
+		"syncer query after partial deletion")
+	require.False(t, mssmt.IsEqualNode(preDeletion.Node, surviving.Node))
+
+	// The served root must be the universe's actual post-deletion
+	// root.
+	var dbRoot UniverseRoot
+	readTx := NewBaseUniverseReadTx()
+	err = multiverse.db.ExecTx(
+		ctx, &readTx, func(db BaseMultiverseStore) error {
+			var err error
+			dbRoot, err = db.FetchUniverseRoot(ctx, id.String())
+			return err
+		},
+	)
+	require.NoError(t, err)
+
+	var expectedHash mssmt.NodeHash
+	copy(expectedHash[:], dbRoot.RootHash[:])
+	require.Equal(t, expectedHash, surviving.Node.NodeHash())
+
+	// Single-root lookups must agree.
+	single, err := multiverse.UniverseRootNode(ctx, id)
+	require.NoError(t, err)
+	require.True(t, mssmt.IsEqualNode(surviving.Node, single.Node))
+
+	// Delete the final leaf: now the whole universe is cleaned up and
+	// must disappear from syncer queries.
+	_, err = multiverse.DeleteProofLeaf(ctx, id, items[1].Key)
+	require.NoError(t, err)
+
+	roots, err = multiverse.RootNodes(ctx, q)
+	require.NoError(t, err)
+	require.Len(t, roots, numOthers)
+	require.Nil(t, findRoot(roots))
+
+	_, err = multiverse.UniverseRootNode(ctx, id)
+	require.ErrorIs(t, err, universe.ErrNoUniverseRoot)
 }
 
 func genRandomAsset(t *testing.T) *universe.Item {

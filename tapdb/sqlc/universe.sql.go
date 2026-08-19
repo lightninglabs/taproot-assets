@@ -1173,6 +1173,66 @@ func (q *Queries) UniverseRoots(ctx context.Context, arg UniverseRootsParams) ([
 	return items, nil
 }
 
+const UniverseRootsAfterID = `-- name: UniverseRootsAfterID :many
+SELECT universe_roots.id, universe_roots.asset_id, group_key, proof_type,
+       mssmt_roots.root_hash AS root_hash, mssmt_nodes.sum AS root_sum
+FROM universe_roots
+JOIN mssmt_roots
+    ON universe_roots.namespace_root = mssmt_roots.namespace
+JOIN mssmt_nodes
+    ON mssmt_nodes.hash_key = mssmt_roots.root_hash
+       AND mssmt_nodes.namespace = mssmt_roots.namespace
+JOIN genesis_assets
+    ON genesis_assets.asset_id = universe_roots.asset_id
+WHERE universe_roots.id > $1
+ORDER BY universe_roots.id ASC
+LIMIT $2
+`
+
+type UniverseRootsAfterIDParams struct {
+	AfterID  int64
+	NumLimit int32
+}
+
+type UniverseRootsAfterIDRow struct {
+	ID        int64
+	AssetID   []byte
+	GroupKey  []byte
+	ProofType sql.NullString
+	RootHash  []byte
+	RootSum   int64
+}
+
+func (q *Queries) UniverseRootsAfterID(ctx context.Context, arg UniverseRootsAfterIDParams) ([]UniverseRootsAfterIDRow, error) {
+	rows, err := q.db.QueryContext(ctx, UniverseRootsAfterID, arg.AfterID, arg.NumLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []UniverseRootsAfterIDRow
+	for rows.Next() {
+		var i UniverseRootsAfterIDRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.AssetID,
+			&i.GroupKey,
+			&i.ProofType,
+			&i.RootHash,
+			&i.RootSum,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const UpsertFederationGlobalSyncConfig = `-- name: UpsertFederationGlobalSyncConfig :exec
 INSERT INTO federation_global_sync_config (
     proof_type, allow_sync_insert, allow_sync_export

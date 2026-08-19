@@ -659,7 +659,18 @@ func (s *SimpleSyncer) batchStreamNewItems(ctx context.Context,
 			err := s.cfg.LocalRegistrar.UpsertProofLeafBatch(
 				ctx, batch,
 			)
-			if err != nil {
+			switch {
+			// The leaves are durably stored; only their
+			// multiverse entries are still outstanding, and the
+			// archive repairs those in the background. The sync
+			// has done its job, so it must not be failed and
+			// re-attempted for a batch that landed.
+			case errors.Is(err, ErrMultiversePending):
+				log.Warnf("UniverseRoot(%v): proofs stored "+
+					"with multiverse updates pending: %v",
+					uniID.String(), err)
+
+			case err != nil:
 				return fmt.Errorf("unable to register "+
 					"proofs: %w", err)
 			}

@@ -7659,6 +7659,18 @@ func (r *RPCServer) QueryProof(ctx context.Context,
 
 	firstProof, err := r.queryProof(ctx, universeID, leafKey)
 	if err != nil {
+		// Transient contention on the universe — concurrent inserts
+		// holding the read-inconsistency window open — is reported
+		// as Unavailable, so sync clients know to simply retry
+		// rather than treating the proof as unservable.
+		if errors.Is(err, tapdb.ErrMultiverseInconsistent) {
+			return nil, status.Errorf(codes.Unavailable,
+				"universe %v busy, retry query "+
+					"(leaf_key=%x): %v",
+				universeID.StringForLog(),
+				leafKey.UniverseKey(), err)
+		}
+
 		return nil, fmt.Errorf("query proof "+
 			"(uni=%v, leaf_key=%x): %w",
 			universeID.StringForLog(),
