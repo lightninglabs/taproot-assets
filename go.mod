@@ -30,7 +30,7 @@ require (
 	github.com/lightninglabs/lightning-node-connect/hashmailrpc v1.0.4-0.20250610182311-2f1d46ef18b7
 	github.com/lightninglabs/lndclient v0.21.0-1
 	github.com/lightninglabs/neutrino/cache v1.1.3
-	github.com/lightninglabs/taproot-assets/taprpc v1.3.0
+	github.com/lightninglabs/taproot-assets/taprpc v1.3.1
 	github.com/lightningnetwork/lnd v0.21.0-beta
 	github.com/lightningnetwork/lnd/cert v1.2.2
 	github.com/lightningnetwork/lnd/clock v1.1.1
