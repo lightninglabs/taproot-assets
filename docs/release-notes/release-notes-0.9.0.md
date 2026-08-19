@@ -25,6 +25,15 @@
   fixes a bug that could cause minted assets to commit to the wrong
   address.
 
+* [PR#2203](https://github.com/lightninglabs/taproot-assets/pull/2203)
+  fixes a bug that could leave invalid minting batch state on disk after
+  failure. A database migration now enforces that at most one minting
+  batch is in a pre-broadcast (pending or frozen) state; on upgrade, if
+  a legacy database holds several such batches, all but the most
+  recently created one are automatically cancelled. A new
+  `--repair.cancel-duplicate-batches` startup flag applies the same
+  repair on demand.
+
 * [PR#2228](https://github.com/lightninglabs/taproot-assets/pull/2228)
   fixes `VerifyProof` failing the whole RPC for an invalid proof when
   decoding the last proof requires unknown asset metadata; it now
