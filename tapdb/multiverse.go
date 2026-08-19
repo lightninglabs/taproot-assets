@@ -1604,50 +1604,139 @@ func (b *MultiverseStore) FetchLeavesSince(ctx context.Context,
 		maxSeq = sinceSeq
 	)
 	dbErr := b.db.ExecTx(ctx, &readTx, func(q BaseMultiverseStore) error {
-		items = nil
-		maxSeq = sinceSeq
-
-		rows, err := q.FetchUniverseLeavesSince(
-			ctx, UniverseLeavesSinceQuery{
-				SinceSeq: int64(sinceSeq),
-				NumLimit: limit,
-			},
-		)
-		if err != nil {
-			return err
-		}
-
-		for _, row := range rows {
-			item, err := unmarshalLeafDeltaRow(ctx, q, row)
-			if err != nil {
-				return err
-			}
-
-			items = append(items, *item)
-			maxSeq = item.Seq
-		}
-
-		// An empty page means sinceSeq is at or beyond the journal
-		// tail; report the tail itself so callers can distinguish
-		// "caught up" (tail == sinceSeq) from "cursor beyond the
-		// journal" (tail < sinceSeq). The tail is read within the
-		// same snapshot as the page, and by the journal's commit
-		// ordering every seq at or below it is committed.
-		if len(rows) == 0 {
-			tail, err := q.MaxUniverseLeafJournalSeq(ctx)
-			if err != nil {
-				return err
-			}
-			maxSeq = uint64(tail)
-		}
-
-		return nil
+		var err error
+		items, maxSeq, err = fetchLeavesSinceTx(ctx, q, sinceSeq, limit)
+		return err
 	})
 	if dbErr != nil {
 		return nil, 0, dbErr
 	}
 
 	return items, maxSeq, nil
+}
+
+// fetchLeavesSinceTx returns up to limit leaves inserted after sinceSeq
+// in insertion order, along with the highest sequence number seen, all
+// read within the given transaction.
+func fetchLeavesSinceTx(ctx context.Context, q BaseMultiverseStore,
+	sinceSeq uint64, limit int32) ([]universe.DeltaLeafItem, uint64,
+	error) {
+
+	var (
+		items  []universe.DeltaLeafItem
+		maxSeq = sinceSeq
+	)
+
+	rows, err := q.FetchUniverseLeavesSince(
+		ctx, UniverseLeavesSinceQuery{
+			SinceSeq: int64(sinceSeq),
+			NumLimit: limit,
+		},
+	)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	for _, row := range rows {
+		item, err := unmarshalLeafDeltaRow(ctx, q, row)
+		if err != nil {
+			return nil, 0, err
+		}
+
+		items = append(items, *item)
+		maxSeq = item.Seq
+	}
+
+	// An empty page means sinceSeq is at or beyond the journal
+	// tail; report the tail itself so callers can distinguish
+	// "caught up" (tail == sinceSeq) from "cursor beyond the
+	// journal" (tail < sinceSeq). The tail is read within the
+	// same snapshot as the page, and by the journal's commit
+	// ordering every seq at or below it is committed.
+	if len(rows) == 0 {
+		tail, err := q.MaxUniverseLeafJournalSeq(ctx)
+		if err != nil {
+			return nil, 0, err
+		}
+		maxSeq = uint64(tail)
+	}
+
+	return items, maxSeq, nil
+}
+
+// FetchDeltaPage assembles one page of the insertion-ordered leaf
+// delta — the leaves inserted after sinceSeq, each with the inclusion
+// proof binding it to its universe root, plus the roots of the
+// universes the page touches — within a single read transaction, so
+// every proof and root in the page reflects the same snapshot. A
+// write landing between two reads can therefore never produce a page
+// whose proofs verify against a root other than the one it reports.
+//
+// The proof cache is deliberately bypassed: a cached proof reflects
+// the snapshot of whatever transaction produced it, and mixing it
+// with this page's roots would reintroduce exactly the cross-snapshot
+// mismatch this method exists to prevent.
+func (b *MultiverseStore) FetchDeltaPage(ctx context.Context,
+	sinceSeq uint64, limit int32) (*universe.DeltaPage, error) {
+
+	if limit <= 0 {
+		limit = universe.RequestPageSize
+	}
+
+	var (
+		readTx = NewBaseUniverseReadTx()
+		page   *universe.DeltaPage
+	)
+	dbErr := b.db.ExecTx(ctx, &readTx, func(q BaseMultiverseStore) error {
+		items, maxSeq, err := fetchLeavesSinceTx(
+			ctx, q, sinceSeq, limit,
+		)
+		if err != nil {
+			return err
+		}
+
+		page = &universe.DeltaPage{
+			Roots: make(
+				map[universe.IdentifierKey]universe.Root,
+			),
+			LatestSeq: maxSeq,
+		}
+
+		for i := range items {
+			item := items[i]
+
+			// A journal row's leaf cannot be absent within this
+			// snapshot (journal entries cascade with their
+			// leaves), so any failure here is fatal rather than
+			// a skippable race.
+			proofs, err := universeFetchProofLeaf(
+				ctx, item.ID, item.Key, q,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to fetch proof "+
+					"leaf (seq=%d): %w", item.Seq, err)
+			}
+			firstProof := proofs[0]
+
+			item.InclusionProof = firstProof.UniverseInclusionProof
+			page.Items = append(page.Items, item)
+
+			idKey := item.ID.Key()
+			if _, ok := page.Roots[idKey]; !ok {
+				page.Roots[idKey] = universe.Root{
+					ID:   item.ID,
+					Node: firstProof.UniverseRoot,
+				}
+			}
+		}
+
+		return nil
+	})
+	if dbErr != nil {
+		return nil, dbErr
+	}
+
+	return page, nil
 }
 
 // unmarshalLeafDeltaRow converts one row of the leaf delta query into a

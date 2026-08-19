@@ -586,7 +586,8 @@ type DeltaLeafItem struct {
 
 	// InclusionProof binds the leaf to its universe's root as reported
 	// in the enclosing DeltaPage. It is populated when the item is
-	// served by a DeltaEngine and nil at the storage layer.
+	// served as part of a delta page and nil when the item comes from
+	// a bare leaf query.
 	InclusionProof *mssmt.Proof
 }
 
@@ -603,7 +604,10 @@ type DeltaPage struct {
 
 	// LatestSeq is the high-water cursor value the caller should
 	// persist once the page's items have been applied and verified.
-	// Equal to the requested since-seq when the delta is empty.
+	// When the delta is empty it reports the serving journal's
+	// committed tail: equal to the requested since-seq for a
+	// caught-up caller, and strictly below it when the cursor lies
+	// beyond the journal — the rewind signal.
 	LatestSeq uint64
 }
 
@@ -689,13 +693,16 @@ type MultiverseArchive interface {
 	MultiverseRootNode(ctx context.Context,
 		proofType ProofType) (fn.Option[MultiverseRoot], error)
 
-	// FetchLeavesSince returns up to limit leaves inserted after
-	// sinceSeq across all issuance and transfer universes, in insertion
-	// order, along with the highest sequence number seen. Rewrites of
+	// FetchDeltaPage assembles one page of the insertion-ordered leaf
+	// delta in a single storage snapshot: the leaves inserted after
+	// sinceSeq, each with the inclusion proof binding it to its
+	// universe root, plus the roots of the universes the page
+	// touches. Proofs and roots are mutually consistent by
+	// construction, even under concurrent writes. Rewrites of
 	// existing leaves keep their sequence number and are invisible
 	// here; root comparison remains the authority on divergence.
-	FetchLeavesSince(ctx context.Context, sinceSeq uint64,
-		limit int32) ([]DeltaLeafItem, uint64, error)
+	FetchDeltaPage(ctx context.Context, sinceSeq uint64,
+		limit int32) (*DeltaPage, error)
 }
 
 // Registrar is an interface that allows a caller to upsert a proof leaf in a

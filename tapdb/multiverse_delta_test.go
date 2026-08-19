@@ -224,6 +224,142 @@ func TestMultiverseLeafJournalReupsertGap(t *testing.T) {
 	require.Equal(t, maxSeq, tail)
 }
 
+// assertDeltaPageConsistent verifies that every item of the page
+// carries an inclusion proof that verifies against the page's own
+// root for the item's universe.
+func assertDeltaPageConsistent(t *testing.T, page *universe.DeltaPage) {
+	t.Helper()
+
+	for _, item := range page.Items {
+		root, ok := page.Roots[item.ID.Key()]
+		require.True(t, ok)
+		require.NotNil(t, item.InclusionProof)
+
+		leafProof := &universe.Proof{
+			LeafKey:                item.Key,
+			UniverseRoot:           root.Node,
+			UniverseInclusionProof: item.InclusionProof,
+			Leaf:                   item.Leaf,
+		}
+		require.True(t, leafProof.VerifyRoot(root.Node))
+	}
+}
+
+// TestMultiverseFetchDeltaPage tests that a delta page carries the
+// same items as the bare leaf delta, each bound by an inclusion proof
+// to the universe root reported in the same page.
+func TestMultiverseFetchDeltaPage(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store, _ := newTestMultiverse(t)
+
+	universes := []deltaUniverse{
+		newDeltaUniverse(t, universe.ProofTypeIssuance, false),
+		newDeltaUniverse(t, universe.ProofTypeIssuance, true),
+		newDeltaUniverse(t, universe.ProofTypeTransfer, false),
+	}
+	for i := 0; i < 3; i++ {
+		for _, u := range universes {
+			insertDeltaLeaf(t, ctx, store, u)
+		}
+	}
+
+	// The page must agree with the bare delta on items and cursor, and
+	// additionally bind every item to its universe root.
+	items, maxSeq, err := store.FetchLeavesSince(ctx, 0, 0)
+	require.NoError(t, err)
+
+	page, err := store.FetchDeltaPage(ctx, 0, 0)
+	require.NoError(t, err)
+	require.Len(t, page.Items, len(items))
+	require.Equal(t, maxSeq, page.LatestSeq)
+	require.Len(t, page.Roots, len(universes))
+	for i := range items {
+		require.Equal(t, items[i].Seq, page.Items[i].Seq)
+	}
+	assertDeltaPageConsistent(t, page)
+
+	// A limited page covers the prefix and reports only the roots of
+	// the universes it touches.
+	limited, err := store.FetchDeltaPage(ctx, 0, 2)
+	require.NoError(t, err)
+	require.Len(t, limited.Items, 2)
+	require.Equal(t, items[1].Seq, limited.LatestSeq)
+	require.Len(t, limited.Roots, 2)
+	assertDeltaPageConsistent(t, limited)
+
+	// An empty page reports the tail and no roots.
+	empty, err := store.FetchDeltaPage(ctx, maxSeq, 0)
+	require.NoError(t, err)
+	require.Empty(t, empty.Items)
+	require.Empty(t, empty.Roots)
+	require.Equal(t, maxSeq, empty.LatestSeq)
+
+	// A cursor beyond the tail comes back empty with the tail itself
+	// reported, strictly below the cursor: the rewind signal.
+	rewound, err := store.FetchDeltaPage(ctx, maxSeq+50, 0)
+	require.NoError(t, err)
+	require.Empty(t, rewound.Items)
+	require.Equal(t, maxSeq, rewound.LatestSeq)
+}
+
+// TestMultiverseFetchDeltaPageSnapshot tests that pages assembled
+// while a writer is actively inserting into the same universe are
+// internally consistent: every inclusion proof verifies against the
+// root reported in the same page. A page assembled across multiple
+// snapshots fails this whenever a write lands between the reads of
+// two of its items; a single-snapshot assembly cannot.
+func TestMultiverseFetchDeltaPageSnapshot(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store, _ := newTestMultiverse(t)
+
+	u := newDeltaUniverse(t, universe.ProofTypeIssuance, false)
+	insertDeltaLeaf(t, ctx, store, u)
+
+	// Writer: keep inserting leaves into the same universe until told
+	// to stop. Errors are reported rather than required: FailNow must
+	// not be called off the test goroutine.
+	var (
+		stop  = make(chan struct{})
+		wDone = make(chan struct{})
+	)
+	go func() {
+		defer close(wDone)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+
+			key := randLeafKey(t)
+			leaf := randMintingLeaf(t, u.gen, u.id.GroupKey)
+			_, err := store.UpsertProofLeaf(
+				ctx, u.id, key, &leaf, nil,
+			)
+			if err != nil {
+				t.Errorf("writer upsert: %v", err)
+				return
+			}
+		}
+	}()
+
+	// Reader: page repeatedly from zero; every page must be
+	// self-consistent regardless of how the writer interleaves.
+	for i := 0; i < 20; i++ {
+		page, err := store.FetchDeltaPage(ctx, 0, 0)
+		require.NoError(t, err)
+		require.NotEmpty(t, page.Items)
+		assertDeltaPageConsistent(t, page)
+	}
+
+	close(stop)
+	<-wDone
+}
+
 // TestMultiverseLeafJournalCommitOrder tests that journal seq order
 // equals commit order under concurrent writers: a transaction that has
 // journaled but not yet committed excludes later writers from

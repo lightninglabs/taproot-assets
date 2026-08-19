@@ -84,10 +84,13 @@ func (m *mockMultiverse) MultiverseRootNode(context.Context,
 	return fn.None[MultiverseRoot](), nil
 }
 
-func (m *mockMultiverse) FetchLeavesSince(_ context.Context,
-	sinceSeq uint64, _ int32) ([]DeltaLeafItem, uint64, error) {
+func (m *mockMultiverse) FetchDeltaPage(_ context.Context,
+	sinceSeq uint64, _ int32) (*DeltaPage, error) {
 
-	return nil, sinceSeq, nil
+	return &DeltaPage{
+		Roots:     make(map[IdentifierKey]Root),
+		LatestSeq: sinceSeq,
+	}, nil
 }
 
 // mockStorageBackend implements StorageBackend as a no-op.

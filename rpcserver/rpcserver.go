@@ -8300,11 +8300,15 @@ func (r *RPCServer) SyncDelta(ctx context.Context,
 		return nil, fmt.Errorf("rate limiter: %w", err)
 	}
 
-	items, tailSeq, err := r.cfg.UniverseArchive.FetchLeavesSince(
+	// The whole page — leaves, inclusion proofs, and universe roots —
+	// is assembled in a single storage snapshot, so a write landing
+	// mid-request can never yield proofs that fail to verify against
+	// the roots reported alongside them.
+	page, err := r.cfg.UniverseArchive.SyncDelta(
 		ctx, req.SinceSeq, pageSize,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("fetch leaves since seq=%d: %w",
+		return nil, fmt.Errorf("fetch delta page since seq=%d: %w",
 			req.SinceSeq, err)
 	}
 
@@ -8316,8 +8320,8 @@ func (r *RPCServer) SyncDelta(ctx context.Context,
 	// since_seq for a caught-up caller, and strictly below it when the
 	// caller's cursor lies beyond this journal — the signal it uses to
 	// detect that the journal has been rewound or replaced.
-	if len(items) == 0 {
-		resp.LatestSeq = tailSeq
+	if len(page.Items) == 0 {
+		resp.LatestSeq = page.LatestSeq
 	}
 
 	var (
@@ -8325,8 +8329,8 @@ func (r *RPCServer) SyncDelta(ctx context.Context,
 		rootsSeen = make(map[universe.IdentifierKey]struct{})
 	)
 
-	for i := range items {
-		item := items[i]
+	for i := range page.Items {
+		item := page.Items[i]
 
 		// Universes with export disabled are omitted, but their
 		// leaves still advance the cursor.
@@ -8335,31 +8339,7 @@ func (r *RPCServer) SyncDelta(ctx context.Context,
 			continue
 		}
 
-		// Fetch the leaf's inclusion proof along with its universe
-		// root.
-		proofs, err := r.cfg.UniverseArchive.FetchProofLeaf(
-			ctx, item.ID, item.Key,
-		)
-		switch {
-		// The leaf disappeared between the delta query and the proof
-		// fetch (e.g. an administrative delete). Skipping it is
-		// safe: the caller's root comparison reconciles whatever
-		// divergence remains.
-		case errors.Is(err, universe.ErrNoUniverseProofFound):
-			rpcsLog.Warnf("SyncDelta: leaf at seq=%d vanished "+
-				"before proof fetch, skipping", item.Seq)
-			resp.LatestSeq = item.Seq
-			continue
-
-		case err != nil:
-			return nil, fmt.Errorf("fetch proof leaf "+
-				"(seq=%d): %w", item.Seq, err)
-		}
-		firstProof := proofs[0]
-
-		inclusionProof, err := marshalMssmtProof(
-			firstProof.UniverseInclusionProof,
-		)
+		inclusionProof, err := marshalMssmtProof(item.InclusionProof)
 		if err != nil {
 			return nil, err
 		}
@@ -8409,10 +8389,7 @@ func (r *RPCServer) SyncDelta(ctx context.Context,
 		if _, ok := rootsSeen[idKey]; !ok {
 			rootsSeen[idKey] = struct{}{}
 
-			uniRoot, err := marshalUniverseRoot(universe.Root{
-				ID:   item.ID,
-				Node: firstProof.UniverseRoot,
-			})
+			uniRoot, err := marshalUniverseRoot(page.Roots[idKey])
 			if err != nil {
 				return nil, err
 			}
