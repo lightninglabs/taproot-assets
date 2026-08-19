@@ -11,12 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
-	"github.com/btcsuite/btcd/blockchain"
-	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
@@ -441,154 +436,15 @@ func TestProofEncoding(t *testing.T) {
 	require.ErrorIs(t, err, ErrUnknownVersion)
 }
 
-func genRandomGenesisWithProof(t testing.TB, assetType asset.Type,
-	amt *uint64, tapscriptPreimage *commitment.TapscriptPreimage,
-	noMetaHash bool, metaReveal *MetaReveal, genesisMutator genMutator,
-	genesisRevealMutator genRevealMutator,
-	groupRevealMutator groupRevealMutator,
-	assetVersion asset.Version) (Proof, *btcec.PrivateKey) {
+// genRandomGenesisWithProof is kept as an alias for the exported fixture
+// builder in mock.go, which other packages reuse as well.
+var genRandomGenesisWithProof = RandGenesisProofWithKey
 
-	t.Helper()
+type genMutator = GenMutator
 
-	genesisPrivKey := test.RandPrivKey()
-	genesisPubKey := test.PubToKeyDesc(genesisPrivKey.PubKey())
+type groupRevealMutator = GroupRevealMutator
 
-	// If we have a specified meta reveal, then we'll replace the meta hash
-	// with the hash of the reveal instead.
-	assetGenesis := asset.RandGenesis(t, assetType)
-	assetGenesis.OutputIndex = 0
-	if metaReveal != nil {
-		assetGenesis.MetaHash = metaReveal.MetaHash()
-	} else if noMetaHash {
-		assetGenesis.MetaHash = [32]byte{}
-	}
-
-	if genesisMutator != nil {
-		genesisMutator(&assetGenesis)
-	}
-
-	groupAmt := uint64(1)
-	if amt != nil {
-		groupAmt = *amt
-	}
-
-	protoAsset := asset.NewAssetNoErr(
-		t, assetGenesis, groupAmt, 0, 0,
-		asset.NewScriptKeyBip86(genesisPubKey), nil,
-		asset.WithAssetVersion(assetVersion),
-	)
-	assetGroupKey := asset.RandGroupKey(t, assetGenesis, protoAsset)
-	groupKeyReveal := asset.NewGroupKeyRevealV0(
-		asset.ToSerialized(assetGroupKey.RawKey.PubKey),
-		assetGroupKey.TapscriptRoot,
-	)
-
-	if groupRevealMutator != nil {
-		groupRevealMutator(groupKeyReveal)
-	}
-
-	tapCommitment, assets, err := commitment.Mint(
-		commitment.RandTapCommitVersion(), assetGenesis, assetGroupKey,
-		&commitment.AssetDetails{
-			Type:             assetType,
-			ScriptKey:        genesisPubKey,
-			Amount:           amt,
-			Version:          assetVersion,
-			LockTime:         0,
-			RelativeLockTime: 0,
-		},
-	)
-	require.NoError(t, err)
-
-	// Include 1 or more alt leaves in the anchor output Tap commitment.
-	// Since this is also used for generating the test vectors, we don't
-	// actually want to have zero alt leaves.
-	innerAltLeaves := asset.RandAltLeaves(t, false)
-	altLeaves := asset.ToAltLeaves(innerAltLeaves)
-	err = tapCommitment.MergeAltLeaves(altLeaves)
-	require.NoError(t, err)
-
-	genesisAsset := assets[0]
-	_, commitmentProof, err := tapCommitment.Proof(
-		genesisAsset.TapCommitmentKey(),
-		genesisAsset.AssetCommitmentKey(),
-	)
-	require.NoError(t, err)
-
-	var tapscriptSibling *chainhash.Hash
-	if tapscriptPreimage != nil {
-		tapscriptSibling, err = tapscriptPreimage.TapHash()
-		require.NoError(t, err)
-	}
-
-	internalKey := test.SchnorrPubKey(t, genesisPrivKey)
-	tapscriptRoot := tapCommitment.TapscriptRoot(tapscriptSibling)
-	taprootKey := txscript.ComputeTaprootOutputKey(
-		internalKey, tapscriptRoot[:],
-	)
-	taprootScript := test.ComputeTaprootScript(t, taprootKey)
-	genesisTx := &wire.MsgTx{
-		Version: 2,
-		TxIn: []*wire.TxIn{{
-			PreviousOutPoint: assetGenesis.FirstPrevOut,
-		}},
-		TxOut: []*wire.TxOut{{
-			PkScript: taprootScript,
-			Value:    330,
-		}},
-	}
-	merkleTree := blockchain.BuildMerkleTreeStore(
-		[]*btcutil.Tx{btcutil.NewTx(genesisTx)}, false,
-	)
-	merkleRoot := merkleTree[len(merkleTree)-1]
-
-	// We'll use the genesis hash of the mainnet chain as the parent block.
-	blockHeader := wire.NewBlockHeader(
-		0, chaincfg.MainNetParams.GenesisHash, merkleRoot, 0, 0,
-	)
-	blockHeader.Timestamp = time.Unix(test.RandInt[int64](), 0)
-
-	// We'll set the block height to 1, as the genesis block is at height 0.
-	blockHeight := uint32(1)
-
-	txMerkleProof, err := NewTxMerkleProof([]*wire.MsgTx{genesisTx}, 0)
-	require.NoError(t, err)
-
-	genReveal := &assetGenesis
-	if genesisRevealMutator != nil {
-		genReveal = genesisRevealMutator(genReveal)
-	}
-
-	return Proof{
-		PrevOut:       assetGenesis.FirstPrevOut,
-		BlockHeader:   *blockHeader,
-		BlockHeight:   blockHeight,
-		AnchorTx:      *genesisTx,
-		TxMerkleProof: *txMerkleProof,
-		Asset:         *genesisAsset,
-		InclusionProof: TaprootProof{
-			OutputIndex: 0,
-			InternalKey: internalKey,
-			CommitmentProof: &CommitmentProof{
-				Proof:              *commitmentProof,
-				TapSiblingPreimage: tapscriptPreimage,
-			},
-			TapscriptProof: nil,
-		},
-		MetaReveal:       metaReveal,
-		ExclusionProofs:  nil,
-		AdditionalInputs: nil,
-		GenesisReveal:    genReveal,
-		GroupKeyReveal:   groupKeyReveal,
-		AltLeaves:        altLeaves,
-	}, genesisPrivKey
-}
-
-type genMutator func(*asset.Genesis)
-
-type groupRevealMutator func(asset.GroupKeyReveal)
-
-type genRevealMutator func(*asset.Genesis) *asset.Genesis
+type genRevealMutator = GenRevealMutator
 
 func TestGenesisProofVerification(t *testing.T) {
 	t.Parallel()

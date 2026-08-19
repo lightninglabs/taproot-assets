@@ -98,6 +98,15 @@ func (s SerializedKey) String() string {
 // ToSerialized serializes a public key in its 33-byte compressed form.
 func ToSerialized(pubKey *btcec.PublicKey) SerializedKey {
 	var serialized SerializedKey
+
+	// A nil public key serializes to all zeroes, which never matches the
+	// serialization of a real key. Decoded structures can carry nil keys
+	// when an optional record is absent, and those must not crash key
+	// derivation.
+	if pubKey == nil {
+		return serialized
+	}
+
 	copy(serialized[:], pubKey.SerializeCompressed())
 
 	return serialized
@@ -2197,6 +2206,10 @@ func (a *Asset) Specifier() Specifier {
 // Validate ensures that an asset is valid.
 func (a *Asset) Validate() error {
 	// TODO(ffranr): Add validation check for remaining fields.
+	if a.ScriptKey.PubKey == nil {
+		return fmt.Errorf("asset script key is missing")
+	}
+
 	return ValidateAssetName(a.Genesis.Tag)
 }
 
