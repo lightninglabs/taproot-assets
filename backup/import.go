@@ -54,6 +54,20 @@ type KeyRegistrar interface {
 		keyType asset.ScriptKeyType) error
 }
 
+// KeyRing derives and identifies keys controlled by LND. It is used to
+// restore monotonically increasing key-family indexes after seed recovery.
+type KeyRing interface {
+	// DeriveAndStoreKey derives the key at the given locator and records it
+	// in the LND wallet, which advances the key family's derivation index
+	// past that key.
+	DeriveAndStoreKey(context.Context, keychain.KeyLocator) (
+		keychain.KeyDescriptor, error)
+
+	// IsLocalKey reports whether a descriptor belongs to the connected LND
+	// wallet.
+	IsLocalKey(context.Context, keychain.KeyDescriptor) bool
+}
+
 // ImportConfig holds the dependencies needed to import a backup.
 type ImportConfig struct {
 	// SpendChecker is used to detect stale backup entries whose anchor
@@ -71,6 +85,10 @@ type ImportConfig struct {
 	// KeyRegistrar is used to register anchor internal keys and script
 	// keys so the wallet can sign for imported assets.
 	KeyRegistrar KeyRegistrar
+
+	// KeyRing is used to advance LND's key-family indexes beyond all keys
+	// represented by the backup. It may be nil for offline callers.
+	KeyRing KeyRing
 
 	// ProofVerifier provides the verification context for imported
 	// proofs.
@@ -561,6 +579,19 @@ func ImportBackup(ctx context.Context, backupBlob []byte,
 			idx, retryID[:])
 		numImported++
 		numSkipped--
+	}
+
+	// Advance LND only after all backup entries have been processed and
+	// verified. This prevents an invalid backup from changing wallet state.
+	// The operation is monotonic and idempotent, so retrying an import
+	// after an infrastructure error is safe.
+	if cfg.KeyRing != nil {
+		err = advanceKeyFamilyIndexes(ctx, walletBackup, cfg.KeyRing)
+		if err != nil {
+			return numImported, numSkipped, fmt.Errorf(
+				"failed to restore key family indexes: %w", err,
+			)
+		}
 	}
 
 	log.Infof("Imported %d assets from backup (%d skipped)",

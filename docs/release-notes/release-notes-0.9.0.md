@@ -25,6 +25,14 @@
   fixes a bug that could cause minted assets to commit to the wrong
   address.
 
+* [PR#2225](https://github.com/lightninglabs/taproot-assets/pull/2225) fixes
+  address key reuse after an `lnd` wallet is recovered from seed. Since `lnd`
+  has no record of the derivation indexes `tapd` consumed, newly created
+  Taproot Asset addresses could reuse historical script or internal keys.
+  Wallet backups now carry the key family's high-water marker, and importing a
+  backup restores `lnd`'s index from it. Exporting a backup no longer consumes
+  a key index itself.
+
 * [PR#2228](https://github.com/lightninglabs/taproot-assets/pull/2228)
   fixes `VerifyProof` failing the whole RPC for an invalid proof when
   decoding the last proof requires unknown asset metadata; it now

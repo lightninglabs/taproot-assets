@@ -16,7 +16,8 @@ import (
 func ExportBackup(ctx context.Context, mode ExportMode,
 	assets []*asset.ChainAsset, proofArchive proof.Archiver,
 	keyLookup KeyLocatorLookup,
-	federationURLs []string) ([]byte, error) {
+	federationURLs []string,
+	keyFamilyMarkers []*KeyDescriptorBackup) ([]byte, error) {
 
 	var (
 		assetBackups  []*AssetBackup
@@ -107,9 +108,10 @@ func ExportBackup(ctx context.Context, mode ExportMode,
 
 	// Create the wallet backup structure and encode it.
 	walletBackup := &WalletBackup{
-		Version:        backupVersion,
-		Assets:         assetBackups,
-		FederationURLs: federationURLs,
+		Version:          backupVersion,
+		Assets:           assetBackups,
+		FederationURLs:   federationURLs,
+		KeyFamilyMarkers: keyFamilyMarkers,
 	}
 
 	backupBytes, err := EncodeWalletBackup(walletBackup)
