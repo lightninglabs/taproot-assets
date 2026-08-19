@@ -86,6 +86,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 var (
@@ -8248,16 +8249,11 @@ func (r *RPCServer) SyncUniverse(ctx context.Context,
 	return r.marshalUniverseDiff(ctx, universeDiff)
 }
 
-// syncDeltaByteBudget caps the approximate payload size of a single
+// syncDeltaByteBudget caps the marshalled payload size of a single
 // SyncDelta response page, keeping it comfortably under the default
 // 4 MiB gRPC message size limit. A variable rather than a constant so
 // tests can exercise the page-splitting path with small payloads.
 var syncDeltaByteBudget = 3 * 1024 * 1024
-
-// syncDeltaItemOverhead is the approximate per-item wire overhead of a
-// SyncDeltaItem beyond its raw proof and inclusion proof blobs
-// (universe ID, leaf key, decoded asset fields, framing).
-const syncDeltaItemOverhead = 512
 
 // SyncDelta returns the universe leaves inserted on this server after the
 // given sequence number, in insertion order, together with the current
@@ -8344,17 +8340,6 @@ func (r *RPCServer) SyncDelta(ctx context.Context,
 			return nil, err
 		}
 
-		// Stop before this item if it would push the page past the
-		// response byte budget; latest_seq then points at the last
-		// included item and the caller simply pages again.
-		itemSize := len(item.Leaf.RawProof) + len(inclusionProof) +
-			syncDeltaItemOverhead
-		if len(resp.Items) > 0 &&
-			bytesUsed+itemSize > syncDeltaByteBudget {
-
-			break
-		}
-
 		decDisplay, err := r.cfg.AddrBook.DecDisplayForAssetID(
 			ctx, item.Leaf.ID(),
 		)
@@ -8374,17 +8359,33 @@ func (r *RPCServer) SyncDelta(ctx context.Context,
 			return nil, err
 		}
 
-		resp.Items = append(resp.Items, &unirpc.SyncDeltaItem{
+		rpcItem := &unirpc.SyncDeltaItem{
 			UniverseId:             uniID,
 			Key:                    marshalLeafKey(item.Key),
 			Leaf:                   assetLeaf,
 			UniverseInclusionProof: inclusionProof,
 			Seq:                    item.Seq,
-		})
+		}
+
+		// Stop before this item if it would push the page past the
+		// response byte budget; latest_seq then points at the last
+		// included item and the caller simply pages again. The size
+		// is the exact marshalled size, measured after assembly, so
+		// only the single item that crosses the budget is assembled
+		// in vain.
+		itemSize := proto.Size(rpcItem)
+		if len(resp.Items) > 0 &&
+			bytesUsed+itemSize > syncDeltaByteBudget {
+
+			break
+		}
+
+		resp.Items = append(resp.Items, rpcItem)
 		bytesUsed += itemSize
 		resp.LatestSeq = item.Seq
 
-		// Include this universe's root once per page.
+		// Include this universe's root once per page, counting it
+		// against the budget alongside the items.
 		idKey := item.ID.Key()
 		if _, ok := rootsSeen[idKey]; !ok {
 			rootsSeen[idKey] = struct{}{}
@@ -8397,6 +8398,7 @@ func (r *RPCServer) SyncDelta(ctx context.Context,
 			resp.UniverseRoots = append(
 				resp.UniverseRoots, uniRoot,
 			)
+			bytesUsed += proto.Size(uniRoot)
 		}
 	}
 
