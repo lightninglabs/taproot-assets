@@ -3,6 +3,7 @@ package tapgarden
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"slices"
@@ -510,6 +511,19 @@ func (c *ChainPlanter) Start() error {
 		log.Infof("Retrieved %v non-finalized batches from DB",
 			len(nonFinalBatches))
 
+		// Enforce the singleton invariant: at most one batch may
+		// be in BatchStatePending or BatchStateFrozen at a time.
+		// The DB constraint added in migration 000061 should
+		// already make this impossible, but a legacy DB that was
+		// migrated post-population, or a manually-modified row,
+		// could still violate it. Surfacing the error here gives
+		// the operator a human-readable diagnostic instead of an
+		// opaque SQL one later.
+		if err := checkSingletonInvariant(nonFinalBatches); err != nil {
+			startErr = err
+			return
+		}
+
 		// Now for each of these non-final batches, we'll make a new
 		// caretaker which'll handle progressing each batch to
 		// completion. We'll skip batches that were cancelled.
@@ -630,6 +644,22 @@ func (c *ChainPlanter) Start() error {
 			if err := caretaker.Start(); err != nil {
 				startErr = err
 				return
+			}
+
+			// The caretaker advances the batch in the background,
+			// and nothing else reads its broadcast channels on
+			// this path: BroadcastErrChan is otherwise only
+			// consumed by the interactive finalize handler. Watch
+			// for a pre-broadcast failure so a failed resume
+			// cannot leave the batch occupying the singleton slot
+			// enforced by the migration 000061 index, which would
+			// block all further minting. A batch resumed at
+			// BatchStateConfirmed skips the broadcast phase
+			// entirely and reports through the completion signal,
+			// so there is nothing to watch.
+			if batch.State() != BatchStateConfirmed {
+				c.Wg.Add(1)
+				go c.watchResumedCaretaker(caretaker)
 			}
 		}
 
@@ -1419,6 +1449,59 @@ func freezeMintingBatch(ctx context.Context, batchStore MintingStore,
 	)
 }
 
+// ErrDuplicatePreBroadcastBatch is returned when a new minting batch
+// cannot be persisted because another batch already occupies the
+// pre-broadcast singleton slot (BatchStatePending or
+// BatchStateFrozen) enforced by the partial unique index added in
+// migration 000061. This can happen transiently right after a
+// restart, while a resumed batch is still working towards broadcast.
+var ErrDuplicatePreBroadcastBatch = errors.New("another minting batch " +
+	"is already awaiting broadcast; wait for it to be broadcast or " +
+	"cancel it before creating a new batch")
+
+// checkSingletonInvariant verifies that at most one batch in the
+// supplied slice is in a pre-broadcast state (BatchStatePending or
+// BatchStateFrozen). The invariant is enforced at the DB layer by
+// the partial unique index added in migration 000061; this Go-level
+// check exists as defense in depth and to produce a human-readable
+// diagnostic naming the offending batch keys, since a raw SQL
+// constraint error from a downstream insert is harder to act on.
+//
+// The check is called from ChainPlanter.Start() after
+// FetchNonFinalBatches. If it fails, startup is aborted so the
+// operator can investigate rather than letting the daemon run with
+// ambiguous "which batch is current?" semantics.
+func checkSingletonInvariant(batches []*MintingBatch) error {
+	var preBroadcastKeys []string
+	for _, batch := range batches {
+		switch batch.State() {
+		case BatchStatePending, BatchStateFrozen:
+			preBroadcastKeys = append(
+				preBroadcastKeys,
+				hex.EncodeToString(
+					batch.BatchKey.PubKey.
+						SerializeCompressed(),
+				),
+			)
+
+		default:
+			// Only pre-broadcast states are constrained by
+			// the singleton index; ignore everything else.
+		}
+	}
+
+	if len(preBroadcastKeys) <= 1 {
+		return nil
+	}
+
+	return fmt.Errorf("singleton pre-broadcast batch invariant "+
+		"violated: found %d batches in BatchStatePending or "+
+		"BatchStateFrozen (keys: %v); at most one is permitted. "+
+		"Resolve by running `tapd --repair.cancel-duplicate-batches` "+
+		"to cancel all but the most recent, then restart",
+		len(preBroadcastKeys), preBroadcastKeys)
+}
+
 // filterFinalizedBatches separates a set of batches into two sets based on
 // their batch state.
 func filterFinalizedBatches(batches []*MintingBatch) ([]*MintingBatch,
@@ -1778,11 +1861,20 @@ func (c *ChainPlanter) canCancelBatch() (*btcec.PublicKey, error) {
 
 		return c.pendingBatch.BatchKey.PubKey, nil
 	case 1:
-		// TODO(jhb): Update once we support multiple batches.
-		// If there is exactly one caretaker, our pending batch should
-		// be empty. Otherwise, the batch to cancel is ambiguous.
+		// If there is exactly one caretaker, our pending batch
+		// must be empty for the cancel target to be
+		// unambiguous. Both can coexist legitimately: the
+		// caretaker may be handling a post-broadcast batch
+		// (Committed/Broadcast/Confirmed) while a fresh
+		// Pending/Frozen batch has begun in c.pendingBatch. The
+		// singleton constraint added in migration 000061 only
+		// applies to {Pending, Frozen}, so this case is real,
+		// not unreachable.
 		if c.pendingBatch != nil {
-			return nil, fmt.Errorf("multiple batches not supported")
+			return nil, fmt.Errorf("cancellation ambiguous: " +
+				"pending batch and an active caretaker " +
+				"coexist; cancel-by-batch-key not " +
+				"implemented")
 		}
 
 		batchKeys := maps.Keys(c.caretakers)
@@ -1795,8 +1887,13 @@ func (c *ChainPlanter) canCancelBatch() (*btcec.PublicKey, error) {
 	default:
 	}
 
-	// TODO(jhb): Update once we support multiple batches.
-	return nil, fmt.Errorf("multiple caretakers not supported")
+	// Multiple caretakers can coexist when several post-broadcast
+	// batches are awaiting confirmation in parallel. The singleton
+	// constraint added in migration 000061 does not forbid this; it
+	// only constrains {Pending, Frozen}.
+	return nil, fmt.Errorf("cancellation ambiguous: %d active "+
+		"caretakers; cancel-by-batch-key not implemented",
+		caretakerCount)
 }
 
 // cancelMintingBatch attempts to cancel a target minting batch. This can fail
@@ -1849,6 +1946,88 @@ func (c *ChainPlanter) cancelMintingBatch(ctx context.Context,
 	}
 
 	return nil
+}
+
+// cancelFailedBatch cancels a batch whose caretaker reported a
+// broadcast-path error, so the batch isn't left occupying the
+// pre-broadcast singleton slot enforced by the migration 000061
+// index. Only Pending and Frozen batches are cancelled: those are
+// the states the index constrains, and no sprouts exist yet, so
+// SeedlingCancelled applies. Batches at Committed or beyond are
+// left untouched. They don't occupy the singleton slot, and the
+// restart path resumes and retries them, so cancelling here would
+// turn a transient failure (say, a brief signer outage) into a
+// permanent one that forces a re-mint with new asset IDs.
+//
+// The returned error is non-nil only when the batch occupied the
+// singleton slot and the on-disk cancellation failed, i.e. exactly
+// when the slot is still occupied and the batch still needs an
+// owner.
+func (c *ChainPlanter) cancelFailedBatch(batch *MintingBatch) error {
+	batchKeySerial := asset.ToSerialized(batch.BatchKey.PubKey)
+
+	batchState := batch.State()
+	if batchState != BatchStatePending && batchState != BatchStateFrozen {
+		log.Infof("Leaving failed batch (%x) at state %v; restart "+
+			"will resume it", batchKeySerial[:], batchState)
+		return nil
+	}
+
+	ctx, cancel := c.WithCtxQuit()
+	defer cancel()
+	err := c.cfg.Log.UpdateBatchState(
+		ctx, batch, BatchStateSeedlingCancelled,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to cancel failed batch (%x): %w",
+			batchKeySerial[:], err)
+	}
+
+	return nil
+}
+
+// watchResumedCaretaker waits for a caretaker launched for a resumed
+// batch to either broadcast its batch or fail beforehand. On a
+// pre-broadcast failure it cancels the batch, freeing the singleton
+// slot enforced by the migration 000061 index, and hands the dead
+// caretaker to the gardener via the completion signal so it is
+// stopped and removed from the caretaker set (the gardener owns that
+// set, so removal must happen there). The interactive finalize
+// handler performs the equivalent duties for caretakers launched via
+// FinalizeBatch.
+func (c *ChainPlanter) watchResumedCaretaker(caretaker *BatchCaretaker) {
+	defer c.Wg.Done()
+
+	batchKey := asset.ToSerialized(caretaker.cfg.Batch.BatchKey.PubKey)
+
+	select {
+	case <-caretaker.cfg.BroadcastCompleteChan:
+		// The batch reached broadcast; from here on the caretaker
+		// reports completion through the completion signal on its
+		// own.
+
+	case err := <-caretaker.cfg.BroadcastErrChan:
+		log.Errorf("Resumed batch (%x) failed before broadcast: %v",
+			batchKey[:], err)
+
+		// On the resume path there is no in-memory owner to
+		// preserve, so a failed cancellation can only be
+		// logged; restarting tapd retries the resume.
+		cancelErr := c.cancelFailedBatch(caretaker.cfg.Batch)
+		if cancelErr != nil {
+			log.Errorf("%v; the pre-broadcast singleton slot is "+
+				"still occupied on disk, so new batches will "+
+				"be rejected until tapd is restarted",
+				cancelErr)
+		}
+
+		select {
+		case c.completionSignals <- batchKey:
+		case <-c.Quit:
+		}
+
+	case <-c.Quit:
+	}
 }
 
 // gardener is responsible for collecting new potential taproot asset
@@ -2088,6 +2267,10 @@ func (c *ChainPlanter) gardener() {
 				case <-caretaker.cfg.BroadcastCompleteChan:
 					req.Resolve(caretaker.cfg.Batch)
 
+					// The batch has been broadcast, so we
+					// can remove the pending batch.
+					c.pendingBatch = nil
+
 				case err := <-caretaker.cfg.BroadcastErrChan:
 					req.Error(err)
 					// Unrecoverable error, stop caretaker
@@ -2102,14 +2285,32 @@ func (c *ChainPlanter) gardener() {
 
 					delete(c.caretakers, batchKeySerial)
 
+					// Cancel the failed batch on disk if
+					// it is still pre-broadcast, so it
+					// isn't left wedged in a state the
+					// migration 000061 singleton index
+					// forbids. Only drop the in-memory
+					// reference if the batch no longer
+					// occupies the singleton slot;
+					// otherwise keep it so a retried
+					// cancel request can still find and
+					// cancel the batch.
+					cancelErr := c.cancelFailedBatch(
+						caretaker.cfg.Batch,
+					)
+					if cancelErr != nil {
+						log.Errorf("%v; retry "+
+							"cancelling the "+
+							"batch, or restart "+
+							"tapd", cancelErr)
+						break
+					}
+
+					c.pendingBatch = nil
+
 				case <-c.Quit:
 					return
 				}
-
-				// Now that we have a caretaker launched for
-				// this batch and broadcast its minting
-				// transaction, we can remove the pending batch.
-				c.pendingBatch = nil
 
 			case reqTypeCancelBatch:
 				batchKey, err := c.canCancelBatch()
@@ -2123,7 +2324,16 @@ func (c *ChainPlanter) gardener() {
 				ctx, cancel := c.WithCtxQuit()
 				err = c.cancelMintingBatch(ctx, batchKey)
 				cancel()
-				c.pendingBatch = nil
+
+				// Only drop the in-memory reference if the
+				// on-disk cancellation went through. If it
+				// failed, the row still occupies the
+				// pre-broadcast singleton slot, and orphaning
+				// it here would wedge new batch creation
+				// until restart.
+				if err == nil {
+					c.pendingBatch = nil
+				}
 
 				// Always return the key of the batch we tried
 				// to cancel.

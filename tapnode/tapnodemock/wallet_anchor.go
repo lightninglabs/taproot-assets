@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"sync/atomic"
 	"testing"
 
 	btcaddr "github.com/btcsuite/btcd/address/v2"
@@ -37,6 +38,14 @@ type WalletAnchor struct {
 
 	Transactions  []lndclient.Transaction
 	ImportedUtxos []*lnwallet.Utxo
+
+	failSignPsbt atomic.Bool
+}
+
+// FailSignPsbtOnce arms the next call to SignAndFinalizePsbt to return
+// an error. The failing call does not send on SignPsbtSignal.
+func (m *WalletAnchor) FailSignPsbtOnce() {
+	m.failSignPsbt.Store(true)
 }
 
 // NewWalletAnchor returns a freshly-initialised mock WalletAnchor.
@@ -149,6 +158,10 @@ func (m *WalletAnchor) SignAndFinalizePsbt(ctx context.Context,
 	case <-ctx.Done():
 		return nil, fmt.Errorf("shutting down")
 	default:
+	}
+
+	if m.failSignPsbt.Swap(false) {
+		return nil, fmt.Errorf("failed to sign psbt")
 	}
 
 	// We'll modify the packet by attaching a "signature" so the PSBT

@@ -476,6 +476,19 @@ func (a *AssetMintingStore) CommitMintingBatch(ctx context.Context,
 
 	rawBatchKey := newBatch.BatchKey.PubKey.SerializeCompressed()
 
+	// Set when the batch insert itself fails on a unique constraint
+	// violation, which means the partial unique index from migration
+	// 000061 rejected a second pre-broadcast batch. The transaction
+	// executor re-maps errors returned from the closure, so the
+	// classification cannot ride along on the error itself.
+	//
+	// This attributes any unique violation on the insert to the
+	// singleton index. The only other unique constraint reachable
+	// from it is the batch_id primary key, which would require two
+	// batches sharing a batch key; keys are freshly derived per
+	// batch, so that case is not distinguished here.
+	var singletonViolation bool
+
 	var writeTxOpts AssetStoreTxOptions
 	err := a.db.ExecTx(ctx, &writeTxOpts, func(q PendingAssetStore) error {
 		// First, we'll need to insert a new internal key which'll act
@@ -497,6 +510,11 @@ func (a *AssetMintingStore) CommitMintingBatch(ctx context.Context,
 			CreationTimeUnix:    newBatch.CreationTime.UTC(),
 			UniverseCommitments: newBatch.SupplyCommitments,
 		}); err != nil {
+			var uniqueErr *ErrSqlUniqueConstraintViolation
+			if errors.As(MapSQLError(err), &uniqueErr) {
+				singletonViolation = true
+			}
+
 			return fmt.Errorf("unable to insert minting "+
 				"batch: %w", err)
 		}
@@ -617,6 +635,12 @@ func (a *AssetMintingStore) CommitMintingBatch(ctx context.Context,
 
 		return nil
 	})
+	if err != nil && singletonViolation {
+		// Surface the singleton violation as a domain error
+		// instead of the raw SQL constraint error.
+		return fmt.Errorf("%w: %w",
+			tapgarden.ErrDuplicatePreBroadcastBatch, err)
+	}
 
 	return err
 }
