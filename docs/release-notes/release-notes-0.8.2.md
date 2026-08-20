@@ -21,6 +21,14 @@
 
 # Bug Fixes
 
+- [PR#2246](https://github.com/lightninglabs/taproot-assets/pull/2246)
+  fixes a bug in which a cooperative close never finalized for a channel
+  whose funding output merged several asset UTXOs. Only the first input
+  proof was fetched when the funding output was imported, leaving the
+  virtual transaction impossible to reconstruct, so the channel stayed
+  in `waiting_close` and the peer's assets were not swept. Every input
+  proof is now fetched and verified.
+
 # New Features
 
 ## Functional Enhancements
