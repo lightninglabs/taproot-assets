@@ -2,6 +2,7 @@ package universe
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -118,6 +119,23 @@ func (c *countingDeltaSet) SyncDelta(ctx context.Context, sinceSeq uint64,
 
 	c.deltaCalls.Add(1)
 	return c.memUniverseSet.SyncDelta(ctx, sinceSeq, pageSize)
+}
+
+// errEnumFailed is the failure an enumFailSet reports from the
+// enumeration path.
+var errEnumFailed = errors.New("enumeration unavailable")
+
+// enumFailSet wraps a memUniverseSet whose delta path still works but
+// whose enumeration path fails, modelling a remote that can report a
+// journal rewind while the fallback sync cannot complete.
+type enumFailSet struct {
+	*memUniverseSet
+}
+
+func (e *enumFailSet) RootNodes(_ context.Context,
+	_ RootNodesQuery) ([]Root, error) {
+
+	return nil, errEnumFailed
 }
 
 // newDeltaEnvoy builds a federation envoy whose syncer talks to the
@@ -313,6 +331,73 @@ func TestEnvoyDeltaSyncJournalRewind(t *testing.T) {
 	// A followup tick is a clean incremental no-op.
 	err = envoy.syncServerState(ctx, addr, allowAllConfigs())
 	require.NoError(t, err)
+
+	require.NoError(t, envoy.Stop())
+}
+
+// TestEnvoyDeltaSyncRewindResetOrdering pins the ordering the cursor
+// reset depends on. Resetting to a rewound remote's tail steps over
+// journal entries we never consumed, and is only justified by the
+// enumeration pass that follows delivering them. So the reset must not
+// become durable until that pass succeeds: otherwise a transient
+// enumeration failure leaves the cursor above content the delta path
+// will never fetch again.
+func TestEnvoyDeltaSyncRewindResetOrdering(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	fedDB := newMockFederationDB()
+
+	target := seedRemote(t)
+	remote := DiffEngine(target)
+	envoy, local := newDeltaEnvoy(
+		fedDB, func() DiffEngine { return remote }, false,
+	)
+	addr := NewServerAddrFromStr("flaky-rewound-peer:10029")
+
+	// Converge on the original remote and persist its high-water mark.
+	err := envoy.syncServerState(ctx, addr, allowAllConfigs())
+	require.NoError(t, err)
+
+	cursor, err := fedDB.FetchSyncCursor(ctx, addr)
+	require.NoError(t, err)
+	require.Equal(t, target.maxSeq(), cursor)
+
+	// Replace the remote with a rebuilt instance holding a shorter
+	// journal and different content, and make its enumeration path
+	// fail. The rewind is still detected, but the pass that would
+	// deliver the skipped entries cannot run.
+	rebuilt := newMemUniverseSet()
+	rebuiltID := Identifier{ProofType: ProofTypeIssuance}
+	rebuiltID.AssetID[0] = 9
+	for i := 0; i < 2; i++ {
+		require.NoError(t, rebuilt.insert(
+			rebuiltID, randomTestLeafKey(t), randomTestLeaf(t),
+		))
+	}
+	require.Less(t, rebuilt.maxSeq(), cursor)
+	remote = &enumFailSet{memUniverseSet: rebuilt}
+
+	err = envoy.syncServerState(ctx, addr, allowAllConfigs())
+	require.ErrorIs(t, err, errEnumFailed)
+
+	// The cursor must be untouched: committing the reset here would
+	// strand everything at or below the rebuilt tail.
+	stalled, err := fedDB.FetchSyncCursor(ctx, addr)
+	require.NoError(t, err)
+	require.Equal(t, cursor, stalled)
+
+	// Once enumeration recovers, the same round both reconciles and
+	// commits the reset.
+	remote = rebuilt
+
+	err = envoy.syncServerState(ctx, addr, allowAllConfigs())
+	require.NoError(t, err)
+	requireConverged(t, local, rebuilt)
+
+	healed, err := fedDB.FetchSyncCursor(ctx, addr)
+	require.NoError(t, err)
+	require.Equal(t, rebuilt.maxSeq(), healed)
 
 	require.NoError(t, envoy.Stop())
 }

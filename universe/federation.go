@@ -269,9 +269,11 @@ func (f *FederationEnvoy) syncServerState(ctx context.Context,
 			addr.HostStr())
 	}
 
+	var pendingReset fn.Option[uint64]
+
 	deltaSyncer, canDelta := f.cfg.UniverseSyncer.(DeltaSyncer)
 	if canDelta && !f.cfg.DisableDeltaSync && !auditDue {
-		done, diffSize, err := f.tryDeltaSync(
+		done, diffSize, reset, err := f.tryDeltaSync(
 			ctx, deltaSyncer, addr, syncConfigs,
 		)
 		if err != nil {
@@ -288,6 +290,8 @@ func (f *FederationEnvoy) syncServerState(ctx context.Context,
 
 			return nil
 		}
+
+		pendingReset = reset
 	}
 
 	// Attempt to sync with the remote Universe server, if this errors then
@@ -300,6 +304,17 @@ func (f *FederationEnvoy) syncServerState(ctx context.Context,
 	}
 
 	f.markEnumSync(addr.HostStr())
+
+	// The enumeration pass delivered everything a cursor reset would
+	// otherwise skip, so the reset is now sound to make durable. A
+	// failure here leaves the cursor where it was: the next round
+	// re-detects the rewind and retries.
+	err = fn.MapOptionZ(pendingReset, func(tail uint64) error {
+		return f.cfg.FederationDB.UpsertSyncCursor(ctx, addr, tail)
+	})
+	if err != nil {
+		return fmt.Errorf("unable to reset sync cursor: %w", err)
+	}
 
 	if len(diff) == 0 {
 		return nil
@@ -314,14 +329,19 @@ func (f *FederationEnvoy) syncServerState(ctx context.Context,
 // persisting the advanced cursor on success. It reports done=false when
 // the remote doesn't support delta sync, signaling the caller to use the
 // enumeration path instead.
+//
+// A detected journal rewind is reported rather than acted on: the
+// returned option carries the cursor value to reset to, which the caller
+// must only make durable once the enumeration pass it falls through to
+// has completed successfully.
 func (f *FederationEnvoy) tryDeltaSync(ctx context.Context,
 	deltaSyncer DeltaSyncer, addr ServerAddr,
-	syncConfigs SyncConfigs) (bool, int, error) {
+	syncConfigs SyncConfigs) (bool, int, fn.Option[uint64], error) {
 
 	cursor, err := f.cfg.FederationDB.FetchSyncCursor(ctx, addr)
 	if err != nil {
-		return false, 0, fmt.Errorf("unable to fetch sync cursor: %w",
-			err)
+		return false, 0, fn.None[uint64](), fmt.Errorf("unable to "+
+			"fetch sync cursor: %w", err)
 	}
 
 	res, err := deltaSyncer.SyncUniverseDelta(
@@ -333,32 +353,26 @@ func (f *FederationEnvoy) tryDeltaSync(ctx context.Context,
 	case errors.Is(err, ErrDeltaUnsupported):
 		log.Debugf("Server=%v does not support delta sync",
 			addr.HostStr())
-		return false, 0, nil
+		return false, 0, fn.None[uint64](), nil
 
 	// The journal our cursor pointed into no longer exists in that
-	// form. Reset the cursor to the remote's tail and let the
+	// form. Hand the caller the tail to reset to and let the
 	// enumeration path reconcile: for a merely rewound journal the
 	// entries at or below the tail are an append-only prefix we have
 	// already consumed, and for a replaced instance the enumeration
-	// pass delivers everything the reset would otherwise skip.
+	// pass delivers everything the reset would otherwise skip. That
+	// makes the reset sound only once the pass has run, so the caller
+	// commits it, not us.
 	case errors.As(err, &rewindErr):
 		log.Warnf("Delta sync cursor %d beyond journal tail %d "+
-			"for server=%v; resetting cursor and running "+
-			"enumeration sync", rewindErr.Cursor, rewindErr.Tail,
+			"for server=%v; running enumeration sync before "+
+			"resetting cursor", rewindErr.Cursor, rewindErr.Tail,
 			addr.HostStr())
 
-		err := f.cfg.FederationDB.UpsertSyncCursor(
-			ctx, addr, rewindErr.Tail,
-		)
-		if err != nil {
-			return false, 0, fmt.Errorf("unable to reset sync "+
-				"cursor: %w", err)
-		}
-
-		return false, 0, nil
+		return false, 0, fn.Some(rewindErr.Tail), nil
 
 	case err != nil:
-		return false, 0, err
+		return false, 0, fn.None[uint64](), err
 	}
 
 	// A successful run means every universe the delta touched has been
@@ -368,8 +382,9 @@ func (f *FederationEnvoy) tryDeltaSync(ctx context.Context,
 			ctx, addr, res.NewCursor,
 		)
 		if err != nil {
-			return false, 0, fmt.Errorf("unable to persist sync "+
-				"cursor: %w", err)
+			return false, 0, fn.None[uint64](), fmt.Errorf(
+				"unable to persist sync cursor: %w", err,
+			)
 		}
 	}
 
@@ -377,7 +392,7 @@ func (f *FederationEnvoy) tryDeltaSync(ctx context.Context,
 		"diff_size=%d", addr.HostStr(), cursor, res.NewCursor,
 		len(res.Diffs))
 
-	return true, len(res.Diffs), nil
+	return true, len(res.Diffs), fn.None[uint64](), nil
 }
 
 // logSyncEvent records a successful sync with the given server in the
