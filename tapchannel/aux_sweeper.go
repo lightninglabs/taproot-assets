@@ -30,6 +30,7 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/sweep"
@@ -1925,8 +1926,10 @@ func (a *AuxSweeper) importCommitTx(req lnwallet.ResolutionReq,
 		ChainLookupGen: a.cfg.ChainBridge,
 		IgnoreChecker:  a.cfg.IgnoreChecker,
 	}
+	proofCtx, cancel := lnutils.ContextFromQuit(a.quit)
+	defer cancel()
 	err = importOutputProofs(
-		ctxb, req.ShortChanID, maps.Values(fundingInputProofs),
+		proofCtx, req.ShortChanID, maps.Values(fundingInputProofs),
 		a.cfg.DefaultCourierAddr, a.cfg.ProofFetcher,
 		a.cfg.ChainBridge, vCtx, a.cfg.ProofArchive,
 	)
@@ -1936,7 +1939,7 @@ func (a *AuxSweeper) importCommitTx(req lnwallet.ResolutionReq,
 	}
 
 	err = updateProofsFromShortChanID(
-		ctxb, a.cfg.ChainBridge, req.ShortChanID,
+		proofCtx, a.cfg.ChainBridge, req.ShortChanID,
 		maps.Values(fundingInputProofs),
 	)
 	if err != nil {
