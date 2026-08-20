@@ -1455,6 +1455,168 @@ func (a *AuxSweeper) importOutputScriptKeys(desc tapscriptSweepDescs) error {
 	)
 }
 
+// fetchInputProofFiles fetches and validates the proof file for every input
+// spent by an output proof. The first returned file is the output asset's
+// direct lineage; the remaining files prove the merge's additional inputs.
+func fetchInputProofFiles(ctx context.Context, outputProof *proof.Proof,
+	courierAddr *url.URL,
+	proofDispatch proof.CourierDispatch) ([]proof.File, error) {
+
+	if outputProof == nil {
+		return nil, fmt.Errorf("output proof is nil")
+	}
+	if len(outputProof.AdditionalInputs) != 0 {
+		return nil, fmt.Errorf("output proof carries additional inputs")
+	}
+
+	prevWitnesses := outputProof.Asset.Witnesses()
+	if len(prevWitnesses) == 0 {
+		return nil, fmt.Errorf("asset missing previous witnesses")
+	}
+	if len(prevWitnesses) > maxFundingInputProofs {
+		return nil, fmt.Errorf(
+			"too many funding input witnesses, got %d, max is %d",
+			len(prevWitnesses), maxFundingInputProofs,
+		)
+	}
+
+	type inputProofRequest struct {
+		prevID    asset.PrevID
+		recipient proof.Recipient
+		locator   proof.Locator
+	}
+
+	requests := make([]inputProofRequest, len(prevWitnesses))
+	seenInputs := make(map[asset.PrevID]struct{}, len(prevWitnesses))
+	for idx := range prevWitnesses {
+		proofPrevID := prevWitnesses[idx].PrevID
+		if proofPrevID == nil {
+			return nil, fmt.Errorf(
+				"funding input witness %d has no "+
+					"previous ID", idx,
+			)
+		}
+		if _, ok := seenInputs[*proofPrevID]; ok {
+			return nil, fmt.Errorf("duplicate funding input %v",
+				*proofPrevID)
+		}
+		seenInputs[*proofPrevID] = struct{}{}
+
+		if idx == 0 && outputProof.PrevOut != proofPrevID.OutPoint {
+			return nil, fmt.Errorf(
+				"output proof previous outpoint %v does "+
+					"not match primary input %v",
+				outputProof.PrevOut,
+				proofPrevID.OutPoint,
+			)
+		}
+		spendsInput := proof.TxSpendsPrevOut(
+			&outputProof.AnchorTx, &proofPrevID.OutPoint,
+		)
+		if !spendsInput {
+			return nil, fmt.Errorf(
+				"funding transaction does not spend input %v",
+				*proofPrevID,
+			)
+		}
+
+		scriptKey, err := proofPrevID.ScriptKey.ToPubKey()
+		if err != nil {
+			return nil, fmt.Errorf(
+				"unable to convert input %d script key "+
+					"to pubkey: %w",
+				idx, err,
+			)
+		}
+
+		inputProofLocator := proof.Locator{
+			AssetID:   &proofPrevID.ID,
+			ScriptKey: *scriptKey,
+			OutPoint:  &proofPrevID.OutPoint,
+		}
+		if outputProof.Asset.GroupKey != nil {
+			groupKey := outputProof.Asset.GroupKey.GroupPubKey
+			inputProofLocator.GroupKey = &groupKey
+		}
+
+		requests[idx] = inputProofRequest{
+			prevID: *proofPrevID,
+			recipient: proof.Recipient{
+				ScriptKey: scriptKey,
+				AssetID:   proofPrevID.ID,
+
+				// PrevID has no amount. This field is only for
+				// logging, so use the output amount.
+				Amount: outputProof.Asset.Amount,
+			},
+			locator: inputProofLocator,
+		}
+	}
+
+	proofFetcher, err := proofDispatch.NewCourier(ctx, courierAddr, true)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"unable to create proof courier: %w", err,
+		)
+	}
+	defer func() {
+		_ = proofFetcher.Close()
+	}()
+
+	inputProofFiles := make([]proof.File, len(requests))
+	for idx := range requests {
+		request := &requests[idx]
+		log.Infof(
+			"Fetching funding input proof %d of %d, locator=%v",
+			idx+1, len(requests),
+			limitSpewer.Sdump(request.locator),
+		)
+
+		inputProof, err := proofFetcher.ReceiveProof(
+			ctx, request.recipient, request.locator,
+		)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"unable to fetch input proof %d (%v): %w", idx,
+				request.prevID, err,
+			)
+		}
+
+		err = inputProofFiles[idx].Decode(
+			bytes.NewReader(inputProof.Blob),
+		)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"unable to decode input proof %d (%v): %w", idx,
+				request.prevID, err,
+			)
+		}
+
+		lastProof, err := inputProofFiles[idx].LastProof()
+		if err != nil {
+			return nil, fmt.Errorf(
+				"unable to read input proof %d (%v): %w", idx,
+				request.prevID, err,
+			)
+		}
+		actualPrevID := asset.PrevID{
+			OutPoint: lastProof.OutPoint(),
+			ID:       lastProof.Asset.ID(),
+			ScriptKey: asset.ToSerialized(
+				lastProof.Asset.ScriptKey.PubKey,
+			),
+		}
+		if actualPrevID != request.prevID {
+			return nil, fmt.Errorf(
+				"input proof mismatch: expected %v, got %v",
+				request.prevID, actualPrevID,
+			)
+		}
+	}
+
+	return inputProofFiles, nil
+}
+
 // importOutputProofs imports the output proofs into the pending asset funding
 // into our local database. This preps us to be able to detect force closes.
 func importOutputProofs(ctx context.Context, scid lnwire.ShortChannelID,
@@ -1464,14 +1626,50 @@ func importOutputProofs(ctx context.Context, scid lnwire.ShortChannelID,
 
 	// TODO(roasbeef): should be part of post confirmation funding validate
 	// (chanvalidate)
+	if len(outputProofs) == 0 {
+		return fmt.Errorf("funding output proofs are missing")
+	}
 
+	seenInputs := make(map[asset.PrevID]struct{})
+	totalInputs := 0
+	for outputIdx, outputProof := range outputProofs {
+		if outputProof == nil {
+			return fmt.Errorf(
+				"funding output proof %d is nil", outputIdx,
+			)
+		}
+		if outputProof.Asset.ScriptKey.PubKey == nil {
+			return fmt.Errorf(
+				"funding output proof %d has no "+
+					"script key", outputIdx,
+			)
+		}
+
+		witnesses := outputProof.Asset.Witnesses()
+		if len(witnesses) > maxFundingInputProofs-totalInputs {
+			return fmt.Errorf("too many funding inputs, max is %d",
+				maxFundingInputProofs)
+		}
+		totalInputs += len(witnesses)
+
+		for _, witness := range witnesses {
+			if witness.PrevID == nil {
+				continue
+			}
+			if _, ok := seenInputs[*witness.PrevID]; ok {
+				return fmt.Errorf(
+					"funding output proof %d reuses "+
+						"input %v",
+					outputIdx, *witness.PrevID,
+				)
+			}
+			seenInputs[*witness.PrevID] = struct{}{}
+		}
+	}
 	log.Infof("Importing %v proofs for ChannelPoint(%v)",
 		len(outputProofs), outputProofs[0].OutPoint())
 
-	// With the fetcher created, we'll have it fetch each of the proofs for
-	// the funding outputs we need.
-	//
-	// TODO(roasbeef): assume single asset for now, also additional inputs
+	// Fetch and import the proof for each funding output.
 	for _, proofToImport := range outputProofs {
 		// Check if the proof is already imported to avoid redundant
 		// work.
@@ -1491,66 +1689,12 @@ func importOutputProofs(ctx context.Context, scid lnwire.ShortChannelID,
 			continue
 		}
 
-		proofPrevID, err := proofToImport.Asset.PrimaryPrevID()
-		if err != nil {
-			return fmt.Errorf("unable to get primary prev "+
-				"ID: %w", err)
-		}
-
-		scriptKey, err := proofPrevID.ScriptKey.ToPubKey()
-		if err != nil {
-			return fmt.Errorf("unable to convert script key to "+
-				"pubkey: %w", err)
-		}
-
-		inputProofLocator := proof.Locator{
-			AssetID:   &proofPrevID.ID,
-			ScriptKey: *scriptKey,
-			OutPoint:  &proofPrevID.OutPoint,
-		}
-		if proofToImport.Asset.GroupKey != nil {
-			groupKey := proofToImport.Asset.GroupKey.GroupPubKey
-			inputProofLocator.GroupKey = &groupKey
-		}
-
-		log.Infof("Fetching funding input proof, locator=%v",
-			limitSpewer.Sdump(inputProofLocator))
-
-		// First, we'll make a courier to use in fetching the proofs we
-		// need.
-		proofFetcher, err := proofDispatch.NewCourier(
-			ctx, courierAddr, true,
-		)
-		if err != nil {
-			return fmt.Errorf("unable to create proof courier: %w",
-				err)
-		}
-
-		recipient := proof.Recipient{
-			ScriptKey: scriptKey,
-			AssetID:   proofPrevID.ID,
-			Amount:    proofToImport.Asset.Amount,
-		}
-		prefixProof, err := proofFetcher.ReceiveProof(
-			ctx, recipient, inputProofLocator,
-		)
-
-		// Always attempt to close the courier, even if we encounter an
-		// error.
-		_ = proofFetcher.Close()
-
-		// Handle any error that occurred during the proof fetch.
-		if err != nil {
-			return fmt.Errorf("unable to fetch prefix "+
-				"proof: %w", err)
-		}
-
-		log.Infof("All proofs fetched, importing locator=%v",
-			limitSpewer.Sdump(inputProofLocator))
-
-		// Before we combine the proofs below, we'll be sure to update
-		// the transition proof to include the proper block+merkle proof
-		// information.
+		// Before we fetch or combine any proofs below, we'll be sure to
+		// update the transition proof to include the proper
+		// block+merkle proof information. This also replaces the
+		// peer-supplied anchor transaction with the confirmed one, so
+		// that the input validation done while fetching is bound to the
+		// funding transaction that actually made it into the chain.
 		err = updateProofsFromShortChanID(
 			ctx, chainBridge, scid, []*proof.Proof{proofToImport},
 		)
@@ -1559,16 +1703,42 @@ func importOutputProofs(ctx context.Context, scid lnwire.ShortChannelID,
 				"proof: %w", err)
 		}
 
-		// Now that we have the entire prefix proof, we'll append the
-		// New funding output, then import it into our archive.
-		//
-		// TODO(roasbeef): way to do this w/o decoding again?
-		var proofFile proof.File
-		err = proofFile.Decode(bytes.NewReader(prefixProof.Blob))
+		inputProofFiles, err := fetchInputProofFiles(
+			ctx, proofToImport, courierAddr, proofDispatch,
+		)
 		if err != nil {
-			return fmt.Errorf("unable to decode proof: %w", err)
+			return fmt.Errorf(
+				"unable to fetch funding input proofs: %w", err,
+			)
 		}
-		if err := proofFile.AppendProof(*proofToImport); err != nil {
+
+		log.Infof("All %d input proofs fetched, importing locator=%v",
+			len(inputProofFiles), limitSpewer.Sdump(fundingLocator))
+
+		// The first input remains the direct proof-file lineage.
+		// Embed the remaining input proof files in the transition proof
+		// so the VM can verify the full virtual transaction.
+		proofWithInputs := *proofToImport
+		proofWithInputs.AdditionalInputs = slices.Clone(
+			inputProofFiles[1:],
+		)
+
+		proofBytes, err := proofWithInputs.Bytes()
+		if err != nil {
+			return fmt.Errorf(
+				"unable to encode output proof: %w", err,
+			)
+		}
+		if len(proofBytes) > proof.FileMaxProofSizeBytes {
+			return fmt.Errorf(
+				"output proof is too large: %d bytes, "+
+					"max is %d",
+				len(proofBytes), proof.FileMaxProofSizeBytes,
+			)
+		}
+
+		proofFile := &inputProofFiles[0]
+		if err := proofFile.AppendProofRaw(proofBytes); err != nil {
 			return fmt.Errorf("unable to append proof: %w", err)
 		}
 
