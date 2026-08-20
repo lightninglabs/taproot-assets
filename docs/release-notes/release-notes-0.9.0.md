@@ -82,6 +82,11 @@
 
 ## Code Health
 
+* [PR#2245](https://github.com/lightninglabs/taproot-assets/pull/2245)
+  bumps `google.golang.org/grpc` from v1.82.1 to v1.83.1 in the main,
+  `taprpc`, and basic price oracle example modules, mirroring the bump
+  done in `lnd`.
+
 ## Breaking Changes
 
 ## Performance Improvements
