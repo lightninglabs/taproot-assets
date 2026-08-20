@@ -19,6 +19,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
+	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
 	"github.com/lightninglabs/taproot-assets/universe/supplyverifier"
@@ -145,6 +146,23 @@ func (h *supplyCommitTestHarness) addTestMintingBatch() ([]byte, int64,
 		HeightHint:       100,
 		CreationTimeUnix: time.Now(),
 	})
+	require.NoError(h.t, err)
+
+	// NewMintingBatch hardcodes state=BatchStatePending. These
+	// supply-commit tests need to create multiple batches as
+	// fixtures, which would violate the singleton invariant added
+	// in migration 000061 (≤ 1 batch in {Pending, Frozen}).
+	// Immediately advance to a terminal state so each fixture is
+	// outside the constrained set; the tests do not exercise the
+	// planter state machine, only the supply-commit logic, so the
+	// specific state does not matter as long as it is not
+	// Pending or Frozen.
+	err = db.UpdateMintingBatchState(
+		ctx, sqlc.UpdateMintingBatchStateParams{
+			RawKey:     batchKeyBytes,
+			BatchState: int16(tapgarden.BatchStateFinalized),
+		},
+	)
 	require.NoError(h.t, err)
 
 	_, err = db.BindMintingBatchWithTx(
