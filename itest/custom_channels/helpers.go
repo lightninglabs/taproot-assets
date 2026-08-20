@@ -3698,20 +3698,15 @@ func assertForceCloseSweeps(ctx context.Context,
 	// We'll wait for Bob to present his remote-timeout sweep to the
 	// sweeper. Alice's local outgoing HTLC times out via the pre-signed
 	// 2nd-level timeout tx under DeterministicHTLCs (SigHashDefault,
-	// baked-in fees), so it is published directly to the mempool by the
-	// htlc timeout resolver and never appears in lnd's PendingSweeps —
-	// the mempool wait below covers it.
-	t.Logf("Confirming HTLC timeout txns")
-
-	t.Logf("Confirming initial HTLC timeout txns")
-
-	// Mine the HTLC timeout sweeps sequentially. A wallet UTXO
-	// selection bug in the sweeper can cause competing InputSets
-	// to pick the same fee-paying UTXO, so both sweeps may not
-	// coexist in the mempool simultaneously. We mine what's
-	// available and let the sweeper retry on the next tick.
-	_, err = waitForAtLeastNTxsInMempool(
-		net.Miner, 1, wait.DefaultTimeout,
+	// baked-in fees), which the sweeper publishes verbatim, so it never
+	// appears in lnd's PendingSweeps. It is asserted on chain below.
+	numTimeoutHTLCs := 1
+	if mpp {
+		numTimeoutHTLCs += numAdditionalShards
+	}
+	assertSweepExists(
+		t.t, bob,
+		walletrpc.WitnessType_TAPROOT_HTLC_OFFERED_REMOTE_TIMEOUT,
 	)
 
 	t.Logf("Confirming initial HTLC timeout txns")
