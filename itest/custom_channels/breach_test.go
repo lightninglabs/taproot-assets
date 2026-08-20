@@ -638,5 +638,5 @@ func testCustomChannelsBreach(ctx context.Context,
 		t.t, dave, sendAmt, itest.WithAssetID(assetID),
 	)
 
-	t.Logf("Post-breach on-chain spend successful — proof chain valid")
+	t.Logf("Post-breach on-chain spend successful: proof chain valid")
 }
