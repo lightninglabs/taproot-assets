@@ -15,9 +15,12 @@ import (
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapnode"
+	"github.com/lightninglabs/taproot-assets/tappsbt"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
 )
@@ -502,4 +505,96 @@ func TestRevocationSweepDescSignVerify(t *testing.T) {
 			)
 		})
 	}
+}
+
+// TestApplySignDescTweakRoundTrip closes the loop between the sweeper's PSBT
+// encoding and the wallet signer's decoding: applySignDescToVIn packs the
+// revocation (double) and HTLC index (single) tweaks as PSBT unknowns on the
+// virtual input, and lnd's wallet signer re-derives the signing key from
+// those unknowns in the order they appear. This test re-derives the private
+// key exactly like the signer does and asserts it matches both the manual
+// derivation chain and the public key applySignDescToVIn reports.
+func TestApplySignDescTweakRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	revokeBasePriv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	commitSecret, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	revocationKey := input.DeriveRevocationPubkey(
+		revokeBasePriv.PubKey(), commitSecret.PubKey(),
+	)
+
+	htlcIndex := input.HtlcIndex(42)
+	tweakScalar := ScriptKeyTweakFromHtlcIndex(htlcIndex)
+	var singleTweak [32]byte
+	tweakScalar.PutBytesUnchecked(singleTweak[:])
+
+	// The manual derivation chain, mirroring what the breach sweep needs:
+	// base -> DoubleTweak (revocation) -> SingleTweak (HTLC index).
+	expectedPriv := input.TweakPrivKey(
+		input.DeriveRevocationPrivKey(revokeBasePriv, commitSecret),
+		singleTweak[:],
+	)
+
+	signDesc := input.SignDescriptor{
+		KeyDesc: keychain.KeyDescriptor{
+			PubKey: revokeBasePriv.PubKey(),
+		},
+		SingleTweak: singleTweak[:],
+		DoubleTweak: commitSecret,
+	}
+
+	vIn := &tappsbt.VInput{}
+	signingKey, leaf := applySignDescToVIn(
+		signDesc, vIn, testChainParams, nil, true,
+	)
+
+	// Breach key spends carry no leaf script.
+	require.Empty(t, leaf.Script)
+
+	// The reported signing key must equal the tweaked revocation key.
+	expectedPub := input.TweakPubKeyWithTweak(
+		revocationKey, singleTweak[:],
+	)
+	require.Equal(
+		t, expectedPub.SerializeCompressed(),
+		signingKey.SerializeCompressed(),
+	)
+
+	// Now replay the unknowns the way lnd's wallet signer does: iterate
+	// in order and apply each tweak to the base private key.
+	signerPriv := revokeBasePriv
+	for _, unknown := range vIn.Unknowns {
+		switch {
+		case bytes.Equal(
+			unknown.Key,
+			btcwallet.PsbtKeyTypeInputSignatureTweakDouble,
+		):
+			doubleTweak, _ := btcec.PrivKeyFromBytes(unknown.Value)
+			signerPriv = input.DeriveRevocationPrivKey(
+				signerPriv, doubleTweak,
+			)
+
+		case bytes.Equal(
+			unknown.Key,
+			btcwallet.PsbtKeyTypeInputSignatureTweakSingle,
+		):
+			signerPriv = input.TweakPrivKey(
+				signerPriv, unknown.Value,
+			)
+		}
+	}
+
+	// The signer-derived key must match the manual chain and correspond
+	// to the public key the sweeper verifies against.
+	require.Equal(
+		t, expectedPriv.PubKey().SerializeCompressed(),
+		signerPriv.PubKey().SerializeCompressed(),
+	)
+	require.Equal(
+		t, signingKey.SerializeCompressed(),
+		signerPriv.PubKey().SerializeCompressed(),
+	)
 }
