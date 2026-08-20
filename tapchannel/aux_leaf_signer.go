@@ -477,19 +477,19 @@ func verifyHtlcSignature(chainParams *address.ChainParams,
 // that should be used to verify the generated signature. For scriptspend, it
 // also returns the leaf to be signed. For breach scenarios (keyspend), the
 // leaf will be empty.
+//
+// The isBreach parameter must be true when the input is spent as part of a
+// breach (justice) key spend: the signer then derives the signing key by
+// applying both the revocation DoubleTweak and the HTLC index SingleTweak,
+// and no leaf script is attached to the input. Callers supply this from the
+// sweep descriptor context (the resolution type, equivalently the absence of
+// a control block), so there is a single source of truth for the decision
+// rather than re-deriving it here from tweak presence.
 func applySignDescToVIn(signDesc input.SignDescriptor, vIn *tappsbt.VInput,
-	chainParams *address.ChainParams,
-	tapscriptRoot []byte) (btcec.PublicKey, txscript.TapLeaf) {
+	chainParams *address.ChainParams, tapscriptRoot []byte,
+	isBreach bool) (btcec.PublicKey, txscript.TapLeaf) {
 
 	var leafToSign txscript.TapLeaf
-
-	// Detect breach scenario: both tweaks present means revocation
-	// (DoubleTweak) + HTLC index (SingleTweak). In normal force
-	// close, only one tweak is set. See also aux_sweeper.go which
-	// uses len(ctrlBlock)==0 for the same detection when the
-	// control block is available.
-	isBreach := len(signDesc.SingleTweak) > 0 &&
-		signDesc.DoubleTweak != nil
 
 	// Set up derivation paths for the key.
 	deriv, trDeriv := tappsbt.Bip32DerivationFromKeyDesc(
@@ -524,7 +524,7 @@ func applySignDescToVIn(signDesc input.SignDescriptor, vIn *tappsbt.VInput,
 	//
 	// For breach scenarios, both DoubleTweak and SingleTweak are present.
 	// Both are added to the PSBT unknowns keyed by their type, so the
-	// append order here doesn't matter — the signer identifies them by
+	// append order here doesn't matter: the signer identifies them by
 	// key type, not position. However, when deriving the verification
 	// public key below, we must apply DoubleTweak (revocation) before
 	// SingleTweak (HTLC index) because DeriveRevocationPubkey hashes
@@ -642,6 +642,7 @@ func (s *AuxLeafSigner) generateHtlcSignature(chanState lnwallet.AuxChanState,
 
 		signingKey, leafToSign := applySignDescToVIn(
 			signDesc, vIn, s.cfg.ChainParams, tapscriptRoot,
+			false,
 		)
 
 		// We can now sign this virtual packet, as we've given the
@@ -721,7 +722,7 @@ func htlcSecondLevelPacketsFromCommit(chainParams *address.ChainParams,
 
 // sigHashDefaultFromCommitBlob extracts the cached DeterministicHTLCs
 // flag from a commitment blob. Returns false when the blob is absent or
-// malformed (the safe default — no anchor on the 2nd-level tx).
+// malformed (the safe default: no anchor on the 2nd-level tx).
 func sigHashDefaultFromCommitBlob(
 	blob lfn.Option[tlv.Blob]) bool {
 

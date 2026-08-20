@@ -1490,7 +1490,7 @@ func CreateSecondLevelHtlcPackets(chanState lnwallet.AuxChanState,
 // CreateSecondLevelHtlcTx creates the auxiliary leaf for a successful or timed
 // out second level HTLC transaction. addAnchor signals that the BTC-level
 // second-level tx includes a CPFP anchor output at index 1 (under
-// DeterministicHTLCs) — the allocation set then carries an exclusion-only
+// DeterministicHTLCs): the allocation set then carries an exclusion-only
 // entry for that output.
 func CreateSecondLevelHtlcTx(chanState lnwallet.AuxChanState,
 	commitTx *wire.MsgTx, htlcAmt btcutil.Amount,

@@ -3469,7 +3469,7 @@ func assertForceCloseSweeps(ctx context.Context,
 	// sweeper. Alice's local outgoing HTLC times out via the pre-signed
 	// 2nd-level timeout tx under DeterministicHTLCs (SigHashDefault,
 	// baked-in fees), so it is published directly to the mempool by the
-	// htlc timeout resolver and never appears in lnd's PendingSweeps —
+	// htlc timeout resolver and never appears in lnd's PendingSweeps -
 	// the mempool wait below covers it.
 	t.Logf("Confirming HTLC timeout txns")
 
