@@ -546,7 +546,7 @@ func acquireCustomAnchorLeases(ctx context.Context, wallet tapnode.WalletAnchor,
 	for _, txIn := range packet.UnsignedTx.TxIn {
 		op := txIn.PreviousOutPoint
 		if _, ok := seen[op]; ok {
-			releaseErr := releaseCustomAnchorOutpoints(
+			releaseErr := rollbackCustomAnchorOutpoints(
 				ctx, wallet, leaseID, newlyLocked,
 			)
 			return nil, errors.Join(fmt.Errorf(
@@ -556,7 +556,7 @@ func acquireCustomAnchorLeases(ctx context.Context, wallet tapnode.WalletAnchor,
 		seen[op] = struct{}{}
 		owned, err := leaser.LeaseInput(ctx, leaseID, op)
 		if err != nil {
-			releaseErr := releaseCustomAnchorOutpoints(
+			releaseErr := rollbackCustomAnchorOutpoints(
 				ctx, wallet, leaseID, newlyLocked,
 			)
 			return nil, errors.Join(
@@ -566,7 +566,7 @@ func acquireCustomAnchorLeases(ctx context.Context, wallet tapnode.WalletAnchor,
 		}
 		if !owned {
 			if _, wasLocked := previous[op]; wasLocked {
-				releaseErr := releaseCustomAnchorOutpoints(
+				releaseErr := rollbackCustomAnchorOutpoints(
 					ctx, wallet, leaseID, newlyLocked,
 				)
 				return nil, errors.Join(fmt.Errorf(
@@ -583,6 +583,24 @@ func acquireCustomAnchorLeases(ctx context.Context, wallet tapnode.WalletAnchor,
 	}
 
 	return locked, nil
+}
+
+// rollbackCustomAnchorOutpoints releases leases acquired by an operation that
+// failed. The acquisition context may itself be the reason for the failure, so
+// cleanup must not inherit its cancellation or deadline. The bounded timeout
+// keeps shutdown from waiting indefinitely on an unresponsive wallet RPC.
+func rollbackCustomAnchorOutpoints(ctx context.Context,
+	wallet tapnode.WalletAnchor, leaseID tapnode.CustomAnchorLeaseID,
+	ops []wire.OutPoint) error {
+
+	cleanupCtx, cancel := context.WithTimeout(
+		context.WithoutCancel(ctx), DefaultTimeout,
+	)
+	defer cancel()
+
+	return releaseCustomAnchorOutpoints(
+		cleanupCtx, wallet, leaseID, ops,
+	)
 }
 
 func newlyAcquiredLeases(locked, previous []wire.OutPoint) []wire.OutPoint {
@@ -689,7 +707,9 @@ func renewCustomAnchorLeases(ctx context.Context, wallet tapnode.WalletAnchor,
 // customAnchorLeaseID derives a restart-stable, batch-specific lease owner.
 // The domain separator prevents the ID from colliding with unrelated uses of
 // the batch key.
-func customAnchorLeaseID(batchKey *btcec.PublicKey) tapnode.CustomAnchorLeaseID {
+func customAnchorLeaseID(
+	batchKey *btcec.PublicKey) tapnode.CustomAnchorLeaseID {
+
 	preimage := append(
 		[]byte("tapd-custom-anchor-psbt-lease-v1:"),
 		batchKey.SerializeCompressed()...,

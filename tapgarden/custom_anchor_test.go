@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -36,6 +37,31 @@ type trackedCustomAnchorWallet struct {
 type customAnchorLeaseRequest struct {
 	leaseID tapnode.CustomAnchorLeaseID
 	op      wire.OutPoint
+}
+
+type blockingCustomAnchorWallet struct {
+	*trackedCustomAnchorWallet
+
+	blockOn       wire.OutPoint
+	releaseCtxErr chan error
+}
+
+func (w *blockingCustomAnchorWallet) LeaseInput(ctx context.Context,
+	leaseID tapnode.CustomAnchorLeaseID, op wire.OutPoint) (bool, error) {
+
+	if op == w.blockOn {
+		<-ctx.Done()
+		return false, ctx.Err()
+	}
+
+	return w.trackedCustomAnchorWallet.LeaseInput(ctx, leaseID, op)
+}
+
+func (w *blockingCustomAnchorWallet) ReleaseInput(ctx context.Context,
+	leaseID tapnode.CustomAnchorLeaseID, op wire.OutPoint) error {
+
+	w.releaseCtxErr <- ctx.Err()
+	return w.trackedCustomAnchorWallet.ReleaseInput(ctx, leaseID, op)
 }
 
 func newTrackedCustomAnchorWallet() *trackedCustomAnchorWallet {
@@ -223,6 +249,46 @@ func TestCustomAnchorLeasesAreBatchScoped(t *testing.T) {
 		},
 	))
 	require.Equal(t, leaseIDA, wallet.leases[inputX])
+}
+
+// TestCustomAnchorLeaseRollbackUsesLiveContext proves that an acquisition
+// timeout doesn't poison cleanup and leave earlier leases untracked.
+func TestCustomAnchorLeaseRollbackUsesLiveContext(t *testing.T) {
+	trackedWallet := newTrackedCustomAnchorWallet()
+	wallet := &blockingCustomAnchorWallet{
+		trackedCustomAnchorWallet: trackedWallet,
+		releaseCtxErr:             make(chan error, 1),
+	}
+	_, batchKey := btcec.PrivKeyFromBytes(bytes.Repeat([]byte{4}, 32))
+	leaseID := customAnchorLeaseID(batchKey)
+
+	packet := testCustomAnchorPacket(t)
+	inputX := packet.UnsignedTx.TxIn[0].PreviousOutPoint
+	inputY := inputX
+	inputY.Index++
+	wallet.blockOn = inputY
+	packet.UnsignedTx.AddTxIn(&wire.TxIn{PreviousOutPoint: inputY})
+	packet.Inputs = append(packet.Inputs, packet.Inputs[0])
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	_, err := acquireCustomAnchorLeases(
+		ctx, wallet, leaseID, packet, nil,
+	)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	select {
+	case releaseCtxErr := <-wallet.releaseCtxErr:
+		require.NoError(t, releaseCtxErr)
+
+	case <-time.After(time.Second):
+		t.Fatal("rollback did not release the earlier lease")
+	}
+	_, xStillLeased := trackedWallet.leases[inputX]
+	require.False(t, xStillLeased)
+	require.Equal(t, []customAnchorLeaseRequest{{
+		leaseID: leaseID,
+		op:      inputX,
+	}}, trackedWallet.releases)
 }
 
 func testCustomAnchorPacket(t *testing.T) *psbt.Packet {
