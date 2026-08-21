@@ -350,7 +350,9 @@ func (b *BatchCaretaker) Cancel() error {
 			isCustomAnchorPsbt(b.cfg.Batch.GenesisPacket.Pkt) {
 
 			releaseErr := releaseCustomAnchorLeases(
-				ctx, b.cfg.Wallet, b.cfg.Batch.GenesisPacket,
+				ctx, b.cfg.Wallet,
+				customAnchorLeaseID(b.cfg.Batch.BatchKey.PubKey),
+				b.cfg.Batch.GenesisPacket,
 			)
 			if releaseErr != nil {
 				log.Warnf("Unable to release one or more cancelled "+
@@ -529,7 +531,9 @@ func (b *BatchCaretaker) assetCultivator() {
 			// local input before retrying the exact persisted transaction.
 			ctx, cancel := b.WithCtxQuit()
 			err := renewCustomAnchorLeases(
-				ctx, b.cfg.Wallet, b.cfg.Batch.GenesisPacket,
+				ctx, b.cfg.Wallet,
+				customAnchorLeaseID(b.cfg.Batch.BatchKey.PubKey),
+				b.cfg.Batch.GenesisPacket,
 			)
 			cancel()
 			if err != nil {
@@ -1093,7 +1097,9 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		if isCustomAnchorPsbt(signedPkt) {
 			renewCtx, renewCancel := b.WithCtxQuit()
 			renewErr := renewCustomAnchorLeases(
-				renewCtx, b.cfg.Wallet, b.cfg.Batch.GenesisPacket,
+				renewCtx, b.cfg.Wallet,
+				customAnchorLeaseID(b.cfg.Batch.BatchKey.PubKey),
+				b.cfg.Batch.GenesisPacket,
 			)
 			renewCancel()
 			if renewErr != nil {
@@ -1224,6 +1230,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 				renewCtx, renewCancel := b.WithCtxQuit()
 				renewErr := renewCustomAnchorLeases(
 					renewCtx, b.cfg.Wallet,
+					customAnchorLeaseID(b.cfg.Batch.BatchKey.PubKey),
 					b.cfg.Batch.GenesisPacket,
 				)
 				renewCancel()

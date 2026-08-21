@@ -258,7 +258,7 @@ func (m *WalletAnchor) ImportTaprootOutput(ctx context.Context,
 
 // LeaseInput leases the input if the mock marks it as wallet-owned.
 func (m *WalletAnchor) LeaseInput(ctx context.Context,
-	op wire.OutPoint) (bool, error) {
+	_ tapnode.CustomAnchorLeaseID, op wire.OutPoint) (bool, error) {
 
 	m.mu.RLock()
 	leaseErr := m.LeaseErrors[op]
@@ -280,7 +280,9 @@ func (m *WalletAnchor) LeaseInput(ctx context.Context,
 }
 
 // ReleaseInput releases a custom-anchor lease held by the mock wallet.
-func (m *WalletAnchor) ReleaseInput(_ context.Context, op wire.OutPoint) error {
+func (m *WalletAnchor) ReleaseInput(_ context.Context,
+	_ tapnode.CustomAnchorLeaseID, op wire.OutPoint) error {
+
 	m.ReleaseInputSignal <- op
 	m.mu.RLock()
 	releaseErr := m.ReleaseErrors[op]
@@ -364,3 +366,4 @@ func (m *WalletAnchor) MinRelayFee(
 }
 
 var _ tapnode.WalletAnchor = (*WalletAnchor)(nil)
+var _ tapnode.CustomAnchorLeaser = (*WalletAnchor)(nil)

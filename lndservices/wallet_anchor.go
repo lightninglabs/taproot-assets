@@ -2,7 +2,6 @@ package lndservices
 
 import (
 	"context"
-	"crypto/sha256"
 	"fmt"
 	"math"
 	"time"
@@ -90,10 +89,6 @@ const (
 	// immediately before finalization.
 	customAnchorLeaseDuration = 24 * time.Hour
 )
-
-var customAnchorLeaseID = wtxmgr.LockID(sha256.Sum256(
-	[]byte("tapd-custom-anchor-psbt"),
-))
 
 // FundPsbt attaches enough inputs to the target PSBT packet for it to be
 // valid.
@@ -212,10 +207,13 @@ func (l *LndRpcWalletAnchor) ImportTaprootOutput(ctx context.Context,
 	return addr, nil
 }
 
-// LeaseInput leases an input with tapd's custom-anchor lock ID if the input
-// belongs to lnd. Inputs owned by another wallet are intentionally ignored.
+// LeaseInput leases an input with the calling batch's custom-anchor lock ID if
+// the input belongs to lnd. Inputs owned by another wallet are intentionally
+// ignored.
 func (l *LndRpcWalletAnchor) LeaseInput(ctx context.Context,
-	op wire.OutPoint) (bool, error) {
+	leaseID tapnode.CustomAnchorLeaseID, op wire.OutPoint) (bool, error) {
+
+	lockID := wtxmgr.LockID(leaseID)
 
 	// Renew our own lease without depending on whether ListUnspent includes
 	// locked outputs.
@@ -227,14 +225,14 @@ func (l *LndRpcWalletAnchor) LeaseInput(ctx context.Context,
 		if lease.Outpoint != op {
 			continue
 		}
-		if lease.LockID != customAnchorLeaseID {
+		if lease.LockID != lockID {
 			return false, fmt.Errorf("wallet input is already leased by " +
-				"another subsystem")
+				"another batch or subsystem")
 		}
 
-		if lease.LockID == customAnchorLeaseID {
+		if lease.LockID == lockID {
 			_, err := l.lnd.WalletKit.LeaseOutput(
-				ctx, customAnchorLeaseID, op, customAnchorLeaseDuration,
+				ctx, lockID, op, customAnchorLeaseDuration,
 			)
 			return err == nil, err
 		}
@@ -250,7 +248,7 @@ func (l *LndRpcWalletAnchor) LeaseInput(ctx context.Context,
 		}
 
 		_, err := l.lnd.WalletKit.LeaseOutput(
-			ctx, customAnchorLeaseID, op, customAnchorLeaseDuration,
+			ctx, lockID, op, customAnchorLeaseDuration,
 		)
 		if err != nil {
 			return false, fmt.Errorf("unable to lease wallet input: %w", err)
@@ -262,21 +260,24 @@ func (l *LndRpcWalletAnchor) LeaseInput(ctx context.Context,
 	return false, nil
 }
 
-// ReleaseInput releases only tapd's custom-anchor lease for an input.
+// ReleaseInput releases only the calling batch's custom-anchor lease for an
+// input.
 func (l *LndRpcWalletAnchor) ReleaseInput(ctx context.Context,
-	op wire.OutPoint) error {
+	leaseID tapnode.CustomAnchorLeaseID, op wire.OutPoint) error {
+
+	lockID := wtxmgr.LockID(leaseID)
 
 	leases, err := l.lnd.WalletKit.ListLeases(ctx)
 	if err != nil {
 		return fmt.Errorf("error listing existing leases: %w", err)
 	}
 	for _, lease := range leases {
-		if lease.Outpoint != op || lease.LockID != customAnchorLeaseID {
+		if lease.Outpoint != op || lease.LockID != lockID {
 			continue
 		}
 
 		if err := l.lnd.WalletKit.ReleaseOutput(
-			ctx, customAnchorLeaseID, op,
+			ctx, lockID, op,
 		); err != nil {
 			return fmt.Errorf("error releasing custom anchor lease: %w",
 				err)
@@ -363,5 +364,6 @@ func (l *LndRpcWalletAnchor) MinRelayFee(
 // A compile time assertion to ensure LndRpcWalletAnchor meets the
 // tapnode.WalletAnchor interface.
 var _ tapnode.WalletAnchor = (*LndRpcWalletAnchor)(nil)
+var _ tapnode.CustomAnchorLeaser = (*LndRpcWalletAnchor)(nil)
 
 var _ tapfreighter.WalletAnchor = (*LndRpcWalletAnchor)(nil)

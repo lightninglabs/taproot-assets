@@ -31,14 +31,6 @@ type WalletAnchor interface {
 	ImportTaprootOutput(context.Context, *btcec.PublicKey) (btcaddr.Address,
 		error)
 
-	// LeaseInput leases the input if it belongs to the backing wallet. The
-	// returned boolean is false for inputs owned by an external signer.
-	LeaseInput(context.Context, wire.OutPoint) (bool, error)
-
-	// ReleaseInput releases only a lease previously acquired through
-	// LeaseInput. It must not release leases owned by other subsystems.
-	ReleaseInput(context.Context, wire.OutPoint) error
-
 	// UnlockInput unlocks the set of target inputs after a batch or
 	// send transaction is abandoned.
 	UnlockInput(context.Context, wire.OutPoint) error
@@ -65,4 +57,24 @@ type WalletAnchor interface {
 	// MinRelayFee returns the current minimum relay fee based on our
 	// chain backend in sat/kw.
 	MinRelayFee(ctx context.Context) (chainfee.SatPerKWeight, error)
+}
+
+// CustomAnchorLeaseID identifies the minting batch that owns a custom anchor
+// input lease. Lease IDs must be stable across restarts and unique per batch.
+type CustomAnchorLeaseID [32]byte
+
+// CustomAnchorLeaser is the optional wallet capability required by custom
+// anchor minting. Keeping this separate from WalletAnchor allows existing
+// wallet implementations that don't support custom anchors to remain source
+// compatible.
+type CustomAnchorLeaser interface {
+	// LeaseInput leases the input for the specified batch if it belongs to
+	// the backing wallet. The returned boolean is false for inputs owned by
+	// an external signer. A lease held under another ID must be rejected.
+	LeaseInput(context.Context, CustomAnchorLeaseID, wire.OutPoint) (bool,
+		error)
+
+	// ReleaseInput releases only a lease owned by the specified batch. It
+	// must not release leases owned by another batch or subsystem.
+	ReleaseInput(context.Context, CustomAnchorLeaseID, wire.OutPoint) error
 }

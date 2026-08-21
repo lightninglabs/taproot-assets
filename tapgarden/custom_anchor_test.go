@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -15,12 +17,67 @@ import (
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/tapnode"
 	"github.com/lightninglabs/taproot-assets/tapnode/tapnodemock"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
 )
+
+type trackedCustomAnchorWallet struct {
+	*tapnodemock.WalletAnchor
+
+	mu       sync.Mutex
+	leases   map[wire.OutPoint]tapnode.CustomAnchorLeaseID
+	releases []customAnchorLeaseRequest
+}
+
+type customAnchorLeaseRequest struct {
+	leaseID tapnode.CustomAnchorLeaseID
+	op      wire.OutPoint
+}
+
+func newTrackedCustomAnchorWallet() *trackedCustomAnchorWallet {
+	return &trackedCustomAnchorWallet{
+		WalletAnchor: tapnodemock.NewWalletAnchor(),
+		leases:       make(map[wire.OutPoint]tapnode.CustomAnchorLeaseID),
+	}
+}
+
+func (w *trackedCustomAnchorWallet) LeaseInput(_ context.Context,
+	leaseID tapnode.CustomAnchorLeaseID, op wire.OutPoint) (bool, error) {
+
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	owner, ok := w.leases[op]
+	if ok && owner != leaseID {
+		return false, fmt.Errorf("input leased by another batch")
+	}
+
+	w.leases[op] = leaseID
+	return true, nil
+}
+
+func (w *trackedCustomAnchorWallet) ReleaseInput(_ context.Context,
+	leaseID tapnode.CustomAnchorLeaseID, op wire.OutPoint) error {
+
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if w.leases[op] != leaseID {
+		return nil
+	}
+
+	delete(w.leases, op)
+	w.releases = append(w.releases, customAnchorLeaseRequest{
+		leaseID: leaseID,
+		op:      op,
+	})
+
+	return nil
+}
 
 func TestCustomAnchorLeaseMarkerValidation(t *testing.T) {
 	pkt := testCustomAnchorPacket(t)
@@ -88,9 +145,10 @@ func TestLegacyCustomAnchorLeaseMarkerReacquiresOwnedInputs(t *testing.T) {
 	funded := &FundedMintAnchorPsbt{
 		FundedPsbt: tapsend.FundedPsbt{Pkt: pkt},
 	}
+	_, batchKey := btcec.PrivKeyFromBytes(bytes.Repeat([]byte{2}, 32))
 
 	require.NoError(t, renewCustomAnchorLeases(
-		context.Background(), wallet, funded,
+		context.Background(), wallet, customAnchorLeaseID(batchKey), funded,
 	))
 	require.Equal(t, op, <-wallet.LeaseInputSignal)
 	require.Equal(t, []wire.OutPoint{op}, funded.LockedUTXOs)
@@ -104,6 +162,67 @@ func TestLegacyCustomAnchorLeaseMarkerReacquiresOwnedInputs(t *testing.T) {
 			duplicate)
 	default:
 	}
+}
+
+// TestCustomAnchorLeasesAreBatchScoped proves that a failing second batch
+// cannot mistake the first batch's input lease for its own and release it
+// during rollback.
+func TestCustomAnchorLeasesAreBatchScoped(t *testing.T) {
+	wallet := newTrackedCustomAnchorWallet()
+	ctx := context.Background()
+
+	_, batchKeyA := btcec.PrivKeyFromBytes(bytes.Repeat([]byte{2}, 32))
+	_, batchKeyB := btcec.PrivKeyFromBytes(bytes.Repeat([]byte{3}, 32))
+	leaseIDA := customAnchorLeaseID(batchKeyA)
+	leaseIDB := customAnchorLeaseID(batchKeyB)
+	require.NotEqual(t, leaseIDA, leaseIDB)
+
+	packetA := testCustomAnchorPacket(t)
+	inputX := packetA.UnsignedTx.TxIn[0].PreviousOutPoint
+	lockedA, err := acquireCustomAnchorLeases(
+		ctx, wallet, leaseIDA, packetA, nil,
+	)
+	require.NoError(t, err)
+	require.Equal(t, []wire.OutPoint{inputX}, lockedA)
+	require.Equal(t, leaseIDA, wallet.leases[inputX])
+
+	// Batch B acquires Y first, then collides with A's X. Its rollback must
+	// release only Y using B's owner ID, leaving A protected.
+	packetB := testCustomAnchorPacket(t)
+	inputY := packetB.UnsignedTx.TxIn[0].PreviousOutPoint
+	inputY.Index++
+	packetB.UnsignedTx.TxIn[0].PreviousOutPoint = inputY
+	packetB.UnsignedTx.AddTxIn(&wire.TxIn{PreviousOutPoint: inputX})
+	packetB.Inputs = append(packetB.Inputs, packetB.Inputs[0])
+
+	_, err = acquireCustomAnchorLeases(
+		ctx, wallet, leaseIDB, packetB, nil,
+	)
+	require.ErrorContains(t, err, "another batch")
+	require.Equal(t, leaseIDA, wallet.leases[inputX])
+	_, yStillLeased := wallet.leases[inputY]
+	require.False(t, yStillLeased)
+	require.Equal(t, []customAnchorLeaseRequest{{
+		leaseID: leaseIDB,
+		op:      inputY,
+	}}, wallet.releases)
+
+	// Even an explicit B release request for X is ownership-scoped and
+	// cannot disturb A. A can still renew the recorded lease afterwards.
+	require.NoError(t, releaseCustomAnchorOutpoints(
+		ctx, wallet, leaseIDB, []wire.OutPoint{inputX},
+	))
+	require.Equal(t, leaseIDA, wallet.leases[inputX])
+	SetCustomAnchorLockedUTXOs(packetA, lockedA)
+	require.NoError(t, renewCustomAnchorLeases(
+		ctx, wallet, leaseIDA, &FundedMintAnchorPsbt{
+			FundedPsbt: tapsend.FundedPsbt{
+				Pkt:         packetA,
+				LockedUTXOs: lockedA,
+			},
+		},
+	))
+	require.Equal(t, leaseIDA, wallet.leases[inputX])
 }
 
 func testCustomAnchorPacket(t *testing.T) *psbt.Packet {
