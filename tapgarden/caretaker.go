@@ -1167,7 +1167,9 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 				// externally. Clear the durable admission marker before
 				// CommitSignedGenesisTx stores the Broadcast packet.
 				if publishStateAtEntry != customAnchorPublishPending {
-					stripCustomAnchorPublishState(signedPkt)
+					setCustomAnchorPublishState(
+						signedPkt, customAnchorPublishNone,
+					)
 				}
 			}
 		}
