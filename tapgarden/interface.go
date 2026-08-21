@@ -336,6 +336,7 @@ type MintingInternalKeyStore interface {
 
 func storeSignedGenesisPsbt(ctx context.Context, store MintingStore,
 	batchKey *btcec.PublicKey, genesisTx *tapsend.FundedPsbt) error {
+
 	signedStore, ok := store.(SignedGenesisPsbtStore)
 	if !ok {
 		return fmt.Errorf("minting store does not support signed custom " +

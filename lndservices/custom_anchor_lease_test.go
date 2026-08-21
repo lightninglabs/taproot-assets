@@ -83,7 +83,9 @@ func TestCustomAnchorLeaseRejectsForeignLock(t *testing.T) {
 	foreignID := wtxmgr.LockID(sha256.Sum256([]byte("another-subsystem")))
 	walletKit := &customAnchorWalletKitMock{
 		leases: []lndclient.LeaseDescriptor{{
-			LockID: foreignID, Outpoint: op, Expiration: time.Now().Add(time.Hour),
+			LockID:     foreignID,
+			Outpoint:   op,
+			Expiration: time.Now().Add(time.Hour),
 		}},
 	}
 	wallet := NewLndRpcWalletAnchor(&lndclient.LndServices{
@@ -106,8 +108,12 @@ func TestCustomAnchorLeaseIsScopedToBatch(t *testing.T) {
 	wallet := NewLndRpcWalletAnchor(&lndclient.LndServices{
 		WalletKit: walletKit,
 	})
-	leaseIDA := tapnode.CustomAnchorLeaseID(sha256.Sum256([]byte("batch-a")))
-	leaseIDB := tapnode.CustomAnchorLeaseID(sha256.Sum256([]byte("batch-b")))
+	leaseIDA := tapnode.CustomAnchorLeaseID(
+		sha256.Sum256([]byte("batch-a")),
+	)
+	leaseIDB := tapnode.CustomAnchorLeaseID(
+		sha256.Sum256([]byte("batch-b")),
+	)
 
 	owned, err := wallet.LeaseInput(t.Context(), leaseIDA, op)
 	require.NoError(t, err)

@@ -84,9 +84,9 @@ const (
 	// PSBT APIs.
 	defaultChangeType = walletrpc.ChangeAddressType_CHANGE_ADDRESS_TYPE_P2TR
 
-	// External signing may involve offline or multi-party coordination. Keep
-	// the lease long enough for that workflow, and renew it on restart and
-	// immediately before finalization.
+	// External signing may involve offline or multi-party coordination.
+	// Keep the lease long enough for that workflow, and renew it on restart
+	// and immediately before finalization.
 	customAnchorLeaseDuration = 24 * time.Hour
 )
 
@@ -219,15 +219,19 @@ func (l *LndRpcWalletAnchor) LeaseInput(ctx context.Context,
 	// locked outputs.
 	leases, err := l.lnd.WalletKit.ListLeases(ctx)
 	if err != nil {
-		return false, fmt.Errorf("error listing existing leases: %w", err)
+		return false, fmt.Errorf(
+			"error listing existing leases: %w", err,
+		)
 	}
 	for _, lease := range leases {
 		if lease.Outpoint != op {
 			continue
 		}
 		if lease.LockID != lockID {
-			return false, fmt.Errorf("wallet input is already leased by " +
-				"another batch or subsystem")
+			return false, fmt.Errorf(
+				"wallet input is already leased by another batch or " +
+					"subsystem",
+			)
 		}
 
 		if lease.LockID == lockID {
@@ -251,7 +255,9 @@ func (l *LndRpcWalletAnchor) LeaseInput(ctx context.Context,
 			ctx, lockID, op, customAnchorLeaseDuration,
 		)
 		if err != nil {
-			return false, fmt.Errorf("unable to lease wallet input: %w", err)
+			return false, fmt.Errorf(
+				"unable to lease wallet input: %w", err,
+			)
 		}
 
 		return true, nil
@@ -279,8 +285,9 @@ func (l *LndRpcWalletAnchor) ReleaseInput(ctx context.Context,
 		if err := l.lnd.WalletKit.ReleaseOutput(
 			ctx, lockID, op,
 		); err != nil {
-			return fmt.Errorf("error releasing custom anchor lease: %w",
-				err)
+			return fmt.Errorf(
+				"error releasing custom anchor lease: %w", err,
+			)
 		}
 	}
 

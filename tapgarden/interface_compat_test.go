@@ -71,7 +71,8 @@ func TestMintingStoreCompatibilityAdapters(t *testing.T) {
 	standardPacket := &tapsend.FundedPsbt{Pkt: &psbt.Packet{}}
 	customPacket := &tapsend.FundedPsbt{Pkt: &psbt.Packet{
 		Unknowns: []*psbt.Unknown{{
-			Key: fn.CopySlice(customAnchorPsbtMarker), Value: []byte{1},
+			Key:   fn.CopySlice(customAnchorPsbtMarker),
+			Value: []byte{1},
 		}},
 	}}
 	key := keychain.KeyDescriptor{KeyLocator: keychain.KeyLocator{
