@@ -123,3 +123,37 @@ func TestConcurrentQueueOverflowLenProperty(t *testing.T) {
 		q.Stop()
 	})
 }
+
+// TestConcurrentQueueOverflowDropCallback verifies that the overflow drop
+// callback is invoked with each dropped item, oldest first, when the
+// overflow cap is exceeded.
+func TestConcurrentQueueOverflowDropCallback(t *testing.T) {
+	t.Parallel()
+
+	dropped := make(chan int, 10)
+
+	q := NewConcurrentQueue[int](1, WithMaxOverflow(2))
+	q.SetOnOverflowDrop(func(item int) {
+		dropped <- item
+	})
+	q.Start()
+	t.Cleanup(q.Stop)
+
+	// Push 5 items with no reader: 1 fills the output buffer, 2 fill
+	// the overflow list, and the remaining 2 each evict the oldest
+	// overflow item.
+	for i := 0; i < 5; i++ {
+		q.ChanIn() <- i
+	}
+
+	// The two oldest overflow items (1 and 2) must be reported as
+	// dropped.
+	for _, want := range []int{1, 2} {
+		select {
+		case got := <-dropped:
+			require.Equal(t, want, got)
+		case <-time.After(2 * time.Second):
+			t.Fatalf("expected drop callback for item %d", want)
+		}
+	}
+}

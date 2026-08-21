@@ -21,6 +21,16 @@ const (
 	maxMsgQueueOverflow = 1000
 )
 
+// subscribeParams holds the parameters a subscription was created with, so
+// that it can be re-established later to trigger a server-side replay.
+type subscribeParams struct {
+	// receiverKey is the key of the account the subscription is for.
+	receiverKey keychain.KeyDescriptor
+
+	// filter is the message filter the subscription was created with.
+	filter MessageFilter
+}
+
 // clientSubscriptions holds the subscriptions and cancel functions for a
 // specific mailbox client.
 type clientSubscriptions struct {
@@ -34,6 +44,10 @@ type clientSubscriptions struct {
 	// cancels holds the cancel functions for each subscription, also keyed
 	// by the serialized public key of the receiver.
 	cancels map[asset.SerializedKey]context.CancelFunc
+
+	// params holds the subscribe parameters for each subscription, keyed
+	// by the serialized public key of the receiver.
+	params map[asset.SerializedKey]subscribeParams
 }
 
 // MultiSubscription is a subscription manager that can handle multiple mailbox
@@ -55,6 +69,29 @@ type MultiSubscription struct {
 	// subscribed account, regardless of which mailbox server it belongs to.
 	msgQueue *fn.ConcurrentQueue[*ReceivedMessages]
 
+	// dropSignals carries the serialized receiver keys of message bundles
+	// that were dropped from the shared message queue because the overflow
+	// cap was reached.
+	dropSignals chan asset.SerializedKey
+
+	// pendingReplays tracks the receiver keys for which a replay
+	// resubscription is currently in flight, so that a burst of drops
+	// only triggers one replay per subscription.
+	pendingReplays map[asset.SerializedKey]bool
+
+	// startSubscription creates a new receive subscription for a client.
+	// It is a field so that tests can stub it out.
+	startSubscription func(ctx context.Context, client *Client,
+		msgChan chan<- *ReceivedMessages,
+		receiverKey keychain.KeyDescriptor,
+		filter MessageFilter) (ReceiveSubscription, error)
+
+	// quit signals the drop handler goroutine to stop.
+	quit chan struct{}
+
+	// wg waits for the drop handler goroutine to exit.
+	wg sync.WaitGroup
+
 	sync.RWMutex
 }
 
@@ -63,13 +100,36 @@ func NewMultiSubscription(baseClientConfig ClientConfig) *MultiSubscription {
 	queue := fn.NewConcurrentQueue[*ReceivedMessages](
 		fn.DefaultQueueSize, fn.WithMaxOverflow(maxMsgQueueOverflow),
 	)
-	queue.Start()
 
-	return &MultiSubscription{
+	m := &MultiSubscription{
 		baseClientConfig: baseClientConfig,
 		clients:          make(map[url.URL]*clientSubscriptions),
 		msgQueue:         queue,
+		dropSignals:      make(chan asset.SerializedKey, 1),
+		pendingReplays:   make(map[asset.SerializedKey]bool),
+		quit:             make(chan struct{}),
 	}
+	m.startSubscription = func(ctx context.Context, client *Client,
+		msgChan chan<- *ReceivedMessages,
+		receiverKey keychain.KeyDescriptor,
+		filter MessageFilter) (ReceiveSubscription, error) {
+
+		return client.StartAccountSubscription(
+			ctx, msgChan, receiverKey, filter,
+		)
+	}
+
+	// A dropped message bundle means the consumer fell behind and messages
+	// were lost from the queue. Re-establish the affected subscription so
+	// the mailbox server replays the messages from its durable store.
+	queue.SetOnOverflowDrop(m.onQueueDrop)
+
+	queue.Start()
+
+	m.wg.Add(1)
+	go m.dropHandler()
+
+	return m
 }
 
 // Subscribe adds a new subscription for the specified client URL and receiver
@@ -97,6 +157,9 @@ func (m *MultiSubscription) Subscribe(ctx context.Context, serverURL url.URL,
 			),
 			cancels: make(
 				map[asset.SerializedKey]context.CancelFunc,
+			),
+			params: make(
+				map[asset.SerializedKey]subscribeParams,
 			),
 		}
 		m.clients[serverURL] = client
@@ -130,9 +193,117 @@ func (m *MultiSubscription) Subscribe(ctx context.Context, serverURL url.URL,
 	key := asset.ToSerialized(receiverKey.PubKey)
 	client.subscriptions[key] = subscription
 	client.cancels[key] = cancel
+	client.params[key] = subscribeParams{
+		receiverKey: receiverKey,
+		filter:      filter,
+	}
 	m.Unlock()
 
 	return nil
+}
+
+// onQueueDrop is invoked by the shared message queue when a received message
+// bundle is dropped because the overflow cap was reached. It signals the drop
+// handler so the affected subscription can be re-established for a replay.
+func (m *MultiSubscription) onQueueDrop(msg *ReceivedMessages) {
+	if msg == nil || msg.Receiver.PubKey == nil {
+		return
+	}
+
+	key := asset.ToSerialized(msg.Receiver.PubKey)
+
+	// Never block the queue's goroutine; if a signal is already pending,
+	// the replay it triggers will cover this drop as well.
+	select {
+	case m.dropSignals <- key:
+	default:
+	}
+}
+
+// dropHandler processes queue drop signals and triggers a replay of the
+// affected subscription.
+func (m *MultiSubscription) dropHandler() {
+	defer m.wg.Done()
+
+	for {
+		select {
+		case key := <-m.dropSignals:
+			m.replaySubscription(key)
+
+		case <-m.quit:
+			return
+		}
+	}
+}
+
+// replaySubscription re-establishes the subscription for the given receiver
+// key, causing the mailbox server to replay all messages matching the
+// subscription's filter from its durable store. This recovers messages that
+// were dropped from the shared message queue under overflow.
+func (m *MultiSubscription) replaySubscription(key asset.SerializedKey) {
+	m.Lock()
+	defer m.Unlock()
+
+	// Only one replay per subscription at a time. Drops that happen while
+	// a replay is in flight are covered by that replay, since the replay
+	// re-fetches everything matching the original filter.
+	if m.pendingReplays[key] {
+		return
+	}
+
+	// Find the client that serves this receiver key.
+	var (
+		client *clientSubscriptions
+		found  bool
+	)
+	for _, c := range m.clients {
+		if _, ok := c.params[key]; ok {
+			client = c
+			found = true
+			break
+		}
+	}
+	if !found {
+		log.Warnf("Dropped mailbox messages for unknown receiver "+
+			"%s, cannot replay", key)
+		return
+	}
+
+	m.pendingReplays[key] = true
+	defer delete(m.pendingReplays, key)
+
+	params := client.params[key]
+
+	log.Infof("Mailbox message queue overflowed, re-establishing "+
+		"subscription for receiver %s to replay dropped messages", key)
+
+	// Cancel the current subscription, then start a fresh one with the
+	// same filter. The server replays all messages matching the filter,
+	// including the dropped ones.
+	if cancel, ok := client.cancels[key]; ok {
+		cancel()
+	}
+	if sub, ok := client.subscriptions[key]; ok {
+		if err := sub.Stop(); err != nil {
+			log.Errorf("Error stopping subscription for replay: %v",
+				err)
+		}
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	subscription, err := m.startSubscription(
+		ctx, client.client, m.msgQueue.ChanIn(), params.receiverKey,
+		params.filter,
+	)
+	if err != nil {
+		cancel()
+		log.Errorf("Unable to re-establish subscription for "+
+			"receiver %s after queue overflow: %v", key, err)
+		return
+	}
+
+	client.subscriptions[key] = subscription
+	client.cancels[key] = cancel
 }
 
 // MessageChan returns a channel that can be used to receive messages from all
@@ -167,6 +338,9 @@ func (m *MultiSubscription) Stop() error {
 	defer m.msgQueue.Stop()
 
 	log.Info("Stopping all mailbox clients and subscriptions...")
+
+	close(m.quit)
+	m.wg.Wait()
 
 	m.RLock()
 	defer m.RUnlock()
