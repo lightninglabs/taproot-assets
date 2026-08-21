@@ -58,6 +58,15 @@
   therefore dropped, and makes the quote accounting idempotent for HTLCs
   that `lnd` offers more than once.
 
+* [PR#2247](https://github.com/lightninglabs/taproot-assets/pull/2247)
+  fixes several latent bugs in asset minting. Note for operators:
+  database migration 63 deduplicates the supply-update event log.
+  Duplicate rows produced by a now-fixed double-counting bug are
+  deleted, and any pending supply-commit transition left empty by that
+  cleanup is removed, with its state machine reset to the default
+  state. The next supply update for the affected asset group simply
+  starts a fresh commitment cycle.
+
 # New Features
 
 ## Functional Enhancements
@@ -156,6 +165,9 @@
   splits out various components of the monolithic tapgarden package
   into their own more focused packages, e.g. tapnode, tapreorg, and
   tapcustody.
+
+* [PR#2247](https://github.com/lightninglabs/taproot-assets/pull/2247)
+  simplifies the internals of the minting state machine.
 
 ## Tooling and Documentation
 
