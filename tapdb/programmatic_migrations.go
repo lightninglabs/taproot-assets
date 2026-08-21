@@ -27,6 +27,13 @@ const (
 	// table by querying all assets and detecting burns from their
 	// witnesses.
 	Migration51InsertAssetBurns = 51
+
+	// Migration65BackfillEventKeys is the version of the
+	// programmatic migration that computes the dedup content-hash for
+	// every supply_update_events row that pre-dates the event_key
+	// column. SQLite has no native SHA-256, so the work cannot be
+	// expressed as portable SQL.
+	Migration65BackfillEventKeys = 65
 )
 
 // programmaticMigration is a function type for a function that performs a
@@ -39,8 +46,9 @@ var (
 	// These functions are used to perform additional checks on the
 	// database state that are not fully expressible in SQL.
 	programmaticMigrations = map[uint]programmaticMigration{
-		Migration50ScriptKeyType:    determineAndAssignScriptKeyType,
-		Migration51InsertAssetBurns: insertAssetBurns,
+		Migration50ScriptKeyType:     determineAndAssignScriptKeyType,
+		Migration51InsertAssetBurns:  insertAssetBurns,
+		Migration65BackfillEventKeys: backfillSupplyUpdateEventKeys,
 	}
 )
 
@@ -323,6 +331,157 @@ func insertAssetBurns(ctx context.Context, q sqlc.Querier) error {
 		})
 		if err != nil {
 			return fmt.Errorf("error inserting burn: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// backfillSupplyUpdateEventKeys computes a content-hash for every
+// supply_update_events row that pre-dates the event_key column (added
+// in migration 000064) and stores it in the new column. After this
+// migration runs every row holds a hash, and the unique index on
+// event_key enforces the no-duplicates invariant for new inserts.
+//
+// Legacy databases may already contain duplicate rows (the bug this
+// PR fixes -- restart re-fires of the same logical event). Two rows
+// with identical content hash to the same key, so the second
+// SetSupplyUpdateEventKey would violate the unique index added in
+// migration 000064. We dedupe in-memory by tracking the hashes we've
+// already assigned and dropping any row whose hash we've seen.
+//
+// FetchSupplyUpdateEventsForBackfill returns rows attached to a
+// transition before dangling rows, and among attached rows those of
+// finalized transitions first, so among any set of duplicates the
+// first-seen row is the one a finalized transition depends on (if
+// any exists). This ensures the dedup never drops such a row. The
+// flip side: when duplicates span a finalized and a still-pending
+// transition, the finalized row wins, and the pending transition
+// may be left with no events at all. The final pass below deletes
+// any such emptied pending transition and resets its state machine,
+// so the migrated database satisfies the same invariant the insert
+// path enforces.
+//
+// Rows are processed in pages of backfillPageSize so that at most
+// one page of event_data payloads (each a full issuance proof for
+// mint events) is held in memory at once. Every fetched row is
+// either deleted or has its event_key set, both of which remove it
+// from the query's result set, so refetching the first page after
+// each pass walks the whole table. The dedup ordering is preserved
+// across pages because the query's ORDER BY is deterministic and
+// the seen-hash set spans the entire loop.
+func backfillSupplyUpdateEventKeys(ctx context.Context,
+	q sqlc.Querier) error {
+
+	// Bounds the event_data payloads resident per page; issuance
+	// proofs can run to megabytes each for assets with large
+	// in-band metadata.
+	const backfillPageSize = 32
+
+	seen := make(map[string]struct{})
+	totalRows := 0
+	for {
+		rows, err := q.FetchSupplyUpdateEventsForBackfill(
+			ctx, backfillPageSize,
+		)
+		if err != nil {
+			return fmt.Errorf("error fetching supply update "+
+				"events for backfill: %w", err)
+		}
+
+		if len(rows) == 0 {
+			break
+		}
+		totalRows += len(rows)
+
+		for _, row := range rows {
+			key := supplyUpdateEventKey(
+				row.GroupKey, row.UpdateTypeID, row.EventData,
+			)
+
+			if _, dup := seen[string(key)]; dup {
+				// A prior row in this loop already claimed
+				// this hash, so the current row is a
+				// duplicate of an earlier logical event.
+				// Drop it; the unique index in migration
+				// 000064 would otherwise reject the UPDATE
+				// below.
+				log.Debugf("Dropping duplicate supply "+
+					"update event %d during backfill",
+					row.EventID)
+
+				err := q.DeleteSupplyUpdateEvent(
+					ctx, row.EventID,
+				)
+				if err != nil {
+					return fmt.Errorf("error deleting "+
+						"duplicate event %d: %w",
+						row.EventID, err)
+				}
+
+				continue
+			}
+			seen[string(key)] = struct{}{}
+
+			err := q.SetSupplyUpdateEventKey(
+				ctx, sqlc.SetSupplyUpdateEventKeyParams{
+					EventKey: key,
+					EventID:  row.EventID,
+				},
+			)
+			if err != nil {
+				return fmt.Errorf("error setting event_key "+
+					"for event %d: %w", row.EventID, err)
+			}
+		}
+	}
+
+	log.Debugf("Backfilled event_key for %d supply update events",
+		totalRows)
+
+	// Dropping a duplicate can empty the pending transition it was
+	// attached to: among attached duplicates the finalized transition's
+	// row always carries the lower event_id and wins, so the loser is
+	// the row attached to the still-pending transition. A pending
+	// transition with no events would freeze on the next tick and
+	// broadcast a supply commitment that commits nothing, so we delete
+	// any such transition and park its state machine back in the
+	// default state, matching the invariant the insert path enforces
+	// (a non-frozen pending transition always has at least one event).
+	empties, err := q.QueryEmptySupplyCommitTransitions(ctx)
+	if err != nil {
+		return fmt.Errorf("error querying empty supply commit "+
+			"transitions: %w", err)
+	}
+
+	for _, transition := range empties {
+		log.Debugf("Deleting empty pending supply commit transition "+
+			"%d during backfill", transition.TransitionID)
+
+		err := q.DeleteSupplyCommitTransition(
+			ctx, transition.TransitionID,
+		)
+		if err != nil {
+			return fmt.Errorf("error deleting empty transition "+
+				"%d: %w", transition.TransitionID, err)
+		}
+
+		// "DefaultState" is the name seeded by migration 000040; the
+		// literal is used so this migration stays pinned to the
+		// historical schema.
+		_, err = q.UpsertSupplyCommitStateMachine(
+			ctx, sqlc.UpsertSupplyCommitStateMachineParams{
+				GroupKey: transition.StateMachineGroupKey,
+				StateName: sql.NullString{
+					String: "DefaultState",
+					Valid:  true,
+				},
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("error resetting state machine "+
+				"for group %x: %w",
+				transition.StateMachineGroupKey, err)
 		}
 	}
 

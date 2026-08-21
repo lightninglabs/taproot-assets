@@ -45,6 +45,10 @@ type Querier interface {
 	DeleteNode(ctx context.Context, arg DeleteNodeParams) (int64, error)
 	DeleteRoot(ctx context.Context, namespace string) (int64, error)
 	DeleteSupplyCommitTransition(ctx context.Context, transitionID int64) error
+	// Deletes a single supply update event row identified by its
+	// event_id. Used by the migration 65 backfill to drop duplicate
+	// rows that hash to the same event_key as an earlier row.
+	DeleteSupplyUpdateEvent(ctx context.Context, eventID int64) error
 	DeleteSupplyUpdateEvents(ctx context.Context, transitionID sql.NullInt64) error
 	DeleteTapscriptTreeEdges(ctx context.Context, rootHash []byte) error
 	DeleteTapscriptTreeNodes(ctx context.Context) error
@@ -132,6 +136,21 @@ type Querier interface {
 	// Fetches all push log entries for a given asset group, ordered by
 	// creation time with the most recent entries first.
 	FetchSupplySyncerPushLogs(ctx context.Context, groupKey []byte) ([]SupplySyncerPushLog, error)
+	// Returns rows that pre-date the event_key column and still need
+	// a hash computed. Used by the programmatic migration that runs
+	// at schema version 65.
+	//
+	// Rows attached to a transition come first, and among those the
+	// rows of finalized transitions come first, so the backfill's
+	// "keep the first duplicate" dedup logic can never drop the row
+	// a finalized transition depends on. Within each partition,
+	// event_id ASC is the deterministic tie-break.
+	//
+	// The LIMIT bounds the rows (and thus the event_data payloads)
+	// held in memory at once; the backfill either hashes or deletes
+	// every row it fetches, so re-running the query naturally pages
+	// through the remainder.
+	FetchSupplyUpdateEventsForBackfill(ctx context.Context, numLimit int32) ([]FetchSupplyUpdateEventsForBackfillRow, error)
 	// Sort the nodes by node_index here instead of returning the indices.
 	FetchTapscriptTree(ctx context.Context, rootHash []byte) ([]FetchTapscriptTreeRow, error)
 	FetchTransferInputs(ctx context.Context, transferID int64) ([]FetchTransferInputsRow, error)
@@ -189,7 +208,20 @@ type Querier interface {
 	// push to a remote universe server. The commit_txid and output_index are
 	// taken directly from the RootCommitment outpoint.
 	InsertSupplySyncerPushLog(ctx context.Context, arg InsertSupplySyncerPushLogParams) error
-	InsertSupplyUpdateEvent(ctx context.Context, arg InsertSupplyUpdateEventParams) error
+	// The event_key column is a deterministic content hash that
+	// identifies a logical update event. A duplicate insert (e.g. on
+	// restart re-run of the Confirmed branch in the minting state
+	// machine) hits the unique index on event_key and is silently
+	// dropped, leaving the existing row -- and any transition_id it
+	// already carries -- untouched.
+	//
+	// Returning rows-affected (1 on insert, 0 on conflict) lets the
+	// caller distinguish "new event recorded" from "dedup absorbed an
+	// old one" -- the latter is the signal InsertPendingUpdate needs
+	// to avoid creating an empty pending transition when a re-fired
+	// event matches a row already attached to a prior (finalized)
+	// transition.
+	InsertSupplyUpdateEvent(ctx context.Context, arg InsertSupplyUpdateEventParams) (int64, error)
 	InsertTxProof(ctx context.Context, arg InsertTxProofParams) error
 	// A leaf already journaled keeps its original seq: re-upserts and
 	// in-place rewrites are not re-delivered by delta sync, and heal via
@@ -238,6 +270,13 @@ type Querier interface {
 	QueryAuthMailboxMessages(ctx context.Context, arg QueryAuthMailboxMessagesParams) ([]QueryAuthMailboxMessagesRow, error)
 	QueryBurns(ctx context.Context, arg QueryBurnsParams) ([]QueryBurnsRow, error)
 	QueryDanglingSupplyUpdateEvents(ctx context.Context, groupKey []byte) ([]QueryDanglingSupplyUpdateEventsRow, error)
+	// Returns non-finalized, non-frozen transitions that have no supply
+	// update events attached. Used by the migration 65 backfill: dropping
+	// a duplicate event row can leave the pending transition it belonged
+	// to empty, and an empty pending transition would otherwise freeze on
+	// the next tick and broadcast a supply commitment that commits
+	// nothing.
+	QueryEmptySupplyCommitTransitions(ctx context.Context) ([]QueryEmptySupplyCommitTransitionsRow, error)
 	QueryEventIDs(ctx context.Context, arg QueryEventIDsParams) ([]QueryEventIDsRow, error)
 	// Find the ID of an existing non-finalized transition for the group key
 	QueryExistingPendingTransition(ctx context.Context, groupKey []byte) (int64, error)
@@ -274,6 +313,10 @@ type Querier interface {
 	ReAnchorPassiveAssets(ctx context.Context, arg ReAnchorPassiveAssetsParams) error
 	SetAddrManaged(ctx context.Context, arg SetAddrManagedParams) error
 	SetAssetSpent(ctx context.Context, arg SetAssetSpentParams) (int64, error)
+	// Sets the content-hash key for a single supply update event row.
+	// Used by the programmatic migration that backfills pre-existing
+	// rows after column 000062 is added.
+	SetSupplyUpdateEventKey(ctx context.Context, arg SetSupplyUpdateEventKeyParams) error
 	SetTransferOutputProofDeliveryStatus(ctx context.Context, arg SetTransferOutputProofDeliveryStatusParams) error
 	// Mark all unconfirmed transfers that spend the given anchor point as
 	// superseded, except for the given (just confirmed) transfer. Once a
