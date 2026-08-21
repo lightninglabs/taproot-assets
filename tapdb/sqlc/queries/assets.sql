@@ -867,16 +867,19 @@ INSERT INTO asset_witnesses (
                   split_commitment_proof = EXCLUDED.split_commitment_proof;
 
 -- name: FetchAssetWitnesses :many
-SELECT 
-    assets.asset_id, prev_out_point, prev_asset_id, prev_script_key, 
+SELECT
+    assets.asset_id, prev_out_point, prev_asset_id, prev_script_key,
     witness_stack, split_commitment_proof
 FROM asset_witnesses
 JOIN assets
     ON asset_witnesses.asset_id = assets.asset_id
-WHERE (
-    (assets.asset_id = sqlc.narg('asset_id')) OR (sqlc.narg('asset_id') IS NULL)
-)
-ORDER BY witness_index;
+-- The witnesses of all assets identified by the passed set of asset primary
+-- keys are fetched in a single query.
+--
+-- The asset_ids argument must NEVER be an empty slice, otherwise this query
+-- will return no results.
+WHERE assets.asset_id IN (sqlc.slice('asset_ids')/*SLICE:asset_ids*/)
+ORDER BY assets.asset_id, witness_index;
 
 -- name: DeleteManagedUTXO :exec
 DELETE FROM managed_utxos

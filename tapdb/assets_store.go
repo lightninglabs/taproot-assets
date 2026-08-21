@@ -278,10 +278,9 @@ type ActiveAssetsStore interface {
 	// database.
 	UpsertAssetWitness(context.Context, PrevInput) error
 
-	// FetchAssetWitnesses attempts to fetch either all the asset witnesses
-	// on disk (NULL param), or the witness for a given asset ID.
-	FetchAssetWitnesses(context.Context, sql.NullInt64) ([]AssetWitness,
-		error)
+	// FetchAssetWitnesses fetches the witnesses for the assets identified
+	// by the passed set of asset primary keys.
+	FetchAssetWitnesses(context.Context, []int64) ([]AssetWitness, error)
 
 	// FetchManagedUTXO fetches a managed UTXO based on either the outpoint
 	// or the transaction that anchors it.
@@ -565,27 +564,61 @@ type AssetHumanReadable struct {
 // input (witness) information.
 type assetWitnesses map[int64][]AssetWitness
 
+// queryIDChunkSize is the maximum number of IDs we pass to a single batched
+// query. Both SQLite and Postgres limit the number of bind parameters a
+// statement may carry (32766 and 65535 respectively), so larger ID sets are
+// queried in chunks of this size.
+const queryIDChunkSize = 512
+
+// forEachIDChunk calls the given function for each chunk of at most
+// queryIDChunkSize of the given IDs. Queries that take a set of IDs must be
+// issued in chunks, as the number of bind parameters a statement may carry is
+// limited. An empty ID set results in no calls at all, which also keeps us
+// from issuing a query with an empty ID set, which no such query supports.
+//
+// The IDs must be distinct. A duplicate ID that lands in a different chunk
+// than its twin is queried twice, so a caller that accumulates the rows of
+// each chunk would count that ID's rows twice.
+func forEachIDChunk(ids []int64, f func(chunk []int64) error) error {
+	for start := 0; start < len(ids); start += queryIDChunkSize {
+		end := min(start+queryIDChunkSize, len(ids))
+
+		if err := f(ids[start:end]); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 // fetchAssetWitnesses attempts to fetch all the asset witnesses that belong to
 // the set of passed asset IDs.
 func fetchAssetWitnesses(ctx context.Context, db ActiveAssetsStore,
 	assetIDs []int64) (assetWitnesses, error) {
 
 	assetWitnesses := make(map[int64][]AssetWitness)
-	for _, assetID := range assetIDs {
-		witnesses, err := db.FetchAssetWitnesses(
-			ctx, sqlInt64(assetID),
-		)
+
+	// We fetch the witnesses of many assets per query and then group them
+	// by the asset's primary key. The query orders by asset ID and witness
+	// index, so the witnesses of each asset retain their original order. A
+	// genesis asset has no witnesses stored, so it won't appear in the
+	// map, which'll give it the genesis witness.
+	err := forEachIDChunk(assetIDs, func(chunk []int64) error {
+		witnesses, err := db.FetchAssetWitnesses(ctx, chunk)
 		if err != nil {
-			return nil, err
+			return err
 		}
 
-		// We'll insert a nil witness for genesis asset, so we don't
-		// add it to the map, which'll give it the genesis witness.
-		if len(witnesses) == 0 {
-			continue
+		for _, witness := range witnesses {
+			assetWitnesses[witness.AssetID] = append(
+				assetWitnesses[witness.AssetID], witness,
+			)
 		}
 
-		assetWitnesses[assetID] = witnesses
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return assetWitnesses, nil
@@ -1035,6 +1068,9 @@ func fetchAssetsWithWitness(ctx context.Context, q ActiveAssetsStore,
 		return nil, nil, fmt.Errorf("unable to read db assets: %w", err)
 	}
 
+	// QueryAssets joins on unique columns only, so it returns each asset
+	// primary key at most once. The witness fetch below relies on that,
+	// since it groups the witnesses of the assets it is given.
 	assetIDs := fMap(dbAssets, func(a ConfirmedAsset) int64 {
 		return a.AssetPrimaryKey
 	})
