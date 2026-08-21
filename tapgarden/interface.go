@@ -336,11 +336,16 @@ type MintingInternalKeyStore interface {
 
 func storeSignedGenesisPsbt(ctx context.Context, store MintingStore,
 	batchKey *btcec.PublicKey, genesisTx *tapsend.FundedPsbt) error {
-
 	signedStore, ok := store.(SignedGenesisPsbtStore)
 	if !ok {
 		return fmt.Errorf("minting store does not support signed custom " +
 			"genesis persistence")
+	}
+	if genesisTx != nil && isCustomAnchorPsbt(genesisTx.Pkt) {
+		if _, ok := store.(MintingInternalKeyStore); !ok {
+			return fmt.Errorf("minting store does not support custom anchor " +
+				"internal keys")
+		}
 	}
 
 	return signedStore.StoreSignedGenesisPsbt(

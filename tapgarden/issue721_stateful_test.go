@@ -34,7 +34,31 @@ import (
 
 type issue721FailSignedStore struct {
 	tapgarden.MintingStore
-	fail bool
+	fail            bool
+	failCommit      bool
+	commitAttempted bool
+}
+
+func (s *issue721FailSignedStore) CommitSignedGenesisTxWithKey(
+	ctx context.Context, batch *tapgarden.MintingBatch,
+	mintingInternalKey keychain.KeyDescriptor,
+	genesisTx *tapsend.FundedPsbt, anchorOutputIndex uint32,
+	merkleRoot, tapTreeRoot, tapSibling []byte) error {
+
+	s.commitAttempted = true
+	if s.failCommit {
+		return fmt.Errorf("injected signed genesis commit failure")
+	}
+
+	keyStore, ok := s.MintingStore.(tapgarden.MintingInternalKeyStore)
+	if !ok {
+		return fmt.Errorf("minting store does not support internal keys")
+	}
+
+	return keyStore.CommitSignedGenesisTxWithKey(
+		ctx, batch, mintingInternalKey, genesisTx, anchorOutputIndex,
+		merkleRoot, tapTreeRoot, tapSibling,
+	)
 }
 
 type issue721FailStateStore struct {
@@ -1444,6 +1468,75 @@ func TestIssue721RetryStoreFailureIsAtomic(t *testing.T) {
 	store.fail = false
 	_, err = h.planter.CancelBatch()
 	require.NoError(t, err)
+}
+
+// TestIssue721PublishSuccessCommitFailureRetainsReservation verifies that a
+// successful WalletKit submission cannot make the live Committed packet appear
+// cancellable before its Broadcast transition is durable.
+func TestIssue721PublishSuccessCommitFailureRetainsReservation(t *testing.T) {
+	store := &issue721FailSignedStore{MintingStore: newMintingStore(t)}
+	h := newMintingTestHarness(t, store)
+	h.refreshChainPlanter()
+	t.Cleanup(func() {
+		if h.planter != nil {
+			_ = h.planter.Stop()
+		}
+	})
+
+	h.queueSeedlingsInBatch(false, issue721Seedling())
+	pkt, _, witnessScript := issue721Anchor(t)
+	ownedInput := pkt.UnsignedTx.TxIn[0].PreviousOutPoint
+	h.wallet.SetOwnedInput(ownedInput, true)
+	issue721Fund(t, h, pkt)
+	initialLease, err := fn.RecvOrTimeout(
+		h.wallet.LeaseInputSignal, defaultTimeout,
+	)
+	require.NoError(t, err)
+	require.Equal(t, ownedInput, *initialLease)
+	prepared, err := h.planter.PrepareBatch()
+	require.NoError(t, err)
+
+	signed := clonePacket(t, prepared.GenesisPacket.Pkt)
+	signed.Inputs[0].FinalScriptWitness = issue721FinalWitness(
+		t, witnessScript,
+	)
+	store.failCommit = true
+	var wg sync.WaitGroup
+	respChan := make(chan *FinalizeBatchResp, 1)
+	h.finalizeBatch(&wg, respChan, &tapgarden.FinalizeParams{
+		SignedPsbt: signed,
+	})
+	finalizeLease, err := fn.RecvOrTimeout(
+		h.wallet.LeaseInputSignal, defaultTimeout,
+	)
+	require.NoError(t, err)
+	require.Equal(t, ownedInput, *finalizeLease)
+	_, err = fn.RecvOrTimeout(
+		h.wallet.ImportPubKeySignal, defaultTimeout,
+	)
+	require.NoError(t, err)
+	h.assertFinalizeBatch(
+		&wg, respChan, "injected signed genesis commit failure",
+	)
+	require.True(t, store.commitAttempted)
+
+	pending, err := h.planter.PendingBatch()
+	require.NoError(t, err)
+	require.Equal(t, tapgarden.BatchStateCommitted, pending.State())
+	_, err = h.planter.CancelBatch()
+	require.ErrorContains(t, err, "publication status is ambiguous")
+
+	persisted := h.fetchSingleBatch(prepared.BatchKey.PubKey)
+	require.Equal(t, tapgarden.BatchStateCommitted, persisted.State())
+	select {
+	case released := <-h.wallet.ReleaseInputSignal:
+		t.Fatalf("published input lease released after commit failure: %v",
+			released)
+	case published := <-h.chain.PublishReq:
+		t.Fatalf("Broadcast retry started before a durable commit: %v",
+			published.TxHash())
+	default:
+	}
 }
 
 // TestIssue721MixedInputLeaseLifecycle pins ownership-aware leasing: local
