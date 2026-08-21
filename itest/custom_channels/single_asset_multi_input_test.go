@@ -13,6 +13,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	tchrpc "github.com/lightninglabs/taproot-assets/taprpc/tapchannelrpc"
+	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/port"
 	"github.com/stretchr/testify/require"
@@ -140,4 +141,25 @@ func testCustomChannelsSingleAssetMultiInput(ctx context.Context,
 		t.t, charlie, dave, 2*halfCentsAmount,
 		[]*taprpc.Asset{cents},
 	)
+
+	// Cooperatively close the multi-input channel. The non-initiator must
+	// fetch both funding input proof files to verify and import the merged
+	// funding output before it can finalize the close.
+	chanPoint := &lnrpc.ChannelPoint{
+		OutputIndex: uint32(fundRespCD.OutputIndex),
+		FundingTxid: &lnrpc.ChannelPoint_FundingTxidStr{
+			FundingTxidStr: fundRespCD.Txid,
+		},
+	}
+	closeAssetChannelAndAssert(
+		t, net, dave, charlie, chanPoint, [][]byte{assetID}, nil,
+		charlie, assertDefaultCoOpCloseBalance(false, false),
+	)
+
+	assertBalance(
+		t.t, dave, cents.Amount, itest.WithAssetID(assetID),
+		itest.WithNumUtxos(1),
+		itest.WithScriptKeyType(asset.ScriptKeyBip86),
+	)
+	assertBalance(t.t, charlie, 0, itest.WithAssetID(assetID))
 }

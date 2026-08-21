@@ -782,3 +782,26 @@ func TestValidateLocalProofCourier(t *testing.T) {
 		})
 	}
 }
+
+// TestFundingControllerStop ensures that stopping the funding controller
+// closes its quit channel and reaps the event loop.
+func TestFundingControllerStop(t *testing.T) {
+	t.Parallel()
+
+	f := NewFundingController(FundingControllerCfg{
+		ErrReporter: noopErrReporter{},
+	})
+	f.Wg.Add(1)
+	go f.chanFunder()
+
+	require.NoError(t, f.Stop())
+
+	select {
+	case <-f.Quit:
+	default:
+		t.Fatal("quit channel still open after Stop")
+	}
+
+	// A second stop must be a no-op instead of a double close.
+	require.NoError(t, f.Stop())
+}
