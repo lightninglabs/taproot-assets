@@ -107,6 +107,7 @@ func (e *CustomAnchorKeyHealthError) Error() string {
 // audit result requires operator action.
 func CustomAnchorKeyInterventionError(
 	results []CustomAnchorKeyRepairHealth) error {
+
 	issues := make([]CustomAnchorKeyRepairHealth, 0, len(results))
 	for _, result := range results {
 		if result.RequiresIntervention() {

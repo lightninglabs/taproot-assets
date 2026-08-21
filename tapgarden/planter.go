@@ -765,6 +765,9 @@ func getCustomAnchorPublishState(
 		if len(unknown.Value) == 1 {
 			state := customAnchorPublishState(unknown.Value[0])
 			switch state {
+			case customAnchorPublishNone:
+				return customAnchorPublishNone
+
 			case customAnchorPublishRejected:
 				// Older builds wrote this marker only after submitting the
 				// fully signed bytes. Treat it as publication-ambiguous so an
@@ -785,10 +788,6 @@ func getCustomAnchorPublishState(
 	}
 
 	return customAnchorPublishNone
-}
-
-func stripCustomAnchorPublishState(packet *psbt.Packet) {
-	setCustomAnchorPublishState(packet, customAnchorPublishNone)
 }
 
 func stripTapdCustomAnchorMarkers(packet *psbt.Packet) {
@@ -2976,6 +2975,10 @@ func (c *ChainPlanter) cancelMintingBatch(ctx context.Context,
 
 		cancelState = BatchStateSproutCancelled
 
+	case BatchStateBroadcast, BatchStateConfirmed, BatchStateFinalized,
+		BatchStateSeedlingCancelled, BatchStateSproutCancelled:
+		fallthrough
+
 	default:
 		return fmt.Errorf("batch state %v is not cancellable",
 			c.pendingBatch.State())
@@ -3432,6 +3435,7 @@ func (c *ChainPlanter) gardener() {
 				preparedBatch, err := c.prepareBatch(
 					ctx, c.pendingBatch,
 				)
+
 				cancel()
 				if err != nil {
 					req.Error(fmt.Errorf("unable to prepare minting "+

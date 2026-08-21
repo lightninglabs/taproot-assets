@@ -715,9 +715,13 @@ WITH candidate_batch AS (
     WHERE batch_keys.raw_key = @batch_key
       AND batches.assets_output_index = @asset_output_index
 ), expected_old_key AS (
-    SELECT key_id FROM internal_keys WHERE raw_key = @expected_old_key
+    SELECT key_id
+    FROM internal_keys
+    WHERE internal_keys.raw_key = @expected_old_key
 ), replacement_key AS (
-    SELECT key_id FROM internal_keys WHERE raw_key = @replacement_key
+    SELECT key_id
+    FROM internal_keys
+    WHERE internal_keys.raw_key = @replacement_key
 )
 UPDATE managed_utxos
 SET internal_key_id = (SELECT key_id FROM replacement_key)

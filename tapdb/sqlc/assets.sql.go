@@ -1192,6 +1192,70 @@ func (q *Queries) FetchChainTx(ctx context.Context, txid []byte) (ChainTxn, erro
 	return i, err
 }
 
+const FetchCustomAnchorKeyRepairCandidates = `-- name: FetchCustomAnchorKeyRepairCandidates :many
+SELECT batch_keys.raw_key AS batch_key,
+       batches.minting_tx_psbt,
+       batches.assets_output_index,
+       utxos.outpoint,
+       utxo_keys.raw_key AS managed_internal_key,
+       utxos.merkle_root
+FROM asset_minting_batches batches
+JOIN internal_keys batch_keys
+    ON batches.batch_id = batch_keys.key_id
+JOIN genesis_points genesis
+    ON batches.genesis_id = genesis.genesis_id
+JOIN chain_txns chain_tx
+    ON genesis.anchor_tx_id = chain_tx.txn_id
+JOIN managed_utxos utxos
+    ON utxos.txn_id = chain_tx.txn_id
+JOIN internal_keys utxo_keys
+    ON utxos.internal_key_id = utxo_keys.key_id
+WHERE batches.minting_tx_psbt IS NOT NULL
+`
+
+type FetchCustomAnchorKeyRepairCandidatesRow struct {
+	BatchKey           []byte
+	MintingTxPsbt      []byte
+	AssetsOutputIndex  sql.NullInt32
+	Outpoint           []byte
+	ManagedInternalKey []byte
+	MerkleRoot         []byte
+}
+
+// Return historical mint rows with enough retained information for the
+// wallet-aware startup audit. The caller must still prove that the packet is a
+// tapd custom anchor, that the locator derives the committed internal key and
+// that the backing wallet controls it before attempting a repair.
+func (q *Queries) FetchCustomAnchorKeyRepairCandidates(ctx context.Context) ([]FetchCustomAnchorKeyRepairCandidatesRow, error) {
+	rows, err := q.db.QueryContext(ctx, FetchCustomAnchorKeyRepairCandidates)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FetchCustomAnchorKeyRepairCandidatesRow
+	for rows.Next() {
+		var i FetchCustomAnchorKeyRepairCandidatesRow
+		if err := rows.Scan(
+			&i.BatchKey,
+			&i.MintingTxPsbt,
+			&i.AssetsOutputIndex,
+			&i.Outpoint,
+			&i.ManagedInternalKey,
+			&i.MerkleRoot,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const FetchGenesisByAssetID = `-- name: FetchGenesisByAssetID :one
 SELECT gen_asset_id, asset_id, asset_tag, meta_hash, output_index, asset_type, prev_out, anchor_txid, block_height 
 FROM genesis_info_view
@@ -1601,105 +1665,6 @@ type FetchManagedUTXOsRow struct {
 	RawKey           []byte
 	KeyFamily        int32
 	KeyIndex         int32
-}
-
-const FetchCustomAnchorKeyRepairCandidates = `-- name: FetchCustomAnchorKeyRepairCandidates :many
-SELECT batch_keys.raw_key AS batch_key,
-       batches.minting_tx_psbt,
-       batches.assets_output_index,
-       utxos.outpoint,
-       utxo_keys.raw_key AS managed_internal_key,
-       utxos.merkle_root
-FROM asset_minting_batches batches
-JOIN internal_keys batch_keys
-    ON batches.batch_id = batch_keys.key_id
-JOIN genesis_points genesis
-    ON batches.genesis_id = genesis.genesis_id
-JOIN chain_txns chain_tx
-    ON genesis.anchor_tx_id = chain_tx.txn_id
-JOIN managed_utxos utxos
-    ON utxos.txn_id = chain_tx.txn_id
-JOIN internal_keys utxo_keys
-    ON utxos.internal_key_id = utxo_keys.key_id
-WHERE batches.minting_tx_psbt IS NOT NULL
-
-`
-
-type FetchCustomAnchorKeyRepairCandidatesRow struct {
-	BatchKey           []byte
-	MintingTxPsbt      []byte
-	AssetsOutputIndex  sql.NullInt32
-	Outpoint           []byte
-	ManagedInternalKey []byte
-	MerkleRoot         []byte
-}
-
-func (q *Queries) FetchCustomAnchorKeyRepairCandidates(ctx context.Context) ([]FetchCustomAnchorKeyRepairCandidatesRow, error) {
-	rows, err := q.db.QueryContext(ctx, FetchCustomAnchorKeyRepairCandidates)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var items []FetchCustomAnchorKeyRepairCandidatesRow
-	for rows.Next() {
-		var i FetchCustomAnchorKeyRepairCandidatesRow
-		if err := rows.Scan(
-			&i.BatchKey, &i.MintingTxPsbt, &i.AssetsOutputIndex,
-			&i.Outpoint, &i.ManagedInternalKey, &i.MerkleRoot,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const RepairCustomAnchorInternalKey = `-- name: RepairCustomAnchorInternalKey :execrows
-WITH candidate_batch AS (
-    SELECT chain_tx.txn_id
-    FROM asset_minting_batches batches
-    JOIN internal_keys batch_keys
-        ON batches.batch_id = batch_keys.key_id
-    JOIN genesis_points genesis
-        ON batches.genesis_id = genesis.genesis_id
-    JOIN chain_txns chain_tx
-        ON genesis.anchor_tx_id = chain_tx.txn_id
-    WHERE batch_keys.raw_key = $1
-      AND batches.assets_output_index = $2
-), expected_old_key AS (
-    SELECT key_id FROM internal_keys WHERE raw_key = $3
-), replacement_key AS (
-    SELECT key_id FROM internal_keys WHERE raw_key = $4
-)
-UPDATE managed_utxos
-SET internal_key_id = (SELECT key_id FROM replacement_key)
-WHERE outpoint = $5
-  AND txn_id = (SELECT txn_id FROM candidate_batch)
-  AND internal_key_id = (SELECT key_id FROM expected_old_key)
-`
-
-type RepairCustomAnchorInternalKeyParams struct {
-	BatchKey         []byte
-	AssetOutputIndex sql.NullInt32
-	ExpectedOldKey   []byte
-	ReplacementKey   []byte
-	Outpoint         []byte
-}
-
-func (q *Queries) RepairCustomAnchorInternalKey(ctx context.Context, arg RepairCustomAnchorInternalKeyParams) (int64, error) {
-	result, err := q.db.ExecContext(
-		ctx, RepairCustomAnchorInternalKey, arg.BatchKey,
-		arg.AssetOutputIndex, arg.ExpectedOldKey,
-		arg.ReplacementKey, arg.Outpoint,
-	)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
 }
 
 func (q *Queries) FetchManagedUTXOs(ctx context.Context) ([]FetchManagedUTXOsRow, error) {
@@ -2943,6 +2908,56 @@ func (q *Queries) QueryAssets(ctx context.Context, arg QueryAssetsParams) ([]Que
 	return items, nil
 }
 
+const RepairCustomAnchorInternalKey = `-- name: RepairCustomAnchorInternalKey :execrows
+WITH candidate_batch AS (
+    SELECT chain_tx.txn_id
+    FROM asset_minting_batches batches
+    JOIN internal_keys batch_keys
+        ON batches.batch_id = batch_keys.key_id
+    JOIN genesis_points genesis
+        ON batches.genesis_id = genesis.genesis_id
+    JOIN chain_txns chain_tx
+        ON genesis.anchor_tx_id = chain_tx.txn_id
+    WHERE batch_keys.raw_key = $2
+      AND batches.assets_output_index = $3
+), expected_old_key AS (
+    SELECT key_id
+    FROM internal_keys
+    WHERE internal_keys.raw_key = $4
+), replacement_key AS (
+    SELECT key_id
+    FROM internal_keys
+    WHERE internal_keys.raw_key = $5
+)
+UPDATE managed_utxos
+SET internal_key_id = (SELECT key_id FROM replacement_key)
+WHERE outpoint = $1
+  AND txn_id = (SELECT txn_id FROM candidate_batch)
+  AND internal_key_id = (SELECT key_id FROM expected_old_key)
+`
+
+type RepairCustomAnchorInternalKeyParams struct {
+	Outpoint         []byte
+	BatchKey         []byte
+	AssetOutputIndex sql.NullInt32
+	ExpectedOldKey   []byte
+	ReplacementKey   []byte
+}
+
+func (q *Queries) RepairCustomAnchorInternalKey(ctx context.Context, arg RepairCustomAnchorInternalKeyParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, RepairCustomAnchorInternalKey,
+		arg.Outpoint,
+		arg.BatchKey,
+		arg.AssetOutputIndex,
+		arg.ExpectedOldKey,
+		arg.ReplacementKey,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const SetAssetSpent = `-- name: SetAssetSpent :one
 WITH target_asset(asset_id) AS (
     SELECT assets.asset_id
@@ -3378,36 +3393,6 @@ func (q *Queries) UpsertInternalKey(ctx context.Context, arg UpsertInternalKeyPa
 	return key_id, err
 }
 
-const UpsertWalletVerifiedInternalKey = `-- name: UpsertWalletVerifiedInternalKey :one
-INSERT INTO internal_keys (
-    raw_key, key_family, key_index
-) VALUES (
-    $1, $2, $3
-) ON CONFLICT (raw_key)
-    DO UPDATE SET key_family = EXCLUDED.key_family,
-                  key_index = EXCLUDED.key_index
-    WHERE (internal_keys.key_family = 0 AND internal_keys.key_index = 0)
-       OR (internal_keys.key_family = EXCLUDED.key_family AND
-           internal_keys.key_index = EXCLUDED.key_index)
-RETURNING key_id
-`
-
-type UpsertWalletVerifiedInternalKeyParams struct {
-	RawKey    []byte
-	KeyFamily int32
-	KeyIndex  int32
-}
-
-func (q *Queries) UpsertWalletVerifiedInternalKey(ctx context.Context, arg UpsertWalletVerifiedInternalKeyParams) (int64, error) {
-	row := q.db.QueryRowContext(
-		ctx, UpsertWalletVerifiedInternalKey, arg.RawKey,
-		arg.KeyFamily, arg.KeyIndex,
-	)
-	var keyID int64
-	err := row.Scan(&keyID)
-	return keyID, err
-}
-
 const UpsertManagedUTXO = `-- name: UpsertManagedUTXO :one
 WITH target_key(key_id) AS (
     SELECT key_id
@@ -3670,4 +3655,34 @@ func (q *Queries) UpsertTapscriptTreeRootHash(ctx context.Context, arg UpsertTap
 	var root_id int64
 	err := row.Scan(&root_id)
 	return root_id, err
+}
+
+const UpsertWalletVerifiedInternalKey = `-- name: UpsertWalletVerifiedInternalKey :one
+INSERT INTO internal_keys (
+    raw_key, key_family, key_index
+) VALUES (
+    $1, $2, $3
+) ON CONFLICT (raw_key)
+    -- This query is restricted to a wallet-verified descriptor. It may
+    -- upgrade the historical 0/0 placeholder, but never overwrite a known,
+    -- conflicting locator.
+    DO UPDATE SET key_family = EXCLUDED.key_family,
+                  key_index = EXCLUDED.key_index
+    WHERE (internal_keys.key_family = 0 AND internal_keys.key_index = 0)
+       OR (internal_keys.key_family = EXCLUDED.key_family AND
+           internal_keys.key_index = EXCLUDED.key_index)
+RETURNING key_id
+`
+
+type UpsertWalletVerifiedInternalKeyParams struct {
+	RawKey    []byte
+	KeyFamily int32
+	KeyIndex  int32
+}
+
+func (q *Queries) UpsertWalletVerifiedInternalKey(ctx context.Context, arg UpsertWalletVerifiedInternalKeyParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, UpsertWalletVerifiedInternalKey, arg.RawKey, arg.KeyFamily, arg.KeyIndex)
+	var key_id int64
+	err := row.Scan(&key_id)
+	return key_id, err
 }

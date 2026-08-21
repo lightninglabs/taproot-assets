@@ -208,6 +208,7 @@ func NewBatchCaretaker(cfg *BatchCaretakerConfig) *BatchCaretaker {
 // before importing or publishing a custom transaction.
 func (b *BatchCaretaker) mintingInternalKeyDescriptor(ctx context.Context,
 	pkt *psbt.Packet) (keychain.KeyDescriptor, error) {
+
 	if !isCustomAnchorPsbt(pkt) {
 		return b.cfg.Batch.BatchKey, nil
 	}
@@ -319,7 +320,6 @@ func (b *BatchCaretaker) Cancel() error {
 
 	case BatchStateCommitted:
 		if customAnchorPublicationPending(b.cfg.Batch) {
-
 			err := fmt.Errorf("BatchCaretaker(%x), custom anchor "+
 				"publication status is ambiguous and is not cancellable",
 				batchKey)
@@ -952,10 +952,10 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 			return 0, fmt.Errorf("genesis TX failed final checks: "+
 				"%w", err)
 		}
-		if err := validateExclusionProofOutputs(
+		err = validateExclusionProofOutputs(
 			signedPkt, b.anchorOutputIndex,
-		); err != nil {
-
+		)
+		if err != nil {
 			return 0, err
 		}
 

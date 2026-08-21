@@ -137,8 +137,8 @@ func AssetAnchorCheck(txid, blockHash chainhash.Hash) AssetCheck {
 
 // AssetAnchorOutpointCheck returns a check function that tests an asset's full
 // anchor outpoint and block hash.
-func AssetAnchorOutpointCheck(outpoint wire.OutPoint,
-	blockHash chainhash.Hash) AssetCheck {
+func AssetAnchorOutpointCheck(
+	outpoint wire.OutPoint, blockHash chainhash.Hash) AssetCheck {
 
 	return func(a *taprpc.Asset) error {
 		if a.ChainAnchor == nil {
@@ -156,10 +156,10 @@ func AssetAnchorOutpointCheck(outpoint wire.OutPoint,
 				"wanted %v", anchorOutpoint, outpoint)
 		}
 
-		if a.ChainAnchor.AnchorBlockHash != blockHash.String() {
+		anchorBlockHash := a.ChainAnchor.AnchorBlockHash
+		if anchorBlockHash != blockHash.String() {
 			return fmt.Errorf("unexpected asset anchor block hash, got "+
-				"%v wanted %x", a.ChainAnchor.AnchorBlockHash,
-				blockHash[:])
+				"%v wanted %x", anchorBlockHash, blockHash[:])
 		}
 
 		return nil

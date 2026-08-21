@@ -206,6 +206,10 @@ CREATE TABLE asset_minting_batches (
     creation_time_unix TIMESTAMP NOT NULL
 , tapscript_sibling BLOB, assets_output_index INTEGER, universe_commitments BOOLEAN NOT NULL DEFAULT FALSE);
 
+CREATE UNIQUE INDEX asset_minting_batches_unique_pending_or_frozen
+    ON asset_minting_batches ((1))
+    WHERE batch_state IN (0, 1);
+
 CREATE TABLE asset_proofs (
     proof_id INTEGER PRIMARY KEY,
 

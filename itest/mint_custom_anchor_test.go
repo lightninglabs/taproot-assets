@@ -1,3 +1,4 @@
+//nolint:lll
 package itest
 
 import (
@@ -1123,12 +1124,15 @@ func TestCustomAnchorAuthorityCommitmentBindsFields(t *testing.T) {
 		strings.Repeat("1", 64), strings.Repeat("2", 64), identity,
 		wallet, foreign, mutatedFees, locator, anchorKey, chain,
 	))
-	mutatedLocator := *locator
+	mutatedLocator := &signrpc.KeyLocator{
+		KeyFamily: locator.KeyFamily,
+		KeyIndex:  locator.KeyIndex,
+	}
 	mutatedLocator.KeyIndex++
 	mutations = append(mutations, commit(
 		"00112233445566778899aabbccddeeff",
 		strings.Repeat("1", 64), strings.Repeat("2", 64), identity,
-		wallet, foreign, fees, &mutatedLocator, anchorKey, chain,
+		wallet, foreign, fees, mutatedLocator, anchorKey, chain,
 	))
 	mutatedAnchor := append([]byte(nil), anchorKey...)
 	mutatedAnchor[0] ^= 1
@@ -1547,10 +1551,10 @@ func collectCustomAnchorChainEvidence(source customAnchorChainSource,
 		}
 		currentHash = block.Header.PrevBlock
 	}
-	for left, right := 0, len(blocks)-1; left < right; left, right =
-		left+1, right-1 {
-
+	for left, right := 0, len(blocks)-1; left < right; {
 		blocks[left], blocks[right] = blocks[right], blocks[left]
+		left++
+		right--
 	}
 
 	return customAnchorChainEvidence{

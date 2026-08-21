@@ -505,7 +505,10 @@ var fundBatchCommand = cli.Command{
 			Usage: "if set, the fee rate in sat/vB to use for " +
 				"the minting transaction",
 		},
-		cli.StringFlag{Name: anchorPsbtName, Usage: "caller-funded PSBT file"},
+		cli.StringFlag{
+			Name:  anchorPsbtName,
+			Usage: "caller-funded PSBT file",
+		},
 		cli.Uint64Flag{Name: assetAnchorOutputIndexName},
 		cli.Int64Flag{Name: changeOutputIndexName},
 		cli.BoolFlag{Name: noChangeOutputName},
@@ -529,13 +532,15 @@ func fundBatch(ctx *cli.Context) error {
 		FeeRate:       feeRate,
 	}
 	if path := ctx.String(anchorPsbtName); path != "" {
-		req.AnchorPsbt, err = os.ReadFile(tapcfg.CleanAndExpandPath(path))
+		anchorPath := tapcfg.CleanAndExpandPath(path)
+		req.AnchorPsbt, err = os.ReadFile(anchorPath)
 		if err != nil {
 			return err
 		}
 		assetIdx := ctx.Uint64(assetAnchorOutputIndexName)
 		if assetIdx > math.MaxUint32 {
-			return fmt.Errorf("asset anchor output index out of range")
+			return fmt.Errorf("asset anchor output index out of " +
+				"range")
 		}
 		changeIdx := ctx.Int64(changeOutputIndexName)
 		if changeIdx < 0 || changeIdx > math.MaxInt32 {
@@ -547,8 +552,8 @@ func fundBatch(ctx *cli.Context) error {
 		if ctx.IsSet(preCommitOutputIndexName) {
 			preCommitIdx := ctx.Uint64(preCommitOutputIndexName)
 			if preCommitIdx > math.MaxUint32 {
-				return fmt.Errorf("pre-commitment output index out of " +
-					"range")
+				return fmt.Errorf("pre-commitment output index " +
+					"out of range")
 			}
 			req.PreCommitOutputIndex = fn.Ptr(uint32(preCommitIdx))
 		}
@@ -586,8 +591,10 @@ func prepareBatch(ctx *cli.Context) error {
 			return fmt.Errorf("prepare response has no batch")
 		}
 		path = tapcfg.CleanAndExpandPath(path)
-		if err := os.WriteFile(path, resp.Batch.BatchPsbt, 0o600); err != nil {
-			return fmt.Errorf("unable to write prepared PSBT: %w", err)
+		err = os.WriteFile(path, resp.Batch.BatchPsbt, 0o600)
+		if err != nil {
+			return fmt.Errorf("unable to write prepared PSBT: %w",
+				err)
 		}
 	}
 	printRespJSON(resp)
@@ -688,7 +695,10 @@ var finalizeBatchCommand = cli.Command{
 			Usage: "if set, the fee rate in sat/vB to use for " +
 				"the minting transaction",
 		},
-		cli.StringFlag{Name: signedPsbtName, Usage: "externally signed PSBT file"},
+		cli.StringFlag{
+			Name:  signedPsbtName,
+			Usage: "externally signed PSBT file",
+		},
 	},
 	Action: finalizeBatch,
 }
@@ -708,7 +718,8 @@ func finalizeBatch(ctx *cli.Context) error {
 		FeeRate:       feeRate,
 	}
 	if path := ctx.String(signedPsbtName); path != "" {
-		req.SignedPsbt, err = os.ReadFile(tapcfg.CleanAndExpandPath(path))
+		signedPath := tapcfg.CleanAndExpandPath(path)
+		req.SignedPsbt, err = os.ReadFile(signedPath)
 		if err != nil {
 			return err
 		}
