@@ -1072,8 +1072,9 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 			publishFunded := b.cfg.Batch.GenesisPacket.FundedPsbt
 			publishFunded.Pkt = publishPkt
 			storeCtx, storeCancel := b.WithCtxQuit()
-			err = b.cfg.Log.StoreSignedGenesisPsbt(
-				storeCtx, b.cfg.Batch.BatchKey.PubKey, &publishFunded,
+			err = storeSignedGenesisPsbt(
+				storeCtx, b.cfg.Log, b.cfg.Batch.BatchKey.PubKey,
+				&publishFunded,
 			)
 			storeCancel()
 			if err != nil {
@@ -1122,10 +1123,10 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 			if renewErr == nil {
 				publishAttempted = true
 				publishCtx, publishCancel := b.WithCtxQuit()
-				publishErr = b.cfg.ChainBridge.
-					ValidateAndPublishTransaction(
-						publishCtx, signedTx, IssuanceTxLabel,
-					)
+				publishErr = tapnode.ValidateAndPublishTransaction(
+					publishCtx, b.cfg.ChainBridge, signedTx,
+					IssuanceTxLabel,
+				)
 				publishCancel()
 			}
 			if tapnode.IsDefinitivePublishError(publishErr) {
@@ -1150,8 +1151,8 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		// Taproot Asset commitment root and batch tapscript sibling.
 		tapCommitmentRoot := b.cfg.Batch.RootAssetCommitment.
 			TapscriptRoot(nil)
-		err = b.cfg.Log.CommitSignedGenesisTx(
-			ctx, b.cfg.Batch, mintingInternalKey,
+		err = commitSignedGenesisTx(
+			ctx, b.cfg.Log, b.cfg.Batch, mintingInternalKey,
 			&b.cfg.Batch.GenesisPacket.FundedPsbt,
 			b.anchorOutputIndex, merkleRoot, tapCommitmentRoot[:],
 			siblingBytes,

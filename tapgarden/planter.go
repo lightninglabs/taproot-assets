@@ -688,7 +688,6 @@ func renewCustomAnchorLeases(ctx context.Context, wallet tapnode.WalletAnchor,
 	} else if markerState == customAnchorLeaseMarkerCurrent {
 		funded.LockedUTXOs = markerOps
 	}
-
 	for _, op := range funded.LockedUTXOs {
 		owned, err := leaser.LeaseInput(ctx, leaseID, op)
 		if err != nil {
@@ -4667,8 +4666,9 @@ func (c *ChainPlanter) finalizeBatch(params FinalizeParams) (*BatchCaretaker,
 			signedFundedPsbt.Pkt = merged
 			signedFundedPsbt.LockedUTXOs = locked
 			ctx, cancel = c.WithCtxQuit()
-			err = c.cfg.Log.StoreSignedGenesisPsbt(
-				ctx, c.pendingBatch.BatchKey.PubKey,
+			err = storeSignedGenesisPsbt(
+				ctx, c.cfg.Log,
+				c.pendingBatch.BatchKey.PubKey,
 				&signedFundedPsbt,
 			)
 			cancel()
@@ -5372,6 +5372,7 @@ func (c *ChainPlanter) verifierCtx(ctx context.Context) proof.VerifierCtx {
 // A compile-time assertion to make sure that ChainPlanter implements the
 // tapgarden.Planter interface.
 var _ Planter = (*ChainPlanter)(nil)
+var _ BatchPreparer = (*ChainPlanter)(nil)
 
 // A compile-time assertion to make sure BatchCaretaker satisfies the
 // fn.EventPublisher interface.

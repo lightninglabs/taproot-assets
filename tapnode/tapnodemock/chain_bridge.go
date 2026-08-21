@@ -353,6 +353,7 @@ func (m *ChainBridge) GenProofChainLookup(*proof.Proof) (asset.ChainLookup,
 
 var _ asset.ChainLookup = (*ChainBridge)(nil)
 var _ tapnode.ChainBridge = (*ChainBridge)(nil)
+var _ tapnode.DefinitivePublisher = (*ChainBridge)(nil)
 
 // GenGroupVerifier returns a no-op group verifier suitable for tests that
 // don't care about group-key authenticity.

@@ -1998,14 +1998,30 @@ func (a *AssetMintingStore) RepairCustomAnchorInternalKey(ctx context.Context,
 }
 
 // CommitSignedGenesisTx binds a fully signed genesis transaction to a pending
-// batch on disk. The anchor output index and script root are also stored to
-// ensure we can reconstruct the private key needed to sign for the batch. The
-// genesis transaction itself is inserted as a new chain transaction, which all
-// other components then reference.
+// batch on disk using the batch key as the minting internal key. This preserves
+// the original MintingStore contract for callers that don't use a custom
+// anchor.
+func (a *AssetMintingStore) CommitSignedGenesisTx(ctx context.Context,
+	batch *tapgarden.MintingBatch, genesisPkt *tapsend.FundedPsbt,
+	anchorOutputIndex uint32, merkleRoot, tapTreeRoot []byte,
+	tapSibling []byte) error {
+
+	return a.CommitSignedGenesisTxWithKey(
+		ctx, batch, batch.BatchKey, genesisPkt, anchorOutputIndex,
+		merkleRoot, tapTreeRoot, tapSibling,
+	)
+}
+
+// CommitSignedGenesisTxWithKey binds a fully signed genesis transaction to a
+// pending batch on disk using the specified minting internal key. The anchor
+// output index and script root are also stored to ensure we can reconstruct the
+// private key needed to sign for the batch. The genesis transaction itself is
+// inserted as a new chain transaction, which all other components then
+// reference.
 //
 // TODO(roasbeef): or could just re-read assets from disk and set the script
 // root manually?
-func (a *AssetMintingStore) CommitSignedGenesisTx(ctx context.Context,
+func (a *AssetMintingStore) CommitSignedGenesisTxWithKey(ctx context.Context,
 	batch *tapgarden.MintingBatch,
 	mintingInternalKey keychain.KeyDescriptor,
 	genesisPkt *tapsend.FundedPsbt,
@@ -2457,4 +2473,6 @@ func (a *AssetMintingStore) DeleteTapscriptTree(ctx context.Context,
 // A compile-time assertion to ensure that AssetMintingStore meets the
 // tapgarden.MintingStore interface.
 var _ tapgarden.MintingStore = (*AssetMintingStore)(nil)
+var _ tapgarden.SignedGenesisPsbtStore = (*AssetMintingStore)(nil)
+var _ tapgarden.MintingInternalKeyStore = (*AssetMintingStore)(nil)
 var _ asset.TapscriptTreeManager = (*AssetMintingStore)(nil)

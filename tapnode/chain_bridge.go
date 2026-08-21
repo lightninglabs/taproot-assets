@@ -97,16 +97,29 @@ type ChainBridge interface {
 	// the network.
 	PublishTransaction(context.Context, *wire.MsgTx, string) error
 
-	// ValidateAndPublishTransaction validates and submits a transaction. A
-	// rejection by this backend is returned as DefinitivePublishError; all
-	// other errors are ambiguous. Whether a caller may remain pre-broadcast
-	// also depends on whether the signed transaction was exposed elsewhere.
-	ValidateAndPublishTransaction(context.Context, *wire.MsgTx, string) error
-
 	// EstimateFee returns a fee estimate for the confirmation
 	// target.
 	EstimateFee(ctx context.Context,
 		confTarget uint32) (chainfee.SatPerKWeight, error)
+}
+
+// DefinitivePublisher is an optional ChainBridge extension that can
+// distinguish conclusive policy rejection from ambiguous publication errors.
+type DefinitivePublisher interface {
+	ValidateAndPublishTransaction(context.Context, *wire.MsgTx, string) error
+}
+
+// ValidateAndPublishTransaction uses definitive publication when available.
+// Older ChainBridge implementations retain their publication behavior, with
+// every returned error conservatively treated as ambiguous.
+func ValidateAndPublishTransaction(ctx context.Context, bridge ChainBridge,
+	tx *wire.MsgTx, label string) error {
+
+	if publisher, ok := bridge.(DefinitivePublisher); ok {
+		return publisher.ValidateAndPublishTransaction(ctx, tx, label)
+	}
+
+	return bridge.PublishTransaction(ctx, tx, label)
 }
 
 // GenHeaderVerifier generates a block header on-chain verification callback

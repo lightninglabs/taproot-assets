@@ -1042,7 +1042,13 @@ func (r *RPCServer) FundBatch(ctx context.Context,
 func (r *RPCServer) PrepareBatch(_ context.Context,
 	req *mintrpc.PrepareBatchRequest) (*mintrpc.PrepareBatchResponse, error) {
 
-	batch, err := r.cfg.AssetMinter.PrepareBatch()
+	preparer, ok := r.cfg.AssetMinter.(tapgarden.BatchPreparer)
+	if !ok {
+		return nil, fmt.Errorf("asset minter does not support caller-funded " +
+			"batch preparation")
+	}
+
+	batch, err := preparer.PrepareBatch()
 	if err != nil {
 		return nil, fmt.Errorf("unable to prepare batch: %w", err)
 	}

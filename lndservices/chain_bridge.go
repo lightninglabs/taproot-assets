@@ -591,6 +591,7 @@ func (l *LndRpcChainBridge) GenProofChainLookup(
 // A compile time assertion to ensure LndRpcChainBridge meets the
 // tapnode.ChainBridge interface.
 var _ tapnode.ChainBridge = (*LndRpcChainBridge)(nil)
+var _ tapnode.DefinitivePublisher = (*LndRpcChainBridge)(nil)
 
 // ProofChainLookup is an implementation of the asset.ChainLookup interface
 // that uses a proof file to look up block height information of previous inputs

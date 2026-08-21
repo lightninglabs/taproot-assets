@@ -55,11 +55,6 @@ type Planter interface {
 	// deriving all witnesses necessary to create the final genesis TX.
 	SealBatch(params SealParams) (*MintingBatch, error)
 
-	// PrepareBatch freezes a caller-funded batch and commits the asset tree
-	// into its selected anchor output. The returned PSBT is then ready for
-	// external signing.
-	PrepareBatch() (*MintingBatch, error)
-
 	// FinalizeBatch signals that the asset minter should finalize
 	// the current batch, if one exists.
 	FinalizeBatch(params FinalizeParams) (*MintingBatch, error)
@@ -78,6 +73,16 @@ type Planter interface {
 	// EventPublisher is a subscription interface that allows callers to
 	// subscribe to events that are relevant to the Planter.
 	fn.EventPublisher[fn.Event, bool]
+}
+
+// BatchPreparer is an optional Planter extension for caller-funded batches.
+// Keeping this operation separate allows existing Planter implementations to
+// remain source compatible when custom anchor support isn't required.
+type BatchPreparer interface {
+	// PrepareBatch freezes a caller-funded batch and commits the asset tree
+	// into its selected anchor output. The returned PSBT is ready for external
+	// signing.
+	PrepareBatch() (*MintingBatch, error)
 }
 
 // BatchState an enum that represents the various stages of a minting batch.
@@ -251,13 +256,6 @@ type MintingStore interface {
 		genesisPacket *FundedMintAnchorPsbt,
 		assets *commitment.TapCommitment) error
 
-	// StoreSignedGenesisPsbt durably records a fully signed custom genesis
-	// packet while leaving the batch in BatchStateCommitted. This allows
-	// publication acceptance to be checked before the irreversible broadcast
-	// records are created.
-	StoreSignedGenesisPsbt(ctx context.Context, batchKey *btcec.PublicKey,
-		genesisTx *tapsend.FundedPsbt) error
-
 	// CommitSignedGenesisTx adds a fully signed genesis transaction to the
 	// batch, along with the Taproot Asset script root, which is the
 	// left/right sibling for the Taproot Asset tapscript commitment in the
@@ -267,7 +265,6 @@ type MintingStore interface {
 	// disk and the in-memory state of the supplied batch is advanced to
 	// match. On failure neither moves.
 	CommitSignedGenesisTx(ctx context.Context, batch *MintingBatch,
-		mintingInternalKey keychain.KeyDescriptor,
 		genesisTx *tapsend.FundedPsbt, anchorOutputIndex uint32,
 		merkleRoot, tapTreeRoot, tapSibling []byte) error
 
@@ -317,6 +314,60 @@ type MintingStore interface {
 	// group public key.
 	FetchDelegationKey(ctx context.Context,
 		groupKey btcec.PublicKey) (fn.Option[DelegationKey], error)
+}
+
+// SignedGenesisPsbtStore is an optional MintingStore extension that durably
+// records a signed custom genesis packet before publication is attempted.
+type SignedGenesisPsbtStore interface {
+	StoreSignedGenesisPsbt(ctx context.Context, batchKey *btcec.PublicKey,
+		genesisTx *tapsend.FundedPsbt) error
+}
+
+// MintingInternalKeyStore is an optional MintingStore extension that persists
+// the wallet-proven internal key for a mint anchor. Custom anchors require this
+// capability because their internal key can differ from the batch key.
+type MintingInternalKeyStore interface {
+	CommitSignedGenesisTxWithKey(ctx context.Context, batch *MintingBatch,
+		mintingInternalKey keychain.KeyDescriptor,
+		genesisTx *tapsend.FundedPsbt, anchorOutputIndex uint32,
+		merkleRoot, tapTreeRoot, tapSibling []byte) error
+}
+
+func storeSignedGenesisPsbt(ctx context.Context, store MintingStore,
+	batchKey *btcec.PublicKey, genesisTx *tapsend.FundedPsbt) error {
+
+	signedStore, ok := store.(SignedGenesisPsbtStore)
+	if !ok {
+		return fmt.Errorf("minting store does not support signed custom " +
+			"genesis persistence")
+	}
+
+	return signedStore.StoreSignedGenesisPsbt(
+		ctx, batchKey, genesisTx,
+	)
+}
+
+func commitSignedGenesisTx(ctx context.Context, store MintingStore,
+	batch *MintingBatch, mintingInternalKey keychain.KeyDescriptor,
+	genesisTx *tapsend.FundedPsbt, anchorOutputIndex uint32,
+	merkleRoot, tapTreeRoot, tapSibling []byte) error {
+
+	if keyStore, ok := store.(MintingInternalKeyStore); ok {
+		return keyStore.CommitSignedGenesisTxWithKey(
+			ctx, batch, mintingInternalKey, genesisTx,
+			anchorOutputIndex, merkleRoot, tapTreeRoot, tapSibling,
+		)
+	}
+
+	if genesisTx != nil && isCustomAnchorPsbt(genesisTx.Pkt) {
+		return fmt.Errorf("minting store does not support custom anchor " +
+			"internal keys")
+	}
+
+	return store.CommitSignedGenesisTx(
+		ctx, batch, genesisTx, anchorOutputIndex, merkleRoot,
+		tapTreeRoot, tapSibling,
+	)
 }
 
 // CustomAnchorKeyRepairCandidate contains the retained database state needed

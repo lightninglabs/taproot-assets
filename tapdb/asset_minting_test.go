@@ -1078,7 +1078,7 @@ func TestCommitBatchChainActions(t *testing.T) {
 	// With our assets inserted, we'll now commit the signed genesis packet
 	// to disk, along with the Taproot Asset script root that's stored
 	// alongside any managed UTXOs.
-	require.NoError(t, assetStore.CommitSignedGenesisTx(
+	require.NoError(t, assetStore.CommitSignedGenesisTxWithKey(
 		ctx, randAssetCtx.mintingBatch, customInternalKey,
 		randAssetCtx.genesisPkt, 0,
 		randAssetCtx.merkleRoot, randAssetCtx.scriptRoot,
@@ -1334,7 +1334,7 @@ func TestCommitSignedGenesisTxConflictingLocatorRollback(t *testing.T) {
 	_, err := db.UpsertInternalKey(ctx, conflicting)
 	require.NoError(t, err)
 
-	err = assetStore.CommitSignedGenesisTx(
+	err = assetStore.CommitSignedGenesisTxWithKey(
 		ctx, randAssetCtx.mintingBatch, customInternalKey,
 		randAssetCtx.genesisPkt, 0, randAssetCtx.merkleRoot,
 		randAssetCtx.scriptRoot, randAssetCtx.tapSiblingBytes,

@@ -55,7 +55,22 @@ func (s *issue721FailSignedStore) StoreSignedGenesisPsbt(ctx context.Context,
 		return fmt.Errorf("injected signed PSBT store failure")
 	}
 
-	return s.MintingStore.StoreSignedGenesisPsbt(ctx, batchKey, funded)
+	signedStore, ok := s.MintingStore.(tapgarden.SignedGenesisPsbtStore)
+	if !ok {
+		return fmt.Errorf("minting store does not support signed PSBT persistence")
+	}
+
+	return signedStore.StoreSignedGenesisPsbt(ctx, batchKey, funded)
+}
+
+func issue721SignedStore(t *testing.T,
+	store tapgarden.MintingStore) tapgarden.SignedGenesisPsbtStore {
+
+	t.Helper()
+	signedStore, ok := store.(tapgarden.SignedGenesisPsbtStore)
+	require.True(t, ok, "test minting store must persist signed PSBTs")
+
+	return signedStore
 }
 
 // issue721Anchor constructs a caller-owned PSBT whose first output and all
@@ -877,7 +892,7 @@ func TestIssue721PublishFailureAfterRestartIsAdopted(t *testing.T) {
 	})
 	funded := prepared.GenesisPacket.FundedPsbt
 	funded.Pkt = signed
-	err = store.StoreSignedGenesisPsbt(
+	err = issue721SignedStore(t, store).StoreSignedGenesisPsbt(
 		t.Context(), prepared.BatchKey.PubKey, &funded,
 	)
 	require.NoError(t, err)
@@ -959,7 +974,7 @@ func TestIssue721PublishPendingRestartLeaseFailure(t *testing.T) {
 	})
 	funded := prepared.GenesisPacket.FundedPsbt
 	funded.Pkt = signed
-	require.NoError(t, store.StoreSignedGenesisPsbt(
+	require.NoError(t, issue721SignedStore(t, store).StoreSignedGenesisPsbt(
 		t.Context(), prepared.BatchKey.PubKey, &funded,
 	))
 	expected, err := psbt.Extract(signed)
@@ -1058,7 +1073,7 @@ func TestIssue721CorruptLeaseMarkerWatchesWithoutPublishing(t *testing.T) {
 	})
 	funded := prepared.GenesisPacket.FundedPsbt
 	funded.Pkt = signed
-	require.NoError(t, store.StoreSignedGenesisPsbt(
+	require.NoError(t, issue721SignedStore(t, store).StoreSignedGenesisPsbt(
 		t.Context(), prepared.BatchKey.PubKey, &funded,
 	))
 
@@ -1123,7 +1138,7 @@ func TestIssue721RecoveredCaretakerFastConfirmation(t *testing.T) {
 	})
 	funded := prepared.GenesisPacket.FundedPsbt
 	funded.Pkt = signed
-	err = store.StoreSignedGenesisPsbt(
+	err = issue721SignedStore(t, store).StoreSignedGenesisPsbt(
 		t.Context(), prepared.BatchKey.PubKey, &funded,
 	)
 	require.NoError(t, err)
@@ -1778,7 +1793,7 @@ func TestIssue721CustomRestartStates(t *testing.T) {
 		})
 		funded := prepared.GenesisPacket.FundedPsbt
 		funded.Pkt = signed
-		err = store.StoreSignedGenesisPsbt(
+		err = issue721SignedStore(t, store).StoreSignedGenesisPsbt(
 			t.Context(), prepared.BatchKey.PubKey, &funded,
 		)
 		require.NoError(t, err)
@@ -1885,7 +1900,7 @@ func TestIssue721LegacyRawOnlyFinalizeRemainsCancellable(t *testing.T) {
 	legacy.Pkt.Outputs[1].Bip32Derivation = nil
 	legacy.Pkt.Outputs[1].TaprootInternalKey =
 		fn.CopySlice(pkt.Outputs[1].TaprootInternalKey)
-	require.NoError(t, store.StoreSignedGenesisPsbt(
+	require.NoError(t, issue721SignedStore(t, store).StoreSignedGenesisPsbt(
 		t.Context(), prepared.BatchKey.PubKey, &legacy.FundedPsbt,
 	))
 	h.refreshChainPlanter()
@@ -1947,7 +1962,7 @@ func TestIssue721LegacyRejectedMarkerIsPublicationPending(t *testing.T) {
 	})
 	funded := prepared.GenesisPacket.FundedPsbt
 	funded.Pkt = signed
-	require.NoError(t, store.StoreSignedGenesisPsbt(
+	require.NoError(t, issue721SignedStore(t, store).StoreSignedGenesisPsbt(
 		t.Context(), prepared.BatchKey.PubKey, &funded,
 	))
 
