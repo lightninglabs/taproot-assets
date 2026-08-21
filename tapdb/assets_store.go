@@ -2409,6 +2409,14 @@ func (a *AssetStore) ListEligibleCoins(ctx context.Context,
 		return nil, fmt.Errorf("min amount overflow")
 	}
 
+	// The prev ID filter is applied after the query, so a bounded listing
+	// could return a page that holds none of the requested inputs. The two
+	// can't be combined.
+	if constraints.CoinLimit > 0 && len(constraints.PrevIDs) > 0 {
+		return nil, fmt.Errorf("coin limit cannot be combined with " +
+			"specific prev IDs")
+	}
+
 	// First, we'll map the commitment constraints to our database query
 	// filters.
 	assetFilter, err := a.constraintsToDbFilter(&AssetQueryFilters{
@@ -2426,6 +2434,21 @@ func (a *AssetStore) ListEligibleCoins(ctx context.Context,
 	// unconfirmed assets would otherwise be included). Unconfirmed assets
 	// have a block height of 0, so we set the minimum block height to 1.
 	assetFilter.MinAnchorHeight = sqlInt32(1)
+
+	// If the caller bounds the number of coins, we return them in
+	// descending amount order, so the largest eligible coins are returned
+	// first and a bounded listing can cover a target amount with as few
+	// pages as possible.
+	//
+	// This overrides the pagination the query filters may already carry
+	// from AssetQueryFilters.Limit/Offset, which no caller of this method
+	// sets. Coins are paged through with CoinLimit/CoinOffset instead, as
+	// those live on the constraints the coin selector works with.
+	if constraints.CoinLimit > 0 {
+		assetFilter.NumLimit = constraints.CoinLimit
+		assetFilter.NumOffset = constraints.CoinOffset
+		assetFilter.OrderByAmount = sqlInt32(1)
+	}
 
 	selectedCommitments, err := a.queryCommitments(ctx, assetFilter)
 	if err != nil {

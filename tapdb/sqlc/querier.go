@@ -213,6 +213,10 @@ type Querier interface {
 	// channel balances, and also coin selection. We use the sqlc.narg feature to
 	// make the entire statement evaluate to true, if none of these extra args are
 	// specified.
+	// The trailing sort by asset_id is what makes this a total order, which the
+	// paging of a bounded listing relies on: without it, rows that compare equal
+	// on the optional terms above could come back in any order and a later page
+	// could repeat or skip them. Any ordering term added here must go above it.
 	QueryAssets(ctx context.Context, arg QueryAssetsParams) ([]QueryAssetsRow, error)
 	QueryAuthMailboxMessages(ctx context.Context, arg QueryAuthMailboxMessagesParams) ([]QueryAuthMailboxMessagesRow, error)
 	QueryBurns(ctx context.Context, arg QueryBurnsParams) ([]QueryBurnsRow, error)

@@ -61,6 +61,20 @@ type CommitmentConstraints struct {
 	// ScriptKeyType is the type of script key the assets are expected to
 	// have. If this is fn.None, then any script key type is allowed.
 	ScriptKeyType fn.Option[asset.ScriptKeyType]
+
+	// CoinLimit is the maximum number of coins to list when set. Bounded
+	// listings return coins in descending amount order, so the largest
+	// eligible coins are returned first. A value of 0 means no limit, in
+	// which case no specific order is guaranteed.
+	//
+	// This cannot be combined with PrevIDs, as those are filtered for
+	// after the listing, so a bounded listing could return a page that
+	// holds none of the requested inputs.
+	CoinLimit int32
+
+	// CoinOffset is the number of coins to skip in a bounded listing. This
+	// is used to page through the eligible coins when a CoinLimit is set.
+	CoinOffset int32
 }
 
 // AssetBurn holds data related to a burn of an asset.
@@ -157,6 +171,12 @@ type CoinLister interface {
 	//
 	// If coin selection cannot be completed, then ErrMatchingAssetsNotFound
 	// should be returned.
+	//
+	// A listing bounded by CoinLimit must return fewer coins than the limit
+	// only when the eligible coins are exhausted, since that is how the
+	// caller learns that paging is done. An implementation that drops coins
+	// after querying them would make a bounded listing look exhausted while
+	// coins remain.
 	ListEligibleCoins(context.Context,
 		CommitmentConstraints) ([]*AnchoredCommitment, error)
 
