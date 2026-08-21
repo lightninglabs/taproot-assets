@@ -1234,17 +1234,21 @@ func (c *ChainPlanter) Start() error {
 			}
 
 			// A custom batch with a signed transaction awaiting import or
-			// publication is resumed automatically. Adopt it as the exclusive
-			// pending batch before launching its caretaker so no new batch can
-			// be admitted while recovery is in flight.
+			// publication is resumed automatically. A Broadcast batch whose
+			// initial WalletKit submission failed keeps the same reservation:
+			// it remains watched and immutable, but cannot be used to amplify
+			// caller-relayed transactions through additional concurrent mints.
 			startupCustomRecovery := customBatch &&
 				batchState == BatchStateCommitted &&
 				(publishState == customAnchorImportPending ||
 					publishState == customAnchorPublishPending)
-			if startupCustomRecovery {
+			startupAdmissionReservation := startupCustomRecovery ||
+				(customBatch && batchState == BatchStateBroadcast &&
+					publishState == customAnchorPublishPending)
+			if startupAdmissionReservation {
 				if c.pendingBatch != nil {
 					startErr = fmt.Errorf("multiple custom batches " +
-						"require startup recovery")
+						"require an admission reservation")
 					return
 				}
 
@@ -3149,15 +3153,22 @@ func (c *ChainPlanter) gardener() {
 			}
 
 			if result.err == nil {
-				// Publication succeeded. Release the exclusive recovery
-				// slot, but retain the caretaker while it waits for
-				// confirmation.
+				// A clean first publication releases the exclusive recovery
+				// slot. A retained initial-failure marker keeps it until
+				// confirmation even if this recovery attempt succeeded.
 				if c.pendingBatch != nil &&
 					asset.ToSerialized(
 						c.pendingBatch.BatchKey.PubKey,
 					) == result.batchKey {
 
-					c.pendingBatch = nil
+					if customAnchorPublicationPending(
+						caretaker.cfg.Batch,
+					) {
+
+						c.pendingBatch = caretaker.cfg.Batch.Copy()
+					} else {
+						c.pendingBatch = nil
+					}
 				}
 
 				continue
@@ -3515,11 +3526,21 @@ func (c *ChainPlanter) gardener() {
 				// broadcast the batch or fail to do so.
 				select {
 				case <-caretaker.cfg.BroadcastCompleteChan:
-					req.Resolve(caretaker.cfg.Batch)
+					// A failed initial custom publication remains
+					// watched in Broadcast, but retains the exclusive
+					// admission slot until confirmation. A successful
+					// WalletKit acceptance cleared the marker before the
+					// durable Broadcast transition and remains nonblocking.
+					if customAnchorPublicationPending(
+						caretaker.cfg.Batch,
+					) {
 
-					// The batch has been broadcast, so we
-					// can remove the pending batch.
-					c.pendingBatch = nil
+						c.pendingBatch = caretaker.cfg.Batch.Copy()
+					} else {
+						c.pendingBatch = nil
+					}
+
+					req.Resolve(caretaker.cfg.Batch)
 
 				case err := <-caretaker.cfg.BroadcastErrChan:
 					// Stop the failed caretaker directly. Custom

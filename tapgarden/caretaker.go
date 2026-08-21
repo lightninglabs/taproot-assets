@@ -1161,6 +1161,14 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 			if b.customAnchorWalletAccepted {
 				b.setCustomAnchorLeaseError("")
 				b.setCustomAnchorPublishError("")
+
+				// A clean WalletKit acceptance distinguishes this batch
+				// from one whose signed bytes might only have been relayed
+				// externally. Clear the durable admission marker before
+				// CommitSignedGenesisTx stores the Broadcast packet.
+				if publishStateAtEntry != customAnchorPublishPending {
+					stripCustomAnchorPublishState(signedPkt)
+				}
 			}
 		}
 
@@ -1299,6 +1307,11 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 							),
 						)
 					} else {
+						// Keep any initial-failure admission marker until
+						// confirmation. A later retry success cannot prove
+						// whether the caller independently relayed the first
+						// attempt, so releasing the slot here would re-open
+						// amplification before an on-chain outcome.
 						b.setCustomAnchorPublishError("")
 					}
 				}

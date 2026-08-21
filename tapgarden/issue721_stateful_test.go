@@ -10,8 +10,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/btcutil/v2"
+	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/psbt/v2"
 	"github.com/btcsuite/btcd/txscript/v2"
@@ -408,6 +411,19 @@ func TestIssue721PrepareSignResume(t *testing.T) {
 	require.Equal(t, original.UnsignedTx.TxOut[1].Value,
 		published.TxOut[1].Value)
 	require.Equal(t, tapgarden.BatchStateBroadcast, minted.State())
+	available, err := h.planter.PendingBatch()
+	require.NoError(t, err)
+	require.Nil(t, available)
+
+	// A clean WalletKit acceptance clears the internal publication marker
+	// before the signed packet is committed in Broadcast.
+	persisted := h.fetchSingleBatch(prepared.BatchKey.PubKey)
+	for _, unknown := range persisted.GenesisPacket.Pkt.Unknowns {
+		require.NotEqual(
+			t, []byte{0xfc, 0x04, 't', 'a', 'p', 'd', 0x02},
+			unknown.Key,
+		)
+	}
 }
 
 // TestIssue721PublishRetry verifies a one-shot ambiguous initial submission is
@@ -588,12 +604,80 @@ func TestIssue721ClassifiedPublishFailureRemainsBroadcast(t *testing.T) {
 	require.Equal(t, signedTx.WitnessHash(), persistedTx.WitnessHash())
 	h.assertNumCaretakersActive(1)
 	_, err = h.planter.CancelBatch()
-	require.ErrorContains(t, err, "not cancellable")
+	require.ErrorContains(t, err, "batch recovery is in progress")
+
+	// A backend reject keeps the exclusive admission reservation even after
+	// the watch-only Broadcast retry succeeds. The transaction is still
+	// tracked, but the caller cannot amplify it through another mint.
+	reserved, err := h.planter.PendingBatch()
+	require.NoError(t, err)
+	require.Equal(t, tapgarden.BatchStateBroadcast, reserved.State())
+	second := issue721Seedling()
+	second.AssetName = "issue-721-rejected-second"
+	updates, err := h.planter.QueueNewSeedling(second)
+	require.NoError(t, err)
+	update, err := fn.RecvOrTimeout(updates, defaultTimeout)
+	require.NoError(t, err)
+	require.ErrorContains(t, update.Error, "cannot accept new seedlings")
 	select {
 	case released := <-h.wallet.ReleaseInputSignal:
 		t.Fatalf("broadcast input lease unexpectedly released: %v", released)
 	default:
 	}
+
+	// Restarting a durable Broadcast packet with the publication marker must
+	// reconstruct the same reservation before accepting API requests.
+	h.refreshChainPlanter()
+	restartConfReq, err := fn.RecvOrTimeout(
+		h.chain.ConfReqSignal, defaultTimeout,
+	)
+	require.NoError(t, err)
+	restartLease, err := fn.RecvOrTimeout(
+		h.wallet.LeaseInputSignal, defaultTimeout,
+	)
+	require.NoError(t, err)
+	require.Equal(t, ownedInput, *restartLease)
+	restartedTx := h.assertTxPublished()
+	require.Equal(t, signedTx.WitnessHash(), restartedTx.WitnessHash())
+
+	restartedReservation, err := h.planter.PendingBatch()
+	require.NoError(t, err)
+	require.Equal(
+		t, tapgarden.BatchStateBroadcast, restartedReservation.State(),
+	)
+	second.AssetName = "issue-721-rejected-after-restart"
+	updates, err = h.planter.QueueNewSeedling(second)
+	require.NoError(t, err)
+	update, err = fn.RecvOrTimeout(updates, defaultTimeout)
+	require.NoError(t, err)
+	require.ErrorContains(t, update.Error, "cannot accept new seedlings")
+
+	// Confirmation is the release boundary. Once the watched transaction
+	// completes, the reservation is cleared and a fresh mint is admitted.
+	merkleTree := blockchain.BuildMerkleTreeStore(
+		[]*btcutil.Tx{btcutil.NewTx(restartedTx)}, false,
+	)
+	merkleRoot := merkleTree[len(merkleTree)-1]
+	blockHeader := wire.NewBlockHeader(
+		0, chaincfg.MainNetParams.GenesisHash, merkleRoot, 0, 0,
+	)
+	block := &wire.MsgBlock{
+		Header:       *blockHeader,
+		Transactions: []*wire.MsgTx{restartedTx},
+	}
+	blockHash := block.BlockHash()
+	h.chain.SetBlock(blockHash, block)
+	h.chain.SendConfNtfn(
+		*restartConfReq, &blockHash, 1, 0, block, restartedTx,
+	)
+	h.assertNumCaretakersActive(0)
+	available, err := h.planter.PendingBatch()
+	require.NoError(t, err)
+	require.Nil(t, available)
+
+	third := issue721Seedling()
+	third.AssetName = "issue-721-after-confirmation"
+	h.queueSeedlingsInBatch(false, third)
 }
 
 // TestIssue721ImportRetry verifies that a transient wallet import failure is
@@ -1004,7 +1088,7 @@ func TestIssue721PublishPendingRestartLeaseFailure(t *testing.T) {
 	case <-time.After(2 * h.leaseRenewalInterval):
 	}
 	_, err = h.planter.CancelBatch()
-	require.ErrorContains(t, err, "not cancellable")
+	require.ErrorContains(t, err, "batch recovery is in progress")
 
 	batches, err := h.planter.ListBatches(tapgarden.ListBatchesParams{
 		BatchKey: prepared.BatchKey.PubKey,
@@ -1108,7 +1192,7 @@ func TestIssue721CorruptLeaseMarkerWatchesWithoutPublishing(t *testing.T) {
 	require.Contains(t, batches[0].CustomAnchorLeaseError,
 		"invalid custom anchor lease marker")
 	_, err = h.planter.CancelBatch()
-	require.ErrorContains(t, err, "not cancellable")
+	require.ErrorContains(t, err, "batch recovery is in progress")
 }
 
 // TestIssue721RecoveredCaretakerFastConfirmation verifies that confirmation
