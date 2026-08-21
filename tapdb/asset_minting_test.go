@@ -551,8 +551,9 @@ func TestCommitMintingBatchSeedlings(t *testing.T) {
 	// Finally update the state of the batch, and asset that when we read
 	// it from disk again, it has transitioned to being frozen.
 	require.NoError(t, assetStore.UpdateBatchState(
-		ctx, batchKey, tapgarden.BatchStateFrozen,
+		ctx, mintingBatch, tapgarden.BatchStateFrozen,
 	))
+	require.Equal(t, tapgarden.BatchStateFrozen, mintingBatch.State())
 
 	mintingBatches = noError1(t, assetStore.FetchNonFinalBatches, ctx)
 	assertSeedlingBatchLen(t, mintingBatches, 1, numSeedlings*2)
@@ -561,7 +562,7 @@ func TestCommitMintingBatchSeedlings(t *testing.T) {
 	// If we finalize the batch, then the next query to
 	// FetchNonFinalBatches should return zero batches.
 	require.NoError(t, assetStore.UpdateBatchState(
-		ctx, batchKey, tapgarden.BatchStateFinalized,
+		ctx, mintingBatch, tapgarden.BatchStateFinalized,
 	))
 	mintingBatches = noError1(t, assetStore.FetchNonFinalBatches, ctx)
 	assertSeedlingBatchLen(t, mintingBatches, 0, 0)
@@ -585,10 +586,13 @@ func TestCommitMintingBatchSeedlings(t *testing.T) {
 	// Adding sprouts updates the batch state to committed, so we'll set it
 	// back to finalized.
 	require.NoError(t, assetStore.AddSproutsToBatch(
-		ctx, batchKey, genesisPacket, assetRoot,
+		ctx, mintingBatch, genesisPacket, assetRoot,
 	))
+	require.Equal(
+		t, tapgarden.BatchStateCommitted, mintingBatch.State(),
+	)
 	require.NoError(t, assetStore.UpdateBatchState(
-		ctx, batchKey, tapgarden.BatchStateFinalized,
+		ctx, mintingBatch, tapgarden.BatchStateFinalized,
 	))
 
 	// We should still be able to fetch the finalized batch from disk.
@@ -875,8 +879,6 @@ func TestAddSproutsToBatch(t *testing.T) {
 	// First, we'll create a new batch, then add some sample seedlings.
 	require.NoError(t, assetStore.CommitMintingBatch(ctx, mintingBatch))
 
-	batchKey := mintingBatch.BatchKey.PubKey
-
 	// Now that the batch is on disk, we'll map those seedlings to an
 	// actual asset commitment, then insert them into the DB as sprouts.
 	genesisPacket := mintingBatch.GenesisPacket
@@ -900,8 +902,11 @@ func TestAddSproutsToBatch(t *testing.T) {
 	genesisPacket.Pkt.UnsignedTx.TxOut[anchorOutputIndex].PkScript = script
 
 	require.NoError(t, assetStore.AddSproutsToBatch(
-		ctx, batchKey, genesisPacket, assetRoot,
+		ctx, mintingBatch, genesisPacket, assetRoot,
 	))
+	require.Equal(
+		t, tapgarden.BatchStateCommitted, mintingBatch.State(),
+	)
 
 	// Now we'll query for that same batch, and assert that the set of
 	// assets we just inserted into the database matches up.
@@ -941,7 +946,6 @@ func TestAddSproutsToBatch(t *testing.T) {
 }
 
 type randAssetCtx struct {
-	batchKey        *btcec.PublicKey
 	groupKey        *btcec.PublicKey
 	groupGenAmt     uint64
 	genesisPkt      *tapsend.FundedPsbt
@@ -964,7 +968,6 @@ func addRandAssets(t *testing.T, ctx context.Context,
 		t, assetStore, ctx, mintingBatch.Seedlings,
 	)
 	randSibling, randSiblingHash := addRandSiblingToBatch(t, mintingBatch)
-	batchKey := mintingBatch.BatchKey.PubKey
 	require.NoError(t, assetStore.CommitMintingBatch(ctx, mintingBatch))
 
 	genesisPacket := mintingBatch.GenesisPacket
@@ -991,8 +994,11 @@ func addRandAssets(t *testing.T, ctx context.Context,
 	genesisPacket.Pkt.UnsignedTx.TxOut[anchorOutputIndex].PkScript = script
 
 	require.NoError(t, assetStore.AddSproutsToBatch(
-		ctx, batchKey, genesisPacket, assetRoot,
+		ctx, mintingBatch, genesisPacket, assetRoot,
 	))
+	require.Equal(
+		t, tapgarden.BatchStateCommitted, mintingBatch.State(),
+	)
 
 	merkleRoot := assetRoot.TapscriptRoot(&randSiblingHash)
 	scriptRoot := assetRoot.TapscriptRoot(nil)
@@ -1002,7 +1008,6 @@ func addRandAssets(t *testing.T, ctx context.Context,
 	require.NoError(t, err)
 
 	return randAssetCtx{
-		batchKey:        batchKey,
 		groupKey:        &group.GroupKey.GroupPubKey,
 		groupGenAmt:     genAmt,
 		genesisPkt:      &genesisPacket.FundedPsbt,
@@ -1074,14 +1079,19 @@ func TestCommitBatchChainActions(t *testing.T) {
 	// to disk, along with the Taproot Asset script root that's stored
 	// alongside any managed UTXOs.
 	require.NoError(t, assetStore.CommitSignedGenesisTx(
-		ctx, randAssetCtx.batchKey, customInternalKey,
+		ctx, randAssetCtx.mintingBatch, customInternalKey,
 		randAssetCtx.genesisPkt, 0,
 		randAssetCtx.merkleRoot, randAssetCtx.scriptRoot,
 		randAssetCtx.tapSiblingBytes,
 	))
 	require.ErrorContains(t, assetStore.StoreSignedGenesisPsbt(
-		ctx, randAssetCtx.batchKey, randAssetCtx.genesisPkt,
+		ctx, randAssetCtx.mintingBatch.BatchKey.PubKey,
+		randAssetCtx.genesisPkt,
 	), "batch in state BatchStateBroadcast")
+	require.Equal(
+		t, tapgarden.BatchStateBroadcast,
+		randAssetCtx.mintingBatch.State(),
+	)
 
 	// The batch updated above should be found, with the batch state
 	// updated, and also the genesis transaction updated to match what we
@@ -1160,9 +1170,13 @@ func TestCommitBatchChainActions(t *testing.T) {
 	blockHeight := uint32(20)
 	txIndex := uint32(5)
 	require.NoError(t, assetStore.MarkBatchConfirmed(
-		ctx, randAssetCtx.batchKey, &fakeBlockHash, blockHeight,
+		ctx, randAssetCtx.mintingBatch, &fakeBlockHash, blockHeight,
 		txIndex, assetProofs,
 	))
+	require.Equal(
+		t, tapgarden.BatchStateConfirmed,
+		randAssetCtx.mintingBatch.State(),
+	)
 
 	// We'll now fetch the chain transaction again, to confirm that all the
 	// field have been properly updated.
@@ -1321,7 +1335,7 @@ func TestCommitSignedGenesisTxConflictingLocatorRollback(t *testing.T) {
 	require.NoError(t, err)
 
 	err = assetStore.CommitSignedGenesisTx(
-		ctx, randAssetCtx.batchKey, customInternalKey,
+		ctx, randAssetCtx.mintingBatch, customInternalKey,
 		randAssetCtx.genesisPkt, 0, randAssetCtx.merkleRoot,
 		randAssetCtx.scriptRoot, randAssetCtx.tapSiblingBytes,
 	)
@@ -1334,7 +1348,7 @@ func TestCommitSignedGenesisTxConflictingLocatorRollback(t *testing.T) {
 	require.Equal(t, conflicting.KeyFamily, locator.KeyFamily)
 	require.Equal(t, conflicting.KeyIndex, locator.KeyIndex)
 	persisted, err := assetStore.FetchMintingBatch(
-		ctx, randAssetCtx.batchKey,
+		ctx, randAssetCtx.mintingBatch.BatchKey.PubKey,
 	)
 	require.NoError(t, err)
 	require.Equal(t, tapgarden.BatchStateCommitted, persisted.State())
@@ -1792,8 +1806,11 @@ func TestGroupAnchors(t *testing.T) {
 	genesisPacket.Pkt.UnsignedTx.TxOut[anchorOutputIndex].PkScript = script
 
 	require.NoError(t, assetStore.AddSproutsToBatch(
-		ctx, batchKey, genesisPacket, assetRoot,
+		ctx, mintingBatch, genesisPacket, assetRoot,
 	))
+	require.Equal(
+		t, tapgarden.BatchStateCommitted, mintingBatch.State(),
+	)
 
 	// Now we'll query for that same batch, and assert that the set of
 	// assets we just inserted into the database matches up.
@@ -2307,6 +2324,102 @@ func TestUpsertMintSupplyPreCommit(t *testing.T) {
 		t, *assetStore, batchKey, preCommitOut.OutIdx, internalKey2,
 		groupPubKey2Bytes, preCommitOutpoint,
 	)
+}
+
+// TestUpdateBatchStateMemoryCoherence pins the invariant that the
+// in-memory batch state never advances unless the on-disk write
+// succeeds. When the DB call fails (here, via a pre-cancelled
+// context), batch.State() must remain at its prior value and a fresh
+// read from disk must agree.
+func TestUpdateBatchStateMemoryCoherence(t *testing.T) {
+	t.Parallel()
+
+	assetStore, _, _ := newAssetStore(t)
+	ctx := context.Background()
+
+	mintingBatch := tapgarden.RandMintingBatch(t)
+	require.NoError(t, assetStore.CommitMintingBatch(ctx, mintingBatch))
+	require.Equal(
+		t, tapgarden.BatchStatePending, mintingBatch.State(),
+	)
+
+	// A pre-cancelled context forces ExecTx to fail before touching
+	// the row, exercising the failure path of UpdateBatchState.
+	cancelledCtx, cancel := context.WithCancel(ctx)
+	cancel()
+
+	err := assetStore.UpdateBatchState(
+		cancelledCtx, mintingBatch, tapgarden.BatchStateFrozen,
+	)
+	require.Error(t, err)
+
+	// In-memory state must not have moved.
+	require.Equal(
+		t, tapgarden.BatchStatePending, mintingBatch.State(),
+	)
+
+	// On-disk state must not have moved either.
+	fetched, err := assetStore.FetchMintingBatch(
+		ctx, mintingBatch.BatchKey.PubKey,
+	)
+	require.NoError(t, err)
+	require.Equal(
+		t, tapgarden.BatchStatePending, fetched.State(),
+	)
+}
+
+// TestSingletonPreBroadcastBatchConstraint exercises the partial
+// unique index added in migration 000061. At most one
+// asset_minting_batches row may be in BatchStatePending or
+// BatchStateFrozen at any time; the second insert into that set
+// must fail with a constraint error, and a row in
+// BatchStateCommitted (or later) must not count against the
+// constraint.
+func TestSingletonPreBroadcastBatchConstraint(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	assetStore, _, _ := newAssetStore(t)
+
+	// A first Pending batch is fine.
+	first := tapgarden.RandMintingBatch(t)
+	require.NoError(t, assetStore.CommitMintingBatch(ctx, first))
+
+	// A second Pending batch must be rejected: two rows in
+	// BatchStatePending violate the partial unique index. The
+	// violation must surface as the domain error, not as a raw
+	// SQL constraint error.
+	secondPending := tapgarden.RandMintingBatch(t)
+	err := assetStore.CommitMintingBatch(ctx, secondPending)
+	require.ErrorIs(t, err, tapgarden.ErrDuplicatePreBroadcastBatch)
+
+	// Move the first batch to Frozen; it is still in the
+	// pre-broadcast set, so a new Pending batch must still be
+	// rejected (Pending ∪ Frozen, not just Pending).
+	require.NoError(t, assetStore.UpdateBatchState(
+		ctx, first, tapgarden.BatchStateFrozen,
+	))
+
+	pendingWhileFrozen := tapgarden.RandMintingBatch(t)
+	err = assetStore.CommitMintingBatch(ctx, pendingWhileFrozen)
+	require.ErrorIs(t, err, tapgarden.ErrDuplicatePreBroadcastBatch)
+
+	// Move the first batch out of the pre-broadcast set into
+	// Committed; the constraint no longer applies to it. A new
+	// Pending batch must now succeed.
+	require.NoError(t, assetStore.UpdateBatchState(
+		ctx, first, tapgarden.BatchStateCommitted,
+	))
+
+	third := tapgarden.RandMintingBatch(t)
+	require.NoError(t, assetStore.CommitMintingBatch(ctx, third))
+
+	// And finally: two batches both in Committed must be
+	// permitted -- the constraint targets only the pre-broadcast
+	// set.
+	require.NoError(t, assetStore.UpdateBatchState(
+		ctx, third, tapgarden.BatchStateCommitted,
+	))
 }
 
 func init() {

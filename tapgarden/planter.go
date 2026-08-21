@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"reflect"
@@ -1077,6 +1078,19 @@ func (c *ChainPlanter) Start() error {
 		log.Infof("Retrieved %v non-finalized batches from DB",
 			len(nonFinalBatches))
 
+		// Enforce the singleton invariant: at most one batch may
+		// be in BatchStatePending or BatchStateFrozen at a time.
+		// The DB constraint added in migration 000061 should
+		// already make this impossible, but a legacy DB that was
+		// migrated post-population, or a manually-modified row,
+		// could still violate it. Surfacing the error here gives
+		// the operator a human-readable diagnostic instead of an
+		// opaque SQL one later.
+		if err := checkSingletonInvariant(nonFinalBatches); err != nil {
+			startErr = err
+			return
+		}
+
 		// Now for each of these non-final batches, we'll make a new
 		// caretaker which'll handle progressing each batch to
 		// completion. We'll skip batches that were cancelled.
@@ -1184,7 +1198,7 @@ func (c *ChainPlanter) Start() error {
 				log.Warnf("Marking batch as cancelled (%x)",
 					batchKey)
 				err := c.cfg.Log.UpdateBatchState(
-					ctx, batch.BatchKey.PubKey,
+					ctx, batch,
 					BatchStateSeedlingCancelled,
 				)
 
@@ -1215,7 +1229,7 @@ func (c *ChainPlanter) Start() error {
 				if !batch.IsFunded() {
 					log.Infof("Funding non-finalized "+
 						"batch from DB (%x)", batchKey)
-					fundErr = c.fundBatch(
+					fundErr = c.applyFundingToBatch(
 						ctx, FundParams{}, batch,
 					)
 				}
@@ -1255,12 +1269,12 @@ func (c *ChainPlanter) Start() error {
 
 				// Any pending batch that was funded and sealed
 				// can now be set as frozen. We are already not
-				// able to add new seedlings to the batch.
-				batch.UpdateState(BatchStateFrozen)
-
+				// able to add new seedlings to the batch. The
+				// store call below moves both the on-disk row
+				// and the in-memory mirror atomically; if it
+				// fails, neither has moved.
 				err := c.cfg.Log.UpdateBatchState(
-					ctx, batch.BatchKey.PubKey,
-					BatchStateFrozen,
+					ctx, batch, BatchStateFrozen,
 				)
 				if err != nil {
 					log.Warnf("Failed to update batch "+
@@ -1287,6 +1301,20 @@ func (c *ChainPlanter) Start() error {
 				go c.forwardStartupCaretakerResult(
 					batchKey, caretaker,
 				)
+			} else if batch.State() != BatchStateConfirmed {
+				// The caretaker advances the batch in the background,
+				// and nothing else reads its broadcast channels on
+				// this path: BroadcastErrChan is otherwise only
+				// consumed by the interactive finalize handler. Watch
+				// for a pre-broadcast failure so a failed resume
+				// cannot leave the batch occupying the singleton slot
+				// enforced by the migration 000061 index, which would
+				// block all further minting. A batch resumed at
+				// BatchStateConfirmed skips the broadcast phase
+				// entirely and reports through the completion signal,
+				// so there is nothing to watch.
+				c.Wg.Add(1)
+				go c.watchResumedCaretaker(caretaker)
 			}
 		}
 
@@ -1394,7 +1422,11 @@ func (c *ChainPlanter) newBatch() (*MintingBatch, error) {
 		Seedlings:    make(map[string]*Seedling),
 		AssetMetas:   make(AssetMetas),
 	}
-	newBatch.UpdateState(BatchStatePending)
+	// The batch is private to this caller until CommitMintingBatch
+	// succeeds, so setting the in-memory state directly here does not
+	// open a two-truth window: the next DB call is the first to publish
+	// the row, with state=Pending.
+	newBatch.setState(BatchStatePending)
 	return newBatch, nil
 }
 
@@ -1530,6 +1562,9 @@ func anchorTxOutputIndexes(fundedPsbt tapsend.FundedPsbt,
 type DelegationKey = keychain.KeyDescriptor
 
 // fetchDelegationKey retrieves the delegation key from the given batch.
+// The key is read from the batch's unique group anchor seedling; an
+// error is returned if the anchor cannot be identified
+// deterministically.
 func fetchDelegationKey(pendingBatch *MintingBatch) (fn.Option[DelegationKey],
 	error) {
 
@@ -1547,26 +1582,13 @@ func fetchDelegationKey(pendingBatch *MintingBatch) (fn.Option[DelegationKey],
 			"delegation key: no seedlings in batch")
 	}
 
-	// Retrieve batch anchor seedling.
-	var groupAnchorSeedling fn.Option[Seedling]
-	for _, seedling := range pendingBatch.Seedlings {
-		if seedling.GroupAnchor == nil {
-			groupAnchorSeedling = fn.Some(*seedling)
-			break
-		}
-
-		groupAnchorSeedling =
-			fn.Some(*pendingBatch.Seedlings[*seedling.GroupAnchor])
-		break
+	anchor, err := pendingBatch.uniqueAnchorSeedling()
+	if err != nil {
+		return zero, fmt.Errorf("unable to identify group anchor "+
+			"seedling: %w", err)
 	}
 
-	delegationKeyDesc := fn.MapOptionZ(groupAnchorSeedling,
-		func(s Seedling) fn.Option[keychain.KeyDescriptor] {
-			return s.DelegationKey
-		},
-	)
-
-	return delegationKeyDesc, nil
+	return anchor.DelegationKey, nil
 }
 
 // fetchPreCommitGroupKey retrieves the group key associated with the
@@ -1594,28 +1616,19 @@ func fetchPreCommitGroupKey(
 		return zero, nil
 	}
 
-	// Retrieve batch anchor seedling.
-	var groupAnchorSeedling Seedling
-	for _, seedling := range pendingBatch.Seedlings {
-		// If the seedling has no group anchor, we can use it as the
-		// group anchor seedling.
-		if seedling.GroupAnchor == nil {
-			groupAnchorSeedling = *seedling
-			break
-		}
-
-		groupAnchorSeedling =
-			*pendingBatch.Seedlings[*seedling.GroupAnchor]
-		break
+	anchor, err := pendingBatch.uniqueAnchorSeedling()
+	if err != nil {
+		return zero, fmt.Errorf("unable to identify group anchor "+
+			"seedling: %w", err)
 	}
 
 	// If the group info is unset, then there is no pre-commitment group pub
 	// key defined in the batch.
-	if groupAnchorSeedling.GroupInfo == nil {
+	if anchor.GroupInfo == nil {
 		return zero, nil
 	}
 
-	return fn.Some(groupAnchorSeedling.GroupInfo.GroupPubKey), nil
+	return fn.Some(anchor.GroupInfo.GroupPubKey), nil
 }
 
 // anchorTxFeeRate computes the fee rate for the anchor transaction. If a fee
@@ -2403,8 +2416,61 @@ func freezeMintingBatch(ctx context.Context, batchStore MintingStore,
 	//
 	// TODO(roasbeef): assert not in some other state first?
 	return batchStore.UpdateBatchState(
-		ctx, batchKey, BatchStateFrozen,
+		ctx, batch, BatchStateFrozen,
 	)
+}
+
+// ErrDuplicatePreBroadcastBatch is returned when a new minting batch
+// cannot be persisted because another batch already occupies the
+// pre-broadcast singleton slot (BatchStatePending or
+// BatchStateFrozen) enforced by the partial unique index added in
+// migration 000061. This can happen transiently right after a
+// restart, while a resumed batch is still working towards broadcast.
+var ErrDuplicatePreBroadcastBatch = errors.New("another minting batch " +
+	"is already awaiting broadcast; wait for it to be broadcast or " +
+	"cancel it before creating a new batch")
+
+// checkSingletonInvariant verifies that at most one batch in the
+// supplied slice is in a pre-broadcast state (BatchStatePending or
+// BatchStateFrozen). The invariant is enforced at the DB layer by
+// the partial unique index added in migration 000061; this Go-level
+// check exists as defense in depth and to produce a human-readable
+// diagnostic naming the offending batch keys, since a raw SQL
+// constraint error from a downstream insert is harder to act on.
+//
+// The check is called from ChainPlanter.Start() after
+// FetchNonFinalBatches. If it fails, startup is aborted so the
+// operator can investigate rather than letting the daemon run with
+// ambiguous "which batch is current?" semantics.
+func checkSingletonInvariant(batches []*MintingBatch) error {
+	var preBroadcastKeys []string
+	for _, batch := range batches {
+		switch batch.State() {
+		case BatchStatePending, BatchStateFrozen:
+			preBroadcastKeys = append(
+				preBroadcastKeys,
+				hex.EncodeToString(
+					batch.BatchKey.PubKey.
+						SerializeCompressed(),
+				),
+			)
+
+		default:
+			// Only pre-broadcast states are constrained by
+			// the singleton index; ignore everything else.
+		}
+	}
+
+	if len(preBroadcastKeys) <= 1 {
+		return nil
+	}
+
+	return fmt.Errorf("singleton pre-broadcast batch invariant "+
+		"violated: found %d batches in BatchStatePending or "+
+		"BatchStateFrozen (keys: %v); at most one is permitted. "+
+		"Resolve by running `tapd --repair.cancel-duplicate-batches` "+
+		"to cancel all but the most recent, then restart",
+		len(preBroadcastKeys), preBroadcastKeys)
 }
 
 // filterFinalizedBatches separates a set of batches into two sets based on
@@ -2770,11 +2836,20 @@ func (c *ChainPlanter) canCancelBatch() (*btcec.PublicKey, error) {
 
 		return c.pendingBatch.BatchKey.PubKey, nil
 	case 1:
-		// TODO(jhb): Update once we support multiple batches.
-		// If there is exactly one caretaker, our pending batch should
-		// be empty. Otherwise, the batch to cancel is ambiguous.
+		// If there is exactly one caretaker, our pending batch
+		// must be empty for the cancel target to be
+		// unambiguous. Both can coexist legitimately: the
+		// caretaker may be handling a post-broadcast batch
+		// (Committed/Broadcast/Confirmed) while a fresh
+		// Pending/Frozen batch has begun in c.pendingBatch. The
+		// singleton constraint added in migration 000061 only
+		// applies to {Pending, Frozen}, so this case is real,
+		// not unreachable.
 		if c.pendingBatch != nil {
-			return nil, fmt.Errorf("multiple batches not supported")
+			return nil, fmt.Errorf("cancellation ambiguous: " +
+				"pending batch and an active caretaker " +
+				"coexist; cancel-by-batch-key not " +
+				"implemented")
 		}
 
 		batchKeys := maps.Keys(c.caretakers)
@@ -2787,8 +2862,13 @@ func (c *ChainPlanter) canCancelBatch() (*btcec.PublicKey, error) {
 	default:
 	}
 
-	// TODO(jhb): Update once we support multiple batches.
-	return nil, fmt.Errorf("multiple caretakers not supported")
+	// Multiple caretakers can coexist when several post-broadcast
+	// batches are awaiting confirmation in parallel. The singleton
+	// constraint added in migration 000061 does not forbid this; it
+	// only constrains {Pending, Frozen}.
+	return nil, fmt.Errorf("cancellation ambiguous: %d active "+
+		"caretakers; cancel-by-batch-key not implemented",
+		caretakerCount)
 }
 
 // cancelMintingBatch attempts to cancel a target minting batch. This can fail
@@ -2829,8 +2909,10 @@ func (c *ChainPlanter) cancelMintingBatch(ctx context.Context,
 	log.Infof("Cancelling MintingBatch(key=%x, num_assets=%v)",
 		batchKeySerialized, len(c.pendingBatch.Seedlings))
 
-	// If the target batch was not assigned a caretaker, we only need to
-	// update the batch state on disk to cancel it.
+	// If the target batch was not assigned a caretaker, the only
+	// non-cancelled batch in play is c.pendingBatch (canCancelBatch
+	// guarantees this). Determine the correct terminal state, then update
+	// both the disk row and the in-memory batch in a single atomic call.
 	var cancelState BatchState
 	switch c.pendingBatch.State() {
 	case BatchStatePending, BatchStateFrozen:
@@ -2850,7 +2932,9 @@ func (c *ChainPlanter) cancelMintingBatch(ctx context.Context,
 			c.pendingBatch.State())
 	}
 
-	err := c.cfg.Log.UpdateBatchState(ctx, batchKey, cancelState)
+	err := c.cfg.Log.UpdateBatchState(
+		ctx, c.pendingBatch, cancelState,
+	)
 	if err != nil {
 		return fmt.Errorf("unable to cancel minting batch: %w", err)
 	}
@@ -2871,6 +2955,88 @@ func (c *ChainPlanter) cancelMintingBatch(ctx context.Context,
 	}
 
 	return nil
+}
+
+// cancelFailedBatch cancels a batch whose caretaker reported a
+// broadcast-path error, so the batch isn't left occupying the
+// pre-broadcast singleton slot enforced by the migration 000061
+// index. Only Pending and Frozen batches are cancelled: those are
+// the states the index constrains, and no sprouts exist yet, so
+// SeedlingCancelled applies. Batches at Committed or beyond are
+// left untouched. They don't occupy the singleton slot, and the
+// restart path resumes and retries them, so cancelling here would
+// turn a transient failure (say, a brief signer outage) into a
+// permanent one that forces a re-mint with new asset IDs.
+//
+// The returned error is non-nil only when the batch occupied the
+// singleton slot and the on-disk cancellation failed, i.e. exactly
+// when the slot is still occupied and the batch still needs an
+// owner.
+func (c *ChainPlanter) cancelFailedBatch(batch *MintingBatch) error {
+	batchKeySerial := asset.ToSerialized(batch.BatchKey.PubKey)
+
+	batchState := batch.State()
+	if batchState != BatchStatePending && batchState != BatchStateFrozen {
+		log.Infof("Leaving failed batch (%x) at state %v; restart "+
+			"will resume it", batchKeySerial[:], batchState)
+		return nil
+	}
+
+	ctx, cancel := c.WithCtxQuit()
+	defer cancel()
+	err := c.cfg.Log.UpdateBatchState(
+		ctx, batch, BatchStateSeedlingCancelled,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to cancel failed batch (%x): %w",
+			batchKeySerial[:], err)
+	}
+
+	return nil
+}
+
+// watchResumedCaretaker waits for a caretaker launched for a resumed
+// batch to either broadcast its batch or fail beforehand. On a
+// pre-broadcast failure it cancels the batch, freeing the singleton
+// slot enforced by the migration 000061 index, and hands the dead
+// caretaker to the gardener via the completion signal so it is
+// stopped and removed from the caretaker set (the gardener owns that
+// set, so removal must happen there). The interactive finalize
+// handler performs the equivalent duties for caretakers launched via
+// FinalizeBatch.
+func (c *ChainPlanter) watchResumedCaretaker(caretaker *BatchCaretaker) {
+	defer c.Wg.Done()
+
+	batchKey := asset.ToSerialized(caretaker.cfg.Batch.BatchKey.PubKey)
+
+	select {
+	case <-caretaker.cfg.BroadcastCompleteChan:
+		// The batch reached broadcast; from here on the caretaker
+		// reports completion through the completion signal on its
+		// own.
+
+	case err := <-caretaker.cfg.BroadcastErrChan:
+		log.Errorf("Resumed batch (%x) failed before broadcast: %v",
+			batchKey[:], err)
+
+		// On the resume path there is no in-memory owner to
+		// preserve, so a failed cancellation can only be
+		// logged; restarting tapd retries the resume.
+		cancelErr := c.cancelFailedBatch(caretaker.cfg.Batch)
+		if cancelErr != nil {
+			log.Errorf("%v; the pre-broadcast singleton slot is "+
+				"still occupied on disk, so new batches will "+
+				"be rejected until tapd is restarted",
+				cancelErr)
+		}
+
+		select {
+		case c.completionSignals <- batchKey:
+		case <-c.Quit:
+		}
+
+	case <-c.Quit:
+	}
 }
 
 // gardener is responsible for collecting new potential taproot asset
@@ -3031,7 +3197,6 @@ func (c *ChainPlanter) gardener() {
 			}
 			req.updates <- SeedlingUpdate{
 				PendingBatch: batchCopy,
-				NewState:     MintingStateSeed,
 			}
 
 		// A caretaker has finished processing their batch to full
@@ -3133,8 +3298,8 @@ func (c *ChainPlanter) gardener() {
 				}
 
 				ctx, cancel := c.WithCtxQuit()
-				err = c.fundBatch(
-					ctx, *fundReqParams, c.pendingBatch,
+				err = c.fundPendingBatch(
+					ctx, *fundReqParams,
 				)
 				cancel()
 				if err != nil {
@@ -3266,14 +3431,15 @@ func (c *ChainPlanter) gardener() {
 					break
 				}
 
-				broadcastSucceeded := false
-
 				// We now wait for the caretaker to either
 				// broadcast the batch or fail to do so.
 				select {
 				case <-caretaker.cfg.BroadcastCompleteChan:
-					broadcastSucceeded = true
 					req.Resolve(caretaker.cfg.Batch)
+
+					// The batch has been broadcast, so we
+					// can remove the pending batch.
+					c.pendingBatch = nil
 
 				case err := <-caretaker.cfg.BroadcastErrChan:
 					req.Error(err)
@@ -3290,15 +3456,33 @@ func (c *ChainPlanter) gardener() {
 
 					delete(c.caretakers, batchKeySerial)
 
+					// Cancel the failed batch on disk if
+					// it is still pre-broadcast, so it
+					// isn't left wedged in a state the
+					// migration 000061 singleton index
+					// forbids. Only drop the in-memory
+					// reference if the batch no longer
+					// occupies the singleton slot;
+					// otherwise keep it so a retried
+					// cancel request can still find and
+					// cancel the batch.
+					cancelErr := c.cancelFailedBatch(
+						caretaker.cfg.Batch,
+					)
+					if cancelErr != nil {
+						log.Errorf("%v; retry "+
+							"cancelling the "+
+							"batch, or restart "+
+							"tapd", cancelErr)
+						break
+					}
+
+					if !customBatch {
+						c.pendingBatch = nil
+					}
+
 				case <-c.Quit:
 					return
-				}
-
-				// Now that we have a caretaker launched for
-				// this batch and broadcast its minting
-				// transaction, we can remove the pending batch.
-				if broadcastSucceeded || !customBatch {
-					c.pendingBatch = nil
 				}
 
 			case reqTypeCancelBatch:
@@ -3323,6 +3507,12 @@ func (c *ChainPlanter) gardener() {
 				ctx, cancel := c.WithCtxQuit()
 				err = c.cancelMintingBatch(ctx, batchKey)
 				cancel()
+				// Only drop the in-memory reference if the
+				// on-disk cancellation went through. If it
+				// failed, the row still occupies the
+				// pre-broadcast singleton slot, and orphaning
+				// it here would wedge new batch creation
+				// until restart.
 				if err == nil {
 					c.pendingBatch = nil
 				}
@@ -3338,40 +3528,47 @@ func (c *ChainPlanter) gardener() {
 	}
 }
 
-// fundBatch attempts to fund a minting batch and create a funded genesis PSBT.
-// This PSBT is a template that the caretaker will modify when finalizing the
-// batch. If a feerate or tapscript sibling are provided, those will be used
-// when funding the batch. If no pending batch exists, a batch will be created
-// with the funded genesis PSBT. After funding, the pending batch will be
-// saved to disk and updated in memory.
-func (c *ChainPlanter) fundBatch(ctx context.Context, params FundParams,
-	workingBatch *MintingBatch) error {
-	if workingBatch != nil && workingBatch.State() != BatchStatePending {
-		return fmt.Errorf("batch in state %v cannot be funded",
-			workingBatch.State())
-	}
+// fundingPrep stores a tapscript-sibling root hash (already persisted
+// to the tree store) and a closure that computes a funded mint anchor
+// PSBT for a given batch without mutating it. Both fields are
+// populated by prepareFunding and consumed by createFundedBatch /
+// applyFundingToBatch.
+type fundingPrep struct {
+	// rootHash is the persisted root hash of the optional tapscript
+	// sibling supplied via FundParams. nil if no sibling was given.
+	rootHash *chainhash.Hash
+
+	// computeFunding builds the funded genesis PSBT for a batch
+	// without mutating it. Callers must apply the result only after
+	// all persistence has succeeded, so a failure leaves the batch
+	// unchanged.
+	computeFunding func(batch *MintingBatch) (*FundedMintAnchorPsbt,
+		error)
+}
+
+// prepareFunding stores the optional tapscript sibling and constructs
+// the funding-computation closure shared by createFundedBatch and
+// applyFundingToBatch.
+func (c *ChainPlanter) prepareFunding(ctx context.Context,
+	params FundParams) (fundingPrep, error) {
 
 	var (
+		zero     fundingPrep
 		rootHash *chainhash.Hash
 		err      error
 	)
 
-	// If a tapscript tree was specified for this batch, we'll store it on
-	// disk. The caretaker we start for this batch will use it when deriving
-	// the final Taproot output key.
+	// If a tapscript tree was specified for this batch, we'll store
+	// it on disk. The caretaker we start for this batch will use it
+	// when deriving the final Taproot output key.
 	params.SiblingTapTree.WhenSome(func(tn asset.TapscriptTreeNodes) {
 		rootHash, err = c.cfg.TreeStore.StoreTapscriptTree(ctx, tn)
 	})
-
 	if err != nil {
-		return fmt.Errorf("unable to store tapscript tree for minting "+
-			"batch: %w", err)
+		return zero, fmt.Errorf("unable to store tapscript tree "+
+			"for minting batch: %w", err)
 	}
 
-	// computeFunding builds the funded genesis PSBT for a batch
-	// without mutating it. The caller is responsible for applying
-	// the result to the batch only after all persistence has
-	// succeeded, so a failure leaves the batch unchanged.
 	computeFunding := func(batch *MintingBatch) (
 		*FundedMintAnchorPsbt, error) {
 		if params.AnchorPsbt != nil {
@@ -3417,8 +3614,8 @@ func (c *ChainPlanter) fundBatch(ctx context.Context, params FundParams,
 
 		batchKey := asset.ToSerialized(batch.BatchKey.PubKey)
 
-		// walletFundPsbt is a closure that will be used to fund the
-		// batch with the specified fee rate.
+		// walletFundPsbt is a closure that will be used to fund
+		// the batch with the specified fee rate.
 		walletFundPsbt := func(ctx context.Context,
 			anchorPkt psbt.Packet) (tapsend.FundedPsbt, error) {
 
@@ -3447,42 +3644,81 @@ func (c *ChainPlanter) fundBatch(ctx context.Context, params FundParams,
 		return &mintAnchorTx, nil
 	}
 
-	// If we don't have a batch, we'll create an empty batch before funding
-	// and writing to disk.
-	if workingBatch == nil {
-		newBatch, err := c.newBatch()
-		if err != nil {
-			return fmt.Errorf("unable to create new batch: %w", err)
-		}
+	return fundingPrep{
+		rootHash:       rootHash,
+		computeFunding: computeFunding,
+	}, nil
+}
 
-		mintAnchorTx, err := computeFunding(newBatch)
-		if err != nil {
-			return err
-		}
+// createFundedBatch derives a fresh minting batch, computes its
+// funding, and persists the funded batch to disk as a single new row.
+// On any failure no new batch is committed and no in-memory state is
+// touched; the caller may try again. The returned batch is ready to
+// be installed as c.pendingBatch by the caller.
+//
+// NOTE: This is the create half of what used to be a single fundBatch
+// function with two purposes. The split exists so that "create a new
+// funded batch" cannot be silently dispatched into "update an
+// existing batch's funding" (or vice-versa) by callers passing a
+// stale or wrong reference -- the bug shape behind #2136.
+func (c *ChainPlanter) createFundedBatch(ctx context.Context,
+	params FundParams) (*MintingBatch, error) {
 
-		// Apply the funding to the local batch and commit. If the
-		// commit fails, newBatch is discarded and the planter's
-		// pendingBatch is never assigned.
-		newBatch.GenesisPacket = mintAnchorTx
-		if rootHash != nil {
-			newBatch.tapSibling = rootHash
-		}
-
-		err = c.cfg.Log.CommitMintingBatch(ctx, newBatch)
-		if err != nil {
-			releaseErr := releaseCustomAnchorLeases(
-				ctx, c.cfg.Wallet, mintAnchorTx,
-			)
-			return errors.Join(err, releaseErr)
-		}
-
-		c.pendingBatch = newBatch
-		return nil
+	prep, err := c.prepareFunding(ctx, params)
+	if err != nil {
+		return nil, err
 	}
 
-	// Compute the funded genesis packet for the existing batch
-	// without mutating it yet.
-	mintAnchorTx, err := computeFunding(workingBatch)
+	newBatch, err := c.newBatch()
+	if err != nil {
+		return nil, fmt.Errorf("unable to create new batch: %w", err)
+	}
+
+	mintAnchorTx, err := prep.computeFunding(newBatch)
+	if err != nil {
+		return nil, err
+	}
+
+	// Apply the funding to the local batch and commit. If the
+	// commit fails, newBatch is discarded and the caller's planter
+	// state is never assigned.
+	newBatch.GenesisPacket = mintAnchorTx
+	if prep.rootHash != nil {
+		newBatch.tapSibling = prep.rootHash
+	}
+
+	if err := c.cfg.Log.CommitMintingBatch(ctx, newBatch); err != nil {
+		releaseErr := releaseCustomAnchorLeases(
+			ctx, c.cfg.Wallet, mintAnchorTx,
+		)
+		return nil, errors.Join(err, releaseErr)
+	}
+
+	return newBatch, nil
+}
+
+// applyFundingToBatch computes funding for an existing on-disk batch,
+// persists the funding atomically (sibling + genesis TX in one DB
+// transaction), and only then mirrors the funding into the in-memory
+// batch. On any failure neither disk nor memory is mutated.
+//
+// NOTE: This is the update half of the former fundBatch. It must
+// never be called with a batch that has not yet been written to disk
+// -- use createFundedBatch for that case.
+func (c *ChainPlanter) applyFundingToBatch(ctx context.Context,
+	params FundParams, batch *MintingBatch) error {
+
+	if batch == nil {
+		return fmt.Errorf("applyFundingToBatch requires non-nil " +
+			"batch; use createFundedBatch to create a new one")
+	}
+
+	prep, err := c.prepareFunding(ctx, params)
+	if err != nil {
+		return err
+	}
+
+	mintAnchorTx, err := prep.computeFunding(batch)
 	if err != nil {
 		return err
 	}
@@ -3492,7 +3728,7 @@ func (c *ChainPlanter) fundBatch(ctx context.Context, params FundParams,
 	// failure cannot leave the batch with one persisted and the
 	// other absent.
 	err = c.cfg.Log.CommitBatchFunding(
-		ctx, workingBatch.BatchKey.PubKey, rootHash, *mintAnchorTx,
+		ctx, batch.BatchKey.PubKey, prep.rootHash, *mintAnchorTx,
 	)
 	if err != nil {
 		releaseErr := releaseCustomAnchorLeases(
@@ -3504,13 +3740,36 @@ func (c *ChainPlanter) fundBatch(ctx context.Context, params FundParams,
 		)
 	}
 
-	// All persistence succeeded; commit the funding to memory.
-	workingBatch.GenesisPacket = mintAnchorTx
-	if rootHash != nil {
-		workingBatch.tapSibling = rootHash
+	// All persistence succeeded; mirror the funding into memory.
+	batch.GenesisPacket = mintAnchorTx
+	if prep.rootHash != nil {
+		batch.tapSibling = prep.rootHash
 	}
 
 	return nil
+}
+
+// fundPendingBatch funds c.pendingBatch, creating it first if it does
+// not yet exist. This is the convenience wrapper used by the
+// gardener's fund-batch request handler and by finalizeBatch; both
+// have the same "I want the pending batch funded, regardless of
+// whether it exists yet" semantics. c.pendingBatch is updated only on
+// success of the create path; the update path mutates the existing
+// batch in place via applyFundingToBatch.
+func (c *ChainPlanter) fundPendingBatch(ctx context.Context,
+	params FundParams) error {
+
+	if c.pendingBatch == nil {
+		newBatch, err := c.createFundedBatch(ctx, params)
+		if err != nil {
+			return err
+		}
+
+		c.pendingBatch = newBatch
+		return nil
+	}
+
+	return c.applyFundingToBatch(ctx, params, c.pendingBatch)
 }
 
 // matchPsbtToGroupReq attempts to match a signed group virtual PSBT to a
@@ -3919,7 +4178,6 @@ func (c *ChainPlanter) prepareBatch(ctx context.Context,
 		if err := freezeMintingBatch(ctx, c.cfg.Log, batch); err != nil {
 			return nil, err
 		}
-		batch.UpdateState(BatchStateFrozen)
 	}
 
 	caretaker := c.newCaretakerForBatch(batch, nil)
@@ -3933,7 +4191,6 @@ func (c *ChainPlanter) prepareBatch(ctx context.Context,
 			nextState)
 	}
 
-	batch.UpdateState(BatchStateCommitted)
 	return batch, nil
 }
 
@@ -4398,13 +4655,18 @@ func (c *ChainPlanter) finalizeBatch(params FinalizeParams) (*BatchCaretaker,
 	}
 	// Fund the batch if it hasn't been funded yet. If funding
 	// fails, the batch stays pending so the user can retry.
+	//
+	// finalizeBatch is only reached when c.pendingBatch is
+	// non-nil (the gardener short-circuits with an error
+	// otherwise), so the "create" path of fundPendingBatch is
+	// not exercised here; calling fundPendingBatch keeps the
+	// dispatch in one place rather than re-checking pending-ness
+	// here.
 	if !c.pendingBatch.IsFunded() {
-		err = c.fundBatch(
-			ctx, FundParams{
-				FeeRate:        params.FeeRate,
-				SiblingTapTree: params.SiblingTapTree,
-			}, c.pendingBatch,
-		)
+		err = c.fundPendingBatch(ctx, FundParams{
+			FeeRate:        params.FeeRate,
+			SiblingTapTree: params.SiblingTapTree,
+		})
 		if err != nil {
 			return nil, err
 		}
@@ -4431,12 +4693,13 @@ func (c *ChainPlanter) finalizeBatch(params FinalizeParams) (*BatchCaretaker,
 
 	// Now that funding and sealing have succeeded, freeze the
 	// batch on disk and in memory. This means no further
-	// seedlings can be added to this batch.
+	// seedlings can be added to this batch. freezeMintingBatch
+	// updates both the on-disk row and the in-memory state in a
+	// single atomic step via the MintingStore.
 	err = freezeMintingBatch(ctx, c.cfg.Log, c.pendingBatch)
 	if err != nil {
 		return nil, err
 	}
-	c.pendingBatch.UpdateState(BatchStateFrozen)
 	caretaker := c.newCaretakerForBatch(c.pendingBatch, feeRate)
 	if err := caretaker.Start(); err != nil {
 		return nil, fmt.Errorf("unable to start new caretaker: %w", err)
@@ -4786,12 +5049,15 @@ func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 			return err
 		}
 
-		c.pendingBatch = newBatch
-
 		log.Infof("Attempting to add a seedling to a new batch "+
 			"(seedling=%v)", req)
 
-		err = c.pendingBatch.AddSeedling(*req)
+		// Stage the seedling on the local newBatch and persist
+		// the whole batch atomically via CommitMintingBatch. The
+		// planter's pendingBatch is assigned only after the DB
+		// write succeeds; on any failure newBatch is discarded
+		// and the planter state is unchanged.
+		err = newBatch.AddSeedling(*req)
 		if err != nil {
 			return fmt.Errorf("failed to add seedling to batch: %w",
 				err)
@@ -4799,10 +5065,12 @@ func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 
 		ctx, cancel := c.WithCtxQuit()
 		defer cancel()
-		err = c.cfg.Log.CommitMintingBatch(ctx, c.pendingBatch)
+		err = c.cfg.Log.CommitMintingBatch(ctx, newBatch)
 		if err != nil {
 			return err
 		}
+
+		c.pendingBatch = newBatch
 
 	// A batch already exists, so we'll add this seedling to the batch,
 	// committing it to disk fully before we move on.
@@ -4810,13 +5078,18 @@ func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 		log.Infof("Attempting to add a seedling to batch (seedling=%v)",
 			req)
 
-		err := c.pendingBatch.AddSeedling(*req)
+		// Validate first without mutating the in-memory batch,
+		// then persist, then mirror the seedling into memory.
+		// This ordering ensures the in-memory batch never
+		// advances unless the DB write succeeded: a failed
+		// AddSeedlingsToBatch leaves both disk and memory at
+		// their prior state.
+		err := c.pendingBatch.validateSeedling(*req)
 		if err != nil {
 			return fmt.Errorf("failed to add seedling to batch: %w",
 				err)
 		}
 
-		// Now that we know the seedling is ok, we'll write it to disk.
 		ctx, cancel := c.WithCtxQuit()
 		defer cancel()
 		err = c.cfg.Log.AddSeedlingsToBatch(
@@ -4825,6 +5098,8 @@ func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 		if err != nil {
 			return err
 		}
+
+		c.pendingBatch.commitSeedling(*req)
 	}
 
 	// Now that we have the batch committed to disk, we'll return back to

@@ -5,12 +5,27 @@ import (
 	"net/http"
 	"os"
 	"runtime/pprof"
+	"strings"
 
 	"github.com/jessevdk/go-flags"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/tapcfg"
 	"github.com/lightningnetwork/lnd/signal"
 )
+
+// repairFlagOnCommandLine reports whether the one-shot repair flag
+// was passed on the command line itself, as opposed to being read
+// from a config file.
+func repairFlagOnCommandLine() bool {
+	const flag = "--repair.cancel-duplicate-batches"
+	for _, arg := range os.Args[1:] {
+		if arg == flag || strings.HasPrefix(arg, flag+"=") {
+			return true
+		}
+	}
+
+	return false
+}
 
 func main() {
 	// Hook interceptor for os signals.
@@ -33,6 +48,34 @@ func main() {
 
 		// Help was requested, exit normally.
 		os.Exit(0)
+	}
+
+	// If the operator has invoked tapd in one-shot repair mode, run
+	// the requested repair against the database and exit before
+	// constructing the full server. The repair tool opens the DB
+	// with migrations skipped, so it can recover a legacy DB whose
+	// state would otherwise block a migration from applying.
+	//
+	// The flag is only honored when given on the command line
+	// itself. Repair mode exits after running, so a value left
+	// behind in tapd.conf would otherwise turn every subsequent
+	// start into a no-op exit with a success code, silently taking
+	// a supervised node out of service.
+	if cfg.Repair != nil && cfg.Repair.CancelDuplicateBatches {
+		if repairFlagOnCommandLine() {
+			err := tapcfg.RunRepairTool(
+				cfg, cfgLogger, shutdownInterceptor,
+			)
+			if err != nil {
+				_, _ = fmt.Fprintln(os.Stderr, err)
+				os.Exit(1)
+			}
+			os.Exit(0)
+		}
+
+		cfgLogger.Warnf("Ignoring repair.cancel-duplicate-batches " +
+			"from the config file: repair mode exits after " +
+			"running and must be requested on the command line")
 	}
 
 	// Enable http profiling server if requested.

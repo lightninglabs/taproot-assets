@@ -485,6 +485,19 @@ func (a *AssetMintingStore) CommitMintingBatch(ctx context.Context,
 
 	rawBatchKey := newBatch.BatchKey.PubKey.SerializeCompressed()
 
+	// Set when the batch insert itself fails on a unique constraint
+	// violation, which means the partial unique index from migration
+	// 000061 rejected a second pre-broadcast batch. The transaction
+	// executor re-maps errors returned from the closure, so the
+	// classification cannot ride along on the error itself.
+	//
+	// This attributes any unique violation on the insert to the
+	// singleton index. The only other unique constraint reachable
+	// from it is the batch_id primary key, which would require two
+	// batches sharing a batch key; keys are freshly derived per
+	// batch, so that case is not distinguished here.
+	var singletonViolation bool
+
 	var writeTxOpts AssetStoreTxOptions
 	err := a.db.ExecTx(ctx, &writeTxOpts, func(q PendingAssetStore) error {
 		// First, we'll need to insert a new internal key which'll act
@@ -506,6 +519,11 @@ func (a *AssetMintingStore) CommitMintingBatch(ctx context.Context,
 			CreationTimeUnix:    newBatch.CreationTime.UTC(),
 			UniverseCommitments: newBatch.SupplyCommitments,
 		}); err != nil {
+			var uniqueErr *ErrSqlUniqueConstraintViolation
+			if errors.As(MapSQLError(err), &uniqueErr) {
+				singletonViolation = true
+			}
+
 			return fmt.Errorf("unable to insert minting "+
 				"batch: %w", err)
 		}
@@ -626,6 +644,12 @@ func (a *AssetMintingStore) CommitMintingBatch(ctx context.Context,
 
 		return nil
 	})
+	if err != nil && singletonViolation {
+		// Surface the singleton violation as a domain error
+		// instead of the raw SQL constraint error.
+		return fmt.Errorf("%w: %w",
+			tapgarden.ErrDuplicatePreBroadcastBatch, err)
+	}
 
 	return err
 }
@@ -1321,7 +1345,7 @@ func marshalMintingBatch(ctx context.Context, q PendingAssetStore,
 		return nil, err
 	}
 
-	batch.UpdateState(batchState)
+	batch.SetStateOnDBSuccess(batchState)
 
 	if len(dbBatch.TapscriptSibling) != 0 {
 		batchSibling, err := chainhash.NewHash(dbBatch.TapscriptSibling)
@@ -1480,15 +1504,22 @@ func marshalMintingBatch(ctx context.Context, q PendingAssetStore,
 
 // UpdateBatchState updates the state of a batch based on the batch key.
 func (a *AssetMintingStore) UpdateBatchState(ctx context.Context,
-	batchKey *btcec.PublicKey, newState tapgarden.BatchState) error {
+	batch *tapgarden.MintingBatch, newState tapgarden.BatchState) error {
 
+	batchKey := batch.BatchKey.PubKey
 	var writeTxOpts AssetStoreTxOptions
-	return a.db.ExecTx(ctx, &writeTxOpts, func(q PendingAssetStore) error {
+	err := a.db.ExecTx(ctx, &writeTxOpts, func(q PendingAssetStore) error {
 		return q.UpdateMintingBatchState(ctx, BatchStateUpdate{
 			RawKey:     batchKey.SerializeCompressed(),
 			BatchState: int16(newState),
 		})
 	})
+	if err != nil {
+		return err
+	}
+
+	batch.SetStateOnDBSuccess(newState)
+	return nil
 }
 
 // encodeOutpoint encodes the outpoint point in Bitcoin wire format, returning
@@ -1801,7 +1832,7 @@ func fetchSeedlingGroups(ctx context.Context, q PendingAssetStore,
 // binds the genesis transaction (which will create the set of assets in the
 // batch) to the batch itself.
 func (a *AssetMintingStore) AddSproutsToBatch(ctx context.Context,
-	batchKey *btcec.PublicKey,
+	batch *tapgarden.MintingBatch,
 	genesisPacket *tapgarden.FundedMintAnchorPsbt,
 	assetRoot *commitment.TapCommitment) error {
 
@@ -1832,10 +1863,11 @@ func (a *AssetMintingStore) AddSproutsToBatch(ctx context.Context,
 		return err
 	}
 
+	batchKey := batch.BatchKey.PubKey
 	rawBatchKey := batchKey.SerializeCompressed()
 
 	var writeTxOpts AssetStoreTxOptions
-	return a.db.ExecTx(ctx, &writeTxOpts, func(q PendingAssetStore) error {
+	err = a.db.ExecTx(ctx, &writeTxOpts, func(q PendingAssetStore) error {
 		// Upsert the assets with genesis.
 		_, _, err := upsertAssetsWithGenesis(
 			ctx, q, genesisOutpoint, sortedAssets, nil,
@@ -1860,6 +1892,12 @@ func (a *AssetMintingStore) AddSproutsToBatch(ctx context.Context,
 			BatchState: int16(tapgarden.BatchStateCommitted),
 		})
 	})
+	if err != nil {
+		return err
+	}
+
+	batch.SetStateOnDBSuccess(tapgarden.BatchStateCommitted)
+	return nil
 }
 
 // FetchCustomAnchorKeyRepairCandidates returns historical mint rows with the
@@ -1968,10 +2006,13 @@ func (a *AssetMintingStore) RepairCustomAnchorInternalKey(ctx context.Context,
 // TODO(roasbeef): or could just re-read assets from disk and set the script
 // root manually?
 func (a *AssetMintingStore) CommitSignedGenesisTx(ctx context.Context,
-	batchKey *btcec.PublicKey, mintingInternalKey keychain.KeyDescriptor,
+	batch *tapgarden.MintingBatch,
+	mintingInternalKey keychain.KeyDescriptor,
 	genesisPkt *tapsend.FundedPsbt,
 	anchorOutputIndex uint32, merkleRoot, tapTreeRoot []byte,
 	tapSibling []byte) error {
+
+	batchKey := batch.BatchKey.PubKey
 
 	// The managed UTXO we'll insert only contains the raw tx of the
 	// genesis packet, so we'll extract that now.
@@ -2012,7 +2053,7 @@ func (a *AssetMintingStore) CommitSignedGenesisTx(ctx context.Context,
 	}
 
 	var writeTxOpts AssetStoreTxOptions
-	return a.db.ExecTx(ctx, &writeTxOpts, func(q PendingAssetStore) error {
+	err = a.db.ExecTx(ctx, &writeTxOpts, func(q PendingAssetStore) error {
 		repairQueries, ok := q.(customAnchorKeyRepairQueries)
 		if !ok {
 			return fmt.Errorf("wallet-verified internal key query unavailable")
@@ -2103,6 +2144,12 @@ func (a *AssetMintingStore) CommitSignedGenesisTx(ctx context.Context,
 			BatchState: int16(tapgarden.BatchStateBroadcast),
 		})
 	})
+	if err != nil {
+		return err
+	}
+
+	batch.SetStateOnDBSuccess(tapgarden.BatchStateBroadcast)
+	return nil
 }
 
 // StoreSignedGenesisPsbt durably records a signed custom genesis packet while
@@ -2148,14 +2195,15 @@ func (a *AssetMintingStore) StoreSignedGenesisPsbt(ctx context.Context,
 // MarkBatchConfirmed stores final confirmation information for a batch on
 // disk.
 func (a *AssetMintingStore) MarkBatchConfirmed(ctx context.Context,
-	batchKey *btcec.PublicKey, blockHash *chainhash.Hash,
+	batch *tapgarden.MintingBatch, blockHash *chainhash.Hash,
 	blockHeight uint32, txIndex uint32,
 	mintingProofs proof.AssetBlobs) error {
 
+	batchKey := batch.BatchKey.PubKey
 	rawBatchKey := batchKey.SerializeCompressed()
 
 	var writeTxOpts AssetStoreTxOptions
-	return a.db.ExecTx(ctx, &writeTxOpts, func(q PendingAssetStore) error {
+	err := a.db.ExecTx(ctx, &writeTxOpts, func(q PendingAssetStore) error {
 		// First, we'll update the state of the target batch to reflect
 		// that the batch is fully finalized.
 		err := q.UpdateMintingBatchState(ctx, BatchStateUpdate{
@@ -2210,6 +2258,12 @@ func (a *AssetMintingStore) MarkBatchConfirmed(ctx context.Context,
 		}
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+
+	batch.SetStateOnDBSuccess(tapgarden.BatchStateConfirmed)
+	return nil
 }
 
 // FetchGroupByGenesis fetches the asset group created by the genesis referenced

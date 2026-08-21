@@ -250,6 +250,7 @@ type Querier interface {
 	SupersedeConflictingTransfers(ctx context.Context, arg SupersedeConflictingTransfersParams) (int64, error)
 	UniverseLeaves(ctx context.Context) ([]UniverseLeafe, error)
 	UniverseRoots(ctx context.Context, arg UniverseRootsParams) ([]UniverseRootsRow, error)
+	UniverseRootsAfterID(ctx context.Context, arg UniverseRootsAfterIDParams) ([]UniverseRootsAfterIDRow, error)
 	UpdateBatchGenesisTx(ctx context.Context, arg UpdateBatchGenesisTxParams) error
 	UpdateMintingBatchState(ctx context.Context, arg UpdateMintingBatchStateParams) error
 	UpdateSupplyCommitTransitionCommitment(ctx context.Context, arg UpdateSupplyCommitTransitionCommitmentParams) error

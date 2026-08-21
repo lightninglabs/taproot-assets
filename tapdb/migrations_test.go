@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -1398,4 +1399,137 @@ func TestSequenceConsistency(t *testing.T) {
 			lastValue, s.column, maxID,
 		)
 	}
+}
+
+// TestMigration61CancelsDuplicatePreBroadcastBatches verifies that the
+// legacy-DB self-heal step in migration 61 preserves the most recent
+// pre-broadcast batch and cancels the rest before the partial unique
+// index is applied. Without the self-heal, a database that already
+// held duplicate rows in {Pending, Frozen} would fail the migration
+// with a raw unique-index error and force a manual repair step. Two
+// of the seeded rows share the most recent creation time, so the
+// survivor is decided by the raw-batch-key tie-break in the
+// migration's ORDER BY.
+func TestMigration61CancelsDuplicatePreBroadcastBatches(t *testing.T) {
+	ctx := context.Background()
+
+	// Start at version 60: the singleton index does not yet exist,
+	// so we can seed the DB with several pre-broadcast rows to
+	// simulate the legacy failure mode.
+	db := NewTestDBWithVersion(t, 60)
+
+	// Seed four internal_keys and four asset_minting_batches rows:
+	// two Pending (state=0) with distinct creation times and two
+	// Frozen (state=1) sharing the most recent creation time. Of
+	// the latter pair, the one with the greater raw batch key must
+	// be the preserved row after migration 61 runs, per the
+	// tie-break.
+	type seed struct {
+		batchID     int
+		keyBytes    string
+		state       int
+		createdUnix int64
+	}
+	seeds := []seed{
+		{
+			batchID:  1,
+			keyBytes: "02" + strings.Repeat("01", 32),
+			state:    0, // BatchStatePending
+			// oldest
+			createdUnix: 1_000_000_000,
+		},
+		{
+			batchID:  2,
+			keyBytes: "02" + strings.Repeat("02", 32),
+			state:    0, // BatchStatePending
+			// middle
+			createdUnix: 1_000_000_050,
+		},
+		{
+			batchID:  3,
+			keyBytes: "02" + strings.Repeat("03", 32),
+			state:    1, // BatchStateFrozen
+			// most recent, but loses the tie-break: its
+			// raw key is below batch 4's
+			createdUnix: 1_000_000_100,
+		},
+		{
+			batchID:  4,
+			keyBytes: "03" + strings.Repeat("03", 32),
+			state:    1, // BatchStateFrozen
+			// most recent, wins the tie-break on raw key
+			// -- must be preserved
+			createdUnix: 1_000_000_100,
+		},
+	}
+
+	insertBatch := `
+		INSERT INTO asset_minting_batches (
+			batch_id, batch_state, height_hint,
+			creation_time_unix
+		) VALUES ($1, $2, 0, $3)
+	`
+	if db.Backend() == sqlc.BackendTypeSqlite {
+		insertBatch = `
+		INSERT INTO asset_minting_batches (
+			batch_id, batch_state, height_hint,
+			creation_time_unix
+		) VALUES (?, ?, 0, ?)
+		`
+	}
+
+	for _, s := range seeds {
+		_, err := db.ExecContext(ctx, transformByteLiterals(
+			t, db.BaseDB, fmt.Sprintf(`
+			INSERT INTO internal_keys (
+				key_id, raw_key, key_family, key_index
+			) VALUES (%d, X'%s', 0, %d)
+			`, s.batchID, s.keyBytes, s.batchID),
+		))
+		require.NoError(t, err)
+
+		_, err = db.ExecContext(
+			ctx, insertBatch, s.batchID, s.state,
+			time.Unix(s.createdUnix, 0).UTC(),
+		)
+		require.NoError(t, err)
+	}
+
+	// Migrate to latest -- the self-heal in 61 runs before the
+	// index creation, so the migration must succeed.
+	err := db.ExecuteMigrations(TargetLatest, WithProgrammaticMigrations(
+		makeProgrammaticMigrations(db, programmaticMigrations, true),
+	))
+	require.NoError(t, err)
+
+	// The single remaining pre-broadcast row must be batch_id=4
+	// (Frozen, most recent, greater raw key), and it must retain
+	// its original batch_state so the planter can resume it.
+	var (
+		preCount    int
+		survivingID int
+		survivingSt int
+	)
+	require.NoError(t, db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM asset_minting_batches
+		WHERE batch_state IN (0, 1)
+	`).Scan(&preCount))
+	require.Equal(t, 1, preCount)
+
+	require.NoError(t, db.QueryRowContext(ctx, `
+		SELECT batch_id, batch_state
+		FROM asset_minting_batches
+		WHERE batch_state IN (0, 1)
+	`).Scan(&survivingID, &survivingSt))
+	require.Equal(t, 4, survivingID)
+	require.Equal(t, 1, survivingSt)
+
+	// The three other rows must have moved to
+	// BatchStateSeedlingCancelled = 6.
+	var cancelledCount int
+	require.NoError(t, db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM asset_minting_batches
+		WHERE batch_state = 6
+	`).Scan(&cancelledCount))
+	require.Equal(t, 3, cancelledCount)
 }

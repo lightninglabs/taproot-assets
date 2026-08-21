@@ -163,7 +163,19 @@ func run() error {
 	// Step 2: Wrap the shell in AuxComponents. These fn.Option[T] values
 	// point to the shell. Once ConfigureSubServer fills it in, the same
 	// pointer provides real behavior.
-	ctx := context.Background()
+	// A context that ends when the interceptor signals shutdown, so
+	// long-running startup work can be interrupted.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		select {
+		case <-interceptor.ShutdownChannel():
+			cancel()
+
+		case <-ctx.Done():
+		}
+	}()
+
 	auxComponents, cleanup, err := integration.BuildAuxComponents(
 		ctx, tapServer,
 	)
@@ -250,13 +262,22 @@ func run() error {
 	// lndclient doesn't try to load macaroon files from disk (which
 	// don't exist). lnd won't validate the macaroon anyway.
 	activeNet := cfg.Lnd.ActiveNetParams.Name
+	// NOTE: We must not block on lnd being fully synced to chain here.
+	// lnd's block processing can be blocked on tapd's aux components (for
+	// example on the aux sweeper, if a channel is being resolved on
+	// chain), and those only become available once we configure and start
+	// the tapd server below. Since lnd only reports itself as synced to
+	// chain once its blockbeat dispatcher caught up, waiting for that here
+	// would deadlock the startup. We do wait for the chain notifier to be
+	// ready though, as tapd needs it to subscribe to new blocks.
 	svcsCfg := &lndclient.LndServicesConfig{
-		LndAddress:            lndAddr,
-		Network:               lndclient.Network(activeNet),
-		Insecure:              true,
-		BlockUntilChainSynced: true,
-		BlockUntilUnlocked:    true,
-		CallerCtx:             ctx,
+		LndAddress:              lndAddr,
+		Network:                 lndclient.Network(activeNet),
+		Insecure:                true,
+		BlockUntilChainSynced:   false,
+		BlockUntilChainNotifier: true,
+		BlockUntilUnlocked:      true,
+		CallerCtx:               ctx,
 	}
 	if cfg.Lnd.NoMacaroons {
 		// Use a dummy macaroon that lndclient can deserialize.
@@ -283,7 +304,7 @@ func run() error {
 	// integration, etc.
 	tapErrChan := make(chan error, 1)
 	err = tapcfg.ConfigureSubServer(
-		tapServer, cfg.TaprootAssets, tapdLog,
+		ctx, tapServer, cfg.TaprootAssets, tapdLog,
 		&lndServices.LndServices, true, tapErrChan,
 	)
 	if err != nil {

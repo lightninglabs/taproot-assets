@@ -137,6 +137,10 @@ func OutPointDecoder(r io.Reader, val any, buf *[8]byte, _ uint64) error {
 
 func CompressedPubKeyEncoder(w io.Writer, val any, buf *[8]byte) error {
 	if t, ok := val.(**btcec.PublicKey); ok {
+		if *t == nil {
+			return fmt.Errorf("public key cannot be nil")
+		}
+
 		var keyBytes [btcec.PubKeyBytesLenCompressed]byte
 		copy(keyBytes[:], (*t).SerializeCompressed())
 		return tlv.EBytes33(w, &keyBytes, buf)

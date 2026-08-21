@@ -201,8 +201,10 @@ func CreateProofChunks(wholeProof proof.Proof,
 	var chunks []ProofChunk
 	for i := 0; i < proofSize; i += chunkSize {
 		// If this is the last chunk, then we'll set the last flag to
-		// true.
-		last := i+chunkSize >= proofBuf.Len()
+		// true. Note that this must compare against the total proof
+		// size: the buffer length shrinks as chunks are consumed
+		// from it below.
+		last := i+chunkSize >= proofSize
 
 		// We'll slice out the next chunk of the proof.
 		chunk := proofBuf.Next(chunkSize)

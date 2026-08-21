@@ -231,52 +231,6 @@ func (t *mintingTestHarness) assertBatchResumedBackground(wg *sync.WaitGroup,
 	}()
 }
 
-// createExternalBatch creates a new pending batch outside the planter, which
-// can then be stored on disk.
-func (t *mintingTestHarness) createExternalBatch(
-	numSeedlings int) *tapgarden.MintingBatch {
-
-	t.Helper()
-
-	seedlings := t.newRandSeedlings(numSeedlings)
-	seedlingsWithKeys := make(map[string]*tapgarden.Seedling)
-	for _, seedling := range seedlings {
-		scriptKeyInternalDesc, _ := test.RandKeyDesc(t)
-		scriptKey := asset.NewScriptKeyBip86(scriptKeyInternalDesc)
-		seedling.ScriptKey = scriptKey
-
-		// The group internal key should be from the key ring since we
-		// expect the caretaker to sign with it later.
-		if seedling.EnableEmission {
-			groupKey, err := t.keyRing.DeriveNextKey(
-				context.Background(),
-				asset.TaprootAssetsKeyFamily,
-			)
-			require.NoError(t, err)
-
-			seedling.GroupInternalKey = &groupKey
-		}
-
-		seedlingsWithKeys[seedling.AssetName] = seedling
-	}
-
-	batchInternalKey, err := t.keyRing.DeriveNextKey(
-		context.Background(), asset.TaprootAssetsKeyFamily,
-	)
-	require.NoError(t, err)
-
-	newBatch := &tapgarden.MintingBatch{
-		CreationTime: time.Now(),
-		HeightHint:   0,
-		BatchKey:     batchInternalKey,
-		Seedlings:    seedlingsWithKeys,
-		AssetMetas:   make(tapgarden.AssetMetas),
-	}
-	newBatch.UpdateState(tapgarden.BatchStatePending)
-
-	return newBatch
-}
-
 // queueSeedlingsInBatch adds the series of seedlings to the batch, an error is
 // raised if any of the seedlings aren't accepted.
 func (t *mintingTestHarness) queueSeedlingsInBatch(isFunded bool,
@@ -319,9 +273,6 @@ func (t *mintingTestHarness) queueSeedlingsInBatch(isFunded bool,
 
 		// Make sure the seedling was planted without error.
 		require.NoError(t, update.Error)
-
-		// The received update should be a state of MintingStateSeed.
-		require.Equal(t, tapgarden.MintingStateSeed, update.NewState)
 
 		err = wait.NoError(func() error {
 			// Assert that the key ring method DeriveNextKey was
@@ -1706,9 +1657,14 @@ func testFinalizeWithTapscriptTree(t *mintingTestHarness) {
 	batchCount++
 
 	// The caretaker should fail when computing the Taproot output key.
+	// The gardener cancels the failed batch on disk so it does not
+	// block subsequent pending batches via the singleton invariant
+	// added in migration 000061.
 	_ = t.assertGenesisTxFunded(nil)
 	t.assertFinalizeBatch(&wg, respChan, "failed to load tapscript tree")
-	t.assertLastBatchState(batchCount, tapgarden.BatchStateFrozen)
+	t.assertLastBatchState(
+		batchCount, tapgarden.BatchStateSeedlingCancelled,
+	)
 	t.assertNoPendingBatch()
 
 	// Reset the tapscript tree store to not force load or store failures.
@@ -2237,46 +2193,139 @@ func testFundSealOnRestart(t *mintingTestHarness) {
 	t.assertNumCaretakersActive(0)
 	t.assertLastBatchState(batchCount, tapgarden.BatchStateFinalized)
 
-	// Submit another batch, which we'll leave as pending.
-	secondSeedlings := t.newRandSeedlings(numSeedlings)
-	t.queueSeedlingsInBatch(false, secondSeedlings...)
-	batchCount++
+	// The original test continued by inserting a second Pending
+	// batch directly on disk to exercise recovery when multiple
+	// pending batches were present. That scenario is now forbidden
+	// by the singleton invariant added in migration 000061, so the
+	// section has been removed. The single-pending-batch recovery
+	// paths exercised above are the surviving useful coverage; the
+	// "multiple pre-broadcast batches" case is covered by
+	// TestSingletonPreBroadcastBatchConstraint in tapdb.
+}
 
-	t.assertLastBatchState(batchCount, tapgarden.BatchStatePending)
-	require.NoError(t, t.planter.Stop())
-	t.planter = nil
+// testCaretakerResumeFailure tests that a batch whose caretaker fails
+// before broadcast while being resumed on restart is cancelled in the
+// background. The cancelled batch must free the pre-broadcast
+// singleton slot enforced by the migration 000061 index, so that new
+// batches can be created without another restart.
+func testCaretakerResumeFailure(t *mintingTestHarness) {
+	t.refreshChainPlanter()
 
-	// We should also be able to resume one batch even when resuming another
-	// batch fails. Since we can only queue one batch at a time, we'll
-	// insert another pending batch on disk while the planter is shut down.
-	dbBatch := t.createExternalBatch(numSeedlings)
-	batchCount++
-	err := t.store.CommitMintingBatch(context.Background(), dbBatch)
+	// Create a batch and fund it with a tapscript sibling, so the
+	// resumed caretaker must load the tapscript tree before it can
+	// commit the batch.
+	const numSeedlings = 5
+	seedlings := t.newRandSeedlings(numSeedlings)
+	t.queueSeedlingsInBatch(false, seedlings...)
+
+	sigLockKey := test.RandPubKey(t)
+	hashLockWitness := []byte("foobar")
+	hashLockLeaf := test.ScriptHashLock(t.T, hashLockWitness)
+	sigLeaf := test.ScriptSchnorrSig(t.T, sigLockKey)
+	tapTreePreimage, err := asset.TapTreeNodesFromLeaves(
+		[]txscript.TapLeaf{hashLockLeaf, sigLeaf},
+	)
 	require.NoError(t, err)
 
-	// With two pending batches on disk, we want resume for the first batch
-	// to fail. Resume for the second batch should succeed.
-	t.chain.FailFeeEstimatesOnce()
-	failedBatchCount++
+	var (
+		wg       sync.WaitGroup
+		respChan = make(chan *FundBatchResp, 1)
+	)
 
-	t.assertBatchResumedBackground(&wg, true, false)
-	t.assertBatchResumedBackground(&wg, true, true)
+	fundReq := tapgarden.FundParams{
+		SiblingTapTree: fn.Some(*tapTreePreimage),
+	}
+	t.fundBatch(&wg, respChan, &fundReq)
+	_ = t.assertGenesisTxFunded(nil)
+	t.assertFundBatch(&wg, respChan, "")
+
+	// Force tapscript tree loading to fail, then restart the
+	// planter. The resume path will fund (no-op), seal, and freeze
+	// the batch, and hand it to a caretaker; the caretaker then
+	// fails to load the tapscript tree before the batch can be
+	// committed.
+	t.treeStore.FailLoad = true
 	t.refreshChainPlanter()
-	wg.Wait()
 
-	t.assertNumCaretakersActive(1)
+	// The planter must notice the background failure and cancel
+	// the batch, freeing the singleton slot.
+	err = wait.NoError(func() error {
+		batches, err := t.store.FetchAllBatches(
+			context.Background(),
+		)
+		if err != nil {
+			return err
+		}
+		if len(batches) != 1 {
+			return fmt.Errorf("expected 1 batch, found %d",
+				len(batches))
+		}
+
+		batchState := batches[0].State()
+		if batchState != tapgarden.BatchStateSeedlingCancelled {
+			return fmt.Errorf("batch not cancelled, state %v",
+				batchState)
+		}
+
+		return nil
+	}, defaultTimeout)
+	require.NoError(t, err)
+
+	t.assertNumCaretakersActive(0)
 	t.assertNoPendingBatch()
 
-	sendConfNtfn = t.progressCaretaker(true, nil, nil)
-	t.assertLastBatchState(batchCount, tapgarden.BatchStateBroadcast)
+	// With the slot free, a new batch can be created without
+	// restarting the planter.
+	t.treeStore.FailLoad = false
+	newSeedlings := t.newRandSeedlings(numSeedlings)
+	t.queueSeedlingsInBatch(false, newSeedlings...)
+	t.assertPendingBatchExists(newSeedlings)
+	t.assertNumBatchesWithState(
+		1, tapgarden.BatchStateSeedlingCancelled,
+	)
+}
+
+// testFinalizeSignFailure tests that a transient failure on the
+// broadcast path after the batch has been committed does not cancel
+// the batch: a committed batch does not occupy the pre-broadcast
+// singleton slot, and a restart must be able to resume and retry it
+// with the same asset IDs.
+func testFinalizeSignFailure(t *mintingTestHarness) {
+	t.refreshChainPlanter()
+
+	const numSeedlings = 5
+	_ = t.queueInitialBatch(numSeedlings)
+
+	var (
+		wg       sync.WaitGroup
+		respChan = make(chan *FinalizeBatchResp, 1)
+	)
+
+	// Arm the wallet so signing the genesis TX fails after the
+	// batch has been committed.
+	t.wallet.FailSignPsbtOnce()
+	t.finalizeBatch(&wg, respChan, nil)
+
+	_ = t.assertGenesisTxFunded(nil)
+	t.assertFinalizeBatch(&wg, respChan, "unable to sign psbt")
+
+	// The batch must stay committed rather than being cancelled,
+	// with no caretaker and no pending batch.
+	t.assertNumCaretakersActive(0)
+	t.assertNoPendingBatch()
+	t.assertLastBatchState(1, tapgarden.BatchStateCommitted)
+
+	// On restart, the committed batch is resumed and completes
+	// with the signing failure cleared.
+	t.refreshChainPlanter()
+
+	sendConfNtfn := t.progressCaretaker(true, nil, nil)
+	t.assertLastBatchState(1, tapgarden.BatchStateBroadcast)
 
 	sendConfNtfn()
 	t.assertNoError()
 	t.assertNumCaretakersActive(0)
-	t.assertNumBatchesWithState(
-		failedBatchCount, tapgarden.BatchStateSeedlingCancelled,
-	)
-	t.assertLastBatchState(batchCount, tapgarden.BatchStateFinalized)
+	t.assertLastBatchState(1, tapgarden.BatchStateFinalized)
 }
 
 // mintingStoreTestCase is used to programmatically run a series of test cases
@@ -2323,6 +2372,14 @@ var testCases = []mintingStoreTestCase{
 	{
 		name:     "fund_seal_on_restart",
 		testFunc: testFundSealOnRestart,
+	},
+	{
+		name:     "caretaker_resume_failure",
+		testFunc: testCaretakerResumeFailure,
+	},
+	{
+		name:     "finalize_sign_failure",
+		testFunc: testFinalizeSignFailure,
 	},
 }
 

@@ -39,13 +39,13 @@ type issue721FailStateStore struct {
 }
 
 func (s *issue721FailStateStore) UpdateBatchState(ctx context.Context,
-	batchKey *btcec.PublicKey, state tapgarden.BatchState) error {
+	batch *tapgarden.MintingBatch, state tapgarden.BatchState) error {
 
 	if s.fail && state == tapgarden.BatchStateSproutCancelled {
 		return fmt.Errorf("injected cancellation store failure")
 	}
 
-	return s.MintingStore.UpdateBatchState(ctx, batchKey, state)
+	return s.MintingStore.UpdateBatchState(ctx, batch, state)
 }
 
 func (s *issue721FailSignedStore) StoreSignedGenesisPsbt(ctx context.Context,
@@ -1730,7 +1730,7 @@ func TestIssue721CustomRestartStates(t *testing.T) {
 			batch := issue721Fund(t, h, pkt)
 			if state == tapgarden.BatchStateFrozen {
 				err := store.UpdateBatchState(
-					t.Context(), batch.BatchKey.PubKey, state,
+					t.Context(), batch, state,
 				)
 				require.NoError(t, err)
 			}
@@ -1833,7 +1833,7 @@ func TestIssue721LegacyRawOnlyPreflightIsNonMutating(t *testing.T) {
 			))
 			if state == tapgarden.BatchStateFrozen {
 				require.NoError(t, store.UpdateBatchState(
-					t.Context(), batch.BatchKey.PubKey, state,
+					t.Context(), batch, state,
 				))
 			}
 
