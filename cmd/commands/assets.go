@@ -552,8 +552,10 @@ func fundBatch(ctx *cli.Context) error {
 		if ctx.IsSet(preCommitOutputIndexName) {
 			preCommitIdx := ctx.Uint64(preCommitOutputIndexName)
 			if preCommitIdx > math.MaxUint32 {
-				return fmt.Errorf("pre-commitment output index " +
-					"out of range")
+				return fmt.Errorf(
+					"pre-commitment output " +
+						"index out of range",
+				)
 			}
 			req.PreCommitOutputIndex = fn.Ptr(uint32(preCommitIdx))
 		}

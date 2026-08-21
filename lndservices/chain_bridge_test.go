@@ -82,7 +82,8 @@ func TestDefinitivePublishError(t *testing.T) {
 		{
 			name: "incidental nonstandard marker",
 			err: status.Error(
-				codes.Unknown, "backend nonstandard cache failure",
+				codes.Unknown,
+				"backend nonstandard cache failure",
 			),
 			definitive: false,
 		},
@@ -172,8 +173,10 @@ func TestDefinitivePublishError(t *testing.T) {
 			definitive: false,
 		},
 		{
-			name:       "generic application error",
-			err:        status.Error(codes.Unknown, "backend failure"),
+			name: "generic application error",
+			err: status.Error(
+				codes.Unknown, "backend failure",
+			),
 			definitive: false,
 		},
 		{

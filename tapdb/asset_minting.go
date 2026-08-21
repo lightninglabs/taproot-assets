@@ -1,3 +1,4 @@
+//nolint:lll
 package tapdb
 
 import (
@@ -991,7 +992,8 @@ func fetchAssetSeedlings(ctx context.Context, q PendingAssetStore,
 // https://github.com/kyleconroy/sqlc/issues/1334 is fixed in sqlc, after code
 // generation, the GroupKeyFamily and GroupKeyIndex fields of the
 // FetchAssetsForBatchRow need to be manually modified to be sql.NullInt32.
-func fetchAssetSprouts(ctx context.Context, q PendingAssetStore,
+func fetchAssetSprouts(
+	ctx context.Context, q PendingAssetStore,
 	rawBatchKey, batchSibling, genScript []byte,
 	mintingInternalKey *btcec.PublicKey) (*commitment.TapCommitment, error) {
 
@@ -1422,8 +1424,9 @@ func marshalMintingBatch(ctx context.Context, q PendingAssetStore,
 
 		batch.GenesisPacket = &tapgarden.FundedMintAnchorPsbt{
 			FundedPsbt: tapsend.FundedPsbt{
-				Pkt:         genesisPkt,
-				LockedUTXOs: tapgarden.CustomAnchorLockedUTXOs(genesisPkt),
+				Pkt: genesisPkt,
+				LockedUTXOs: tapgarden.
+					CustomAnchorLockedUTXOs(genesisPkt),
 				ChangeOutputIndex: extractSqlInt32[int32](
 					dbBatch.ChangeOutputIndex,
 				),
@@ -1910,10 +1913,13 @@ func (a *AssetMintingStore) FetchCustomAnchorKeyRepairCandidates(
 	err := a.db.ExecTx(ctx, &readOpts, func(q PendingAssetStore) error {
 		repairQueries, ok := q.(customAnchorKeyRepairQueries)
 		if !ok {
-			return fmt.Errorf("custom anchor key repair queries unavailable")
+			return fmt.Errorf(
+				"custom anchor key repair queries unavailable",
+			)
 		}
 
-		rows, err := repairQueries.FetchCustomAnchorKeyRepairCandidates(ctx)
+		rows, err := repairQueries.
+			FetchCustomAnchorKeyRepairCandidates(ctx)
 		if err != nil {
 			return err
 		}
@@ -1923,17 +1929,20 @@ func (a *AssetMintingStore) FetchCustomAnchorKeyRepairCandidates(
 			if row.AssetsOutputIndex.Valid &&
 				row.AssetsOutputIndex.Int32 >= 0 {
 
-				assetOutputIndex = uint32(row.AssetsOutputIndex.Int32)
+				assetOutputIndex = uint32(
+					row.AssetsOutputIndex.Int32,
+				)
 			}
 
 			candidates = append(candidates,
 				tapgarden.CustomAnchorKeyRepairCandidate{
-					BatchKey:           row.BatchKey,
-					MintingTxPsbt:      row.MintingTxPsbt,
-					AssetOutputIndex:   assetOutputIndex,
-					Outpoint:           row.Outpoint,
-					ManagedInternalKey: row.ManagedInternalKey,
-					MerkleRoot:         row.MerkleRoot,
+					BatchKey:         row.BatchKey,
+					MintingTxPsbt:    row.MintingTxPsbt,
+					AssetOutputIndex: assetOutputIndex,
+					Outpoint:         row.Outpoint,
+					ManagedInternalKey: row.
+						ManagedInternalKey,
+					MerkleRoot: row.MerkleRoot,
 				},
 			)
 		}
@@ -1959,7 +1968,9 @@ func (a *AssetMintingStore) RepairCustomAnchorInternalKey(ctx context.Context,
 	return a.db.ExecTx(ctx, &writeOpts, func(q PendingAssetStore) error {
 		repairQueries, ok := q.(customAnchorKeyRepairQueries)
 		if !ok {
-			return fmt.Errorf("custom anchor key repair queries unavailable")
+			return fmt.Errorf(
+				"custom anchor key repair queries unavailable",
+			)
 		}
 
 		rawKey := desc.PubKey.SerializeCompressed()
@@ -1971,7 +1982,10 @@ func (a *AssetMintingStore) RepairCustomAnchorInternalKey(ctx context.Context,
 			},
 		)
 		if err != nil {
-			return fmt.Errorf("unable to store verified custom anchor key: %w", err)
+			return fmt.Errorf(
+				"unable to store verified custom anchor key: %w",
+				err,
+			)
 		}
 
 		updated, err := repairQueries.RepairCustomAnchorInternalKey(
@@ -1990,7 +2004,11 @@ func (a *AssetMintingStore) RepairCustomAnchorInternalKey(ctx context.Context,
 			return err
 		}
 		if updated != 1 {
-			return fmt.Errorf("custom anchor key repair compare-and-swap updated %d rows", updated)
+			return fmt.Errorf(
+				"custom anchor key repair "+
+					"compare-and-swap updated %d rows",
+				updated,
+			)
 		}
 
 		return nil
@@ -2072,7 +2090,9 @@ func (a *AssetMintingStore) CommitSignedGenesisTxWithKey(ctx context.Context,
 	err = a.db.ExecTx(ctx, &writeTxOpts, func(q PendingAssetStore) error {
 		repairQueries, ok := q.(customAnchorKeyRepairQueries)
 		if !ok {
-			return fmt.Errorf("wallet-verified internal key query unavailable")
+			return fmt.Errorf(
+				"wallet-verified internal key query unavailable",
+			)
 		}
 
 		_, err := repairQueries.UpsertWalletVerifiedInternalKey(
@@ -2082,8 +2102,9 @@ func (a *AssetMintingStore) CommitSignedGenesisTxWithKey(ctx context.Context,
 				KeyIndex:  int32(mintingInternalKey.Index),
 			})
 		if err != nil {
-			return fmt.Errorf("unable to store minting internal key: %w",
-				err)
+			return fmt.Errorf(
+				"unable to store minting internal key: %w", err,
+			)
 		}
 
 		// First, we'll update the genesis packet stored as part of the
@@ -2176,7 +2197,9 @@ func (a *AssetMintingStore) StoreSignedGenesisPsbt(ctx context.Context,
 
 	pktBytes, err := fn.Serialize(genesisPkt.Pkt)
 	if err != nil {
-		return fmt.Errorf("unable to serialize signed genesis packet: %w", err)
+		return fmt.Errorf(
+			"unable to serialize signed genesis packet: %w", err,
+		)
 	}
 
 	rawBatchKey := batchKey.SerializeCompressed()
@@ -2184,15 +2207,19 @@ func (a *AssetMintingStore) StoreSignedGenesisPsbt(ctx context.Context,
 	return a.db.ExecTx(ctx, &writeTxOpts, func(q PendingAssetStore) error {
 		batch, err := q.FetchMintingBatch(ctx, rawBatchKey)
 		if err != nil {
-			return fmt.Errorf("unable to fetch batch before storing signed "+
-				"packet: %w", err)
+			return fmt.Errorf(
+				"unable to fetch batch before "+
+					"storing signed packet: %w", err,
+			)
 		}
 		if tapgarden.BatchState(batch.BatchState) !=
 			tapgarden.BatchStateCommitted {
 
-			return fmt.Errorf("cannot store signed genesis packet for "+
-				"batch in state %v",
-				tapgarden.BatchState(batch.BatchState))
+			return fmt.Errorf(
+				"cannot store signed genesis "+
+					"packet for batch in state %v",
+				tapgarden.BatchState(batch.BatchState),
+			)
 		}
 
 		err = q.UpdateBatchGenesisTx(ctx, GenesisTxUpdate{
@@ -2200,8 +2227,9 @@ func (a *AssetMintingStore) StoreSignedGenesisPsbt(ctx context.Context,
 			MintingTxPsbt: pktBytes,
 		})
 		if err != nil {
-			return fmt.Errorf("unable to store signed genesis packet: %w",
-				err)
+			return fmt.Errorf(
+				"unable to store signed genesis packet: %w", err,
+			)
 		}
 
 		return nil

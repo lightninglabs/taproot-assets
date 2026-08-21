@@ -1,3 +1,4 @@
+//nolint:lll
 package tapgarden
 
 import (
@@ -85,7 +86,8 @@ type MintingBatch struct {
 	CustomAnchorLeaseError string
 
 	// CustomAnchorPublishError is the latest ambiguous wallet publication
-	// error for a byte-identical transaction that remains watched and retried.
+	// error for a byte-identical transaction that remains watched and
+	// retried.
 	CustomAnchorPublishError string
 
 	// CustomAnchorKeyError describes an historical custom-anchor managed
@@ -244,8 +246,9 @@ func (m *MintingBatch) MintingInternalKey() (*btcec.PublicKey, error) {
 			pOut.Bip32Derivation[0],
 		)
 		if err != nil {
-			return nil, fmt.Errorf("invalid custom anchor key derivation: %w",
-				err)
+			return nil, fmt.Errorf(
+				"invalid custom anchor key derivation: %w", err,
+			)
 		}
 
 		return keyDesc.PubKey, nil

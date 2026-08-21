@@ -37,7 +37,8 @@ type ChainBridge struct {
 	// the corresponding store and a read of ConfReqs[reqNo] is safe.
 	ConfReqs map[int]*chainntnfs.ConfirmationEvent
 	// ConfPkScripts records the confirmation script hint for each request.
-	// It follows the same ConfReqSignal synchronization contract as ConfReqs.
+	// It follows the same ConfReqSignal synchronization contract as
+	// ConfReqs.
 	ConfPkScripts map[int][]byte
 	// ConfTxIDs records the transaction ID for each confirmation request. It
 	// follows the same ConfReqSignal synchronization contract as ConfReqs.
@@ -289,7 +290,8 @@ func (m *ChainBridge) ValidateAndPublishTransaction(_ context.Context,
 	if m.failPublishFinal.Load() {
 		m.PublishAttempts <- tx.Copy()
 		return tapnode.NewDefinitivePublishError(
-			fmt.Errorf("transaction rejected: output already spent"),
+			fmt.Errorf("transaction rejected: " +
+				"output already spent"),
 		)
 	}
 	if m.failPublish.CompareAndSwap(true, false) {

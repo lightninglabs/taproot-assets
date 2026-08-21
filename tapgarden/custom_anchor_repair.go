@@ -1,3 +1,4 @@
+//nolint:lll
 package tapgarden
 
 import (
@@ -233,7 +234,6 @@ func auditCustomAnchorKeyCandidate(ctx context.Context,
 		return result, zeroDesc, false
 	}
 	if outpoint.Hash != finalTx.TxHash() {
-
 		return invalid("retained asset outpoint doesn't match the mint " +
 			"transaction txid")
 	}
@@ -269,8 +269,8 @@ func auditCustomAnchorKeyCandidate(ctx context.Context,
 
 		result.Status = CustomAnchorKeyLocatorRequired
 		result.Detail = "retained packet proves only the raw anchor key; " +
-			"automatic repair is unavailable and wallet-validated operator " +
-			"recovery is required"
+			"automatic repair is unavailable and wallet-validated " +
+			"operator recovery is required"
 		return result, zeroDesc, true
 	}
 	if len(pOut.Bip32Derivation) != 1 {
@@ -316,8 +316,10 @@ func auditCustomAnchorKeyCandidate(ctx context.Context,
 			!equalUint32s(expectedTaproot.Bip32Path, actual.Bip32Path) ||
 			len(actual.LeafHashes) != 0 {
 
-			return invalid("retained taproot key locator conflicts with the " +
-				"wallet descriptor")
+			return invalid(
+				"retained taproot key locator conflicts with the " +
+					"wallet descriptor",
+			)
 		}
 	}
 
@@ -363,8 +365,8 @@ func auditCustomAnchorKeyCandidate(ctx context.Context,
 
 	if !keyRing.IsLocalKey(ctx, desc) {
 		result.Status = CustomAnchorKeyNotLocal
-		result.Detail = "retained key locator doesn't derive to the anchor key " +
-			"in the backing wallet"
+		result.Detail = "retained key locator doesn't derive to the " +
+			"anchor key in the backing wallet"
 		return result, desc, true
 	}
 	if managedIsAnchorKey {

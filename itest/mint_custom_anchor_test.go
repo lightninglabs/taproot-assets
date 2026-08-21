@@ -1647,8 +1647,8 @@ func customAnchorAuthorityCommitment(campaignID, cohortID,
 
 	preimage := bytes.NewBufferString(customAnchorAuthorityCommitmentDomain)
 	for _, value := range []string{campaignID, cohortID, producerDigest} {
-		if err := writeCustomAnchorLenPrefixed(preimage, []byte(value)); err != nil {
-
+		err := writeCustomAnchorLenPrefixed(preimage, []byte(value))
+		if err != nil {
 			return [32]byte{}, err
 		}
 	}

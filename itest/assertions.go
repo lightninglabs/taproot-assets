@@ -152,14 +152,20 @@ func AssetAnchorOutpointCheck(
 			return fmt.Errorf("unable to parse outpoint: %w", err)
 		}
 		if *anchorOutpoint != outpoint {
-			return fmt.Errorf("unexpected asset anchor outpoint, got %v "+
-				"wanted %v", anchorOutpoint, outpoint)
+			return fmt.Errorf(
+				"unexpected asset anchor "+
+					"outpoint, got %v wanted %v",
+				anchorOutpoint, outpoint,
+			)
 		}
 
 		anchorBlockHash := a.ChainAnchor.AnchorBlockHash
 		if anchorBlockHash != blockHash.String() {
-			return fmt.Errorf("unexpected asset anchor block hash, got "+
-				"%v wanted %x", anchorBlockHash, blockHash[:])
+			return fmt.Errorf(
+				"unexpected asset anchor block "+
+					"hash, got %v wanted %x",
+				anchorBlockHash, blockHash[:],
+			)
 		}
 
 		return nil

@@ -1,3 +1,4 @@
+//nolint:lll
 package tapgarden
 
 import (
@@ -480,7 +481,8 @@ func parseCustomAnchorLockedUTXOs(packet *psbt.Packet) ([]wire.OutPoint,
 		offset += 36
 		if _, ok := seen[ops[idx]]; ok {
 			return nil, customAnchorLeaseMarkerCurrent,
-				fmt.Errorf("duplicate custom anchor leased input %v", ops[idx])
+				fmt.Errorf("duplicate custom anchor leased input %v",
+					ops[idx])
 		}
 		seen[ops[idx]] = struct{}{}
 	}
@@ -570,7 +572,8 @@ func acquireCustomAnchorLeases(ctx context.Context, wallet tapnode.WalletAnchor,
 					ctx, wallet, leaseID, newlyLocked,
 				)
 				return nil, errors.Join(fmt.Errorf(
-					"unable to renew custom anchor input lease %v", op,
+					"unable to renew custom anchor "+
+						"input lease %v", op,
 				), releaseErr)
 			}
 			continue
@@ -695,8 +698,10 @@ func renewCustomAnchorLeases(ctx context.Context, wallet tapnode.WalletAnchor,
 				op, err)
 		}
 		if !owned {
-			return fmt.Errorf("custom anchor input %v is no longer available "+
-				"to the backing wallet", op)
+			return fmt.Errorf(
+				"custom anchor input %v is no longer "+
+					"available to the backing wallet", op,
+			)
 		}
 	}
 
@@ -769,9 +774,10 @@ func getCustomAnchorPublishState(
 				return customAnchorPublishNone
 
 			case customAnchorPublishRejected:
-				// Older builds wrote this marker only after submitting the
-				// fully signed bytes. Treat it as publication-ambiguous so an
-				// upgrade cannot expose cancellation or release its leases.
+				// Older builds wrote this marker only after
+				// submitting the fully signed bytes. Treat it as
+				// publication-ambiguous so an upgrade cannot expose
+				// cancellation or release its leases.
 				return customAnchorPublishPending
 
 			case customAnchorPublishPending,
@@ -1079,8 +1085,10 @@ func (c *ChainPlanter) Start() error {
 				if health.RequiresIntervention() {
 					batchKey, err := btcec.ParsePubKey(health.BatchKey)
 					if err != nil {
-						log.Errorf("Unable to index historical custom "+
-							"anchor key health for batch_key=%x: %v",
+						log.Errorf(
+							"Unable to index historical custom "+
+								"anchor key health for "+
+								"batch_key=%x: %v",
 							health.BatchKey, err)
 					} else {
 						key := asset.ToSerialized(batchKey)
@@ -1091,9 +1099,11 @@ func (c *ChainPlanter) Start() error {
 						)
 					}
 
-					log.Errorf("Historical custom anchor key requires "+
-						"operator action: status=%s, batch_key=%x, "+
-						"outpoint=%v, detail=%s", health.Status,
+					log.Errorf(
+						"Historical custom anchor key "+
+							"requires operator action: status=%s, "+
+							"batch_key=%x, "+
+							"outpoint=%v, detail=%s", health.Status,
 						health.BatchKey, health.Outpoint,
 						health.Detail)
 					continue
@@ -1108,8 +1118,10 @@ func (c *ChainPlanter) Start() error {
 				}
 
 				if health.Status == CustomAnchorKeyRepaired {
-					log.Infof("Repaired historical custom anchor key: "+
-						"batch_key=%x, outpoint=%v", health.BatchKey,
+					log.Infof(
+						"Repaired historical custom anchor key: "+
+							"batch_key=%x, outpoint=%v",
+						health.BatchKey,
 						health.Outpoint)
 				}
 			}
@@ -1173,25 +1185,29 @@ func (c *ChainPlanter) Start() error {
 				(batchState == BatchStatePending ||
 					batchState == BatchStateFrozen ||
 					(batchState == BatchStateCommitted &&
-						publishState != customAnchorPublishPending &&
-						publishState != customAnchorImportPending))
+						publishState !=
+							customAnchorPublishPending &&
+						publishState !=
+							customAnchorImportPending))
 			leaseRenewalFailed := false
 			if customBatch && (batchState == BatchStatePending ||
 				batchState == BatchStateFrozen ||
 				batchState == BatchStateCommitted) {
 
-				if err := renewCustomAnchorLeases(
+				renewErr := renewCustomAnchorLeases(
 					ctx, c.cfg.Wallet,
 					customAnchorLeaseID(batch.BatchKey.PubKey),
 					batch.GenesisPacket,
-				); err != nil {
+				)
+				if renewErr != nil {
 					batch.CustomAnchorLeaseError = fmt.Sprintf(
-						"custom anchor input lease renewal degraded during "+
-							"startup; Finalize will retry and fail closed: %v",
-						err,
+						"custom anchor input lease renewal "+
+							"degraded during startup; Finalize will "+
+							"retry and fail closed: %v",
+						renewErr,
 					)
 					log.Warnf("Unable to renew custom anchor input "+
-						"leases during startup: %v", err)
+						"leases during startup: %v", renewErr)
 					leaseRenewalFailed = true
 				} else {
 					batch.CustomAnchorLeaseError = ""
@@ -2006,10 +2022,10 @@ func customGenesisPsbt(chainParams address.ChainParams,
 		return zero, fmt.Errorf("invalid custom asset anchor internal "+
 			"key: %w", err)
 	}
-	if _, err := customAnchorKeyDesc(
+	_, err = customAnchorKeyDesc(
 		chainParams, packet, assetAnchorOutIdx,
-	); err != nil {
-
+	)
+	if err != nil {
 		return zero, err
 	}
 	if pOut.TaprootTapTree != nil {
@@ -2021,10 +2037,10 @@ func customGenesisPsbt(chainParams address.ChainParams,
 	// read-only and must run before serialization so malformed metadata gets
 	// its established, precise error without touching the caller's packet.
 	if pendingBatch == nil || !pendingBatch.SupplyCommitments {
-		if err := validateExclusionProofOutputs(
+		err = validateExclusionProofOutputs(
 			packet, assetAnchorOutIdx,
-		); err != nil {
-
+		)
+		if err != nil {
 			return zero, err
 		}
 	}
@@ -2109,10 +2125,10 @@ func customGenesisPsbt(chainParams address.ChainParams,
 		return zero, fmt.Errorf("pre-commitment output index specified " +
 			"for batch without supply commitments")
 	}
-	if err := validateExclusionProofOutputs(
+	err = validateExclusionProofOutputs(
 		packet, assetAnchorOutIdx,
-	); err != nil {
-
+	)
+	if err != nil {
 		return zero, err
 	}
 	indexes := AnchorTxOutputIndexes{
@@ -2968,7 +2984,6 @@ func (c *ChainPlanter) cancelMintingBatch(ctx context.Context,
 
 	case BatchStateCommitted:
 		if customAnchorPublicationPending(c.pendingBatch) {
-
 			return fmt.Errorf("custom anchor publication status is " +
 				"ambiguous and is not cancellable")
 		}
@@ -3193,10 +3208,12 @@ func (c *ChainPlanter) gardener() {
 					if batch.CustomAnchorLeaseError !=
 						statusErr.Error() {
 
-						batch.CustomAnchorLeaseError = statusErr.Error()
+						leaseErrText := statusErr.Error()
+						batch.CustomAnchorLeaseError = leaseErrText
 						c.publishSubscriberEvent(
 							newAssetMintErrorEvent(
-								statusErr, batch.State(), batch,
+								statusErr,
+								batch.State(), batch,
 							),
 						)
 					}
@@ -3211,6 +3228,10 @@ func (c *ChainPlanter) gardener() {
 						batch.State(), batch,
 					))
 				}
+
+			case BatchStateBroadcast, BatchStateConfirmed,
+				BatchStateFinalized, BatchStateSeedlingCancelled,
+				BatchStateSproutCancelled:
 			}
 
 		// A request for new asset issuance just arrived, add this to
@@ -3386,6 +3407,7 @@ func (c *ChainPlanter) gardener() {
 				}
 				if c.pendingBatch.State() != BatchStatePending &&
 					c.pendingBatch.State() != BatchStateFrozen {
+
 					req.Error(fmt.Errorf("batch in state %v cannot be "+
 						"sealed", c.pendingBatch.State()))
 					break
@@ -3455,9 +3477,10 @@ func (c *ChainPlanter) gardener() {
 
 				batchKey := c.pendingBatch.BatchKey.PubKey
 				batchKeySerial := asset.ToSerialized(batchKey)
-				// Determine the batch kind before starting the caretaker. The
-				// caretaker owns and mutates the batch once Start returns, so the
-				// gardener must not inspect that shared packet afterwards.
+				// Determine the batch kind before starting the
+				// caretaker. The caretaker owns and mutates the batch
+				// once Start returns, so the gardener must not inspect
+				// that shared packet afterwards.
 				customBatch := c.pendingBatch.GenesisPacket != nil &&
 					isCustomAnchorPsbt(
 						c.pendingBatch.GenesisPacket.Pkt,
@@ -3634,6 +3657,7 @@ func (c *ChainPlanter) prepareFunding(ctx context.Context,
 
 	computeFunding := func(batch *MintingBatch) (
 		*FundedMintAnchorPsbt, error) {
+
 		if params.AnchorPsbt != nil {
 			anchorKeyDesc, err := customAnchorKeyDesc(
 				c.cfg.ChainParams, params.AnchorPsbt,

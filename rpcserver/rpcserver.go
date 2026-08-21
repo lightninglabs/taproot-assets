@@ -1,3 +1,4 @@
+//nolint:lll
 package rpcserver
 
 import (
@@ -957,8 +958,9 @@ func (r *RPCServer) FundBatch(ctx context.Context,
 		req.ChangeOutputIndex != 0 || req.NoChangeOutput ||
 		req.PreCommitOutputIndex != nil) {
 
-		return nil, fmt.Errorf("custom anchor output controls require " +
-			"anchor_psbt")
+		return nil, fmt.Errorf(
+			"custom anchor output controls require anchor_psbt",
+		)
 	}
 	if req.NoChangeOutput && req.ChangeOutputIndex != 0 {
 		return nil, fmt.Errorf("no_change_output conflicts with " +
@@ -968,15 +970,19 @@ func (r *RPCServer) FundBatch(ctx context.Context,
 	var anchorPsbt *psbt.Packet
 	if len(req.AnchorPsbt) != 0 {
 		if len(req.AnchorPsbt) > maxCustomAnchorPsbtSize {
-			return nil, fmt.Errorf("anchor PSBT exceeds maximum size of %d "+
-				"bytes", maxCustomAnchorPsbtSize)
+			return nil, fmt.Errorf(
+				"anchor PSBT exceeds maximum size of %d bytes",
+				maxCustomAnchorPsbtSize,
+			)
 		}
 		var err error
 		anchorPsbt, err = psbt.NewFromRawBytes(
 			bytes.NewReader(req.AnchorPsbt), false,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("unable to parse anchor PSBT: %w", err)
+			return nil, fmt.Errorf(
+				"unable to parse anchor PSBT: %w", err,
+			)
 		}
 	}
 
@@ -1148,20 +1154,26 @@ func (r *RPCServer) FinalizeBatch(ctx context.Context,
 	var signedPsbt *psbt.Packet
 	if len(req.SignedPsbt) != 0 {
 		if len(req.SignedPsbt) > maxCustomAnchorPsbtSize {
-			return nil, fmt.Errorf("signed anchor PSBT exceeds maximum size "+
-				"of %d bytes", maxCustomAnchorPsbtSize)
+			return nil, fmt.Errorf(
+				"signed anchor PSBT exceeds maximum "+
+					"size of %d bytes",
+				maxCustomAnchorPsbtSize,
+			)
 		}
 		if req.FeeRate != 0 || req.BatchSibling != nil {
-			return nil, fmt.Errorf("signed_psbt cannot be combined with " +
-				"fee rate or tapscript sibling")
+			return nil, fmt.Errorf(
+				"signed_psbt cannot be combined " +
+					"with fee rate or tapscript sibling",
+			)
 		}
 		var err error
 		signedPsbt, err = psbt.NewFromRawBytes(
 			bytes.NewReader(req.SignedPsbt), false,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("unable to parse signed anchor PSBT: %w",
-				err)
+			return nil, fmt.Errorf(
+				"unable to parse signed anchor PSBT: %w", err,
+			)
 		}
 	}
 
@@ -6280,8 +6292,9 @@ func marshalMintingBatch(batch *tapgarden.MintingBatch,
 		return nil, err
 	}
 
+	batchKey := batch.BatchKey.PubKey.SerializeCompressed()
 	rpcBatch := &mintrpc.MintingBatch{
-		BatchKey:                 batch.BatchKey.PubKey.SerializeCompressed(),
+		BatchKey:                 batchKey,
 		State:                    rpcBatchState,
 		CreatedAt:                batch.CreationTime.UTC().Unix(),
 		HeightHint:               batch.HeightHint,
