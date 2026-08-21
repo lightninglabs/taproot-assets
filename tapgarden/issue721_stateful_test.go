@@ -819,7 +819,13 @@ func TestIssue721ImportFailureAfterRestartIsAdopted(t *testing.T) {
 	_, err = fn.RecvOrTimeout(h.wallet.ImportPubKeySignal, defaultTimeout)
 	require.NoError(t, err)
 	h.assertFinalizeBatch(&wg, respChan, "temporary import failure")
-	h.assertNumCaretakersActive(0)
+
+	// Finalize returns only after its failed caretaker is removed. This must
+	// not require polling: callers are allowed to retry or cancel as soon as
+	// they receive the error.
+	numActive, err := h.planter.NumActiveBatches()
+	require.NoError(t, err)
+	require.Zero(t, numActive)
 
 	batchKey, err := h.planter.CancelBatch()
 	require.NoError(t, err)

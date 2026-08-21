@@ -39,6 +39,9 @@ type ChainBridge struct {
 	// ConfPkScripts records the confirmation script hint for each request.
 	// It follows the same ConfReqSignal synchronization contract as ConfReqs.
 	ConfPkScripts map[int][]byte
+	// ConfTxIDs records the transaction ID for each confirmation request. It
+	// follows the same ConfReqSignal synchronization contract as ConfReqs.
+	ConfTxIDs map[int]*chainhash.Hash
 
 	// BlocksMu protects concurrent access to Blocks. Readers (GetBlock,
 	// called from caretaker goroutines) hold it for read; all writers
@@ -64,6 +67,7 @@ func NewChainBridge() *ChainBridge {
 		PublishAttempts:   make(chan *wire.MsgTx, 10),
 		ConfReqs:          make(map[int]*chainntnfs.ConfirmationEvent),
 		ConfPkScripts:     make(map[int][]byte),
+		ConfTxIDs:         make(map[int]*chainhash.Hash),
 		ConfReqSignal:     make(chan int),
 		BlockEpochSignal:  make(chan struct{}, 1),
 		NewBlocks:         make(chan int32),
@@ -134,7 +138,7 @@ func (m *ChainBridge) SendConfNtfn(reqNo int, blockHash *chainhash.Hash,
 // RegisterConfirmationsNtfn records a confirmation subscription and signals
 // the caller via ConfReqSignal.
 func (m *ChainBridge) RegisterConfirmationsNtfn(ctx context.Context,
-	_ *chainhash.Hash, pkScript []byte, _, _ uint32, _ bool,
+	txid *chainhash.Hash, pkScript []byte, _, _ uint32, _ bool,
 	_ chan struct{}) (*chainntnfs.ConfirmationEvent, chan error, error) {
 
 	select {
@@ -159,6 +163,10 @@ func (m *ChainBridge) RegisterConfirmationsNtfn(ctx context.Context,
 	currentReqCount := m.ReqCount.Load()
 	m.ConfReqs[int(currentReqCount)] = req
 	m.ConfPkScripts[int(currentReqCount)] = append([]byte(nil), pkScript...)
+	if txid != nil {
+		txidCopy := *txid
+		m.ConfTxIDs[int(currentReqCount)] = &txidCopy
+	}
 
 	select {
 	case m.ConfReqSignal <- int(currentReqCount):

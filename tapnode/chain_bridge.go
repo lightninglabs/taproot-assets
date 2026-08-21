@@ -12,9 +12,9 @@ import (
 )
 
 // DefinitivePublishError marks a transaction publication error that proves the
-// transaction was rejected before it could enter the mempool. Callers may
-// safely keep the transaction in a pre-broadcast state when this error is
-// returned.
+// attempted backend rejected the transaction before it could enter that
+// backend's mempool. Callers that have exposed the signed transaction through
+// another boundary must still account for an independent relay.
 type DefinitivePublishError struct {
 	err error
 }
@@ -97,10 +97,10 @@ type ChainBridge interface {
 	// the network.
 	PublishTransaction(context.Context, *wire.MsgTx, string) error
 
-	// ValidateAndPublishTransaction submits a transaction before callers
-	// persist an irreversible broadcast state. A definitive rejection is
-	// returned as DefinitivePublishError; all other errors are ambiguous and
-	// callers must assume the transaction may have been relayed.
+	// ValidateAndPublishTransaction validates and submits a transaction. A
+	// rejection by this backend is returned as DefinitivePublishError; all
+	// other errors are ambiguous. Whether a caller may remain pre-broadcast
+	// also depends on whether the signed transaction was exposed elsewhere.
 	ValidateAndPublishTransaction(context.Context, *wire.MsgTx, string) error
 
 	// EstimateFee returns a fee estimate for the confirmation

@@ -3476,7 +3476,6 @@ func (c *ChainPlanter) gardener() {
 					c.pendingBatch = nil
 
 				case err := <-caretaker.cfg.BroadcastErrChan:
-					req.Error(err)
 					// Stop the failed caretaker directly. Custom
 					// batches remain pending so the same signed
 					// transaction can be retried; legacy batches
@@ -3514,6 +3513,13 @@ func (c *ChainPlanter) gardener() {
 					if !customBatch {
 						c.pendingBatch = nil
 					}
+
+					// Only release the synchronous caller after the
+					// failed caretaker is stopped and removed. Callers
+					// may immediately retry or cancel after an error,
+					// so returning earlier exposes a dead caretaker in
+					// the exclusive slot.
+					req.Error(err)
 
 				case <-c.Quit:
 					return
