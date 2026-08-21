@@ -185,7 +185,7 @@ func (a *AuxSweeper) Start() error {
 
 // Stop stops the AuxSweeper.
 func (a *AuxSweeper) Stop() error {
-	if !a.stopped.CompareAndSwap(true, false) {
+	if !a.stopped.CompareAndSwap(false, true) {
 		return nil
 	}
 

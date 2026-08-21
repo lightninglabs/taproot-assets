@@ -325,3 +325,22 @@ func TestFetchInputProofFilesRejectsMismatchedProof(t *testing.T) {
 	)
 	require.ErrorContains(t, err, "input proof mismatch")
 }
+
+// TestAuxSweeperStop ensures that stopping the sweeper closes its quit
+// channel, which is what aborts any in-flight funding proof import.
+func TestAuxSweeperStop(t *testing.T) {
+	t.Parallel()
+
+	sweeper := NewAuxSweeper(&AuxSweeperCfg{})
+	require.NoError(t, sweeper.Start())
+	require.NoError(t, sweeper.Stop())
+
+	select {
+	case <-sweeper.quit:
+	default:
+		t.Fatal("quit channel still open after Stop")
+	}
+
+	// A second stop must be a no-op instead of a double close.
+	require.NoError(t, sweeper.Stop())
+}
