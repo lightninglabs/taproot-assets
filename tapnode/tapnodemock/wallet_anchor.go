@@ -280,10 +280,15 @@ func (m *WalletAnchor) LeaseInput(ctx context.Context,
 }
 
 // ReleaseInput releases a custom-anchor lease held by the mock wallet.
-func (m *WalletAnchor) ReleaseInput(_ context.Context,
+func (m *WalletAnchor) ReleaseInput(ctx context.Context,
 	_ tapnode.CustomAnchorLeaseID, op wire.OutPoint) error {
 
-	m.ReleaseInputSignal <- op
+	select {
+	case m.ReleaseInputSignal <- op:
+
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 	m.mu.RLock()
 	releaseErr := m.ReleaseErrors[op]
 	m.mu.RUnlock()

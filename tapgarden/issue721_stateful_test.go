@@ -66,6 +66,18 @@ type issue721FailStateStore struct {
 	fail bool
 }
 
+type issue721TimeoutFundingStore struct {
+	tapgarden.MintingStore
+}
+
+func (s *issue721TimeoutFundingStore) CommitBatchFunding(ctx context.Context,
+	_ *btcec.PublicKey, _ *chainhash.Hash,
+	_ tapgarden.FundedMintAnchorPsbt) error {
+
+	<-ctx.Done()
+	return ctx.Err()
+}
+
 func (s *issue721FailStateStore) UpdateBatchState(ctx context.Context,
 	batch *tapgarden.MintingBatch, state tapgarden.BatchState) error {
 
@@ -1769,6 +1781,53 @@ func TestIssue721LeaseFailureAndCancelReleaseOrdering(t *testing.T) {
 		require.Equal(t, tapgarden.BatchStateSeedlingCancelled,
 			cancelled.State())
 	})
+}
+
+// TestIssue721PersistenceTimeoutRollsBackLease proves that a funding-store
+// timeout after successful acquisition cannot poison the lease cleanup RPC.
+func TestIssue721PersistenceTimeoutRollsBackLease(t *testing.T) {
+	store := &issue721TimeoutFundingStore{
+		MintingStore: newMintingStore(t),
+	}
+	h := newMintingTestHarness(t, store)
+	h.refreshChainPlanter()
+	t.Cleanup(func() { _ = h.planter.Stop() })
+
+	h.queueSeedlingsInBatch(false, issue721Seedling())
+	h.planter.DefaultTimeout = 50 * time.Millisecond
+	pkt, _, _ := issue721Anchor(t)
+	op := pkt.UnsignedTx.TxIn[0].PreviousOutPoint
+	h.wallet.SetOwnedInput(op, true)
+	anchorPriv, _ := btcec.PrivKeyFromBytes(bytes.Repeat([]byte{7}, 32))
+	h.keyRing.Keys[keychain.KeyLocator{
+		Family: asset.TaprootAssetsKeyFamily,
+		Index:  721,
+	}] = anchorPriv
+	h.keyRing.On(
+		"IsLocalKey", mock.Anything, mock.Anything,
+	).Maybe()
+
+	_, err := h.planter.FundBatch(tapgarden.FundParams{
+		FeeRate:              fn.None[chainfee.SatPerKWeight](),
+		SiblingTapTree:       fn.None[asset.TapscriptTreeNodes](),
+		AnchorPsbt:           pkt,
+		AssetAnchorOutIdx:    1,
+		ChangeOutputIndex:    -1,
+		PreCommitOutputIndex: fn.None[uint32](),
+	})
+	require.ErrorIs(t, err, context.Canceled)
+	require.Equal(t, op, <-h.wallet.LeaseInputSignal)
+	select {
+	case released := <-h.wallet.ReleaseInputSignal:
+		require.Equal(t, op, released)
+
+	case <-time.After(time.Second):
+		t.Fatal("persistence timeout did not roll back acquired lease")
+	}
+
+	pending, err := h.planter.PendingBatch()
+	require.NoError(t, err)
+	require.Nil(t, pending.GenesisPacket)
 }
 
 // TestIssue721ConfirmationRegistrationRetry ensures a successful publish
