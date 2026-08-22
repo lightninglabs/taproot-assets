@@ -59,6 +59,10 @@ type (
 	// its asset ID.
 	AssetProofByIDRow = sqlc.FetchAssetProofsByAssetIDRow
 
+	// AssetProofsByIDsRow is the asset proof for a given asset, identified
+	// by its asset primary key.
+	AssetProofsByIDsRow = sqlc.FetchAssetProofsByIDsRow
+
 	// PrevInput stores the full input information including the prev out,
 	// and also the witness information itself.
 	PrevInput = sqlc.UpsertAssetWitnessParams
@@ -252,6 +256,11 @@ type ActiveAssetsStore interface {
 	// ID.
 	FetchAssetProofsByAssetID(ctx context.Context,
 		assetID []byte) ([]AssetProofByIDRow, error)
+
+	// FetchAssetProofsByIDs fetches the asset proofs for the assets
+	// identified by the passed set of asset primary keys.
+	FetchAssetProofsByIDs(ctx context.Context,
+		assetIds []int64) ([]AssetProofsByIDsRow, error)
 
 	// UpsertChainTx inserts a new or updates an existing chain tx into the
 	// DB.
@@ -692,6 +701,10 @@ func parseAssetWitness(input AssetWitness) (asset.Witness, error) {
 // dbAssetsToChainAssets maps a set of confirmed assets in the database, and
 // the witnesses of those assets to a set of normal ChainAsset structs needed
 // by a higher level application.
+//
+// The returned slice is index-aligned with the input: chainAssets[i] is built
+// from dbAssets[i]. Callers rely on this to map a chain asset back to its
+// database row.
 func dbAssetsToChainAssets(dbAssets []ConfirmedAsset, witnesses assetWitnesses,
 	dbClock clock.Clock) ([]*asset.ChainAsset, error) {
 
@@ -1533,7 +1546,7 @@ func (a *AssetStore) FetchOrphanUTXOs(ctx context.Context) (
 			// Query all assets anchored at this outpoint.
 			// We include spent assets here because tombstones are
 			// marked as spent when created.
-			assetsAtAnchor, err := a.queryChainAssets(
+			_, assetsAtAnchor, err := a.queryChainAssets(
 				ctx, q, QueryAssetFilters{
 					AnchorPoint: u.Outpoint,
 					Now:         sqlTime(now),
@@ -2323,23 +2336,26 @@ func (a *AssetStore) RemoveSubscriber(
 
 // queryChainAssets queries the database for assets matching the passed filter.
 // The returned assets have all anchor and witness information populated.
+// The returned chain assets are index-aligned with the returned raw database
+// rows, so callers can map a chain asset back to its database row.
 func (a *AssetStore) queryChainAssets(ctx context.Context, q ActiveAssetsStore,
-	filter QueryAssetFilters) ([]*asset.ChainAsset, error) {
+	filter QueryAssetFilters) ([]ConfirmedAsset, []*asset.ChainAsset,
+	error) {
 
 	dbAssets, assetWitnesses, err := fetchAssetsWithWitness(
 		ctx, q, filter,
 	)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	matchingAssets, err := dbAssetsToChainAssets(
 		dbAssets, assetWitnesses, a.clock,
 	)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	return matchingAssets, nil
+	return dbAssets, matchingAssets, nil
 }
 
 // FetchCommitment returns a specific commitment identified by the given asset
@@ -2544,20 +2560,85 @@ func (a *AssetStore) queryCommitments(ctx context.Context,
 			map[wire.OutPoint][]asset.AltLeaf[asset.Asset],
 		)
 		matchingAssetProofs = make(map[wire.OutPoint]proof.Blob)
-		err                 error
 	)
 
 	readOpts := NewAssetStoreReadTx()
 	dbErr := a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
 		// Now that we have the set of filters we need we'll query the
-		// DB for the set of assets that matches them.
-		matchingAssets, err = a.queryChainAssets(ctx, q, assetFilter)
+		// DB for the set of assets that matches them. We keep the raw
+		// DB assets as well, since we need their primary keys to batch
+		// fetch the proofs below.
+		dbAssets, assets, err := a.queryChainAssets(
+			ctx, q, assetFilter,
+		)
 		if err != nil {
 			return err
 		}
 
+		matchingAssets = assets
 		if len(matchingAssets) == 0 {
 			return tapfreighter.ErrMatchingAssetsNotFound
+		}
+
+		// TODO(jhb): replace full proof fetch with
+		// outpoint -> alt leaf table / index
+		// We also need to fetch an input proof for each anchor point,
+		// in order to fetch any committed alt leaves. The alt leaves
+		// of a proof are the ones committed to by the anchor output as
+		// a whole (see the TaprootAssetRoot.FetchAltLeaves call in
+		// proof.CreateTransitionProof), so every asset at an anchor
+		// point carries the same set and one proof per distinct anchor
+		// point is enough.
+		//
+		// We therefore pick a representative asset per anchor point
+		// and fetch the proofs of all representatives in batched
+		// queries, keyed by the assets' primary keys. The
+		// representative is the lowest primary key at the anchor
+		// point, which doesn't depend on the order the assets were
+		// queried in. An asset that has no proof stored still fails
+		// the query below if it is the representative of its anchor
+		// point.
+		repAssetIDs := make(map[wire.OutPoint]int64)
+		for idx := range matchingAssets {
+			anchorPoint := matchingAssets[idx].AnchorOutpoint
+			primaryKey := dbAssets[idx].AssetPrimaryKey
+
+			existing, ok := repAssetIDs[anchorPoint]
+			if !ok || primaryKey < existing {
+				repAssetIDs[anchorPoint] = primaryKey
+			}
+		}
+
+		assetIDs := make([]int64, 0, len(repAssetIDs))
+		anchorByAssetID := make(
+			map[int64]wire.OutPoint, len(repAssetIDs),
+		)
+		for anchorPoint, primaryKey := range repAssetIDs {
+			assetIDs = append(assetIDs, primaryKey)
+			anchorByAssetID[primaryKey] = anchorPoint
+		}
+
+		err = forEachIDChunk(assetIDs, func(chunk []int64) error {
+			dbProofs, err := q.FetchAssetProofsByIDs(ctx, chunk)
+			if err != nil {
+				return err
+			}
+
+			for _, dbProof := range dbProofs {
+				anchor := anchorByAssetID[dbProof.AssetID]
+				matchingAssetProofs[anchor] = dbProof.ProofFile
+			}
+
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+
+		// Every anchor point must have a proof, as each proof row is
+		// unique per asset.
+		if len(matchingAssetProofs) != len(repAssetIDs) {
+			return proof.ErrProofNotFound
 		}
 
 		// At this point, we have the set of assets that match our
@@ -2582,7 +2663,7 @@ func (a *AssetStore) queryCommitments(ctx context.Context,
 				Now:         sqlTime(a.clock.Now().UTC()),
 			}
 
-			anchoredAssets, err := a.queryChainAssets(
+			_, anchoredAssets, err := a.queryChainAssets(
 				ctx, q, outpointQuery,
 			)
 			if err != nil {
@@ -2601,31 +2682,6 @@ func (a *AssetStore) queryCommitments(ctx context.Context,
 			}
 
 			anchorPoints[anchorPoint] = anchorUTXO
-
-			// TODO(jhb): replace full proof fetch with
-			// outpoint -> alt leaf table / index
-			// We also need to fetch the input proof here, in order
-			// to fetch any committed alt leaves.
-			assetLoc := proof.Locator{
-				AssetID:   fn.Ptr(matchingAsset.ID()),
-				ScriptKey: *matchingAsset.ScriptKey.PubKey,
-				OutPoint:  &matchingAsset.AnchorOutpoint,
-			}
-			proofArgs, err := locatorToProofQuery(assetLoc)
-			if err != nil {
-				return err
-			}
-
-			var assetProof proof.Blob
-			assetProof, err = fetchProof(ctx, q, proofArgs)
-			switch {
-			case errors.Is(err, sql.ErrNoRows):
-				return proof.ErrProofNotFound
-			case err != nil:
-				return err
-			}
-
-			matchingAssetProofs[anchorPoint] = assetProof
 		}
 
 		return nil

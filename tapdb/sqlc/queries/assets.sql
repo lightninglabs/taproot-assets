@@ -839,6 +839,16 @@ FROM asset_proofs
 JOIN asset_info
   ON asset_info.asset_id = asset_proofs.asset_id;
 
+-- name: FetchAssetProofsByIDs :many
+SELECT asset_id, proof_file
+FROM asset_proofs
+-- The proofs of all assets identified by the passed set of asset primary keys
+-- are fetched in a single query.
+--
+-- The asset_ids argument must NEVER be an empty slice, otherwise this query
+-- will return no results.
+WHERE asset_proofs.asset_id IN (sqlc.slice('asset_ids')/*SLICE:asset_ids*/);
+
 -- name: HasAssetProof :one
 WITH asset_info AS (
     SELECT assets.asset_id
