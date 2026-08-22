@@ -2564,6 +2564,16 @@ func (a *AssetStore) queryCommitments(ctx context.Context,
 
 	readOpts := NewAssetStoreReadTx()
 	dbErr := a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
+		// The transaction may retry the closure wholesale, so reset
+		// any state a previous attempt may have gathered. A stale
+		// entry would otherwise make the dedup logic below skip the
+		// work of a failed attempt.
+		chainAnchorToAssets = make(
+			map[wire.OutPoint][]*asset.ChainAsset,
+		)
+		anchorPoints = make(map[wire.OutPoint]AnchorPoint)
+		matchingAssetProofs = make(map[wire.OutPoint]proof.Blob)
+
 		// Now that we have the set of filters we need we'll query the
 		// DB for the set of assets that matches them. We keep the raw
 		// DB assets as well, since we need their primary keys to batch
@@ -2652,6 +2662,14 @@ func (a *AssetStore) queryCommitments(ctx context.Context,
 		for idx := range matchingAssets {
 			matchingAsset := matchingAssets[idx]
 			anchorPoint := matchingAsset.AnchorOutpoint
+
+			// Multiple matching assets may be anchored at the same
+			// outpoint, in which case we've already fetched the
+			// anchored assets and managed UTXO for it.
+			if _, ok := chainAnchorToAssets[anchorPoint]; ok {
+				continue
+			}
+
 			anchorPointBytes, err := encodeOutpoint(
 				matchingAsset.AnchorOutpoint,
 			)
