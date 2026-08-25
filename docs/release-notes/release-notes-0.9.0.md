@@ -92,6 +92,20 @@
   concurrent batch snapshot can never observe state that disk does
   not yet hold.
 
+* [PR#2255](https://github.com/lightninglabs/taproot-assets/pull/2255)
+  fixes a bug in which registering a proof leaf the universe already
+  held was still logged as a new proof, so `num_total_proofs` in the
+  universe stats counted insert attempts rather than proofs held, and
+  the `universe_events` table grew with sync traffic rather than with
+  universe size. Note that this stops the over-counting, it does not
+  correct a count that has already been inflated.
+
+  This also changes the meaning of `new_proof_events` in `QueryEvents`,
+  which is fed by the same rows: it now counts leaves newly acquired
+  per day rather than registration attempts per day, so on a
+  long-running node the series steps down. The per-day `sync_events`
+  series is unchanged and still reflects sync traffic volume.
+
 # New Features
 
 ## Functional Enhancements
