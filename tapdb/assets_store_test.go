@@ -1869,6 +1869,155 @@ func TestSelectCommitment(t *testing.T) {
 	}
 }
 
+// TestListEligibleCoinsBounded tests that a bounded eligible coin listing
+// returns coins in pages of descending amounts.
+func TestListEligibleCoinsBounded(t *testing.T) {
+	t.Parallel()
+
+	const numAssets = 5
+
+	assetGen := newAssetGenerator(t, numAssets, 1)
+	_, assetsStore, _ := newAssetStore(t)
+
+	// We create one asset per anchor point, with amounts that are neither
+	// sorted nor aligned with the anchor point order.
+	amounts := []uint64{10, 40, 20, 50, 30}
+	assetDescs := make([]assetDesc, numAssets)
+	for i := 0; i < numAssets; i++ {
+		assetDescs[i] = assetDesc{
+			assetGen:    assetGen.assetGens[0],
+			amt:         amounts[i],
+			anchorPoint: assetGen.anchorPoints[i],
+		}
+	}
+	assetGen.genAssets(t, assetsStore, assetDescs)
+
+	// The genesis (and with it the asset ID) of the generated assets
+	// depends on the anchor point, so we use an empty specifier to match
+	// all the created assets.
+	ctx := context.Background()
+	constraints := tapfreighter.CommitmentConstraints{
+		MinAmt: 1,
+	}
+
+	listAmounts := func(coins []*tapfreighter.AnchoredCommitment) []uint64 {
+		return fn.Map(
+			coins, func(c *tapfreighter.AnchoredCommitment) uint64 {
+				return c.Asset.Amount
+			},
+		)
+	}
+
+	// Page through the coins two at a time, expecting descending amounts.
+	expectedPages := [][]uint64{{50, 40}, {30, 20}, {10}}
+	for idx, expected := range expectedPages {
+		constraints.CoinLimit = 2
+		constraints.CoinOffset = int32(idx * 2)
+
+		coins, err := assetsStore.ListEligibleCoins(ctx, constraints)
+		require.NoError(t, err)
+		require.Equal(t, expected, listAmounts(coins))
+	}
+
+	// A page past the end of the eligible coin set reports that no assets
+	// were found.
+	constraints.CoinOffset = numAssets + 1
+	_, err := assetsStore.ListEligibleCoins(ctx, constraints)
+	require.ErrorIs(t, err, tapfreighter.ErrMatchingAssetsNotFound)
+
+	// An unbounded listing returns all the coins, in no particular order.
+	unbounded, err := assetsStore.ListEligibleCoins(
+		ctx, tapfreighter.CommitmentConstraints{
+			MinAmt: 1,
+		},
+	)
+	require.NoError(t, err)
+	require.Len(t, unbounded, numAssets)
+
+	smallest := unbounded[0]
+	for _, c := range unbounded {
+		if c.Asset.Amount < smallest.Asset.Amount {
+			smallest = c
+		}
+	}
+
+	// Specific inputs can be requested from an unbounded listing, as the
+	// prev ID filter is applied after the query.
+	coins, err := assetsStore.ListEligibleCoins(
+		ctx, tapfreighter.CommitmentConstraints{
+			MinAmt:  1,
+			PrevIDs: []asset.PrevID{smallest.PrevID()},
+		},
+	)
+	require.NoError(t, err)
+	require.Len(t, coins, 1)
+	require.Equal(t, smallest.Asset.Amount, coins[0].Asset.Amount)
+
+	// Combining the two is a programming error, as a bounded listing could
+	// hold none of the requested inputs.
+	constraints.CoinLimit = 1
+	constraints.CoinOffset = 0
+	constraints.PrevIDs = []asset.PrevID{smallest.PrevID()}
+	_, err = assetsStore.ListEligibleCoins(ctx, constraints)
+	require.ErrorContains(t, err, "cannot be combined")
+}
+
+// TestListEligibleCoinsBoundedEqualAmounts tests that paging through a bounded
+// eligible coin listing neither repeats nor skips coins when all the coins hold
+// the same amount, which is the case where the amount ordering alone doesn't
+// decide the order of the pages.
+func TestListEligibleCoinsBoundedEqualAmounts(t *testing.T) {
+	t.Parallel()
+
+	const (
+		numAssets = 5
+		amount    = 10
+	)
+
+	assetGen := newAssetGenerator(t, numAssets, 1)
+	_, assetsStore, _ := newAssetStore(t)
+
+	assetDescs := make([]assetDesc, numAssets)
+	for i := 0; i < numAssets; i++ {
+		assetDescs[i] = assetDesc{
+			assetGen:    assetGen.assetGens[0],
+			amt:         amount,
+			anchorPoint: assetGen.anchorPoints[i],
+		}
+	}
+	assetGen.genAssets(t, assetsStore, assetDescs)
+
+	ctx := context.Background()
+	constraints := tapfreighter.CommitmentConstraints{
+		MinAmt: 1,
+	}
+
+	// Page through all the coins, collecting them by prev ID. Every page
+	// must be full until the coins run out.
+	seen := fn.NewSet[asset.PrevID]()
+	for offset := int32(0); offset < numAssets; offset += 2 {
+		constraints.CoinLimit = 2
+		constraints.CoinOffset = offset
+
+		coins, err := assetsStore.ListEligibleCoins(ctx, constraints)
+		require.NoError(t, err)
+
+		expectedLen := min(2, numAssets-int(offset))
+		require.Len(t, coins, expectedLen)
+
+		for _, c := range coins {
+			require.Equal(t, uint64(amount), c.Asset.Amount)
+
+			// A coin must not show up on two pages.
+			require.False(t, seen.Contains(c.PrevID()))
+			seen.Add(c.PrevID())
+		}
+	}
+
+	// And no coin may have been skipped either.
+	require.Equal(t, numAssets, len(seen.ToSlice()))
+}
+
 // TestAssetExportLog tests that were able to properly spend/transfer assets on
 // disk. This ensures we can properly commit the end result of an asset
 // transfer initiated at a higher level.
