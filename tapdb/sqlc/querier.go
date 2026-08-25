@@ -23,6 +23,11 @@ type Querier interface {
 	AssetsInBatch(ctx context.Context, rawKey []byte) ([]AssetsInBatchRow, error)
 	BindMintingBatchWithTapSibling(ctx context.Context, arg BindMintingBatchWithTapSiblingParams) error
 	BindMintingBatchWithTx(ctx context.Context, arg BindMintingBatchWithTxParams) (int64, error)
+	// Reserves a contiguous range of journal seq values ending at the
+	// returned tail. The row lock taken here is held until the enclosing
+	// transaction commits, serializing journal appends so that seq order
+	// equals commit order.
+	BumpUniverseLeafJournalTail(ctx context.Context, delta int64) (int64, error)
 	ConfirmChainAnchorTx(ctx context.Context, arg ConfirmChainAnchorTxParams) error
 	ConfirmChainTx(ctx context.Context, arg ConfirmChainTxParams) error
 	CountAuthMailboxMessages(ctx context.Context) (int64, error)
@@ -139,6 +144,13 @@ type Querier interface {
 	// computed from mssmt_nodes.value (the leaf's RawProof bytes) and
 	// mssmt_nodes.sum. Callers compute the hash from these two columns.
 	FetchUniverseKeys(ctx context.Context, arg FetchUniverseKeysParams) ([]FetchUniverseKeysRow, error)
+	// The commit-ordered delta serves federation sync, whose domain is
+	// issuance and transfer universes; other proof types flow through
+	// dedicated syncers. Sequencing comes from the journal, whose seq
+	// assignment guarantees seq order equals commit order, so a reader
+	// can never observe a seq while a lower unserved seq is still
+	// uncommitted.
+	FetchUniverseLeavesSince(ctx context.Context, arg FetchUniverseLeavesSinceParams) ([]FetchUniverseLeavesSinceRow, error)
 	FetchUniverseRoot(ctx context.Context, namespace string) (FetchUniverseRootRow, error)
 	FetchUniverseSupplyRoot(ctx context.Context, namespaceRoot string) (FetchUniverseSupplyRootRow, error)
 	FetchUnknownTypeScriptKeys(ctx context.Context) ([]FetchUnknownTypeScriptKeysRow, error)
@@ -179,6 +191,10 @@ type Querier interface {
 	InsertSupplySyncerPushLog(ctx context.Context, arg InsertSupplySyncerPushLogParams) error
 	InsertSupplyUpdateEvent(ctx context.Context, arg InsertSupplyUpdateEventParams) error
 	InsertTxProof(ctx context.Context, arg InsertTxProofParams) error
+	// A leaf already journaled keeps its original seq: re-upserts and
+	// in-place rewrites are not re-delivered by delta sync, and heal via
+	// the root comparison on the enumeration path instead.
+	InsertUniverseLeafJournal(ctx context.Context, arg InsertUniverseLeafJournalParams) error
 	InsertUniverseServer(ctx context.Context, arg InsertUniverseServerParams) error
 	LinkDanglingSupplyUpdateEvents(ctx context.Context, arg LinkDanglingSupplyUpdateEventsParams) error
 	ListClaimedOutpoints(ctx context.Context, arg ListClaimedOutpointsParams) ([]ListClaimedOutpointsRow, error)
@@ -193,6 +209,7 @@ type Querier interface {
 	// pre-commitment corresponds to an asset issuance where a remote node acted as
 	// the issuer.
 	MarkPreCommitSpentByOutpoint(ctx context.Context, arg MarkPreCommitSpentByOutpointParams) error
+	MaxUniverseLeafJournalSeq(ctx context.Context) (int64, error)
 	NewMintingBatch(ctx context.Context, arg NewMintingBatchParams) error
 	QueryAddr(ctx context.Context, arg QueryAddrParams) (QueryAddrRow, error)
 	// We use a LEFT JOIN here as not every asset has a group key, so this'll
@@ -228,6 +245,7 @@ type Querier interface {
 	// Join on mssmt_nodes to get leaf related fields.
 	// Join on genesis_info_view to get leaf related fields.
 	QueryFederationProofSyncLog(ctx context.Context, arg QueryFederationProofSyncLogParams) ([]QueryFederationProofSyncLogRow, error)
+	QueryFederationSyncCursor(ctx context.Context, targetServer string) (int64, error)
 	QueryFederationUniSyncConfigs(ctx context.Context) ([]QueryFederationUniSyncConfigsRow, error)
 	QueryForwards(ctx context.Context, arg QueryForwardsParams) ([]QueryForwardsRow, error)
 	QueryLastEventHeight(ctx context.Context, version int16) (int64, error)
@@ -285,6 +303,7 @@ type Querier interface {
 	UpsertChainTx(ctx context.Context, arg UpsertChainTxParams) (int64, error)
 	UpsertFederationGlobalSyncConfig(ctx context.Context, arg UpsertFederationGlobalSyncConfigParams) error
 	UpsertFederationProofSyncLog(ctx context.Context, arg UpsertFederationProofSyncLogParams) (int64, error)
+	UpsertFederationSyncCursor(ctx context.Context, arg UpsertFederationSyncCursorParams) error
 	UpsertFederationUniSyncConfig(ctx context.Context, arg UpsertFederationUniSyncConfigParams) error
 	UpsertForward(ctx context.Context, arg UpsertForwardParams) (int64, error)
 	UpsertGenesisAsset(ctx context.Context, arg UpsertGenesisAssetParams) (int64, error)
@@ -312,7 +331,7 @@ type Querier interface {
 	UpsertTapscriptTreeEdge(ctx context.Context, arg UpsertTapscriptTreeEdgeParams) (int64, error)
 	UpsertTapscriptTreeNode(ctx context.Context, rawNode []byte) (int64, error)
 	UpsertTapscriptTreeRootHash(ctx context.Context, arg UpsertTapscriptTreeRootHashParams) (int64, error)
-	UpsertUniverseLeaf(ctx context.Context, arg UpsertUniverseLeafParams) error
+	UpsertUniverseLeaf(ctx context.Context, arg UpsertUniverseLeafParams) (int64, error)
 	UpsertUniverseRoot(ctx context.Context, arg UpsertUniverseRootParams) (int64, error)
 	UpsertUniverseSupplyLeaf(ctx context.Context, arg UpsertUniverseSupplyLeafParams) (int64, error)
 	UpsertUniverseSupplyRoot(ctx context.Context, arg UpsertUniverseSupplyRootParams) (int64, error)

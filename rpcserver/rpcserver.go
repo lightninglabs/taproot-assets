@@ -86,6 +86,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 var (
@@ -8246,6 +8247,162 @@ func (r *RPCServer) SyncUniverse(ctx context.Context,
 	}
 
 	return r.marshalUniverseDiff(ctx, universeDiff)
+}
+
+// syncDeltaByteBudget caps the marshalled payload size of a single
+// SyncDelta response page, keeping it comfortably under the default
+// 4 MiB gRPC message size limit. A variable rather than a constant so
+// tests can exercise the page-splitting path with small payloads.
+var syncDeltaByteBudget = 3 * 1024 * 1024
+
+// SyncDelta returns the universe leaves inserted on this server after the
+// given sequence number, in insertion order, together with the current
+// roots of the universes the delta touches. Leaves of universes with
+// proof export disabled are omitted from the response but still advance
+// latest_seq: the sequence is a position in this server's insertion log,
+// not a count of exported items.
+func (r *RPCServer) SyncDelta(ctx context.Context,
+	req *unirpc.SyncDeltaRequest) (*unirpc.SyncDeltaResponse, error) {
+
+	pageSize := req.PageSize
+	switch {
+	case pageSize == 0:
+		pageSize = universe.RequestPageSize
+
+	case pageSize < 0:
+		return nil, fmt.Errorf("invalid page size %d", pageSize)
+
+	case pageSize > universe.MaxPageSize:
+		return nil, fmt.Errorf("page size %d exceeds maximum %d",
+			pageSize, universe.MaxPageSize)
+	}
+
+	// Obtain the export gating config once for the whole page.
+	globalConfigs, uniSyncConfigs, err :=
+		r.cfg.FederationDB.QueryFederationSyncConfigs(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("query federation sync configs: %w",
+			err)
+	}
+	syncConfigs := universe.SyncConfigs{
+		GlobalSyncConfigs: globalConfigs,
+		UniSyncConfigs:    uniSyncConfigs,
+	}
+
+	// A delta page is a single request that can carry many proofs, so we
+	// wait on the proof query rate limiter once per request rather than
+	// once per item.
+	if err := r.proofQueryRateLimiter.Wait(ctx); err != nil {
+		return nil, fmt.Errorf("rate limiter: %w", err)
+	}
+
+	// The whole page — leaves, inclusion proofs, and universe roots —
+	// is assembled in a single storage snapshot, so a write landing
+	// mid-request can never yield proofs that fail to verify against
+	// the roots reported alongside them.
+	page, err := r.cfg.UniverseArchive.SyncDelta(
+		ctx, req.SinceSeq, pageSize,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("fetch delta page since seq=%d: %w",
+			req.SinceSeq, err)
+	}
+
+	resp := &unirpc.SyncDeltaResponse{
+		LatestSeq: req.SinceSeq,
+	}
+
+	// An empty page reports the committed journal tail: equal to
+	// since_seq for a caught-up caller, and strictly below it when the
+	// caller's cursor lies beyond this journal — the signal it uses to
+	// detect that the journal has been rewound or replaced.
+	if len(page.Items) == 0 {
+		resp.LatestSeq = page.LatestSeq
+	}
+
+	var (
+		bytesUsed int
+		rootsSeen = make(map[universe.IdentifierKey]struct{})
+	)
+
+	for i := range page.Items {
+		item := page.Items[i]
+
+		// Universes with export disabled are omitted, but their
+		// leaves still advance the cursor.
+		if !syncConfigs.IsSyncExportEnabled(item.ID) {
+			resp.LatestSeq = item.Seq
+			continue
+		}
+
+		inclusionProof, err := marshalMssmtProof(item.InclusionProof)
+		if err != nil {
+			return nil, err
+		}
+
+		decDisplay, err := r.cfg.AddrBook.DecDisplayForAssetID(
+			ctx, item.Leaf.ID(),
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		assetLeaf, err := r.marshalAssetLeaf(
+			ctx, item.Leaf, decDisplay,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		uniID, err := MarshalUniID(item.ID)
+		if err != nil {
+			return nil, err
+		}
+
+		rpcItem := &unirpc.SyncDeltaItem{
+			UniverseId:             uniID,
+			Key:                    marshalLeafKey(item.Key),
+			Leaf:                   assetLeaf,
+			UniverseInclusionProof: inclusionProof,
+			Seq:                    item.Seq,
+		}
+
+		// Stop before this item if it would push the page past the
+		// response byte budget; latest_seq then points at the last
+		// included item and the caller simply pages again. The size
+		// is the exact marshalled size, measured after assembly, so
+		// only the single item that crosses the budget is assembled
+		// in vain.
+		itemSize := proto.Size(rpcItem)
+		if len(resp.Items) > 0 &&
+			bytesUsed+itemSize > syncDeltaByteBudget {
+
+			break
+		}
+
+		resp.Items = append(resp.Items, rpcItem)
+		bytesUsed += itemSize
+		resp.LatestSeq = item.Seq
+
+		// Include this universe's root once per page, counting it
+		// against the budget alongside the items.
+		idKey := item.ID.Key()
+		if _, ok := rootsSeen[idKey]; !ok {
+			rootsSeen[idKey] = struct{}{}
+
+			uniRoot, err := marshalUniverseRoot(page.Roots[idKey])
+			if err != nil {
+				return nil, err
+			}
+
+			resp.UniverseRoots = append(
+				resp.UniverseRoots, uniRoot,
+			)
+			bytesUsed += proto.Size(uniRoot)
+		}
+	}
+
+	return resp, nil
 }
 
 func marshalUniverseServer(
