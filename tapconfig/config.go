@@ -103,7 +103,7 @@ type RPCConfig struct {
 type DatabaseConfig struct {
 	RootKeyStore *tapdb.RootKeyStore
 
-	MintingStore tapgarden.MintingStore
+	MintingStore *tapdb.AssetMintingStore
 
 	AssetStore *tapdb.AssetStore
 

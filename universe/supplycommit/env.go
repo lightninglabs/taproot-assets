@@ -813,6 +813,11 @@ type StateMachineStore interface {
 	// returned.
 	//
 	// This method will also create a new pending SupplyStateTransition.
+	//
+	// If an identical event is already recorded in the update log, no
+	// new row is written and ErrDuplicateUpdate is returned; callers
+	// must treat this as "already recorded" and must not advance state
+	// or cache the event.
 	InsertPendingUpdate(context.Context, asset.Specifier,
 		SupplyUpdateEvent) error
 

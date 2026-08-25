@@ -6,6 +6,6 @@
 // The substance is "guarding proof integrity in the face of chain
 // re-orgs," distinct from the minting substance that lives in
 // tapgarden. The watcher used to live alongside the planter and
-// caretaker because that was the package that first needed it; it
+// cultivator because that was the package that first needed it; it
 // has been separated so the package name says what the package is.
 package tapreorg

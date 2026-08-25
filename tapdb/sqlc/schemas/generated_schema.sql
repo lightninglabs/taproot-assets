@@ -206,6 +206,10 @@ CREATE TABLE asset_minting_batches (
     creation_time_unix TIMESTAMP NOT NULL
 , tapscript_sibling BLOB, assets_output_index INTEGER, universe_commitments BOOLEAN NOT NULL DEFAULT FALSE);
 
+CREATE UNIQUE INDEX asset_minting_batches_unique_pending_or_frozen
+    ON asset_minting_batches ((1))
+    WHERE batch_state IN (0, 1);
+
 CREATE TABLE asset_proofs (
     proof_id INTEGER PRIMARY KEY,
 
@@ -1115,7 +1119,11 @@ CREATE TABLE supply_update_events (
     -- Opaque blob containing the serialized data for the specific
     -- SupplyUpdateEvent (NewMintEvent, NewBurnEvent, NewIgnoreEvent).
     event_data BLOB NOT NULL
-);
+, event_key BLOB
+        CHECK(event_key IS NULL OR length(event_key) = 32));
+
+CREATE UNIQUE INDEX supply_update_events_event_key_idx
+    ON supply_update_events(event_key);
 
 CREATE INDEX supply_update_events_transition_id_idx ON supply_update_events(transition_id);
 

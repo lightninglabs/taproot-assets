@@ -1,6 +1,7 @@
 package tapdb
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/hex"
@@ -1399,6 +1400,550 @@ func TestSequenceConsistency(t *testing.T) {
 			lastValue, s.column, maxID,
 		)
 	}
+}
+
+// TestMigration65BackfillSupplyUpdateEventKeys verifies that the
+// programmatic migration at version 65 fills the event_key column for
+// every supply_update_events row created before the column existed.
+// Migration 64 added the column nullable; rows inserted at version 64
+// (or earlier) have event_key=NULL, and the dedup invariant only kicks
+// in once the backfill has run.
+func TestMigration65BackfillSupplyUpdateEventKeys(t *testing.T) {
+	ctx := context.Background()
+
+	// Start at version 64: the event_key column exists, the unique
+	// index exists (and tolerates multiple NULLs), but no rows have
+	// been hashed yet.
+	db := NewTestDBWithVersion(t, 64)
+
+	// Insert three rows with NULL event_key. update_type_id values
+	// match the rows seeded by migration 40 (0=mint, 1=burn,
+	// 2=ignore). Distinct event_data so the backfilled hashes do
+	// not collide.
+	groupKey := make([]byte, 32)
+	for i := range groupKey {
+		groupKey[i] = byte(i + 1)
+	}
+
+	type seed struct {
+		typeID int32
+		data   []byte
+	}
+	seeds := []seed{
+		{typeID: 0, data: []byte("event-payload-mint")},
+		{typeID: 1, data: []byte("event-payload-burn")},
+		{typeID: 2, data: []byte("event-payload-ignore")},
+	}
+
+	for _, s := range seeds {
+		_, err := db.InsertSupplyUpdateEvent(
+			ctx, sqlc.InsertSupplyUpdateEventParams{
+				GroupKey:     groupKey,
+				TransitionID: sql.NullInt64{},
+				UpdateTypeID: s.typeID,
+				EventData:    s.data,
+				EventKey:     nil,
+			},
+		)
+		require.NoError(t, err)
+	}
+
+	// Verify event_key is NULL before the backfill.
+	preRows, err := db.QueryContext(ctx, `
+		SELECT update_type_id, event_data, event_key
+		FROM supply_update_events
+		ORDER BY update_type_id
+	`)
+	require.NoError(t, err)
+	defer preRows.Close()
+	for preRows.Next() {
+		var typeID int32
+		var data, key []byte
+		require.NoError(t, preRows.Scan(&typeID, &data, &key))
+		require.Nil(t, key, "event_key must be NULL pre-backfill")
+	}
+	require.NoError(t, preRows.Close())
+
+	// Advance to latest -- the programmatic migration at 65 runs the
+	// backfill.
+	err = db.ExecuteMigrations(TargetLatest, WithProgrammaticMigrations(
+		makeProgrammaticMigrations(db, programmaticMigrations, true),
+	))
+	require.NoError(t, err)
+
+	// After the backfill, each row's event_key must equal the
+	// expected SHA-256 over (group_key || update_type_id || data).
+	postRows, err := db.QueryContext(ctx, `
+		SELECT update_type_id, event_data, event_key
+		FROM supply_update_events
+		ORDER BY update_type_id
+	`)
+	require.NoError(t, err)
+	defer postRows.Close()
+
+	seen := 0
+	for postRows.Next() {
+		var typeID int32
+		var data, key []byte
+		require.NoError(t, postRows.Scan(&typeID, &data, &key))
+
+		expected := supplyUpdateEventKey(groupKey, typeID, data)
+		require.Equal(t, expected, key,
+			"event_key mismatch for type %d", typeID)
+		require.Len(t, key, 32)
+		seen++
+	}
+	require.NoError(t, postRows.Close())
+	require.Equal(t, len(seeds), seen)
+}
+
+// TestMigration65BackfillDedupesLegacyDuplicates simulates the legacy
+// failure mode this PR closes: pre-migration databases could contain
+// multiple supply_update_events rows with identical content. The
+// migration 65 backfill must drop the duplicates rather than fail on
+// the unique index added in migration 64.
+func TestMigration65BackfillDedupesLegacyDuplicates(t *testing.T) {
+	ctx := context.Background()
+
+	db := NewTestDBWithVersion(t, 64)
+
+	groupKey := bytes.Repeat([]byte{0x42}, 32)
+	payload := []byte("event-payload-duplicate")
+
+	// Insert the same logical event three times. NULL event_key is
+	// distinct from NULL under both backends, so all three rows
+	// land without tripping the unique index.
+	for i := 0; i < 3; i++ {
+		_, err := db.InsertSupplyUpdateEvent(
+			ctx, sqlc.InsertSupplyUpdateEventParams{
+				GroupKey:     groupKey,
+				TransitionID: sql.NullInt64{},
+				UpdateTypeID: 0,
+				EventData:    payload,
+				EventKey:     nil,
+			},
+		)
+		require.NoError(t, err)
+	}
+
+	var preCount int
+	require.NoError(t, db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM supply_update_events
+	`).Scan(&preCount))
+	require.Equal(t, 3, preCount)
+
+	// Run the backfill. The unique index added in migration 64
+	// would reject the naive UPDATE for the second and third
+	// rows; the backfill must dedupe before writing.
+	err := db.ExecuteMigrations(TargetLatest, WithProgrammaticMigrations(
+		makeProgrammaticMigrations(db, programmaticMigrations, true),
+	))
+	require.NoError(t, err)
+
+	// Exactly one row should survive, and its event_key should
+	// match the hash of the duplicated content.
+	var postCount int
+	var survivingKey []byte
+	require.NoError(t, db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM supply_update_events
+	`).Scan(&postCount))
+	require.Equal(t, 1, postCount)
+
+	require.NoError(t, db.QueryRowContext(ctx, `
+		SELECT event_key FROM supply_update_events LIMIT 1
+	`).Scan(&survivingKey))
+	require.Equal(t,
+		supplyUpdateEventKey(groupKey, 0, payload),
+		survivingKey,
+	)
+}
+
+// TestMigration65BackfillPrefersAttachedDuplicate verifies that when
+// legacy duplicates split between a row attached to a finalized
+// transition and a dangling row, the backfill preserves the attached
+// row. Otherwise a finalized transition could be left without the
+// events it depends on.
+func TestMigration65BackfillPrefersAttachedDuplicate(t *testing.T) {
+	ctx := context.Background()
+
+	db := NewTestDBWithVersion(t, 64)
+
+	groupKey := bytes.Repeat([]byte{0x24}, 32)
+	payload := []byte("event-payload-attached-vs-dangling")
+
+	// Seed the state machine and a finalized transition so an
+	// event row can carry a non-null transition_id.
+	_, err := db.ExecContext(ctx, transformByteLiterals(
+		t, db.BaseDB, fmt.Sprintf(`
+		INSERT INTO supply_commit_state_machines (
+			group_key, current_state_id
+		) VALUES (X'%x', 1)
+		`, groupKey),
+	))
+	require.NoError(t, err)
+
+	var transitionID int64
+	if db.Backend() == sqlc.BackendTypeSqlite {
+		res, err := db.ExecContext(ctx, transformByteLiterals(
+			t, db.BaseDB, fmt.Sprintf(`
+			INSERT INTO supply_commit_transitions (
+				state_machine_group_key, finalized, frozen,
+				creation_time
+			) VALUES (X'%x', 1, 0, 0)
+			`, groupKey),
+		))
+		require.NoError(t, err)
+		transitionID, err = res.LastInsertId()
+		require.NoError(t, err)
+	} else {
+		err := db.QueryRowContext(ctx, fmt.Sprintf(`
+			INSERT INTO supply_commit_transitions (
+				state_machine_group_key, finalized, frozen,
+				creation_time
+			) VALUES (decode('%x', 'hex'), TRUE, FALSE, 0)
+			RETURNING transition_id
+			`, groupKey),
+		).Scan(&transitionID)
+		require.NoError(t, err)
+	}
+
+	// Insert the dangling row FIRST (lower event_id). Under the
+	// naive ORDER BY event_id ASC the dangling row would win and
+	// the attached row would be deleted. The migration's ORDER BY
+	// puts attached rows first regardless of event_id, so the
+	// attached row survives.
+	_, err = db.InsertSupplyUpdateEvent(
+		ctx, sqlc.InsertSupplyUpdateEventParams{
+			GroupKey:     groupKey,
+			TransitionID: sql.NullInt64{},
+			UpdateTypeID: 0,
+			EventData:    payload,
+			EventKey:     nil,
+		},
+	)
+	require.NoError(t, err)
+
+	_, err = db.InsertSupplyUpdateEvent(
+		ctx, sqlc.InsertSupplyUpdateEventParams{
+			GroupKey: groupKey,
+			TransitionID: sql.NullInt64{
+				Int64: transitionID,
+				Valid: true,
+			},
+			UpdateTypeID: 0,
+			EventData:    payload,
+			EventKey:     nil,
+		},
+	)
+	require.NoError(t, err)
+
+	err = db.ExecuteMigrations(TargetLatest, WithProgrammaticMigrations(
+		makeProgrammaticMigrations(db, programmaticMigrations, true),
+	))
+	require.NoError(t, err)
+
+	// The row still in the table must be the attached one.
+	var (
+		postCount         int
+		survivingAttached sql.NullInt64
+	)
+	require.NoError(t, db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM supply_update_events
+	`).Scan(&postCount))
+	require.Equal(t, 1, postCount)
+
+	require.NoError(t, db.QueryRowContext(ctx, `
+		SELECT transition_id FROM supply_update_events LIMIT 1
+	`).Scan(&survivingAttached))
+	require.True(t, survivingAttached.Valid,
+		"backfill kept dangling row instead of attached row")
+	require.Equal(t, transitionID, survivingAttached.Int64)
+}
+
+// TestMigration65BackfillHealsEmptiedPendingTransition covers the
+// duplicate shape a legacy double-count bug leaves behind: event E1
+// attached to a finalized transition T1, and a byte-identical E2
+// attached to a still-pending transition T2 (created when a restarted
+// minter re-fired the same event). The dedup keeps E1 -- the finalized
+// side must not lose the row it depends on -- which empties T2. An
+// empty pending transition would freeze on the next tick and broadcast
+// a supply commitment that commits nothing, so the backfill must
+// delete it and reset the state machine to DefaultState.
+func TestMigration65BackfillHealsEmptiedPendingTransition(t *testing.T) {
+	ctx := context.Background()
+
+	db := NewTestDBWithVersion(t, 64)
+
+	groupKey := bytes.Repeat([]byte{0x33}, 32)
+	payload := []byte("event-payload-refired-after-finalize")
+
+	// State machine parked in UpdatesPendingState (id 1), as it would
+	// be right after the re-fire created the duplicate.
+	_, err := db.ExecContext(ctx, transformByteLiterals(
+		t, db.BaseDB, fmt.Sprintf(`
+		INSERT INTO supply_commit_state_machines (
+			group_key, current_state_id
+		) VALUES (X'%x', 1)
+		`, groupKey),
+	))
+	require.NoError(t, err)
+
+	insertTransition := func(finalized bool) int64 {
+		var transitionID int64
+		if db.Backend() == sqlc.BackendTypeSqlite {
+			res, err := db.ExecContext(ctx, transformByteLiterals(
+				t, db.BaseDB, fmt.Sprintf(`
+				INSERT INTO supply_commit_transitions (
+					state_machine_group_key, finalized,
+					frozen, creation_time
+				) VALUES (X'%x', %t, 0, 0)
+				`, groupKey, finalized),
+			))
+			require.NoError(t, err)
+			transitionID, err = res.LastInsertId()
+			require.NoError(t, err)
+		} else {
+			err := db.QueryRowContext(ctx, fmt.Sprintf(`
+				INSERT INTO supply_commit_transitions (
+					state_machine_group_key, finalized,
+					frozen, creation_time
+				) VALUES (decode('%x', 'hex'), %t, FALSE, 0)
+				RETURNING transition_id
+				`, groupKey, finalized),
+			).Scan(&transitionID)
+			require.NoError(t, err)
+		}
+
+		return transitionID
+	}
+
+	finalizedID := insertTransition(true)
+	pendingID := insertTransition(false)
+
+	insertEvent := func(transitionID int64) {
+		_, err := db.InsertSupplyUpdateEvent(
+			ctx, sqlc.InsertSupplyUpdateEventParams{
+				GroupKey: groupKey,
+				TransitionID: sql.NullInt64{
+					Int64: transitionID,
+					Valid: true,
+				},
+				UpdateTypeID: 0,
+				EventData:    payload,
+				EventKey:     nil,
+			},
+		)
+		require.NoError(t, err)
+	}
+
+	// E1 on the finalized transition first (lower event_id), then the
+	// duplicate E2 on the pending one -- the order the legacy bug
+	// produces.
+	insertEvent(finalizedID)
+	insertEvent(pendingID)
+
+	err = db.ExecuteMigrations(TargetLatest, WithProgrammaticMigrations(
+		makeProgrammaticMigrations(db, programmaticMigrations, true),
+	))
+	require.NoError(t, err)
+
+	// The finalized transition keeps its event.
+	var survivorTransition sql.NullInt64
+	require.NoError(t, db.QueryRowContext(ctx, `
+		SELECT transition_id FROM supply_update_events
+	`).Scan(&survivorTransition))
+	require.True(t, survivorTransition.Valid)
+	require.Equal(t, finalizedID, survivorTransition.Int64)
+
+	// The emptied pending transition is gone entirely.
+	var pendingCount int
+	require.NoError(t, db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM supply_commit_transitions
+		WHERE finalized = FALSE
+	`).Scan(&pendingCount))
+	require.Equal(t, 0, pendingCount)
+
+	// And the state machine is parked back in DefaultState, ready to
+	// accept genuinely new updates.
+	var currentStateID int
+	require.NoError(t, db.QueryRowContext(ctx, `
+		SELECT current_state_id FROM supply_commit_state_machines
+	`).Scan(&currentStateID))
+	require.Equal(t, 0, currentStateID)
+}
+
+// TestMigration65BackfillPrefersFinalizedDuplicate pins the backfill's
+// preference for finalized transitions structurally rather than as an
+// accident of insertion order: the duplicate attached to the pending
+// transition is inserted FIRST (lower event_id), so a backfill that
+// ordered attached rows by event_id alone would keep the pending row
+// and strip the finalized transition of the event it depends on.
+func TestMigration65BackfillPrefersFinalizedDuplicate(t *testing.T) {
+	ctx := context.Background()
+
+	db := NewTestDBWithVersion(t, 64)
+
+	groupKey := bytes.Repeat([]byte{0x55}, 32)
+	payload := []byte("event-payload-pending-precedes-finalized")
+
+	_, err := db.ExecContext(ctx, transformByteLiterals(
+		t, db.BaseDB, fmt.Sprintf(`
+		INSERT INTO supply_commit_state_machines (
+			group_key, current_state_id
+		) VALUES (X'%x', 1)
+		`, groupKey),
+	))
+	require.NoError(t, err)
+
+	insertTransition := func(finalized bool) int64 {
+		var transitionID int64
+		if db.Backend() == sqlc.BackendTypeSqlite {
+			res, err := db.ExecContext(ctx, transformByteLiterals(
+				t, db.BaseDB, fmt.Sprintf(`
+				INSERT INTO supply_commit_transitions (
+					state_machine_group_key, finalized,
+					frozen, creation_time
+				) VALUES (X'%x', %t, 0, 0)
+				`, groupKey, finalized),
+			))
+			require.NoError(t, err)
+			transitionID, err = res.LastInsertId()
+			require.NoError(t, err)
+		} else {
+			err := db.QueryRowContext(ctx, fmt.Sprintf(`
+				INSERT INTO supply_commit_transitions (
+					state_machine_group_key, finalized,
+					frozen, creation_time
+				) VALUES (decode('%x', 'hex'), %t, FALSE, 0)
+				RETURNING transition_id
+				`, groupKey, finalized),
+			).Scan(&transitionID)
+			require.NoError(t, err)
+		}
+
+		return transitionID
+	}
+
+	finalizedID := insertTransition(true)
+	pendingID := insertTransition(false)
+
+	insertEvent := func(transitionID int64) {
+		_, err := db.InsertSupplyUpdateEvent(
+			ctx, sqlc.InsertSupplyUpdateEventParams{
+				GroupKey: groupKey,
+				TransitionID: sql.NullInt64{
+					Int64: transitionID,
+					Valid: true,
+				},
+				UpdateTypeID: 0,
+				EventData:    payload,
+				EventKey:     nil,
+			},
+		)
+		require.NoError(t, err)
+	}
+
+	// Pending row first: it gets the lower event_id, so only the
+	// explicit finalized-first ordering can save the finalized row.
+	insertEvent(pendingID)
+	insertEvent(finalizedID)
+
+	err = db.ExecuteMigrations(TargetLatest, WithProgrammaticMigrations(
+		makeProgrammaticMigrations(db, programmaticMigrations, true),
+	))
+	require.NoError(t, err)
+
+	// The finalized transition keeps its event despite the higher
+	// event_id, and the emptied pending transition is healed away.
+	var survivorTransition sql.NullInt64
+	require.NoError(t, db.QueryRowContext(ctx, `
+		SELECT transition_id FROM supply_update_events
+	`).Scan(&survivorTransition))
+	require.True(t, survivorTransition.Valid)
+	require.Equal(t, finalizedID, survivorTransition.Int64)
+
+	var pendingCount int
+	require.NoError(t, db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM supply_commit_transitions
+		WHERE finalized = FALSE
+	`).Scan(&pendingCount))
+	require.Equal(t, 0, pendingCount)
+}
+
+// TestMigration65BackfillPagesLargeTables seeds more rows than the
+// backfill's page size (32) so the loop must take several passes, with
+// each duplicate landing in a later page than its original. This pins
+// the two paging invariants: refetching the first page after each pass
+// still visits every row exactly once, and the seen-hash dedup spans
+// page boundaries.
+func TestMigration65BackfillPagesLargeTables(t *testing.T) {
+	ctx := context.Background()
+
+	db := NewTestDBWithVersion(t, 64)
+
+	groupKey := bytes.Repeat([]byte{0x66}, 32)
+
+	// 48 distinct payloads inserted twice, originals first and then
+	// all duplicates: every original/duplicate pair straddles at
+	// least one page boundary.
+	const numDistinct = 48
+	payload := func(i int) []byte {
+		return fmt.Appendf(nil, "event-payload-paged-%03d", i)
+	}
+
+	insertEvent := func(data []byte) {
+		_, err := db.InsertSupplyUpdateEvent(
+			ctx, sqlc.InsertSupplyUpdateEventParams{
+				GroupKey:     groupKey,
+				TransitionID: sql.NullInt64{},
+				UpdateTypeID: 0,
+				EventData:    data,
+				EventKey:     nil,
+			},
+		)
+		require.NoError(t, err)
+	}
+
+	for i := range numDistinct {
+		insertEvent(payload(i))
+	}
+	for i := range numDistinct {
+		insertEvent(payload(i))
+	}
+
+	err := db.ExecuteMigrations(TargetLatest, WithProgrammaticMigrations(
+		makeProgrammaticMigrations(db, programmaticMigrations, true),
+	))
+	require.NoError(t, err)
+
+	// One row per distinct payload survives, each carrying the
+	// expected content hash.
+	var postCount int
+	require.NoError(t, db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM supply_update_events
+	`).Scan(&postCount))
+	require.Equal(t, numDistinct, postCount)
+
+	var nullKeys int
+	require.NoError(t, db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM supply_update_events
+		WHERE event_key IS NULL
+	`).Scan(&nullKeys))
+	require.Equal(t, 0, nullKeys)
+
+	rows, err := db.QueryContext(ctx, `
+		SELECT event_data, event_key FROM supply_update_events
+	`)
+	require.NoError(t, err)
+	defer rows.Close()
+	for rows.Next() {
+		var data, key []byte
+		require.NoError(t, rows.Scan(&data, &key))
+		require.Equal(
+			t, supplyUpdateEventKey(groupKey, 0, data), key,
+		)
+	}
+	require.NoError(t, rows.Close())
 }
 
 // TestMigration61CancelsDuplicatePreBroadcastBatches verifies that the

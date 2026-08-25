@@ -378,6 +378,17 @@ func (h *supplyCommitTestHarness) expectInsertPendingUpdate(
 	).Return(nil).Once()
 }
 
+// expectInsertPendingUpdateDeduped mimics the state log absorbing the
+// event via the content-hash dedup index: an identical event is already
+// recorded, no new row was written.
+func (h *supplyCommitTestHarness) expectInsertPendingUpdateDeduped(
+	event SupplyUpdateEvent) {
+
+	h.mockStateLog.On(
+		"InsertPendingUpdate", mock.Anything, h.cfg.assetSpec, event,
+	).Return(ErrDuplicateUpdate).Once()
+}
+
 func (h *supplyCommitTestHarness) expectTreeFetches() {
 	emptySupplyTrees := SupplyTrees{
 		MintTreeType:   mssmt.NewCompactedTree(mssmt.NewDefaultStore()),
@@ -623,6 +634,31 @@ func TestSupplyCommitDefaultStateTransitions(t *testing.T) {
 		require.Equal(t, mintEvent, innerState.pendingUpdates[0])
 	})
 
+	// A supply update event that the state log reports as a duplicate
+	// (already recorded by a prior, finalized transition) must NOT move
+	// the machine to UpdatesPendingState: no new row was written, so
+	// there is nothing to commit, and advancing would wedge the machine
+	// on the next tick with a phantom cached event.
+	t.Run("supply_update_event_deduped", func(t *testing.T) {
+		h := newSupplyCommitTestHarness(t, &harnessCfg{
+			initialState: &DefaultState{},
+			assetSpec:    defaultAssetSpec,
+		})
+		h.start()
+		defer h.stopAndAssert()
+
+		mintEvent := newTestMintEvent(t, testScriptKey, randOutPoint(t))
+
+		h.expectInsertPendingUpdateDeduped(mintEvent)
+
+		h.sendEvent(mintEvent)
+
+		// The dedup is a successful no-op: a self-transition back to
+		// DefaultState, not an advance to UpdatesPendingState.
+		h.assertStateTransitions(&DefaultState{})
+		assertAndGetCurrentState[*DefaultState](h)
+	})
+
 	// Check that a CommitTickEvent received by the DefaultState results in
 	// a no-op, with the state machine remaining in DefaultState.
 	t.Run("commit_tick_event", func(t *testing.T) {
@@ -701,6 +737,36 @@ func TestSupplyCommitUpdatesPendingStateTransitions(t *testing.T) {
 		innerState := assertAndGetCurrentState[*UpdatesPendingState](h)
 		require.Len(t, innerState.pendingUpdates, 2)
 		require.Equal(t, anotherMintEvent, innerState.pendingUpdates[1])
+	})
+
+	// A supply update event the state log reports as a duplicate must
+	// not grow the cached pending set: the event has no row of its own,
+	// so caching it would double-count its content in the tree once the
+	// commit tick fires.
+	t.Run("supply_update_event_deduped", func(t *testing.T) {
+		h := newSupplyCommitTestHarness(t, &harnessCfg{
+			initialState: &UpdatesPendingState{
+				pendingUpdates: []SupplyUpdateEvent{
+					initialMintEvent,
+				},
+			},
+			assetSpec: defaultAssetSpec,
+		})
+		h.start()
+		defer h.stopAndAssert()
+
+		dupEvent := newTestMintEvent(
+			t, testScriptKey, randOutPoint(t),
+		)
+		h.expectInsertPendingUpdateDeduped(dupEvent)
+
+		h.sendEvent(dupEvent)
+
+		h.assertStateTransitions(&UpdatesPendingState{})
+
+		innerState := assertAndGetCurrentState[*UpdatesPendingState](h)
+		require.Len(t, innerState.pendingUpdates, 1)
+		require.Equal(t, initialMintEvent, innerState.pendingUpdates[0])
 	})
 
 	// Verify that a CommitTickEvent received by the UpdatesPendingState

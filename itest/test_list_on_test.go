@@ -54,6 +54,10 @@ var allTestCases = []*testCase{
 		test: testMintExternalGroupKeyChantools,
 	},
 	{
+		name: "sign and finalize psbt deterministic",
+		test: testSignAndFinalizePsbtDeterministic,
+	},
+	{
 		name: "mint asset decimal display",
 		test: testMintAssetWithDecimalDisplayMetaField,
 	},

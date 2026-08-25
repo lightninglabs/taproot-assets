@@ -3,6 +3,7 @@ package supplycommit
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 
@@ -82,13 +83,28 @@ func (d *DefaultState) ProcessEvent(event Event,
 		// Before we transition to the next state, we'll add this event
 		// to our update log. This ensures that we'll remember to
 		// process from this state after a restart.
-		//
-		// TODO(roasbeef): special error case here?
 		ctx := context.Background()
 		err := env.StateLog.InsertPendingUpdate(
 			ctx, env.AssetSpec, supplyEvent,
 		)
-		if err != nil {
+		switch {
+		// The event was absorbed by the dedup index: an identical
+		// event is already recorded (and already committed by a
+		// prior transition), and no new row was written. Advancing
+		// to UpdatesPendingState here would cache an event with no
+		// backing row and wedge the state machine on the next tick,
+		// so we treat this as a successful no-op and stay put.
+		case errors.Is(err, ErrDuplicateUpdate):
+			prefixedLog.Infof("Supply update event %T already "+
+				"recorded, ignoring", supplyEvent)
+
+			supplyEvent.SignalDone(nil)
+
+			return &StateTransition{
+				NextState: d,
+			}, nil
+
+		case err != nil:
 			supplyEvent.SignalDone(err)
 
 			return nil, fmt.Errorf("unable to insert "+
@@ -144,7 +160,22 @@ func (u *UpdatesPendingState) ProcessEvent(event Event, env *Environment) (
 		err := env.StateLog.InsertPendingUpdate(
 			ctx, env.AssetSpec, newEvent,
 		)
-		if err != nil {
+		switch {
+		// The event was absorbed by the dedup index: an identical
+		// event is already recorded, so appending it to our cached
+		// set would double-count it in the tree once the commit
+		// tick fires. Treat it as a successful no-op instead.
+		case errors.Is(err, ErrDuplicateUpdate):
+			prefixedLog.Infof("Supply update event %T already "+
+				"recorded, ignoring", newEvent)
+
+			newEvent.SignalDone(nil)
+
+			return &StateTransition{
+				NextState: u,
+			}, nil
+
+		case err != nil:
 			newEvent.SignalDone(err)
 
 			return nil, fmt.Errorf("unable to insert "+
@@ -334,7 +365,12 @@ func (c *CommitTreeCreateState) ProcessEvent(event Event,
 		err := env.StateLog.InsertPendingUpdate(
 			ctx, env.AssetSpec, newEvent,
 		)
-		if err != nil {
+
+		// A deduped insert means an identical event is already in the
+		// update log. Since we don't cache the event here, that's
+		// indistinguishable from a successful insert for our
+		// purposes.
+		if err != nil && !errors.Is(err, ErrDuplicateUpdate) {
 			newEvent.SignalDone(err)
 
 			return nil, fmt.Errorf("unable to insert "+
@@ -694,7 +730,12 @@ func (c *CommitTxCreateState) ProcessEvent(event Event,
 		err := env.StateLog.InsertPendingUpdate(
 			ctx, env.AssetSpec, newEvent,
 		)
-		if err != nil {
+
+		// A deduped insert means an identical event is already in the
+		// update log. Since we don't cache the event here, that's
+		// indistinguishable from a successful insert for our
+		// purposes.
+		if err != nil && !errors.Is(err, ErrDuplicateUpdate) {
 			newEvent.SignalDone(err)
 
 			return nil, fmt.Errorf("unable to insert "+
@@ -802,7 +843,12 @@ func (s *CommitTxSignState) ProcessEvent(event Event,
 		err := env.StateLog.InsertPendingUpdate(
 			ctx, env.AssetSpec, newEvent,
 		)
-		if err != nil {
+
+		// A deduped insert means an identical event is already in the
+		// update log. Since we don't cache the event here, that's
+		// indistinguishable from a successful insert for our
+		// purposes.
+		if err != nil && !errors.Is(err, ErrDuplicateUpdate) {
 			newEvent.SignalDone(err)
 
 			return nil, fmt.Errorf("unable to insert "+
@@ -909,7 +955,12 @@ func (c *CommitBroadcastState) ProcessEvent(event Event,
 		err := env.StateLog.InsertPendingUpdate(
 			ctx, env.AssetSpec, newEvent,
 		)
-		if err != nil {
+
+		// A deduped insert means an identical event is already in the
+		// update log. Since we don't cache the event here, that's
+		// indistinguishable from a successful insert for our
+		// purposes.
+		if err != nil && !errors.Is(err, ErrDuplicateUpdate) {
 			newEvent.SignalDone(err)
 
 			return nil, fmt.Errorf("unable to insert "+
@@ -1076,7 +1127,12 @@ func (c *CommitFinalizeState) ProcessEvent(event Event,
 		err := env.StateLog.InsertPendingUpdate(
 			ctx, env.AssetSpec, newEvent,
 		)
-		if err != nil {
+
+		// A deduped insert means an identical event is already in the
+		// update log. Since we don't cache the event here, that's
+		// indistinguishable from a successful insert for our
+		// purposes.
+		if err != nil && !errors.Is(err, ErrDuplicateUpdate) {
 			newEvent.SignalDone(err)
 
 			return nil, fmt.Errorf("unable to insert "+
