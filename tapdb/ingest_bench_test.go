@@ -54,7 +54,7 @@ func BenchmarkMultiverseLeafIngest(b *testing.B) {
 				items := benchIngestItems(b, batch)
 				b.StartTimer()
 
-				err := store.UpsertProofLeafBatch(ctx, items)
+				_, err := store.UpsertProofLeafBatch(ctx, items)
 				require.NoError(b, err)
 			}
 		})
@@ -72,7 +72,7 @@ func BenchmarkMultiverseLeafIngestSingle(b *testing.B) {
 	store, _ := newTestMultiverse(b)
 
 	seed := benchIngestItems(b, seedLeaves)
-	err := store.UpsertProofLeafBatch(ctx, seed)
+	_, err := store.UpsertProofLeafBatch(ctx, seed)
 	require.NoError(b, err)
 
 	id := seed[0].ID
@@ -122,7 +122,10 @@ func BenchmarkMultiverseLeafIngestConcurrent(b *testing.B) {
 			wg.Add(1)
 			go func(items []*universe.Item) {
 				defer wg.Done()
-				errs <- store.UpsertProofLeafBatch(ctx, items)
+				_, err := store.UpsertProofLeafBatch(
+					ctx, items,
+				)
+				errs <- err
 			}(batches[w])
 		}
 		wg.Wait()

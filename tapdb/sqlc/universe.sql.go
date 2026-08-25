@@ -1041,6 +1041,27 @@ func (q *Queries) QueryUniverseAssetStats(ctx context.Context, arg QueryUniverse
 	return items, nil
 }
 
+const QueryUniverseLeafID = `-- name: QueryUniverseLeafID :one
+SELECT id
+FROM universe_leaves
+WHERE leaf_node_namespace = $1
+  AND minting_point = $2
+  AND script_key_bytes = $3
+`
+
+type QueryUniverseLeafIDParams struct {
+	Namespace      string
+	MintingPoint   []byte
+	ScriptKeyBytes []byte
+}
+
+func (q *Queries) QueryUniverseLeafID(ctx context.Context, arg QueryUniverseLeafIDParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, QueryUniverseLeafID, arg.Namespace, arg.MintingPoint, arg.ScriptKeyBytes)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const QueryUniverseLeaves = `-- name: QueryUniverseLeaves :many
 SELECT leaves.script_key_bytes, gen.gen_asset_id, nodes.value AS genesis_proof,
        nodes.sum AS sum_amt, gen.asset_id

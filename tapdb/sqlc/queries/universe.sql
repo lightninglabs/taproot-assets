@@ -36,6 +36,13 @@ WHERE universe_root_id = (SELECT id FROM root_id);
 DELETE FROM universe_roots
 WHERE namespace_root = @namespace_root;
 
+-- name: QueryUniverseLeafID :one
+SELECT id
+FROM universe_leaves
+WHERE leaf_node_namespace = @namespace
+  AND minting_point = @minting_point
+  AND script_key_bytes = @script_key_bytes;
+
 -- name: UpsertUniverseLeaf :one
 INSERT INTO universe_leaves (
     asset_genesis_id, script_key_bytes, universe_root_id, leaf_node_key,

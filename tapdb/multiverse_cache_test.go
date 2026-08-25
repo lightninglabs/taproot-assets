@@ -36,7 +36,7 @@ func TestMultiverseRootsCachePerformance(t *testing.T) {
 		allLeaves = append(allLeaves, leaf)
 
 		if i != 0 && (i+1)%100 == 0 {
-			err := multiverse.UpsertProofLeafBatch(ctx, batch)
+			_, err := multiverse.UpsertProofLeafBatch(ctx, batch)
 			require.NoError(t, err)
 
 			t.Logf("Inserted %d assets", i+1)
@@ -248,7 +248,8 @@ func TestRootNodeCacheTargetedInvalidation(t *testing.T) {
 			Leaf: &leaf,
 		}
 	}
-	require.NoError(t, multiverse.UpsertProofLeafBatch(ctx, updateItems))
+	_, err = multiverse.UpsertProofLeafBatch(ctx, updateItems)
+	require.NoError(t, err)
 
 	before = misses()
 	roots = queryRoots(t, multiverse, pageSize)
@@ -268,7 +269,8 @@ func TestRootNodeCacheTargetedInvalidation(t *testing.T) {
 			Leaf: &leaf,
 		},
 	}
-	require.NoError(t, multiverse.UpsertProofLeafBatch(ctx, mixedBatch))
+	_, err = multiverse.UpsertProofLeafBatch(ctx, mixedBatch)
+	require.NoError(t, err)
 
 	before = misses()
 	roots = queryRoots(t, multiverse, pageSize)
@@ -579,9 +581,10 @@ func TestRootNodeCacheConcurrency(t *testing.T) {
 				const chunk = 5
 				for i := 0; i < len(ops); i += chunk {
 					end := min(i+chunk, len(ops))
-					err := multiverse.UpsertProofLeafBatch(
-						ctx, ops[i:end],
-					)
+					_, err := multiverse.
+						UpsertProofLeafBatch(
+							ctx, ops[i:end],
+						)
 					if err != nil {
 						errs <- err
 						return
@@ -672,7 +675,7 @@ func TestMultiverseSyncerCache(t *testing.T) {
 		allLeaves = append(allLeaves, leaf)
 	}
 
-	err := multiverse.UpsertProofLeafBatch(ctx, allLeaves)
+	_, err := multiverse.UpsertProofLeafBatch(ctx, allLeaves)
 	require.NoError(t, err)
 
 	// We query all roots and make sure they are all there. This will also

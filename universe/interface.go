@@ -653,7 +653,12 @@ type MultiverseArchive interface {
 	// durably stored while their multiverse updates are still
 	// outstanding, to be repaired in the background or at the next
 	// startup.
-	UpsertProofLeafBatch(ctx context.Context, items []*Item) error
+	//
+	// The returned slice holds the subset of items that resulted in a new
+	// universe leaf; items the universe already held are left out. It is
+	// populated in the pending case too, as the leaves are committed.
+	UpsertProofLeafBatch(ctx context.Context,
+		items []*Item) ([]*Item, error)
 
 	// FetchProofLeaf returns a proof leaf for the target key. If the key
 	// doesn't have a script key specified, then all the proof leafs for the

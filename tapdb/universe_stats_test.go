@@ -139,6 +139,62 @@ func (u *uniStatsHarness) addEvents(numAssets int) {
 	}
 }
 
+// TestUniverseStatsProofCount tests that the total proof count reported by the
+// universe stats tracks the number of leaves we hold, not the number of times
+// a leaf was registered with us. Peers re-pushing a leaf we already have is a
+// no-op upsert, and used to still write a NEW_PROOF event each time.
+func TestUniverseStatsProofCount(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db := NewTestDB(t)
+	testClock := clock.NewTestClock(time.Now())
+	statsDB, _ := newUniverseStatsWithDB(db.BaseDB, testClock)
+	multiverse, _ := newTestMultiverseWithDb(t, db.BaseDB)
+
+	const (
+		numLeaves = 10
+		numRounds = 5
+	)
+
+	items := make([]*universe.Item, numLeaves)
+	for idx := range items {
+		items[idx] = genRandomAsset(t)
+	}
+
+	// We register the same set of leaves over and over, logging an event
+	// for each leaf that was actually new, the same way the universe
+	// archive does.
+	for i := 0; i < numRounds; i++ {
+		newItems, err := multiverse.UpsertProofLeafBatch(ctx, items)
+		require.NoError(t, err)
+
+		// Only the very first round should produce new leaves.
+		if i == 0 {
+			require.Len(t, newItems, numLeaves)
+		} else {
+			require.Empty(t, newItems)
+		}
+
+		ids := fn.Map(
+			newItems, func(i *universe.Item) universe.Identifier {
+				return i.ID
+			},
+		)
+		if len(ids) == 0 {
+			continue
+		}
+
+		require.NoError(t, statsDB.LogNewProofEvents(ctx, ids...))
+	}
+
+	// The stats should report the number of leaves we hold, not the number
+	// of registration attempts.
+	stats, err := statsDB.AggregateSyncStats(ctx)
+	require.NoError(t, err)
+	require.EqualValues(t, numLeaves, stats.NumTotalProofs)
+}
+
 // TestUniverseStatsEvents tests that we're able to properly insert, and also
 // fetch information related to universe sync related events.
 func TestUniverseStatsEvents(t *testing.T) {

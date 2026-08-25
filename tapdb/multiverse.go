@@ -1087,10 +1087,10 @@ func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
 		// tree. The block height is extracted from the decoded proof
 		// by universeUpsertProofLeaf itself.
 		var (
-			err    error
-			leafID int64
+			res universeUpsertResult
+			err error
 		)
-		uniProof, rootStatus, leafID, err = universeUpsertProofLeaf(
+		uniProof, res, err = universeUpsertProofLeaf(
 			ctx, dbTx, id.String(), id.ProofType,
 			id.GroupKey, key, leaf, metaReveal,
 			lfn.None[uint32](),
@@ -1098,10 +1098,11 @@ func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
 		if err != nil {
 			return fmt.Errorf("failed universe upsert: %w", err)
 		}
+		rootStatus = res.rootStatus
 
 		if shouldJournalLeaf(id) {
 			err = journalUniverseLeaves(
-				ctx, dbTx, []int64{leafID},
+				ctx, dbTx, []int64{res.leafID},
 			)
 			if err != nil {
 				return err
@@ -1206,13 +1207,17 @@ func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
 // coalescer retries the updates in the background until they commit,
 // and ReconcileMultiverse repairs any update abandoned by a shutdown
 // at the next startup.
+//
+// The returned slice holds the subset of items that resulted in a new universe
+// leaf; items the universe already held are left out.
 func (b *MultiverseStore) UpsertProofLeafBatch(ctx context.Context,
-	items []*universe.Item) error {
+	items []*universe.Item) ([]*universe.Item, error) {
 
 	var (
 		writeTx      BaseMultiverseOptions
 		uniProofs    []*universe.Proof
 		rootStatuses []universeRootStatus
+		newItems     []*universe.Item
 	)
 	// Track the universes the batch touches, in first-touch order, so
 	// the shared multiverse tree is refreshed once per universe rather
@@ -1225,6 +1230,7 @@ func (b *MultiverseStore) UpsertProofLeafBatch(ctx context.Context,
 			rootStatuses = make(
 				[]universeRootStatus, len(items),
 			)
+			newItems = make([]*universe.Item, 0, len(items))
 
 			dirtyUniverses = make(
 				[]universe.Identifier, 0, len(items),
@@ -1239,7 +1245,7 @@ func (b *MultiverseStore) UpsertProofLeafBatch(ctx context.Context,
 				// start with. The block height is extracted
 				// from the decoded proof by
 				// universeUpsertProofLeaf itself.
-				uniProof, status, leafID, err :=
+				uniProof, res, err :=
 					universeUpsertProofLeaf(
 						ctx, store, item.ID.String(),
 						item.ID.ProofType,
@@ -1253,7 +1259,11 @@ func (b *MultiverseStore) UpsertProofLeafBatch(ctx context.Context,
 						idx, err)
 				}
 				uniProofs[idx] = uniProof
-				rootStatuses[idx] = status
+				rootStatuses[idx] = res.rootStatus
+
+				if res.leafInserted {
+					newItems = append(newItems, item)
+				}
 
 				key := item.ID.String()
 				if _, ok := seen[key]; !ok {
@@ -1265,7 +1275,7 @@ func (b *MultiverseStore) UpsertProofLeafBatch(ctx context.Context,
 
 				if shouldJournalLeaf(item.ID) {
 					journalIDs = append(
-						journalIDs, leafID,
+						journalIDs, res.leafID,
 					)
 				}
 			}
@@ -1276,7 +1286,7 @@ func (b *MultiverseStore) UpsertProofLeafBatch(ctx context.Context,
 		},
 	)
 	if dbErr != nil {
-		return dbErr
+		return nil, dbErr
 	}
 
 	// The universe leaves are now durably committed, so run the
@@ -1351,12 +1361,16 @@ func (b *MultiverseStore) UpsertProofLeafBatch(ctx context.Context,
 	// fails, the universe leaves above remain committed, and the
 	// coalescer keeps retrying the multiverse updates in the
 	// background.
+	//
+	// The new leaves are reported either way: they are committed, so they
+	// count towards the universe stats even while their multiverse entry
+	// is still outstanding.
 	err := b.rootCoalescer.updateRoots(ctx, dirtyUniverses)
 	if err != nil {
-		return fmt.Errorf("failed multiverse upsert: %w", err)
+		return newItems, fmt.Errorf("failed multiverse upsert: %w", err)
 	}
 
-	return nil
+	return newItems, nil
 }
 
 // DeleteUniverse delete an entire universe sub-tree.

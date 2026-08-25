@@ -573,7 +573,7 @@ func (a *Archive) UpsertProofLeafBatch(ctx context.Context,
 
 	log.InfoS(ctx, "Inserting verified group anchor proofs into Universe",
 		"count", len(anchorItems))
-	err = a.cfg.Multiverse.UpsertProofLeafBatch(ctx, anchorItems)
+	_, err = a.cfg.Multiverse.UpsertProofLeafBatch(ctx, anchorItems)
 	switch {
 	case errors.Is(err, ErrMultiversePending):
 		upsertErr = fmt.Errorf("upsert group anchor proof leaf "+
@@ -591,7 +591,7 @@ func (a *Archive) UpsertProofLeafBatch(ctx context.Context,
 
 	log.InfoS(ctx, "Inserting verified proofs into Universe",
 		"count", len(nonAnchorItems))
-	err = a.cfg.Multiverse.UpsertProofLeafBatch(ctx, nonAnchorItems)
+	_, err = a.cfg.Multiverse.UpsertProofLeafBatch(ctx, nonAnchorItems)
 	switch {
 	case errors.Is(err, ErrMultiversePending):
 		upsertErr = fmt.Errorf("upsert proof leaf batch "+

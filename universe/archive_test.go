@@ -42,10 +42,10 @@ func (m *mockMultiverse) UpsertProofLeaf(context.Context,
 	return nil, nil
 }
 
-func (m *mockMultiverse) UpsertProofLeafBatch(context.Context,
-	[]*Item) error {
+func (m *mockMultiverse) UpsertProofLeafBatch(_ context.Context,
+	items []*Item) ([]*Item, error) {
 
-	return nil
+	return items, nil
 }
 
 func (m *mockMultiverse) FetchProofLeaf(context.Context,

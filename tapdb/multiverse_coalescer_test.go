@@ -80,7 +80,7 @@ func insertUniverseLeafOnly(ctx context.Context,
 	)
 	err := multiverse.db.ExecTx(
 		ctx, &writeTx, func(store BaseMultiverseStore) error {
-			uniProof, _, _, err := universeUpsertProofLeaf(
+			uniProof, _, err := universeUpsertProofLeaf(
 				ctx, store, item.ID.String(),
 				item.ID.ProofType, item.ID.GroupKey, item.Key,
 				item.Leaf, item.MetaReveal, lfn.None[uint32](),

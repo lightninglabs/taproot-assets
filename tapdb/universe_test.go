@@ -263,6 +263,65 @@ type leafWithKey struct {
 	universe.Leaf
 }
 
+// TestMultiverseUpsertProofLeafBatchNewLeaves tests that a batch upsert only
+// reports back the leaves that were actually new to the multiverse. Callers
+// use that to avoid counting a re-registration of a leaf we already hold as a
+// new proof in the universe stats.
+func TestMultiverseUpsertProofLeafBatchNewLeaves(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	multiverse, _ := newTestMultiverse(t)
+
+	const numItems = 5
+	items := make([]*universe.Item, numItems)
+	for idx := range items {
+		items[idx] = genRandomAsset(t)
+	}
+
+	// The first insertion is entirely new, so we expect all items back.
+	newItems, err := multiverse.UpsertProofLeafBatch(ctx, items)
+	require.NoError(t, err)
+	require.Equal(t, items, newItems)
+
+	// Inserting the exact same batch again is a no-op upsert, so nothing
+	// should be reported as new.
+	newItems, err = multiverse.UpsertProofLeafBatch(ctx, items)
+	require.NoError(t, err)
+	require.Empty(t, newItems)
+
+	// A mixed batch should only report the items we didn't hold yet.
+	freshItems := []*universe.Item{genRandomAsset(t), genRandomAsset(t)}
+	mixedBatch := append(items[:2:2], freshItems...)
+	newItems, err = multiverse.UpsertProofLeafBatch(ctx, mixedBatch)
+	require.NoError(t, err)
+	require.Equal(t, freshItems, newItems)
+
+	// Replacing the proof of a leaf we already hold (which is what happens
+	// when the anchor transaction is re-organized out of the chain) is an
+	// update of that leaf, not a new one.
+	updatedItem := *items[0]
+	updatedLeaf := randMintingLeaf(
+		t, items[0].Leaf.Genesis, items[0].ID.GroupKey,
+	)
+	updatedItem.Leaf = &updatedLeaf
+
+	newItems, err = multiverse.UpsertProofLeafBatch(
+		ctx, []*universe.Item{&updatedItem},
+	)
+	require.NoError(t, err)
+	require.Empty(t, newItems)
+
+	// A leaf that shows up twice within the same batch is only new the
+	// first time round.
+	dupItem := genRandomAsset(t)
+	newItems, err = multiverse.UpsertProofLeafBatch(
+		ctx, []*universe.Item{dupItem, dupItem},
+	)
+	require.NoError(t, err)
+	require.Equal(t, []*universe.Item{dupItem}, newItems)
+}
+
 // TestUniverseIssuanceProofs tests that we're able to insert issuance proofs
 // for a given asset ID, and then retrieve them all with proper inclusion
 // proofs.
@@ -1948,7 +2007,7 @@ func TestUpsertProofLeafBatchMultiverseRoot(t *testing.T) {
 		})
 	}
 
-	err := batchStore.UpsertProofLeafBatch(ctx, items)
+	_, err := batchStore.UpsertProofLeafBatch(ctx, items)
 	require.NoError(t, err)
 
 	for _, item := range items {

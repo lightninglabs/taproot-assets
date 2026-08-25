@@ -63,7 +63,8 @@ func TestReconcileMultiverse(t *testing.T) {
 	for i := range items {
 		items[i] = genRandomAsset(t)
 	}
-	require.NoError(t, multiverse.UpsertProofLeafBatch(ctx, items))
+	_, err = multiverse.UpsertProofLeafBatch(ctx, items)
+	require.NoError(t, err)
 
 	updates, err = multiverse.multiverseDivergence(ctx)
 	require.NoError(t, err)

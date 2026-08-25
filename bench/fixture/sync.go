@@ -209,7 +209,7 @@ func (r *directRegistrar) UpsertProofLeafBatch(ctx context.Context,
 
 	r.metrics.UpsertBatches.Add(1)
 	r.metrics.LeavesInserted.Add(int64(len(items)))
-	err := r.multiverse.UpsertProofLeafBatch(ctx, items)
+	_, err := r.multiverse.UpsertProofLeafBatch(ctx, items)
 	r.classify(err)
 	return err
 }
@@ -399,7 +399,7 @@ func seedType(tb testing.TB, ctx context.Context, f *SyncFixture,
 			}
 		}
 
-		err := f.Remote.Multiverse.UpsertProofLeafBatch(
+		_, err := f.Remote.Multiverse.UpsertProofLeafBatch(
 			ctx, remoteItems,
 		)
 		require.NoError(tb, err)
@@ -408,7 +408,7 @@ func seedType(tb testing.TB, ctx context.Context, f *SyncFixture,
 			continue
 		}
 
-		err = f.Local.Multiverse.UpsertProofLeafBatch(
+		_, err = f.Local.Multiverse.UpsertProofLeafBatch(
 			ctx, remoteItems[:rootLocalCount],
 		)
 		require.NoError(tb, err)

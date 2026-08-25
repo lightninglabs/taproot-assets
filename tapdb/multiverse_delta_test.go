@@ -199,7 +199,7 @@ func TestMultiverseLeafJournalReupsertGap(t *testing.T) {
 	// Batch: re-upsert the existing leaf together with a new one.
 	key1 := randLeafKey(t)
 	leaf1 := randMintingLeaf(t, u.gen, u.id.GroupKey)
-	err = store.UpsertProofLeafBatch(ctx, []*universe.Item{
+	_, err = store.UpsertProofLeafBatch(ctx, []*universe.Item{
 		{ID: u.id, Key: key0, Leaf: &leaf0},
 		{ID: u.id, Key: key1, Leaf: &leaf1},
 	})
@@ -391,7 +391,7 @@ func TestMultiverseLeafJournalCommitOrder(t *testing.T) {
 		aDone <- store.db.ExecTx(
 			ctx, &writeTx,
 			func(dbTx BaseMultiverseStore) error {
-				_, _, leafID, err := universeUpsertProofLeaf(
+				_, res, err := universeUpsertProofLeaf(
 					ctx, dbTx, uniA.id.String(),
 					uniA.id.ProofType, uniA.id.GroupKey,
 					keyA, &leafA, nil,
@@ -402,7 +402,7 @@ func TestMultiverseLeafJournalCommitOrder(t *testing.T) {
 				}
 
 				err = journalUniverseLeaves(
-					ctx, dbTx, []int64{leafID},
+					ctx, dbTx, []int64{res.leafID},
 				)
 				if err != nil {
 					return err
