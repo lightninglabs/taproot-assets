@@ -2735,12 +2735,14 @@ WHERE (
     $14 >= 0 AND
     $15 >= 0 AND
     COALESCE($16, 0) >= 0 AND
+    COALESCE($17, 0) >= 0 AND
     -- The script_key_type argument must NEVER be an empty slice, otherwise this
     -- query will return no results.
     COALESCE(script_keys.key_type, 0) IN
       (/*SLICE:script_key_type*/?)
 )
 ORDER BY
+    CASE WHEN COALESCE($17, 0) = 1 THEN assets.amount END DESC,
     CASE WHEN COALESCE($16, 0) = 1 THEN assets.asset_id END DESC,
     assets.asset_id ASC
 LIMIT $14 OFFSET $15
@@ -2763,6 +2765,7 @@ type QueryAssetsParams struct {
 	NumLimit         int32
 	NumOffset        int32
 	SortDirection    interface{}
+	OrderByAmount    interface{}
 	ScriptKeyType    []sql.NullInt16
 }
 
@@ -2813,6 +2816,10 @@ type QueryAssetsRow struct {
 // channel balances, and also coin selection. We use the sqlc.narg feature to
 // make the entire statement evaluate to true, if none of these extra args are
 // specified.
+// The trailing sort by asset_id is what makes this a total order, which the
+// paging of a bounded listing relies on: without it, rows that compare equal
+// on the optional terms above could come back in any order and a later page
+// could repeat or skip them. Any ordering term added here must go above it.
 func (q *Queries) QueryAssets(ctx context.Context, arg QueryAssetsParams) ([]QueryAssetsRow, error) {
 	query := QueryAssets
 	var queryParams []interface{}
@@ -2832,6 +2839,7 @@ func (q *Queries) QueryAssets(ctx context.Context, arg QueryAssetsParams) ([]Que
 	queryParams = append(queryParams, arg.NumLimit)
 	queryParams = append(queryParams, arg.NumOffset)
 	queryParams = append(queryParams, arg.SortDirection)
+	queryParams = append(queryParams, arg.OrderByAmount)
 	if len(arg.ScriptKeyType) > 0 {
 		for _, v := range arg.ScriptKeyType {
 			queryParams = append(queryParams, v)

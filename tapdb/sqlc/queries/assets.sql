@@ -527,12 +527,18 @@ WHERE (
     @num_limit >= 0 AND
     @num_offset >= 0 AND
     COALESCE(sqlc.narg('sort_direction'), 0) >= 0 AND
+    COALESCE(sqlc.narg('order_by_amount'), 0) >= 0 AND
     -- The script_key_type argument must NEVER be an empty slice, otherwise this
     -- query will return no results.
     COALESCE(script_keys.key_type, 0) IN
       (sqlc.slice('script_key_type')/*SLICE:script_key_type*/)
 )
+-- The trailing sort by asset_id is what makes this a total order, which the
+-- paging of a bounded listing relies on: without it, rows that compare equal
+-- on the optional terms above could come back in any order and a later page
+-- could repeat or skip them. Any ordering term added here must go above it.
 ORDER BY
+    CASE WHEN COALESCE(sqlc.narg('order_by_amount'), 0) = 1 THEN assets.amount END DESC,
     CASE WHEN COALESCE(sqlc.narg('sort_direction'), 0) = 1 THEN assets.asset_id END DESC,
     assets.asset_id ASC
 LIMIT @num_limit OFFSET @num_offset;
