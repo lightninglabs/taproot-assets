@@ -49,7 +49,7 @@ func insertDeltaLeaf(t *testing.T, ctx context.Context,
 	key := randLeafKey(t)
 	leaf := randMintingLeaf(t, u.gen, u.id.GroupKey)
 
-	_, err := store.UpsertProofLeaf(ctx, u.id, key, &leaf, nil)
+	_, _, err := store.UpsertProofLeaf(ctx, u.id, key, &leaf, nil)
 	require.NoError(t, err)
 
 	return key, leaf
@@ -135,7 +135,7 @@ func TestMultiverseFetchLeavesSince(t *testing.T) {
 	// Re-upserting an existing leaf must not produce a new sequence
 	// number: re-org style rewrites are invisible to the delta, which is
 	// why root comparison stays authoritative.
-	_, err = store.UpsertProofLeaf(
+	_, _, err = store.UpsertProofLeaf(
 		ctx, all[0].id, all[0].key, &all[0].leaf, nil,
 	)
 	require.NoError(t, err)
@@ -337,7 +337,7 @@ func TestMultiverseFetchDeltaPageSnapshot(t *testing.T) {
 
 			key := randLeafKey(t)
 			leaf := randMintingLeaf(t, u.gen, u.id.GroupKey)
-			_, err := store.UpsertProofLeaf(
+			_, _, err := store.UpsertProofLeaf(
 				ctx, u.id, key, &leaf, nil,
 			)
 			if err != nil {
@@ -426,7 +426,7 @@ func TestMultiverseLeafJournalCommitOrder(t *testing.T) {
 	go func() {
 		keyB := randLeafKey(t)
 		leafB := randMintingLeaf(t, uniB.gen, uniB.id.GroupKey)
-		_, err := store.UpsertProofLeaf(
+		_, _, err := store.UpsertProofLeaf(
 			ctx, uniB.id, keyB, &leafB, nil,
 		)
 		bDone <- err

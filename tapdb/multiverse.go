@@ -1072,14 +1072,21 @@ func journalUniverseLeaves(ctx context.Context, db BaseUniverseStore,
 // superseded this one before the multiverse update was flushed, the
 // receipt is rebuilt from the newer state, so its universe root may be
 // fresher than the root this call's own transaction committed.
+//
+// The returned boolean reports whether the upsert created a new universe leaf,
+// as opposed to replacing the proof of one we already held. It is determined
+// inside the write transaction, so it stays correct under concurrent inserts
+// of the same leaf: serializable isolation makes exactly one of them the
+// creator. It is set in the pending case too, as the leaf is committed by then.
 func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
 	id universe.Identifier, key universe.LeafKey, leaf *universe.Leaf,
-	metaReveal *proof.MetaReveal) (*universe.Proof, error) {
+	metaReveal *proof.MetaReveal) (*universe.Proof, bool, error) {
 
 	var (
-		writeTx    BaseMultiverseOptions
-		uniProof   *universe.Proof
-		rootStatus universeRootStatus
+		writeTx      BaseMultiverseOptions
+		uniProof     *universe.Proof
+		rootStatus   universeRootStatus
+		leafInserted bool
 	)
 
 	execTxFunc := func(dbTx BaseMultiverseStore) error {
@@ -1099,6 +1106,7 @@ func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
 			return fmt.Errorf("failed universe upsert: %w", err)
 		}
 		rootStatus = res.rootStatus
+		leafInserted = res.leafInserted
 
 		if shouldJournalLeaf(id) {
 			err = journalUniverseLeaves(
@@ -1113,7 +1121,7 @@ func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
 	}
 	dbErr := b.db.ExecTx(ctx, &writeTx, execTxFunc)
 	if dbErr != nil {
-		return nil, dbErr
+		return nil, leafInserted, dbErr
 	}
 
 	// The universe leaf is now durably committed, so run the
@@ -1157,7 +1165,8 @@ func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
 	// update in the background.
 	update, err := b.rootCoalescer.updateRoot(ctx, id)
 	if err != nil {
-		return nil, fmt.Errorf("failed multiverse upsert: %w", err)
+		return nil, leafInserted, fmt.Errorf("failed multiverse "+
+			"upsert: %w", err)
 	}
 
 	// If a concurrent insert into the same universe committed between
@@ -1176,17 +1185,17 @@ func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
 	if !mssmt.IsEqualNode(update.universeRoot, uniProof.UniverseRoot) {
 		proofs, err := b.fetchProofLeaf(ctx, id, key, true)
 		if err != nil {
-			return nil, fmt.Errorf("%w: failed superseded "+
-				"proof fetch: %w",
+			return nil, leafInserted, fmt.Errorf("%w: failed "+
+				"superseded proof fetch: %w",
 				universe.ErrMultiversePending, err)
 		}
 		if len(proofs) != 1 {
-			return nil, fmt.Errorf("%w: expected one proof "+
-				"for superseded upsert, got %d",
+			return nil, leafInserted, fmt.Errorf("%w: expected "+
+				"one proof for superseded upsert, got %d",
 				universe.ErrMultiversePending, len(proofs))
 		}
 
-		return proofs[0], nil
+		return proofs[0], leafInserted, nil
 	}
 
 	// Populate the multiverse fields in the proof object now that the
@@ -1194,7 +1203,7 @@ func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
 	uniProof.MultiverseRoot = update.multiverseRoot
 	uniProof.MultiverseInclusionProof = update.inclusionProof
 
-	return uniProof, nil
+	return uniProof, leafInserted, nil
 }
 
 // UpsertProofLeafBatch upserts a proof leaf batch within the multiverse tree

@@ -37,9 +37,9 @@ func (m *mockMultiverse) RootNodes(context.Context,
 
 func (m *mockMultiverse) UpsertProofLeaf(context.Context,
 	Identifier, LeafKey, *Leaf,
-	*proof.MetaReveal) (*Proof, error) {
+	*proof.MetaReveal) (*Proof, bool, error) {
 
-	return nil, nil
+	return nil, true, nil
 }
 
 func (m *mockMultiverse) UpsertProofLeafBatch(_ context.Context,

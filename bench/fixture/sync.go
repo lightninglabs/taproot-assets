@@ -199,7 +199,7 @@ func (r *directRegistrar) UpsertProofLeaf(ctx context.Context,
 	leaf *universe.Leaf) (*universe.Proof, error) {
 
 	r.metrics.LeavesInserted.Add(1)
-	p, err := r.multiverse.UpsertProofLeaf(ctx, id, key, leaf, nil)
+	p, _, err := r.multiverse.UpsertProofLeaf(ctx, id, key, leaf, nil)
 	r.classify(err)
 	return p, err
 }
@@ -435,7 +435,7 @@ func (f *SyncFixture) AddRemoteDivergence(tb testing.TB,
 
 	ctx := context.Background()
 	for i := 0; i < n; i++ {
-		_, err := f.Remote.Multiverse.UpsertProofLeaf(
+		_, _, err := f.Remote.Multiverse.UpsertProofLeaf(
 			ctx, id, randLeafKey(tb),
 			randMintingLeafFor(tb, assetGen), nil,
 		)

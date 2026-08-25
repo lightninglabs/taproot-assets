@@ -354,7 +354,9 @@ func (h *custodianHarness) addProofFileToMultiverse(p *proof.AnnotatedProof) {
 			"into multiverse",
 			key.ScriptKey.PubKey.SerializeCompressed(),
 			key.OutPoint)
-		_, err = h.multiverse.UpsertProofLeaf(ctxt, id, key, leaf, nil)
+		_, _, err = h.multiverse.UpsertProofLeaf(
+			ctxt, id, key, leaf, nil,
+		)
 		require.NoError(h.t, err)
 	}
 }

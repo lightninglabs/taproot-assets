@@ -136,7 +136,7 @@ func TestRootNodeCacheTargetedInvalidation(t *testing.T) {
 	items := make([]*universe.Item, numAssets)
 	for i := range items {
 		items[i] = genRandomAsset(t)
-		_, err := multiverse.UpsertProofLeaf(
+		_, _, err := multiverse.UpsertProofLeaf(
 			ctx, items[i].ID, items[i].Key, items[i].Leaf, nil,
 		)
 		require.NoError(t, err)
@@ -148,7 +148,7 @@ func TestRootNodeCacheTargetedInvalidation(t *testing.T) {
 		leaf := randMintingLeaf(
 			t, item.Leaf.Genesis, item.ID.GroupKey,
 		)
-		uniProof, err := multiverse.UpsertProofLeaf(
+		uniProof, _, err := multiverse.UpsertProofLeaf(
 			ctx, item.ID, randLeafKey(t), &leaf, nil,
 		)
 		require.NoError(t, err)
@@ -200,7 +200,7 @@ func TestRootNodeCacheTargetedInvalidation(t *testing.T) {
 	// composition, so it must invalidate all cached pages: re-reading
 	// refills all three of them.
 	newItem := genRandomAsset(t)
-	_, err := multiverse.UpsertProofLeaf(
+	_, _, err := multiverse.UpsertProofLeaf(
 		ctx, newItem.ID, newItem.Key, newItem.Leaf, nil,
 	)
 	require.NoError(t, err)
@@ -292,7 +292,7 @@ func TestRootNodeCacheTargetedInvalidation(t *testing.T) {
 	requireSameRoots(t, freshView(), roots)
 
 	before = misses()
-	_, err = multiverse.UpsertProofLeaf(
+	_, _, err = multiverse.UpsertProofLeaf(
 		ctx, victim.ID, victim.Key, victim.Leaf, nil,
 	)
 	require.NoError(t, err)
@@ -513,7 +513,7 @@ func TestRootNodeCacheConcurrency(t *testing.T) {
 	seed := make([]*universe.Item, numSeed)
 	for i := range seed {
 		seed[i] = genRandomAsset(t)
-		_, err := multiverse.UpsertProofLeaf(
+		_, _, err := multiverse.UpsertProofLeaf(
 			ctx, seed[i].ID, seed[i].Key, seed[i].Leaf, nil,
 		)
 		require.NoError(t, err)
@@ -595,7 +595,7 @@ func TestRootNodeCacheConcurrency(t *testing.T) {
 			}
 
 			for _, op := range ops {
-				_, err := multiverse.UpsertProofLeaf(
+				_, _, err := multiverse.UpsertProofLeaf(
 					ctx, op.ID, op.Key, op.Leaf, nil,
 				)
 				if err != nil {
@@ -834,7 +834,7 @@ func TestSyncerCacheDeleteProofLeaf(t *testing.T) {
 	items := genUniverseItemsWithType(t, universe.ProofTypeIssuance, 2)
 	id := items[0].ID
 	for _, item := range items {
-		_, err := multiverse.UpsertProofLeaf(
+		_, _, err := multiverse.UpsertProofLeaf(
 			ctx, item.ID, item.Key, item.Leaf, item.MetaReveal,
 		)
 		require.NoError(t, err)
@@ -843,7 +843,7 @@ func TestSyncerCacheDeleteProofLeaf(t *testing.T) {
 	const numOthers = 3
 	for i := 0; i < numOthers; i++ {
 		other := genRandomAsset(t)
-		_, err := multiverse.UpsertProofLeaf(
+		_, _, err := multiverse.UpsertProofLeaf(
 			ctx, other.ID, other.Key, other.Leaf,
 			other.MetaReveal,
 		)

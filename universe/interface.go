@@ -641,9 +641,13 @@ type MultiverseArchive interface {
 	// outstanding; the archive repairs the gap in the background, or
 	// at the next startup. On success the returned proof composes:
 	// its multiverse inclusion proof commits to its universe root.
+	//
+	// The returned boolean reports whether the upsert created a new
+	// universe leaf, as opposed to replacing the proof of one we already
+	// held. It is set in the pending case too, as the leaf is committed.
 	UpsertProofLeaf(ctx context.Context, id Identifier, key LeafKey,
 		leaf *Leaf,
-		metaReveal *proof.MetaReveal) (*Proof, error)
+		metaReveal *proof.MetaReveal) (*Proof, bool, error)
 
 	// UpsertProofLeafBatch upserts a proof leaf batch within the multiverse
 	// tree and the universe tree that corresponds to the given key(s).

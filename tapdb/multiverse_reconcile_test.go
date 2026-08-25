@@ -121,7 +121,7 @@ func TestReconcileMultiverseProps(t *testing.T) {
 
 			switch kind {
 			case "healthy":
-				_, err := multiverse.UpsertProofLeaf(
+				_, _, err := multiverse.UpsertProofLeaf(
 					ctx, item.ID, item.Key, item.Leaf,
 					item.MetaReveal,
 				)
@@ -135,7 +135,7 @@ func TestReconcileMultiverseProps(t *testing.T) {
 				expectDiverged++
 
 			case "tampered":
-				_, err := multiverse.UpsertProofLeaf(
+				_, _, err := multiverse.UpsertProofLeaf(
 					ctx, item.ID, item.Key, item.Leaf,
 					item.MetaReveal,
 				)
@@ -183,7 +183,7 @@ func TestReconcileMultiversePagination(t *testing.T) {
 		// Alternate healthy and orphaned universes, so divergence
 		// appears on every page of the scan.
 		if i%2 == 0 {
-			_, err := multiverse.UpsertProofLeaf(
+			_, _, err := multiverse.UpsertProofLeaf(
 				ctx, item.ID, item.Key, item.Leaf,
 				item.MetaReveal,
 			)
@@ -377,7 +377,7 @@ func TestReconcileMultiverseSyncerCache(t *testing.T) {
 	const numHealthy = 4
 	for i := 0; i < numHealthy; i++ {
 		item := genRandomAsset(t)
-		_, err := multiverse.UpsertProofLeaf(
+		_, _, err := multiverse.UpsertProofLeaf(
 			ctx, item.ID, item.Key, item.Leaf, item.MetaReveal,
 		)
 		require.NoError(t, err)

@@ -294,15 +294,10 @@ func (a *Archive) UpsertProofLeaf(ctx context.Context, id Identifier,
 
 	// We'll first check to see if we already know of this leaf within the
 	// multiverse. If so, then we'll return the existing issuance proof.
-	//
-	// We also remember whether the leaf was already known, so we don't
-	// count a re-registration as a new proof in the universe stats below.
-	var leafKnown bool
 	issuanceProofs, err := a.cfg.Multiverse.FetchProofLeaf(ctx, id, key)
 	switch {
 	case err == nil && len(issuanceProofs) > 0:
 		issuanceProof := issuanceProofs[0]
-		leafKnown = true
 
 		var existingProof proof.Proof
 		if err := existingProof.Decode(bytes.NewReader(
@@ -353,7 +348,7 @@ func (a *Archive) UpsertProofLeaf(ctx context.Context, id Identifier,
 
 	// Now that we know the proof is valid, we'll insert it into the base
 	// multiverse backend, and return the new issuance proof.
-	issuanceProof, err := a.cfg.Multiverse.UpsertProofLeaf(
+	issuanceProof, leafInserted, err := a.cfg.Multiverse.UpsertProofLeaf(
 		ctx, id, key, leaf, assetSnapshot.MetaReveal,
 	)
 	if err != nil && !errors.Is(err, ErrMultiversePending) {
@@ -369,7 +364,9 @@ func (a *Archive) UpsertProofLeaf(ctx context.Context, id Identifier,
 	//
 	// We skip it if we already held the leaf, since then the upsert only
 	// replaced the proof of a leaf that's already counted in the stats.
-	if !leafKnown {
+	// The multiverse decides that inside its write transaction, so two
+	// clients racing to register the same new leaf log exactly one event.
+	if leafInserted {
 		go func() {
 			err := a.cfg.UniverseStats.LogNewProofEvent(
 				context.Background(), id, key,
