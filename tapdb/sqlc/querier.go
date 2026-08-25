@@ -69,8 +69,19 @@ type Querier interface {
 	FetchAssetProof(ctx context.Context, arg FetchAssetProofParams) ([]FetchAssetProofRow, error)
 	FetchAssetProofs(ctx context.Context) ([]FetchAssetProofsRow, error)
 	FetchAssetProofsByAssetID(ctx context.Context, assetID []byte) ([]FetchAssetProofsByAssetIDRow, error)
+	// The proofs of all assets identified by the passed set of asset primary keys
+	// are fetched in a single query.
+	//
+	// The asset_ids argument must NEVER be an empty slice, otherwise this query
+	// will return no results.
+	FetchAssetProofsByIDs(ctx context.Context, assetIds []int64) ([]FetchAssetProofsByIDsRow, error)
 	FetchAssetProofsSizes(ctx context.Context) ([]FetchAssetProofsSizesRow, error)
-	FetchAssetWitnesses(ctx context.Context, assetID sql.NullInt64) ([]FetchAssetWitnessesRow, error)
+	// The witnesses of all assets identified by the passed set of asset primary
+	// keys are fetched in a single query.
+	//
+	// The asset_ids argument must NEVER be an empty slice, otherwise this query
+	// will return no results.
+	FetchAssetWitnesses(ctx context.Context, assetIds []int64) ([]FetchAssetWitnessesRow, error)
 	FetchAssetsByAnchorTx(ctx context.Context, anchorUtxoID sql.NullInt64) ([]Asset, error)
 	// We use a LEFT JOIN here as not every asset has a meta data entry.
 	// We use a LEFT JOIN here as not every asset has a group key, so this'll
