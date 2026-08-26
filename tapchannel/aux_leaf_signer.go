@@ -182,17 +182,19 @@ func VerifySecondLevelSigs(chainParams *address.ChainParams,
 	for idx := range verifyJobs {
 		verifyJob := verifyJobs[idx]
 
-		// If there is no signature blob, this isn't a custom channel.
-		if verifyJob.SigBlob.IsNone() {
-			continue
-		}
-
-		assetSigs, err := cmsg.DecodeAssetSigListRecord(
-			verifyJob.SigBlob.UnsafeFromSome(),
-		)
-		if err != nil {
-			return fmt.Errorf("error decoding asset sig list "+
-				"record: %w", err)
+		// Decode the signature blob if there is one. Whether its
+		// absence is acceptable is decided below, once we know if
+		// the HTLC carries assets.
+		var assetSigs *cmsg.AssetSigListRecord
+		if verifyJob.SigBlob.IsSome() {
+			var err error
+			assetSigs, err = cmsg.DecodeAssetSigListRecord(
+				verifyJob.SigBlob.UnsafeFromSome(),
+			)
+			if err != nil {
+				return fmt.Errorf("error decoding asset sig "+
+					"list record: %w", err)
+			}
 		}
 
 		// If there is no commit blob, this isn't a custom channel.
@@ -226,6 +228,20 @@ func VerifySecondLevelSigs(chainParams *address.ChainParams,
 		// asset HTLC, so we can skip it.
 		if len(htlcOutputs) == 0 {
 			continue
+		}
+
+		// An asset HTLC owes a signature. The caller hands us a job
+		// for every HTLC, signed or not, precisely because only we
+		// can tell which ones carry assets. A peer that leaves the
+		// signature out must not get away with it: without it we
+		// could not build the second-level asset transition of this
+		// HTLC, on our own commitment or after a breach of theirs.
+		if assetSigs == nil {
+			return fmt.Errorf("missing second level sig for asset "+
+				"HTLC (idx=%d htlcIdx=%d incoming=%v "+
+				"whoseCommit=%v)", idx,
+				verifyJob.HTLC.HtlcIndex, verifyJob.Incoming,
+				verifyJob.WhoseCommit)
 		}
 
 		err = verifyHtlcSignature(
@@ -514,13 +530,16 @@ func applySignDescToVIn(signDesc input.SignDescriptor, vIn *tappsbt.VInput,
 	// the same time, we apply the tweaks to a copy of the public key, so we
 	// can validate the produced signature.
 	//
-	// For breach scenarios, both DoubleTweak and SingleTweak are present.
-	// Both are added to the PSBT unknowns keyed by their type, so the
-	// append order here doesn't matter: the signer identifies them by
-	// key type, not position. However, when deriving the verification
-	// public key below, we must apply DoubleTweak (revocation) before
-	// SingleTweak (HTLC index) because DeriveRevocationPubkey hashes
-	// its input key, making the operations non-commutative.
+	// For breach scenarios, both DoubleTweak and SingleTweak are present
+	// and both are added to the PSBT unknowns keyed by their type. Two
+	// distinct lnd signer paths consume this pair and BOTH must combine
+	// them (double/revocation first, then single/HTLC index, since
+	// DeriveRevocationPrivKey hashes its input key and the operations do
+	// not commute): maybeTweakPrivKey in lnwallet/btcwallet/signer.go
+	// (local signer, reads the SignDescriptor fields) and
+	// maybeTweakPrivKeyPsbt in lnwallet/btcwallet/psbt.go (remote
+	// signer, reads these unknowns). The verification public key derived
+	// below applies the same order.
 	//
 	// For normal force closes, only one tweak is present at a time.
 	signingKey := signDesc.KeyDesc.PubKey
