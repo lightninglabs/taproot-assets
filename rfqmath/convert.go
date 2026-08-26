@@ -5,6 +5,8 @@ import (
 	"math"
 
 	"github.com/btcsuite/btcd/btcutil/v2"
+	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -62,6 +64,21 @@ var (
 	// smallest HTLC amount that can be sent on-chain in milli-satoshis.
 	DefaultOnChainHtlcMSat = lnwire.NewMSatFromSatoshis(
 		DefaultOnChainHtlcSat,
+	)
+
+	// LegacyOnChainHtlcSat is the on-chain BTC amount an asset HTLC
+	// carries on channels that did NOT negotiate DeterministicHTLCs:
+	// just above the dust limit, since none of the deductions the
+	// deterministic carrier value pays for exist there. Using the
+	// larger deterministic value for such channels would needlessly
+	// raise the minimum quotable payment.
+	LegacyOnChainHtlcSat = lnwallet.DustLimitForSize(
+		input.UnknownWitnessSize,
+	)
+
+	// LegacyOnChainHtlcMSat is LegacyOnChainHtlcSat in milli-satoshis.
+	LegacyOnChainHtlcMSat = lnwire.NewMSatFromSatoshis(
+		LegacyOnChainHtlcSat,
 	)
 )
 
