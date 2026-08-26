@@ -3136,6 +3136,38 @@ func (a *AuxSweeper) importSecondLevelHtlcTx(
 	return nil
 }
 
+// emptyAssetResolution returns an encoded ContractResolution that carries no
+// asset-level packets. It is used on breach paths when the asset-level
+// resolution for a single HTLC cannot be constructed (e.g. a revocation log
+// written before the HtlcIndex record existed): returning an error would
+// abort lnd's NewBreachRetribution as a whole and block the BTC-level
+// justice sweep for the entire channel, which is strictly worse than
+// forgoing the asset leg of one HTLC.
+func emptyAssetResolution() lfn.Result[tlv.Blob] {
+	res := cmsg.NewContractResolution(
+		nil, nil, lfn.None[cmsg.TapscriptSigDesc](), false, false,
+	)
+
+	var b bytes.Buffer
+	if err := res.Encode(&b); err != nil {
+		return lfn.Err[tlv.Blob](err)
+	}
+
+	return lfn.Ok(b.Bytes())
+}
+
+// htlcBucketKeys returns the sorted HTLC indices present in the given asset
+// bucket, for diagnostics.
+func htlcBucketKeys(bucket cmsg.HtlcAssetOutput) []uint64 {
+	keys := make([]uint64, 0, len(bucket.HtlcOutputs))
+	for k := range bucket.HtlcOutputs {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+
+	return keys
+}
+
 // errNoPayHash is an error returned when no payment hash is provided.
 var errNoPayHash = fmt.Errorf("no payment hash provided")
 
@@ -3315,16 +3347,40 @@ func (a *AuxSweeper) resolveContract(
 	// Revoked HTLC offered by remote party (outgoing HTLC from their side).
 	// We sweep this using the revocation key (keyspend).
 	case input.TaprootHtlcOfferedRevoke:
-		// Filter for the specific HTLC we're sweeping. The remote party
-		// offered this HTLC to us (sending to us), so from
-		// their PoV it's outgoing and stored in their
-		// OutgoingHtlcAssets. We sweep it using the revocation
-		// key since they broadcast a revoked state.
+		// Filter for the specific HTLC we're sweeping.
+		// TaprootHtlcOfferedRevoke covers an HTLC that we offered to
+		// the remote party (see input/witnessgen.go), i.e. our
+		// outgoing HTLC. The commitment blob indexes the HTLC asset
+		// buckets from our perspective, so it lives in
+		// OutgoingHtlcAssets. We sweep it using the revocation key
+		// since they broadcast a revoked state.
 		if htlcIDErr != nil {
-			return lfn.Err[returnType](htlcIDErr)
+			// A missing HTLC ID on the breach path must not
+			// abort the whole retribution: degrade to an empty
+			// asset resolution so the BTC-level justice sweep
+			// can proceed.
+			log.Errorf("No HTLC ID for %v resolution "+
+				"(chan_point=%v, commit_height=%d), "+
+				"returning empty asset resolution: %v",
+				req.Type, req.ChanPoint,
+				req.CommitTxBlockHeight, htlcIDErr)
+
+			return emptyAssetResolution()
 		}
 		htlcOutputs := commitState.OutgoingHtlcAssets.Val
 		assetOutputs = htlcOutputs.FilterByHtlcIndex(htlcID)
+
+		if len(assetOutputs) == 0 {
+			log.Errorf("HTLC ID %d not found in outgoing assets "+
+				"for %v resolution (chan_point=%v, "+
+				"num_outgoing=%d, num_incoming=%d), asset "+
+				"leg of this HTLC will not be swept", htlcID,
+				req.Type, req.ChanPoint,
+				len(commitState.OutgoingHtlcAssets.Val.
+					HtlcOutputs),
+				len(commitState.IncomingHtlcAssets.Val.
+					HtlcOutputs))
+		}
 
 		payHash, err := req.PayHash.UnwrapOrErr(errNoPayHash)
 		if err != nil {
@@ -3347,10 +3403,31 @@ func (a *AuxSweeper) resolveContract(
 		// IncomingHtlcAssets. We sweep it using the revocation key
 		// since they broadcast a revoked state.
 		if htlcIDErr != nil {
-			return lfn.Err[returnType](htlcIDErr)
+			// See the TaprootHtlcOfferedRevoke case above: on the
+			// breach path we degrade instead of aborting the
+			// whole retribution.
+			log.Errorf("No HTLC ID for %v resolution "+
+				"(chan_point=%v, commit_height=%d), "+
+				"returning empty asset resolution: %v",
+				req.Type, req.ChanPoint,
+				req.CommitTxBlockHeight, htlcIDErr)
+
+			return emptyAssetResolution()
 		}
 		htlcOutputs := commitState.IncomingHtlcAssets.Val
 		assetOutputs = htlcOutputs.FilterByHtlcIndex(htlcID)
+
+		if len(assetOutputs) == 0 {
+			log.Errorf("HTLC ID %d not found in incoming assets "+
+				"for %v resolution (chan_point=%v, "+
+				"num_outgoing=%d, num_incoming=%d), asset "+
+				"leg of this HTLC will not be swept", htlcID,
+				req.Type, req.ChanPoint,
+				len(commitState.OutgoingHtlcAssets.Val.
+					HtlcOutputs),
+				len(commitState.IncomingHtlcAssets.Val.
+					HtlcOutputs))
+		}
 
 		payHash, err := req.PayHash.UnwrapOrErr(errNoPayHash)
 		if err != nil {
@@ -3398,44 +3475,65 @@ func (a *AuxSweeper) resolveContract(
 		})
 
 		if htlcIDErr != nil {
+			// On the breach path a missing HTLC ID must not
+			// abort the whole retribution (see the
+			// TaprootHtlcOfferedRevoke case above). The
+			// non-breach second-level requests are made per HTLC
+			// by the resolvers, which always know the index, so
+			// a hard error there only fails that HTLC's
+			// resolution.
+			if isRevoke {
+				log.Errorf("No HTLC ID for %v resolution "+
+					"(chan_point=%v, commit_height=%d), "+
+					"returning empty asset resolution: %v",
+					req.Type, req.ChanPoint,
+					req.CommitTxBlockHeight, htlcIDErr)
+
+				return emptyAssetResolution()
+			}
+
 			return lfn.Err[returnType](htlcIDErr)
 		}
 
-		// Determine CLTV timeout: incoming HTLCs need a CLTV for
-		// second-level construction.
-		var cltvTimeout fn.Option[uint32]
+		// These flows rest on the pre-signed, deterministic
+		// second-level HTLC tx: one input, the commitment HTLC
+		// output, and the HTLC output at index 0. On a commitment
+		// that was built without DeterministicHTLCs the second-level
+		// tx is rebuilt by the sweeper and may bundle other inputs
+		// and outputs, which none of what follows accounts for.
+		// lnd is told so and keeps resolving the HTLC the way it did
+		// before these flows existed.
+		if !commitState.SigHashDefault.Val {
+			return lfn.Errf[returnType]("%v resolution is not "+
+				"supported for chan_point=%v: its commitment "+
+				"was built without deterministic HTLCs",
+				req.Type, req.ChanPoint)
+		}
+		if secondLevelTx == nil {
+			return lfn.Errf[returnType]("no second-level tx on "+
+				"%v resolution request for chan_point=%v",
+				req.Type, req.ChanPoint)
+		}
+		commitTxHash := req.CommitTx.TxHash()
+		if len(secondLevelTx.TxIn) != 1 ||
+			secondLevelTx.TxIn[0].PreviousOutPoint.Hash !=
+				commitTxHash {
 
-		var htlcOutputs cmsg.HtlcAssetOutput
-		switch {
-		// Breach: try outgoing first, then fall back to incoming.
-		case isRevoke:
-			htlcOutputs = commitState.OutgoingHtlcAssets.Val
-			assetOutputs = htlcOutputs.FilterByHtlcIndex(htlcID)
-			if len(assetOutputs) == 0 {
-				log.Debugf("HTLC ID %d not found in "+
-					"outgoing assets, trying "+
-					"incoming", htlcID)
+			return lfn.Errf[returnType]("second-level tx %v of "+
+				"chan_point=%v is not a deterministic HTLC tx "+
+				"spending commitment %v",
+				secondLevelTx.TxHash(), req.ChanPoint,
+				commitTxHash)
+		}
 
-				htlcOutputs =
-					commitState.IncomingHtlcAssets.Val
-				assetOutputs = htlcOutputs.FilterByHtlcIndex(
-					htlcID,
-				)
-				req.CltvDelay.WhenSome(func(v uint32) {
-					cltvTimeout = fn.Some(v)
-				})
-			}
-
-			// An HTLC that appears in neither bucket carries no
-			// assets (a BTC-only HTLC on an asset channel) and
-			// needs no asset-level resolution. Invariants further
-			// up the stack should prevent us from ever being
-			// asked about one, so make it visible if it happens.
-			if len(assetOutputs) == 0 {
-				log.Warnf("HTLC ID %d not found in outgoing "+
-					"or incoming assets, treating as "+
-					"non-asset HTLC", htlcID)
-			}
+		// The commitment blob indexes the HTLC asset buckets from
+		// our point of view by HTLC index. An index regularly exists
+		// in both buckets, so the bucket is picked by the HTLC's
+		// direction, never by probing for the index.
+		incoming, err := secondLevelHtlcIncoming(req)
+		if err != nil {
+			return lfn.Err[returnType](err)
+		}
 
 		auxLeaves := commitState.AuxLeaves.Val
 		htlcOutputs := commitState.OutgoingHtlcAssets.Val
