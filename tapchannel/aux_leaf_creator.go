@@ -67,10 +67,18 @@ func FetchLeavesFromView(chainParams *address.ChainParams,
 		),
 	)
 
-	supportsSTXO := features.HasFeature(tapfeatures.STXOOptional)
+	// The live feature map is only populated once the peer has
+	// (re)connected. Around a restart it can be empty while lnd (which
+	// falls back to the commitment blob) already operates in the
+	// negotiated mode, so we mirror lnd's precedence here: live
+	// negotiation first, cached commitment flags as the fallback.
+	// Otherwise the two sides could construct different second-level
+	// layouts for the same commitment.
+	supportsSTXO := features.HasFeature(tapfeatures.STXOOptional) ||
+		prevState.STXO.Val
 	sigHashDefault := features.HasFeature(
 		tapfeatures.DeterministicHTLCsOptional,
-	)
+	) || prevState.SigHashDefault.Val
 
 	allocations, newCommitment, err := GenerateCommitmentAllocations(
 		prevState, in.ChannelState, chanAssetState, in.WhoseCommit,
@@ -410,12 +418,15 @@ func ApplyHtlcView(chainParams *address.ChainParams,
 		),
 	)
 
+	// Same precedence as above: live negotiation first, the cached
+	// commitment flags as the fallback (the live map can be empty around
+	// a restart, before the peer has reconnected).
 	supportSTXO := features.HasFeature(
 		tapfeatures.STXOOptional,
-	)
+	) || prevState.STXO.Val
 	sigHashDefault := features.HasFeature(
 		tapfeatures.DeterministicHTLCsOptional,
-	)
+	) || prevState.SigHashDefault.Val
 
 	_, newCommitment, err := GenerateCommitmentAllocations(
 		prevState, in.ChannelState, chanAssetState, in.WhoseCommit,
