@@ -336,6 +336,7 @@ func (p *universeProofCache) RemoveLeafKeyProofs(id universe.Identifier,
 // roots, but with pagination parameters.
 type rootPageQueryKey struct {
 	withAmountsById bool
+	proofType       universe.ProofType
 	leafQueryKey
 }
 
@@ -343,6 +344,7 @@ type rootPageQueryKey struct {
 func newRootPageQuery(q universe.RootNodesQuery) rootPageQueryKey {
 	return rootPageQueryKey{
 		withAmountsById: q.WithAmountsById,
+		proofType:       q.ProofType,
 		leafQueryKey: leafQueryKey{
 			sortDirection: q.SortDirection,
 			offset:        q.Offset,
@@ -490,6 +492,12 @@ func newSyncerRootNodeCache(enabled bool,
 // database.
 func isQueryForSyncerCache(q universe.RootNodesQuery) bool {
 	if q.WithAmountsById || q.SortDirection != universe.SortAscending {
+		return false
+	}
+
+	// The syncer cache holds the complete, unfiltered set of roots, so a
+	// query that filters by proof type can't be served from it.
+	if q.ProofType != universe.ProofTypeUnspecified {
 		return false
 	}
 

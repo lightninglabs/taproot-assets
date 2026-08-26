@@ -569,6 +569,14 @@ func (b *MultiverseStore) RootNodes(ctx context.Context,
 			return q.Limit
 		}(),
 	}
+
+	// If a proof type filter was specified, only the roots of that proof
+	// type are returned. Otherwise the null value leaves the query
+	// unfiltered.
+	if q.ProofType != universe.ProofTypeUnspecified {
+		params.ProofType = sqlStr(q.ProofType.String())
+	}
+
 	uniRoots, err := b.queryRootNodes(ctx, params, q.WithAmountsById)
 	if err != nil {
 		return nil, err
