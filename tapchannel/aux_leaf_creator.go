@@ -10,7 +10,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/fn"
 	cmsg "github.com/lightninglabs/taproot-assets/tapchannelmsg"
-	"github.com/lightninglabs/taproot-assets/tapfeatures"
 	"github.com/lightningnetwork/lnd/channeldb"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
@@ -67,10 +66,20 @@ func FetchLeavesFromView(chainParams *address.ChainParams,
 		),
 	)
 
-	stxoFeatures := NewSTXOFeatures(features)
-	sigHashDefault := features.HasFeature(
-		tapfeatures.DeterministicHTLCsOptional,
+	// The live feature map is only populated once the peer has
+	// (re)connected. Around a restart it can be empty, so the STXO
+	// features fall back to the flags cached in the previous commitment.
+	stxoFeatures := NewSTXOFeatures(features).Or(
+		CommitmentSTXOFeatures(prevState),
 	)
+
+	// The sighash mode of the commitment is not ours to derive. Whoever
+	// signs a commitment decides its mode and states it on the
+	// commitment_signed, which can be retransmitted in a later connection
+	// with different features negotiated. lnd hands us the mode of the
+	// commitment being built, for the ones it signs and the ones it
+	// verifies alike, so both peers build the same second-level layout.
+	sigHashDefault := in.SigHashDefault
 
 	allocations, newCommitment, err := GenerateCommitmentAllocations(
 		prevState, in.ChannelState, chanAssetState, in.WhoseCommit,
@@ -411,10 +420,13 @@ func ApplyHtlcView(chainParams *address.ChainParams,
 		),
 	)
 
-	stxoFeatures := NewSTXOFeatures(features)
-	sigHashDefault := features.HasFeature(
-		tapfeatures.DeterministicHTLCsOptional,
+	// Same as above: the STXO features fall back to the previous
+	// commitment, the sighash mode is the one lnd states for the
+	// commitment being built and is recorded in the new blob.
+	stxoFeatures := NewSTXOFeatures(features).Or(
+		CommitmentSTXOFeatures(prevState),
 	)
+	sigHashDefault := in.SigHashDefault
 
 	_, newCommitment, err := GenerateCommitmentAllocations(
 		prevState, in.ChannelState, chanAssetState, in.WhoseCommit,
