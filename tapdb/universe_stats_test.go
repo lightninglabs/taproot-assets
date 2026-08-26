@@ -193,6 +193,17 @@ func TestUniverseStatsProofCount(t *testing.T) {
 	stats, err := statsDB.AggregateSyncStats(ctx)
 	require.NoError(t, err)
 	require.EqualValues(t, numLeaves, stats.NumTotalProofs)
+
+	// The count is derived from the leaves, so it would report the right
+	// number even if we logged an event per attempt. Assert on the event
+	// rows directly as well, since the table is what grows without bound.
+	var events int
+	err = db.BaseDB.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM universe_events
+		WHERE event_type = 'NEW_PROOF'
+	`).Scan(&events)
+	require.NoError(t, err)
+	require.Equal(t, numLeaves, events)
 }
 
 // TestUniverseStatsEvents tests that we're able to properly insert, and also
@@ -220,12 +231,14 @@ func TestUniverseStatsEvents(t *testing.T) {
 		}
 	}
 
-	// Before we insert anything into the DB, we should have all zeroes for
-	// the main events.
+	// Before we log any events we should have all zeroes for the event
+	// driven stats. The proof count is not one of those: it reports the
+	// leaves the harness inserted above, whether or not anything was
+	// logged for them.
 	sh.assertUniverseStatsEqual(t, universe.AggregateStats{
 		NumTotalAssets: numTranches,
 		NumTotalGroups: numGroups,
-		NumTotalProofs: 0,
+		NumTotalProofs: numTranches,
 		NumTotalSyncs:  0,
 	})
 
@@ -239,8 +252,8 @@ func TestUniverseStatsEvents(t *testing.T) {
 		testClock.SetTime(testClock.Now().Add(24 * time.Hour))
 	}
 
-	// We'll now query for the set of aggregate Universe stats. It should
-	// show 3 assets, and one new proof for each of those assets.
+	// We'll now query for the set of aggregate Universe stats. The proof
+	// count is unmoved by the logging, as it counts leaves held.
 	sh.assertUniverseStatsEqual(t, universe.AggregateStats{
 		NumTotalAssets: numTranches,
 		NumTotalGroups: numGroups,

@@ -1292,10 +1292,15 @@ WITH sync_counts AS (
     WHERE event_type = 'SYNC'
     GROUP BY universe_root_id
 ), proof_counts AS (
-    SELECT universe_root_id, event_type, COUNT(*) AS count
-    FROM universe_events
-    WHERE event_type = 'NEW_PROOF'
-    GROUP BY universe_root_id, event_type
+    SELECT leaves.universe_root_id, COUNT(*) AS count
+    FROM universe_leaves leaves
+    JOIN universe_roots roots
+        ON leaves.universe_root_id = roots.id
+    -- The supply commitment sub-trees (burn, ignore and mint_supply) store
+    -- their leaves in this table too, but they are not universe proofs and
+    -- were never counted here, as they never produced a NEW_PROOF event.
+    WHERE roots.proof_type IN ('issuance', 'transfer')
+    GROUP BY leaves.universe_root_id
 ), aggregated AS (
     SELECT COALESCE(SUM(count), 0) as total_asset_syncs,
            0 AS total_asset_proofs,

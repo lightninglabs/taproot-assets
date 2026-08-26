@@ -97,11 +97,18 @@
   held was still logged as a new proof, so `num_total_proofs` in the
   universe stats counted insert attempts rather than proofs held, and
   the `universe_events` table grew with sync traffic rather than with
-  universe size. Note that this stops the over-counting, it does not
-  correct a count that has already been inflated.
+  universe size.
+
+  Database migration 67 redefines the `universe_stats` view to derive
+  the proof count from the universe leaves actually held instead of
+  from the event log, so a database that already accumulated duplicate
+  events reports the correct figure from the upgrade onwards. No event
+  rows are deleted, as the per-day statistics still read them. Note
+  that the count can now decrease when a proof leaf is deleted, which
+  it previously did not.
 
   This also changes the meaning of `new_proof_events` in `QueryEvents`,
-  which is fed by the same rows: it now counts leaves newly acquired
+  which is fed by the event rows: it now counts leaves newly acquired
   per day rather than registration attempts per day, so on a
   long-running node the series steps down. The per-day `sync_events`
   series is unchanged and still reflects sync traffic volume.
