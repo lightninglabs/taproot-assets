@@ -24,7 +24,7 @@ const (
 	// daemon.
 	//
 	// NOTE: This MUST be updated when a new migration is added.
-	LatestMigrationVersion = 61
+	LatestMigrationVersion = 65
 )
 
 // DatabaseBackend is an interface that contains all methods our different

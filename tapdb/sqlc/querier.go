@@ -23,6 +23,11 @@ type Querier interface {
 	AssetsInBatch(ctx context.Context, rawKey []byte) ([]AssetsInBatchRow, error)
 	BindMintingBatchWithTapSibling(ctx context.Context, arg BindMintingBatchWithTapSiblingParams) error
 	BindMintingBatchWithTx(ctx context.Context, arg BindMintingBatchWithTxParams) (int64, error)
+	// Reserves a contiguous range of journal seq values ending at the
+	// returned tail. The row lock taken here is held until the enclosing
+	// transaction commits, serializing journal appends so that seq order
+	// equals commit order.
+	BumpUniverseLeafJournalTail(ctx context.Context, delta int64) (int64, error)
 	ConfirmChainAnchorTx(ctx context.Context, arg ConfirmChainAnchorTxParams) error
 	ConfirmChainTx(ctx context.Context, arg ConfirmChainTxParams) error
 	CountAuthMailboxMessages(ctx context.Context) (int64, error)
@@ -40,6 +45,10 @@ type Querier interface {
 	DeleteNode(ctx context.Context, arg DeleteNodeParams) (int64, error)
 	DeleteRoot(ctx context.Context, namespace string) (int64, error)
 	DeleteSupplyCommitTransition(ctx context.Context, transitionID int64) error
+	// Deletes a single supply update event row identified by its
+	// event_id. Used by the migration 65 backfill to drop duplicate
+	// rows that hash to the same event_key as an earlier row.
+	DeleteSupplyUpdateEvent(ctx context.Context, eventID int64) error
 	DeleteSupplyUpdateEvents(ctx context.Context, transitionID sql.NullInt64) error
 	DeleteTapscriptTreeEdges(ctx context.Context, rootHash []byte) error
 	DeleteTapscriptTreeNodes(ctx context.Context) error
@@ -69,8 +78,19 @@ type Querier interface {
 	FetchAssetProof(ctx context.Context, arg FetchAssetProofParams) ([]FetchAssetProofRow, error)
 	FetchAssetProofs(ctx context.Context) ([]FetchAssetProofsRow, error)
 	FetchAssetProofsByAssetID(ctx context.Context, assetID []byte) ([]FetchAssetProofsByAssetIDRow, error)
+	// The proofs of all assets identified by the passed set of asset primary keys
+	// are fetched in a single query.
+	//
+	// The asset_ids argument must NEVER be an empty slice, otherwise this query
+	// will return no results.
+	FetchAssetProofsByIDs(ctx context.Context, assetIds []int64) ([]FetchAssetProofsByIDsRow, error)
 	FetchAssetProofsSizes(ctx context.Context) ([]FetchAssetProofsSizesRow, error)
-	FetchAssetWitnesses(ctx context.Context, assetID sql.NullInt64) ([]FetchAssetWitnessesRow, error)
+	// The witnesses of all assets identified by the passed set of asset primary
+	// keys are fetched in a single query.
+	//
+	// The asset_ids argument must NEVER be an empty slice, otherwise this query
+	// will return no results.
+	FetchAssetWitnesses(ctx context.Context, assetIds []int64) ([]FetchAssetWitnessesRow, error)
 	FetchAssetsByAnchorTx(ctx context.Context, anchorUtxoID sql.NullInt64) ([]Asset, error)
 	// We use a LEFT JOIN here as not every asset has a meta data entry.
 	// We use a LEFT JOIN here as not every asset has a group key, so this'll
@@ -121,6 +141,21 @@ type Querier interface {
 	// Fetches all push log entries for a given asset group, ordered by
 	// creation time with the most recent entries first.
 	FetchSupplySyncerPushLogs(ctx context.Context, groupKey []byte) ([]SupplySyncerPushLog, error)
+	// Returns rows that pre-date the event_key column and still need
+	// a hash computed. Used by the programmatic migration that runs
+	// at schema version 65.
+	//
+	// Rows attached to a transition come first, and among those the
+	// rows of finalized transitions come first, so the backfill's
+	// "keep the first duplicate" dedup logic can never drop the row
+	// a finalized transition depends on. Within each partition,
+	// event_id ASC is the deterministic tie-break.
+	//
+	// The LIMIT bounds the rows (and thus the event_data payloads)
+	// held in memory at once; the backfill either hashes or deletes
+	// every row it fetches, so re-running the query naturally pages
+	// through the remainder.
+	FetchSupplyUpdateEventsForBackfill(ctx context.Context, numLimit int32) ([]FetchSupplyUpdateEventsForBackfillRow, error)
 	// Sort the nodes by node_index here instead of returning the indices.
 	FetchTapscriptTree(ctx context.Context, rootHash []byte) ([]FetchTapscriptTreeRow, error)
 	FetchTransferInputs(ctx context.Context, transferID int64) ([]FetchTransferInputsRow, error)
@@ -133,6 +168,13 @@ type Querier interface {
 	// computed from mssmt_nodes.value (the leaf's RawProof bytes) and
 	// mssmt_nodes.sum. Callers compute the hash from these two columns.
 	FetchUniverseKeys(ctx context.Context, arg FetchUniverseKeysParams) ([]FetchUniverseKeysRow, error)
+	// The commit-ordered delta serves federation sync, whose domain is
+	// issuance and transfer universes; other proof types flow through
+	// dedicated syncers. Sequencing comes from the journal, whose seq
+	// assignment guarantees seq order equals commit order, so a reader
+	// can never observe a seq while a lower unserved seq is still
+	// uncommitted.
+	FetchUniverseLeavesSince(ctx context.Context, arg FetchUniverseLeavesSinceParams) ([]FetchUniverseLeavesSinceRow, error)
 	FetchUniverseRoot(ctx context.Context, namespace string) (FetchUniverseRootRow, error)
 	FetchUniverseSupplyRoot(ctx context.Context, namespaceRoot string) (FetchUniverseSupplyRootRow, error)
 	FetchUnknownTypeScriptKeys(ctx context.Context) ([]FetchUnknownTypeScriptKeysRow, error)
@@ -171,8 +213,25 @@ type Querier interface {
 	// push to a remote universe server. The commit_txid and output_index are
 	// taken directly from the RootCommitment outpoint.
 	InsertSupplySyncerPushLog(ctx context.Context, arg InsertSupplySyncerPushLogParams) error
-	InsertSupplyUpdateEvent(ctx context.Context, arg InsertSupplyUpdateEventParams) error
+	// The event_key column is a deterministic content hash that
+	// identifies a logical update event. A duplicate insert (e.g. on
+	// restart re-run of the Confirmed branch in the minting state
+	// machine) hits the unique index on event_key and is silently
+	// dropped, leaving the existing row -- and any transition_id it
+	// already carries -- untouched.
+	//
+	// Returning rows-affected (1 on insert, 0 on conflict) lets the
+	// caller distinguish "new event recorded" from "dedup absorbed an
+	// old one" -- the latter is the signal InsertPendingUpdate needs
+	// to avoid creating an empty pending transition when a re-fired
+	// event matches a row already attached to a prior (finalized)
+	// transition.
+	InsertSupplyUpdateEvent(ctx context.Context, arg InsertSupplyUpdateEventParams) (int64, error)
 	InsertTxProof(ctx context.Context, arg InsertTxProofParams) error
+	// A leaf already journaled keeps its original seq: re-upserts and
+	// in-place rewrites are not re-delivered by delta sync, and heal via
+	// the root comparison on the enumeration path instead.
+	InsertUniverseLeafJournal(ctx context.Context, arg InsertUniverseLeafJournalParams) error
 	InsertUniverseServer(ctx context.Context, arg InsertUniverseServerParams) error
 	LinkDanglingSupplyUpdateEvents(ctx context.Context, arg LinkDanglingSupplyUpdateEventsParams) error
 	ListClaimedOutpoints(ctx context.Context, arg ListClaimedOutpointsParams) ([]ListClaimedOutpointsRow, error)
@@ -187,6 +246,7 @@ type Querier interface {
 	// pre-commitment corresponds to an asset issuance where a remote node acted as
 	// the issuer.
 	MarkPreCommitSpentByOutpoint(ctx context.Context, arg MarkPreCommitSpentByOutpointParams) error
+	MaxUniverseLeafJournalSeq(ctx context.Context) (int64, error)
 	NewMintingBatch(ctx context.Context, arg NewMintingBatchParams) error
 	QueryAddr(ctx context.Context, arg QueryAddrParams) (QueryAddrRow, error)
 	// We use a LEFT JOIN here as not every asset has a group key, so this'll
@@ -207,10 +267,21 @@ type Querier interface {
 	// channel balances, and also coin selection. We use the sqlc.narg feature to
 	// make the entire statement evaluate to true, if none of these extra args are
 	// specified.
+	// The trailing sort by asset_id is what makes this a total order, which the
+	// paging of a bounded listing relies on: without it, rows that compare equal
+	// on the optional terms above could come back in any order and a later page
+	// could repeat or skip them. Any ordering term added here must go above it.
 	QueryAssets(ctx context.Context, arg QueryAssetsParams) ([]QueryAssetsRow, error)
 	QueryAuthMailboxMessages(ctx context.Context, arg QueryAuthMailboxMessagesParams) ([]QueryAuthMailboxMessagesRow, error)
 	QueryBurns(ctx context.Context, arg QueryBurnsParams) ([]QueryBurnsRow, error)
 	QueryDanglingSupplyUpdateEvents(ctx context.Context, groupKey []byte) ([]QueryDanglingSupplyUpdateEventsRow, error)
+	// Returns non-finalized, non-frozen transitions that have no supply
+	// update events attached. Used by the migration 65 backfill: dropping
+	// a duplicate event row can leave the pending transition it belonged
+	// to empty, and an empty pending transition would otherwise freeze on
+	// the next tick and broadcast a supply commitment that commits
+	// nothing.
+	QueryEmptySupplyCommitTransitions(ctx context.Context) ([]QueryEmptySupplyCommitTransitionsRow, error)
 	QueryEventIDs(ctx context.Context, arg QueryEventIDsParams) ([]QueryEventIDsRow, error)
 	// Find the ID of an existing non-finalized transition for the group key
 	QueryExistingPendingTransition(ctx context.Context, groupKey []byte) (int64, error)
@@ -218,6 +289,7 @@ type Querier interface {
 	// Join on mssmt_nodes to get leaf related fields.
 	// Join on genesis_info_view to get leaf related fields.
 	QueryFederationProofSyncLog(ctx context.Context, arg QueryFederationProofSyncLogParams) ([]QueryFederationProofSyncLogRow, error)
+	QueryFederationSyncCursor(ctx context.Context, targetServer string) (int64, error)
 	QueryFederationUniSyncConfigs(ctx context.Context) ([]QueryFederationUniSyncConfigsRow, error)
 	QueryForwards(ctx context.Context, arg QueryForwardsParams) ([]QueryForwardsRow, error)
 	QueryLastEventHeight(ctx context.Context, version int16) (int64, error)
@@ -247,6 +319,10 @@ type Querier interface {
 	RepairCustomAnchorInternalKey(ctx context.Context, arg RepairCustomAnchorInternalKeyParams) (int64, error)
 	SetAddrManaged(ctx context.Context, arg SetAddrManagedParams) error
 	SetAssetSpent(ctx context.Context, arg SetAssetSpentParams) (int64, error)
+	// Sets the content-hash key for a single supply update event row.
+	// Used by the programmatic migration that backfills pre-existing
+	// rows after column 000062 is added.
+	SetSupplyUpdateEventKey(ctx context.Context, arg SetSupplyUpdateEventKeyParams) error
 	SetTransferOutputProofDeliveryStatus(ctx context.Context, arg SetTransferOutputProofDeliveryStatusParams) error
 	// Mark all unconfirmed transfers that spend the given anchor point as
 	// superseded, except for the given (just confirmed) transfer. Once a
@@ -276,6 +352,7 @@ type Querier interface {
 	UpsertChainTx(ctx context.Context, arg UpsertChainTxParams) (int64, error)
 	UpsertFederationGlobalSyncConfig(ctx context.Context, arg UpsertFederationGlobalSyncConfigParams) error
 	UpsertFederationProofSyncLog(ctx context.Context, arg UpsertFederationProofSyncLogParams) (int64, error)
+	UpsertFederationSyncCursor(ctx context.Context, arg UpsertFederationSyncCursorParams) error
 	UpsertFederationUniSyncConfig(ctx context.Context, arg UpsertFederationUniSyncConfigParams) error
 	UpsertForward(ctx context.Context, arg UpsertForwardParams) (int64, error)
 	UpsertGenesisAsset(ctx context.Context, arg UpsertGenesisAssetParams) (int64, error)
@@ -303,7 +380,7 @@ type Querier interface {
 	UpsertTapscriptTreeEdge(ctx context.Context, arg UpsertTapscriptTreeEdgeParams) (int64, error)
 	UpsertTapscriptTreeNode(ctx context.Context, rawNode []byte) (int64, error)
 	UpsertTapscriptTreeRootHash(ctx context.Context, arg UpsertTapscriptTreeRootHashParams) (int64, error)
-	UpsertUniverseLeaf(ctx context.Context, arg UpsertUniverseLeafParams) error
+	UpsertUniverseLeaf(ctx context.Context, arg UpsertUniverseLeafParams) (int64, error)
 	UpsertUniverseRoot(ctx context.Context, arg UpsertUniverseRootParams) (int64, error)
 	UpsertUniverseSupplyLeaf(ctx context.Context, arg UpsertUniverseSupplyLeafParams) (int64, error)
 	UpsertUniverseSupplyRoot(ctx context.Context, arg UpsertUniverseSupplyRootParams) (int64, error)

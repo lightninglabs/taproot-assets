@@ -545,12 +545,18 @@ WHERE (
     @num_limit >= 0 AND
     @num_offset >= 0 AND
     COALESCE(sqlc.narg('sort_direction'), 0) >= 0 AND
+    COALESCE(sqlc.narg('order_by_amount'), 0) >= 0 AND
     -- The script_key_type argument must NEVER be an empty slice, otherwise this
     -- query will return no results.
     COALESCE(script_keys.key_type, 0) IN
       (sqlc.slice('script_key_type')/*SLICE:script_key_type*/)
 )
+-- The trailing sort by asset_id is what makes this a total order, which the
+-- paging of a bounded listing relies on: without it, rows that compare equal
+-- on the optional terms above could come back in any order and a later page
+-- could repeat or skip them. Any ordering term added here must go above it.
 ORDER BY
+    CASE WHEN COALESCE(sqlc.narg('order_by_amount'), 0) = 1 THEN assets.amount END DESC,
     CASE WHEN COALESCE(sqlc.narg('sort_direction'), 0) = 1 THEN assets.asset_id END DESC,
     assets.asset_id ASC
 LIMIT @num_limit OFFSET @num_offset;
@@ -908,6 +914,16 @@ FROM asset_proofs
 JOIN asset_info
   ON asset_info.asset_id = asset_proofs.asset_id;
 
+-- name: FetchAssetProofsByIDs :many
+SELECT asset_id, proof_file
+FROM asset_proofs
+-- The proofs of all assets identified by the passed set of asset primary keys
+-- are fetched in a single query.
+--
+-- The asset_ids argument must NEVER be an empty slice, otherwise this query
+-- will return no results.
+WHERE asset_proofs.asset_id IN (sqlc.slice('asset_ids')/*SLICE:asset_ids*/);
+
 -- name: HasAssetProof :one
 WITH asset_info AS (
     SELECT assets.asset_id
@@ -936,16 +952,19 @@ INSERT INTO asset_witnesses (
                   split_commitment_proof = EXCLUDED.split_commitment_proof;
 
 -- name: FetchAssetWitnesses :many
-SELECT 
-    assets.asset_id, prev_out_point, prev_asset_id, prev_script_key, 
+SELECT
+    assets.asset_id, prev_out_point, prev_asset_id, prev_script_key,
     witness_stack, split_commitment_proof
 FROM asset_witnesses
 JOIN assets
     ON asset_witnesses.asset_id = assets.asset_id
-WHERE (
-    (assets.asset_id = sqlc.narg('asset_id')) OR (sqlc.narg('asset_id') IS NULL)
-)
-ORDER BY witness_index;
+-- The witnesses of all assets identified by the passed set of asset primary
+-- keys are fetched in a single query.
+--
+-- The asset_ids argument must NEVER be an empty slice, otherwise this query
+-- will return no results.
+WHERE assets.asset_id IN (sqlc.slice('asset_ids')/*SLICE:asset_ids*/)
+ORDER BY assets.asset_id, witness_index;
 
 -- name: DeleteManagedUTXO :exec
 DELETE FROM managed_utxos

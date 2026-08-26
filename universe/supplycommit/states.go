@@ -29,6 +29,14 @@ var (
 	// ErrNilDoneChannel is returned when attempting to wait for a
 	// synchronous event that doesn't have a done channel.
 	ErrNilDoneChannel = fmt.Errorf("done channel is nil")
+
+	// ErrDuplicateUpdate is returned by StateMachineStore
+	// implementations when an inserted supply update event was absorbed
+	// by the content-hash dedup index: an identical event is already
+	// recorded in the update log, and no new row was written. Callers
+	// must treat this as "already recorded" rather than a fresh insert,
+	// and must not advance state or cache the event on its strength.
+	ErrDuplicateUpdate = fmt.Errorf("supply update event already recorded")
 )
 
 // Event is a special interface used to create the equivalent of a sum-type, but

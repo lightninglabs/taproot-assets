@@ -1386,6 +1386,110 @@ func TestSupplyCommitInsertPendingUpdate(t *testing.T) {
 	assertEqualEvents(t, event3, deserializedDangling)
 }
 
+// TestSupplyCommitInsertPendingUpdateIsIdempotent verifies that inserting
+// the same logical supply update event twice produces only a single row.
+// This is the dedup invariant relied on by the minting cultivator's
+// Confirmed branch: a crash between SendMintEvent and the batch state
+// transition causes a restarted cultivator to re-fire the same event, and
+// we need the schema -- not the caller -- to be the source of truth for
+// "this event has already been recorded."
+func TestSupplyCommitInsertPendingUpdateIsIdempotent(t *testing.T) {
+	t.Parallel()
+
+	h := newSupplyCommitTestHarness(t)
+
+	// Insert a mint event for the first time.
+	event := h.randMintEvent()
+	err := h.commitMachine.InsertPendingUpdate(h.ctx, h.assetSpec, event)
+	require.NoError(t, err)
+
+	transition := h.assertPendingTransitionExists()
+	h.assertPendingUpdates([]supplycommit.SupplyUpdateEvent{event})
+
+	// Re-inserting the same event must be a no-op: same transition, same
+	// single row in the events log, and the dedup surfaced to the caller
+	// via the sentinel.
+	err = h.commitMachine.InsertPendingUpdate(h.ctx, h.assetSpec, event)
+	require.ErrorIs(t, err, supplycommit.ErrDuplicateUpdate)
+
+	transitionAgain := h.assertPendingTransitionExists()
+	require.Equal(
+		t, transition.TransitionID, transitionAgain.TransitionID,
+	)
+	h.assertPendingUpdates([]supplycommit.SupplyUpdateEvent{event})
+
+	// A separate event with the same group key must still be accepted --
+	// the dedup key is per-event content, not per-group.
+	otherEvent := h.randMintEvent()
+	err = h.commitMachine.InsertPendingUpdate(
+		h.ctx, h.assetSpec, otherEvent,
+	)
+	require.NoError(t, err)
+	h.assertPendingUpdates([]supplycommit.SupplyUpdateEvent{
+		event, otherEvent,
+	})
+}
+
+// TestSupplyCommitInsertPendingUpdateRefiredAfterFinalize verifies that
+// a re-fired event whose duplicate already belongs to a prior,
+// now-finalized transition does not orphan a freshly-created pending
+// transition.
+//
+// Without the rows-affected check inside InsertPendingUpdate, the
+// no-pending-transition arm would: (a) insert a new
+// supply_commit_transitions row, (b) attempt to insert the event and
+// have it deduped to zero rows by the event_key UNIQUE index, and (c)
+// move the state machine to UpdatesPendingState -- leaving the new
+// transition with no events to commit. The fix detects rows-affected
+// == 0, rolls the whole tx back, and returns ErrDuplicateUpdate so the
+// caller knows the event was already recorded and no new row landed.
+//
+// This is the exact scenario the minting cultivator exhibits on restart
+// after the Confirmed branch has already finalized its supply commit:
+// SendMintEvent fires again, and the state machine treats the sentinel
+// as a no-op self-transition rather than advancing on a phantom event.
+func TestSupplyCommitInsertPendingUpdateRefiredAfterFinalize(t *testing.T) {
+	t.Parallel()
+
+	h := newSupplyCommitTestHarness(t)
+
+	// Drive a mint event all the way through to a finalized
+	// transition. After this the supply_update_events row holds the
+	// event content keyed by its content hash, the transition is
+	// finalized, and the state machine is back in DefaultState.
+	event := h.randMintEvent()
+	stateTransition := h.performSingleTransition(
+		[]supplycommit.SupplyUpdateEvent{event},
+		[]wire.OutPoint{}, 442,
+	)
+	h.assertTransitionApplied(stateTransition)
+	h.assertNoPendingTransition()
+	h.assertCurrentStateIs(&supplycommit.DefaultState{})
+
+	// Re-fire the exact same event. The dedup index absorbs the
+	// insert; the store must detect rows-affected == 0, roll back so
+	// no new pending transition lands, and report the dedup.
+	err := h.commitMachine.InsertPendingUpdate(h.ctx, h.assetSpec, event)
+	require.ErrorIs(t, err, supplycommit.ErrDuplicateUpdate)
+
+	// The crucial invariant: no fresh empty pending transition.
+	h.assertNoPendingTransition()
+
+	// And the state machine must not have advanced to
+	// UpdatesPendingState on the strength of a deduped event.
+	h.assertCurrentStateIs(&supplycommit.DefaultState{})
+
+	// A genuinely new event must still be accepted, creating a new
+	// pending transition as usual -- the rollback path must not
+	// poison subsequent legitimate inserts.
+	newEvent := h.randMintEvent()
+	err = h.commitMachine.InsertPendingUpdate(h.ctx, h.assetSpec, newEvent)
+	require.NoError(t, err)
+	h.assertPendingTransitionExists()
+	h.assertPendingUpdates([]supplycommit.SupplyUpdateEvent{newEvent})
+	h.assertCurrentStateIs(&supplycommit.UpdatesPendingState{})
+}
+
 // TestBindDanglingUpdatesToTransition tests the logic for binding dangling
 // updates to a new transition.
 func TestBindDanglingUpdatesToTransition(t *testing.T) {
@@ -1433,15 +1537,23 @@ func TestBindDanglingUpdatesToTransition(t *testing.T) {
 				)
 				require.NoError(t, err)
 
-				err = db.InsertSupplyUpdateEvent(
+				eventData := b.Bytes()
+				eventKey := supplyUpdateEventKey(
+					h.groupKeyBytes, updateTypeID,
+					eventData,
+				)
+
+				rows, err := db.InsertSupplyUpdateEvent(
 					h.ctx, InsertSupplyUpdateEvent{
 						GroupKey:     h.groupKeyBytes,
 						TransitionID: sql.NullInt64{},
 						UpdateTypeID: updateTypeID,
-						EventData:    b.Bytes(),
+						EventData:    eventData,
+						EventKey:     eventKey,
 					},
 				)
 				require.NoError(t, err)
+				require.Equal(t, int64(1), rows)
 			}
 
 			return nil

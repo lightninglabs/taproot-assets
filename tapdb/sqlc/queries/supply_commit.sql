@@ -65,12 +65,78 @@ UPDATE supply_commit_transitions
 SET finalized = TRUE
 WHERE transition_id = @transition_id;
 
--- name: InsertSupplyUpdateEvent :exec
+-- name: InsertSupplyUpdateEvent :execrows
+-- The event_key column is a deterministic content hash that
+-- identifies a logical update event. A duplicate insert (e.g. on
+-- restart re-run of the Confirmed branch in the minting state
+-- machine) hits the unique index on event_key and is silently
+-- dropped, leaving the existing row -- and any transition_id it
+-- already carries -- untouched.
+--
+-- Returning rows-affected (1 on insert, 0 on conflict) lets the
+-- caller distinguish "new event recorded" from "dedup absorbed an
+-- old one" -- the latter is the signal InsertPendingUpdate needs
+-- to avoid creating an empty pending transition when a re-fired
+-- event matches a row already attached to a prior (finalized)
+-- transition.
 INSERT INTO supply_update_events (
-    group_key, transition_id, update_type_id, event_data
+    group_key, transition_id, update_type_id, event_data, event_key
 ) VALUES (
-    $1, $2, $3, $4
-);
+    $1, $2, $3, $4, $5
+)
+ON CONFLICT (event_key) DO NOTHING;
+
+-- name: FetchSupplyUpdateEventsForBackfill :many
+-- Returns rows that pre-date the event_key column and still need
+-- a hash computed. Used by the programmatic migration that runs
+-- at schema version 65.
+--
+-- Rows attached to a transition come first, and among those the
+-- rows of finalized transitions come first, so the backfill's
+-- "keep the first duplicate" dedup logic can never drop the row
+-- a finalized transition depends on. Within each partition,
+-- event_id ASC is the deterministic tie-break.
+--
+-- The LIMIT bounds the rows (and thus the event_data payloads)
+-- held in memory at once; the backfill either hashes or deletes
+-- every row it fetches, so re-running the query naturally pages
+-- through the remainder.
+SELECT e.event_id, e.transition_id, e.group_key, e.update_type_id,
+    e.event_data
+FROM supply_update_events e
+LEFT JOIN supply_commit_transitions t
+    ON e.transition_id = t.transition_id
+WHERE e.event_key IS NULL
+ORDER BY
+    CASE WHEN e.transition_id IS NULL THEN 1 ELSE 0 END,
+    CASE WHEN t.finalized = TRUE THEN 0 ELSE 1 END,
+    e.event_id ASC
+LIMIT @num_limit;
+
+-- name: SetSupplyUpdateEventKey :exec
+-- Sets the content-hash key for a single supply update event row.
+-- Used by the programmatic migration that backfills pre-existing
+-- rows after column 000062 is added.
+UPDATE supply_update_events
+SET event_key = @event_key
+WHERE event_id = @event_id;
+
+-- name: QueryEmptySupplyCommitTransitions :many
+-- Returns non-finalized, non-frozen transitions that have no supply
+-- update events attached. Used by the migration 65 backfill: dropping
+-- a duplicate event row can leave the pending transition it belonged
+-- to empty, and an empty pending transition would otherwise freeze on
+-- the next tick and broadcast a supply commitment that commits
+-- nothing.
+SELECT transition_id, state_machine_group_key
+FROM supply_commit_transitions
+WHERE finalized = FALSE
+    AND frozen = FALSE
+    AND NOT EXISTS (
+        SELECT 1 FROM supply_update_events events
+        WHERE events.transition_id
+            = supply_commit_transitions.transition_id
+    );
 
 -- name: QuerySupplyCommitStateMachine :one
 SELECT
@@ -202,6 +268,13 @@ WHERE transition_id = @transition_id;
 -- name: DeleteSupplyUpdateEvents :exec
 DELETE FROM supply_update_events
 WHERE transition_id = @transition_id;
+
+-- name: DeleteSupplyUpdateEvent :exec
+-- Deletes a single supply update event row identified by its
+-- event_id. Used by the migration 65 backfill to drop duplicate
+-- rows that hash to the same event_key as an earlier row.
+DELETE FROM supply_update_events
+WHERE event_id = @event_id;
 
 -- name: FetchUnspentSupplyPreCommits :many
 -- Fetch unspent supply pre-commitment outputs. Each pre-commitment output

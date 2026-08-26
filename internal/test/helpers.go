@@ -419,7 +419,7 @@ func RandTapLeaf(customScriptLen *int) txscript.TapLeaf {
 
 // ScriptHashLock returns a simple bitcoin script that locks the funds to a hash
 // lock of the given preimage.
-func ScriptHashLock(t *testing.T, preimage []byte) txscript.TapLeaf {
+func ScriptHashLock(t testing.TB, preimage []byte) txscript.TapLeaf {
 	builder := txscript.NewScriptBuilder()
 	builder.AddOp(txscript.OP_DUP)
 	builder.AddOp(txscript.OP_HASH160)
@@ -432,7 +432,7 @@ func ScriptHashLock(t *testing.T, preimage []byte) txscript.TapLeaf {
 
 // ScriptSchnorrSig returns a simple bitcoin script that locks the funds to a
 // Schnorr signature of the given public key.
-func ScriptSchnorrSig(t *testing.T, pubKey *btcec.PublicKey) txscript.TapLeaf {
+func ScriptSchnorrSig(t testing.TB, pubKey *btcec.PublicKey) txscript.TapLeaf {
 	builder := txscript.NewScriptBuilder()
 	builder.AddData(schnorr.SerializePubKey(pubKey))
 	builder.AddOp(txscript.OP_CHECKSIG)
@@ -501,7 +501,7 @@ func ReadTestDataFile(t *testing.T, fileName string) string {
 
 // BuildTapscriptTreeNoReveal builds a Tapscript tree with two leaves, a hash
 // lock script and a signature verification script.
-func BuildTapscriptTreeNoReveal(t *testing.T,
+func BuildTapscriptTreeNoReveal(t testing.TB,
 	internalKey *btcec.PublicKey) txscript.TapBranch {
 
 	hashLockLeaf := ScriptHashLock(t, bytes.Clone(DefaultHashLockWitness))

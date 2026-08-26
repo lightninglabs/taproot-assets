@@ -21,7 +21,7 @@ import (
 )
 
 // MintDriver wraps a Mint fixture with a background pump that drains every
-// signal channel the planter's caretaker emits during a mint flow and feeds
+// signal channel the planter's cultivator emits during a mint flow and feeds
 // back synthetic chain confirmations. The driver lets benchmarks call Mint(n)
 // repeatedly without re-implementing the chain/wallet mock choreography.
 //
@@ -58,7 +58,7 @@ func NewMintDriver(tb testing.TB) *MintDriver {
 	return d
 }
 
-// pump drains every signal the planter caretaker is known to emit and
+// pump drains every signal the planter cultivator is known to emit and
 // synthesises the chain side of the conversation: confirmations are
 // fabricated, blocks are stored, and signal acks are sent in the
 // background so SendConfNtfn never blocks the pump. Confirmation registration
@@ -154,7 +154,7 @@ func (d *MintDriver) EnqueueSeedlings(tb testing.TB, n int) {
 }
 
 // FinalizeBatch fires FinalizeBatch and blocks until the pump has driven
-// the caretaker through funding, publishing, and confirmation. The
+// the cultivator through funding, publishing, and confirmation. The
 // planter's FinalizeBatch returns on broadcast (BroadcastCompleteChan),
 // not on confirmation; we then wait on the batch state to reach
 // Confirmed so the caller has the full async confirmation/finalization

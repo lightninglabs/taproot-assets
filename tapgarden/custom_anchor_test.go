@@ -498,6 +498,9 @@ func TestCustomAnchorPublicationPending(t *testing.T) {
 	}
 	require.True(t, customAnchorPublicationPending(batch))
 
+	setCustomAnchorPublishState(pkt, customAnchorImportPending)
+	require.True(t, customAnchorPublicationPending(batch))
+
 	setCustomAnchorPublishState(pkt, customAnchorPublishRejected)
 	require.True(t, customAnchorPublicationPending(batch))
 }
@@ -534,7 +537,9 @@ func TestFundedMintAnchorPsbtCopyPreservesMetadata(t *testing.T) {
 	pkt.Inputs[0].SighashType = txscript.SigHashSingle
 	original := &FundedMintAnchorPsbt{FundedPsbt: fundedPsbt(pkt)}
 
-	copyPkt := original.Copy().Pkt
+	copyAnchor, err := original.Copy()
+	require.NoError(t, err)
+	copyPkt := copyAnchor.Pkt
 	require.Equal(t, pkt.Unknowns, copyPkt.Unknowns)
 	require.Equal(t, pkt.Outputs, copyPkt.Outputs)
 	require.Equal(t, pkt.Inputs, copyPkt.Inputs)

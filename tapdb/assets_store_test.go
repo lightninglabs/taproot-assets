@@ -46,6 +46,8 @@ type assetGenOptions struct {
 
 	genesisAsset bool
 
+	numWitnesses int
+
 	groupKeyPriv *btcec.PrivateKey
 
 	amt uint64
@@ -138,6 +140,15 @@ func withGenesisAsset() assetGenOpt {
 	}
 }
 
+// withNumWitnesses makes the generated asset carry exactly num non-genesis
+// witnesses. The number must be positive: zero keeps the default behavior of
+// a randomly chosen witness shape.
+func withNumWitnesses(num int) assetGenOpt {
+	return func(opt *assetGenOptions) {
+		opt.numWitnesses = num
+	}
+}
+
 func randAsset(t *testing.T, genOpts ...assetGenOpt) *asset.Asset {
 	opts := defaultAssetGenOpts(t)
 	for _, optFunc := range genOpts {
@@ -222,16 +233,22 @@ func randAsset(t *testing.T, genOpts ...assetGenOpt) *asset.Asset {
 	}
 
 	// For the witnesses, we'll flip a coin: we'll either make a genesis
-	// witness, or a set of actual witnesses.
+	// witness, or a set of actual witnesses. A specific number of
+	// witnesses can also be requested explicitly.
 	var witnesses []asset.Witness
-	if opts.genesisAsset || test.RandInt[int]()%2 == 0 {
+	if opts.numWitnesses == 0 &&
+		(opts.genesisAsset || test.RandInt[int]()%2 == 0) {
+
 		witnesses = append(witnesses, asset.Witness{
 			PrevID:          &asset.PrevID{},
 			TxWitness:       nil,
 			SplitCommitment: nil,
 		})
 	} else {
-		numWitness := test.RandInt[int]() % 10
+		numWitness := opts.numWitnesses
+		if numWitness == 0 {
+			numWitness = test.RandInt[int]() % 10
+		}
 		if numWitness == 0 {
 			numWitness++
 		}
@@ -277,6 +294,173 @@ func assertAssetEqual(t *testing.T, a, b *asset.Asset) {
 		// check succeeds (which shouldn't be the case).
 		t.Fatalf("asset equality failed!")
 	}
+}
+
+// TestFetchAssetWitnesses tests that the witnesses of multiple assets are
+// fetched correctly by the batched witness query, with the per-asset witness
+// order preserved.
+func TestFetchAssetWitnesses(t *testing.T) {
+	t.Parallel()
+
+	var (
+		ctxb     = context.Background()
+		dbHandle = NewDbHandle(t)
+	)
+
+	// We create one genesis asset and two assets with multiple witnesses
+	// each, so the batched witness query has to group and order the
+	// witnesses of several assets correctly.
+	expected := make(map[asset.SerializedKey]*asset.Asset)
+	numWitnesses := []int{0, 3, 5}
+	for _, num := range numWitnesses {
+		opts := []assetGenOpt{withNoGroupKey()}
+		if num == 0 {
+			opts = append(opts, withGenesisAsset())
+		} else {
+			opts = append(opts, withNumWitnesses(num))
+		}
+
+		testAsset, _ := dbHandle.AddRandomAssetProof(t, opts...)
+		require.Len(t, testAsset.PrevWitnesses, max(num, 1))
+
+		key := asset.ToSerialized(testAsset.ScriptKey.PubKey)
+		expected[key] = testAsset
+	}
+
+	dbAssets, err := dbHandle.AssetStore.FetchAllAssets(
+		ctxb, false, false, nil,
+	)
+	require.NoError(t, err)
+	require.Len(t, dbAssets, len(numWitnesses))
+
+	// Every asset read back from disk must match the imported one exactly,
+	// including the order of its witnesses.
+	for _, dbAsset := range dbAssets {
+		key := asset.ToSerialized(dbAsset.ScriptKey.PubKey)
+		require.Contains(t, expected, key)
+		assertAssetEqual(t, expected[key], dbAsset.Asset)
+	}
+}
+
+// TestQueryCommitmentsMissingProof tests that querying commitments for an
+// asset that has no proof stored on disk reports the missing proof.
+func TestQueryCommitmentsMissingProof(t *testing.T) {
+	t.Parallel()
+
+	db := NewTestDB(t)
+	_, assetsStore := newAssetStoreFromDB(db.BaseDB)
+
+	assetGen := newAssetGenerator(t, 1, 1)
+	assetGen.genAssets(t, assetsStore, []assetDesc{{
+		assetGen:    assetGen.assetGens[0],
+		amt:         10,
+		anchorPoint: assetGen.anchorPoints[0],
+	}})
+
+	ctx := context.Background()
+	constraints := tapfreighter.CommitmentConstraints{
+		MinAmt: 1,
+	}
+
+	// With the proof present, the asset is listed as an eligible coin.
+	coins, err := assetsStore.ListEligibleCoins(ctx, constraints)
+	require.NoError(t, err)
+	require.Len(t, coins, 1)
+
+	// After removing the proof from disk, the same query must report the
+	// missing proof.
+	_, err = db.ExecContext(ctx, "DELETE FROM asset_proofs")
+	require.NoError(t, err)
+
+	_, err = assetsStore.ListEligibleCoins(ctx, constraints)
+	require.ErrorIs(t, err, proof.ErrProofNotFound)
+}
+
+// TestQueryCommitmentsSharedAnchor tests querying commitments for multiple
+// assets that are anchored at the same outpoint. Only one proof per anchor
+// point is read, so which of the assets misses its proof decides whether the
+// query still succeeds.
+func TestQueryCommitmentsSharedAnchor(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	constraints := tapfreighter.CommitmentConstraints{
+		MinAmt: 1,
+	}
+
+	// The two assets live at the same anchor point, so they end up in the
+	// same Taproot Asset commitment.
+	genAssets := func(t *testing.T) (*AssetStore, *BaseDB) {
+		db := NewTestDB(t)
+		_, assetsStore := newAssetStoreFromDB(db.BaseDB)
+
+		assetGen := newAssetGenerator(t, 2, 1)
+		assetGen.genAssets(t, assetsStore, []assetDesc{
+			{
+				assetGen:    assetGen.assetGens[0],
+				amt:         10,
+				anchorPoint: assetGen.anchorPoints[0],
+				noGroupKey:  true,
+			},
+			{
+				assetGen:    assetGen.assetGens[1],
+				amt:         20,
+				anchorPoint: assetGen.anchorPoints[0],
+				noGroupKey:  true,
+			},
+		})
+
+		return assetsStore, db.BaseDB
+	}
+
+	// Both assets are listed, and each one carries the commitment of the
+	// anchor point they share.
+	assetsStore, _ := genAssets(t)
+	coins, err := assetsStore.ListEligibleCoins(ctx, constraints)
+	require.NoError(t, err)
+	require.Len(t, coins, 2)
+
+	require.Equal(t, coins[0].AnchorPoint, coins[1].AnchorPoint)
+	assertAssetsEqual(t, coins[0].Commitment, coins[1].Commitment)
+
+	// Each asset must also be reachable on its own, with the same
+	// commitment as the listing returned.
+	for _, coin := range coins {
+		commit, err := assetsStore.FetchCommitment(
+			ctx, coin.Asset.ID(), coin.AnchorPoint,
+			coin.Asset.GroupKey, &coin.Asset.ScriptKey, false,
+		)
+		require.NoError(t, err)
+
+		assertAssetEqual(t, coin.Asset, commit.Asset)
+		assertAssetsEqual(t, coin.Commitment, commit.Commitment)
+	}
+
+	// The proof of the anchor point's representative asset, which is the
+	// one with the lowest primary key, is the one that gets read. Dropping
+	// any other asset's proof leaves the listing working.
+	assetsStore, db := genAssets(t)
+	_, err = db.ExecContext(
+		ctx, "DELETE FROM asset_proofs WHERE asset_id = "+
+			"(SELECT MAX(asset_id) FROM asset_proofs)",
+	)
+	require.NoError(t, err)
+
+	coins, err = assetsStore.ListEligibleCoins(ctx, constraints)
+	require.NoError(t, err)
+	require.Len(t, coins, 2)
+
+	// Dropping the representative's proof makes the query report the
+	// missing proof instead.
+	assetsStore, db = genAssets(t)
+	_, err = db.ExecContext(
+		ctx, "DELETE FROM asset_proofs WHERE asset_id = "+
+			"(SELECT MIN(asset_id) FROM asset_proofs)",
+	)
+	require.NoError(t, err)
+
+	_, err = assetsStore.ListEligibleCoins(ctx, constraints)
+	require.ErrorIs(t, err, proof.ErrProofNotFound)
 }
 
 // TestImportAssetProof tests that given a valid asset proof (mainly the final
@@ -1685,6 +1869,155 @@ func TestSelectCommitment(t *testing.T) {
 	}
 }
 
+// TestListEligibleCoinsBounded tests that a bounded eligible coin listing
+// returns coins in pages of descending amounts.
+func TestListEligibleCoinsBounded(t *testing.T) {
+	t.Parallel()
+
+	const numAssets = 5
+
+	assetGen := newAssetGenerator(t, numAssets, 1)
+	_, assetsStore, _ := newAssetStore(t)
+
+	// We create one asset per anchor point, with amounts that are neither
+	// sorted nor aligned with the anchor point order.
+	amounts := []uint64{10, 40, 20, 50, 30}
+	assetDescs := make([]assetDesc, numAssets)
+	for i := 0; i < numAssets; i++ {
+		assetDescs[i] = assetDesc{
+			assetGen:    assetGen.assetGens[0],
+			amt:         amounts[i],
+			anchorPoint: assetGen.anchorPoints[i],
+		}
+	}
+	assetGen.genAssets(t, assetsStore, assetDescs)
+
+	// The genesis (and with it the asset ID) of the generated assets
+	// depends on the anchor point, so we use an empty specifier to match
+	// all the created assets.
+	ctx := context.Background()
+	constraints := tapfreighter.CommitmentConstraints{
+		MinAmt: 1,
+	}
+
+	listAmounts := func(coins []*tapfreighter.AnchoredCommitment) []uint64 {
+		return fn.Map(
+			coins, func(c *tapfreighter.AnchoredCommitment) uint64 {
+				return c.Asset.Amount
+			},
+		)
+	}
+
+	// Page through the coins two at a time, expecting descending amounts.
+	expectedPages := [][]uint64{{50, 40}, {30, 20}, {10}}
+	for idx, expected := range expectedPages {
+		constraints.CoinLimit = 2
+		constraints.CoinOffset = int32(idx * 2)
+
+		coins, err := assetsStore.ListEligibleCoins(ctx, constraints)
+		require.NoError(t, err)
+		require.Equal(t, expected, listAmounts(coins))
+	}
+
+	// A page past the end of the eligible coin set reports that no assets
+	// were found.
+	constraints.CoinOffset = numAssets + 1
+	_, err := assetsStore.ListEligibleCoins(ctx, constraints)
+	require.ErrorIs(t, err, tapfreighter.ErrMatchingAssetsNotFound)
+
+	// An unbounded listing returns all the coins, in no particular order.
+	unbounded, err := assetsStore.ListEligibleCoins(
+		ctx, tapfreighter.CommitmentConstraints{
+			MinAmt: 1,
+		},
+	)
+	require.NoError(t, err)
+	require.Len(t, unbounded, numAssets)
+
+	smallest := unbounded[0]
+	for _, c := range unbounded {
+		if c.Asset.Amount < smallest.Asset.Amount {
+			smallest = c
+		}
+	}
+
+	// Specific inputs can be requested from an unbounded listing, as the
+	// prev ID filter is applied after the query.
+	coins, err := assetsStore.ListEligibleCoins(
+		ctx, tapfreighter.CommitmentConstraints{
+			MinAmt:  1,
+			PrevIDs: []asset.PrevID{smallest.PrevID()},
+		},
+	)
+	require.NoError(t, err)
+	require.Len(t, coins, 1)
+	require.Equal(t, smallest.Asset.Amount, coins[0].Asset.Amount)
+
+	// Combining the two is a programming error, as a bounded listing could
+	// hold none of the requested inputs.
+	constraints.CoinLimit = 1
+	constraints.CoinOffset = 0
+	constraints.PrevIDs = []asset.PrevID{smallest.PrevID()}
+	_, err = assetsStore.ListEligibleCoins(ctx, constraints)
+	require.ErrorContains(t, err, "cannot be combined")
+}
+
+// TestListEligibleCoinsBoundedEqualAmounts tests that paging through a bounded
+// eligible coin listing neither repeats nor skips coins when all the coins hold
+// the same amount, which is the case where the amount ordering alone doesn't
+// decide the order of the pages.
+func TestListEligibleCoinsBoundedEqualAmounts(t *testing.T) {
+	t.Parallel()
+
+	const (
+		numAssets = 5
+		amount    = 10
+	)
+
+	assetGen := newAssetGenerator(t, numAssets, 1)
+	_, assetsStore, _ := newAssetStore(t)
+
+	assetDescs := make([]assetDesc, numAssets)
+	for i := 0; i < numAssets; i++ {
+		assetDescs[i] = assetDesc{
+			assetGen:    assetGen.assetGens[0],
+			amt:         amount,
+			anchorPoint: assetGen.anchorPoints[i],
+		}
+	}
+	assetGen.genAssets(t, assetsStore, assetDescs)
+
+	ctx := context.Background()
+	constraints := tapfreighter.CommitmentConstraints{
+		MinAmt: 1,
+	}
+
+	// Page through all the coins, collecting them by prev ID. Every page
+	// must be full until the coins run out.
+	seen := fn.NewSet[asset.PrevID]()
+	for offset := int32(0); offset < numAssets; offset += 2 {
+		constraints.CoinLimit = 2
+		constraints.CoinOffset = offset
+
+		coins, err := assetsStore.ListEligibleCoins(ctx, constraints)
+		require.NoError(t, err)
+
+		expectedLen := min(2, numAssets-int(offset))
+		require.Len(t, coins, expectedLen)
+
+		for _, c := range coins {
+			require.Equal(t, uint64(amount), c.Asset.Amount)
+
+			// A coin must not show up on two pages.
+			require.False(t, seen.Contains(c.PrevID()))
+			seen.Add(c.PrevID())
+		}
+	}
+
+	// And no coin may have been skipped either.
+	require.Equal(t, numAssets, len(seen.ToSlice()))
+}
+
 // TestAssetExportLog tests that were able to properly spend/transfer assets on
 // disk. This ensures we can properly commit the end result of an asset
 // transfer initiated at a higher level.
@@ -2200,7 +2533,9 @@ func TestAssetGroupComplexWitness(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	genAssetID, err := upsertGenesis(ctx, db, genesisPointID, groupAnchorGen)
+	genAssetID, err := upsertGenesis(
+		ctx, db, genesisPointID, groupAnchorGen,
+	)
 	require.NoError(t, err)
 
 	groupKey := asset.GroupKey{

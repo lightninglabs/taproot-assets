@@ -563,6 +563,66 @@ type MultiverseLeaf struct {
 	*mssmt.LeafNode
 }
 
+// ErrDeltaUnsupported is returned by a delta-capable diff engine when
+// the serving side does not implement delta sync. Callers must fall
+// back to enumeration-based sync via the DiffEngine interface.
+var ErrDeltaUnsupported = fmt.Errorf("delta sync not supported by server")
+
+// DeltaLeafItem is one entry of an insertion-ordered universe leaf
+// delta: a leaf, the universe it belongs to, and the sequence number
+// under which it was inserted on the serving store.
+type DeltaLeafItem struct {
+	// Seq is the leaf's insertion sequence number.
+	Seq uint64
+
+	// ID identifies the universe the leaf belongs to.
+	ID Identifier
+
+	// Key is the universe leaf key the leaf is stored at.
+	Key LeafKey
+
+	// Leaf is the leaf payload.
+	Leaf *Leaf
+
+	// InclusionProof binds the leaf to its universe's root as reported
+	// in the enclosing DeltaPage. It is populated when the item is
+	// served as part of a delta page and nil when the item comes from
+	// a bare leaf query.
+	InclusionProof *mssmt.Proof
+}
+
+// DeltaPage is one page of an insertion-ordered universe leaf delta, as
+// served by a delta-capable diff engine.
+type DeltaPage struct {
+	// Items are the delta leaves in insertion order, each carrying the
+	// inclusion proof that binds it to its universe's root in Roots.
+	Items []DeltaLeafItem
+
+	// Roots are the current universe roots of every universe that
+	// appears in Items, keyed by universe identifier.
+	Roots map[IdentifierKey]Root
+
+	// LatestSeq is the high-water cursor value the caller should
+	// persist once the page's items have been applied and verified.
+	// When the delta is empty it reports the serving journal's
+	// committed tail: equal to the requested since-seq for a
+	// caught-up caller, and strictly below it when the cursor lies
+	// beyond the journal — the rewind signal.
+	LatestSeq uint64
+}
+
+// DeltaEngine is implemented by diff engines that can serve
+// insertion-ordered leaf deltas. Serving sides that don't support delta
+// sync return ErrDeltaUnsupported, in which case callers fall back to
+// enumeration via DiffEngine.
+type DeltaEngine interface {
+	// SyncDelta returns the page of leaves inserted after sinceSeq, in
+	// insertion order, along with the roots of the universes the page
+	// touches.
+	SyncDelta(ctx context.Context, sinceSeq uint64,
+		pageSize int32) (*DeltaPage, error)
+}
+
 // MultiverseArchive is an interface for tracking the set of known universe
 // roots. While the StorageBackend interface operates on a single universe, this
 // interface provides aggregate access across multiple universes.
@@ -632,6 +692,17 @@ type MultiverseArchive interface {
 	// proof type.
 	MultiverseRootNode(ctx context.Context,
 		proofType ProofType) (fn.Option[MultiverseRoot], error)
+
+	// FetchDeltaPage assembles one page of the insertion-ordered leaf
+	// delta in a single storage snapshot: the leaves inserted after
+	// sinceSeq, each with the inclusion proof binding it to its
+	// universe root, plus the roots of the universes the page
+	// touches. Proofs and roots are mutually consistent by
+	// construction, even under concurrent writes. Rewrites of
+	// existing leaves keep their sequence number and are invisible
+	// here; root comparison remains the authority on divergence.
+	FetchDeltaPage(ctx context.Context, sinceSeq uint64,
+		limit int32) (*DeltaPage, error)
 }
 
 // Registrar is an interface that allows a caller to upsert a proof leaf in a
@@ -847,6 +918,17 @@ type Syncer interface {
 		idsToSync ...Identifier) ([]AssetSyncDiff, error)
 }
 
+// DeltaSyncer is implemented by syncers that can additionally perform
+// cursor-based delta sync against delta-capable servers.
+type DeltaSyncer interface {
+	// SyncUniverseDelta attempts a cursor-based delta sync against the
+	// given host, returning ErrDeltaUnsupported if the remote cannot
+	// serve deltas.
+	SyncUniverseDelta(ctx context.Context, host ServerAddr,
+		sinceSeq uint64,
+		syncConfigs SyncConfigs) (*DeltaSyncResult, error)
+}
+
 // DiffEngine is a Universe diff engine that can be used to compare the state
 // of two universes and find the set of assets that are different between them.
 type DiffEngine interface {
@@ -893,6 +975,17 @@ type FederationLog interface {
 	// LogNewSyncs logs a new sync event for each server. This can be used
 	// to keep track of the last time we synced with a remote server.
 	LogNewSyncs(ctx context.Context, addrs ...ServerAddr) error
+
+	// UpsertSyncCursor updates the delta sync cursor stored for the
+	// given server: the highest remote insertion sequence number that
+	// has been fully applied and verified locally.
+	UpsertSyncCursor(ctx context.Context, addr ServerAddr,
+		seq uint64) error
+
+	// FetchSyncCursor returns the delta sync cursor stored for the
+	// given server. A server that has never delta-synced reports
+	// cursor zero.
+	FetchSyncCursor(ctx context.Context, addr ServerAddr) (uint64, error)
 }
 
 // ProofType is an enum that describes the type of proof which can be stored in

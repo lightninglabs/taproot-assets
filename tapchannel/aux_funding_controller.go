@@ -452,7 +452,7 @@ func (f *FundingController) Start() error {
 
 // Stop stops the funding controller.
 func (f *FundingController) Stop() error {
-	if !f.stopped.CompareAndSwap(true, false) {
+	if !f.stopped.CompareAndSwap(false, true) {
 		return nil
 	}
 

@@ -58,6 +58,15 @@
   therefore dropped, and makes the quote accounting idempotent for HTLCs
   that `lnd` offers more than once.
 
+* [PR#2247](https://github.com/lightninglabs/taproot-assets/pull/2247)
+  fixes several latent bugs in asset minting. Note for operators:
+  database migration 63 deduplicates the supply-update event log.
+  Duplicate rows produced by a now-fixed double-counting bug are
+  deleted, and any pending supply-commit transition left empty by that
+  cleanup is removed, with its state machine reset to the default
+  state. The next supply update for the affected asset group simply
+  starts a fresh commitment cycle.
+
 # New Features
 
 ## Functional Enhancements
@@ -75,6 +84,26 @@
 
 ## Functional Updates
 
+- [PR#2202](https://github.com/lightninglabs/taproot-assets/pull/2202)
+  adds cursor-based delta sync to the universe federation. Each server
+  exposes its insertion-ordered leaf journal via the new `SyncDelta`
+  RPC; a peer that remembers the last sequence number it applied can
+  fetch exactly the leaves it lacks, instead of enumerating every leaf
+  key of every divergent universe to compute a set difference. In the
+  fully synced steady state this reduces per-tick sync traffic from
+  O(universes + leaves) enumeration to a single round trip carrying
+  only the new proofs (measured enumeration overhead drops from ~88%
+  of transferred bytes at 400 leaves/universe to zero, with the delta
+  page's own root and inclusion-proof framing taking its place).
+  Convergence is still verified by comparing local and remote universe
+  roots after each delta; any mismatch falls back to the existing
+  enumeration sync, and servers that don't support the new RPC are
+  synced exactly as before. A full enumeration sync also runs against
+  each server periodically as an audit, bounding any divergence the
+  delta path cannot observe, and a server whose journal has been
+  rewound or replaced (e.g. restored from a backup) is detected and
+  reconciled by resetting the sync cursor.
+
 ## RPC Updates
 
 * [PR#2226](https://github.com/lightninglabs/taproot-assets/pull/2226)
@@ -84,6 +113,15 @@
 ## tapcli Updates
 
 ## Config Changes
+
+- The new `--universe.no-delta-sync` flag forces the federation syncer
+  to always use full enumeration sync, serving as a kill switch for
+  the cursor-based delta sync mechanism.
+
+- The new `--universe.sync-audit-interval` flag controls how long the
+  federation syncer will rely on cursor-based delta sync against a
+  server before forcing a full enumeration sync as an audit (default:
+  24h).
 
 ## Code Health
 
@@ -95,6 +133,26 @@
 ## Breaking Changes
 
 ## Performance Improvements
+
+* [PR#2251](https://github.com/lightninglabs/taproot-assets/pull/2251)
+  batches the per-asset witness and proof queries issued when loading
+  assets from the database. Loading assets previously issued one witness
+  query per asset, and reconstructing input commitments issued one proof
+  query per asset, which dominated every path that materialises assets
+  on nodes holding many assets
+  ([#2249](https://github.com/lightninglabs/taproot-assets/issues/2249)).
+
+* [PR#2252](https://github.com/lightninglabs/taproot-assets/pull/2252)
+  bounds input selection when funding a send. Eligible coins are now
+  listed in pages of descending amounts and listing stops as soon as the
+  accumulated amount covers the send target, instead of loading every
+  eligible coin the node holds
+  ([#2250](https://github.com/lightninglabs/taproot-assets/issues/2250)).
+  Sends that request specific inputs keep listing every eligible coin, as
+  the requested inputs are filtered for after the listing. A send that
+  cannot be funded is somewhat slower than before, as the listing is
+  repeated unbounded before reporting insufficient funds, so that a coin
+  the paged listing may have missed can't be mistaken for missing funds.
 
 ## Deprecations
 
@@ -112,6 +170,9 @@
   splits out various components of the monolithic tapgarden package
   into their own more focused packages, e.g. tapnode, tapreorg, and
   tapcustody.
+
+* [PR#2247](https://github.com/lightninglabs/taproot-assets/pull/2247)
+  simplifies the internals of the minting state machine.
 
 ## Tooling and Documentation
 

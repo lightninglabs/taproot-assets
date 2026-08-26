@@ -730,6 +730,27 @@ func (a *Archive) getPrevAssetSnapshot(ctx context.Context,
 	}, nil
 }
 
+// SyncDelta returns the page of leaves inserted after sinceSeq, in
+// insertion order, each with the inclusion proof binding it to its
+// universe root. The page is assembled in a single storage snapshot,
+// so its proofs and roots are mutually consistent even under
+// concurrent writes.
+//
+// NOTE: proof export gating is an RPC-layer policy; this method serves
+// every leaf. This is part of the universe.DeltaEngine interface.
+func (a *Archive) SyncDelta(ctx context.Context, sinceSeq uint64,
+	pageSize int32) (*DeltaPage, error) {
+
+	log.Tracef("Fetching delta page since seq=%v (page_size=%v)",
+		sinceSeq, pageSize)
+
+	return a.cfg.Multiverse.FetchDeltaPage(ctx, sinceSeq, pageSize)
+}
+
+// A compile-time assertion to ensure Archive satisfies the DeltaEngine
+// interface.
+var _ DeltaEngine = (*Archive)(nil)
+
 // FetchProofLeaf attempts to fetch a proof leaf for the target leaf key
 // and given a universe identifier (assetID/groupKey).
 func (a *Archive) FetchProofLeaf(ctx context.Context, id Identifier,

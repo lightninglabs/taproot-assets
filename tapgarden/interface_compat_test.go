@@ -13,7 +13,7 @@ import (
 )
 
 type legacyMintingStore struct {
-	MintingStore
+	BatchStore
 
 	commits int
 }

@@ -1119,7 +1119,11 @@ CREATE TABLE supply_update_events (
     -- Opaque blob containing the serialized data for the specific
     -- SupplyUpdateEvent (NewMintEvent, NewBurnEvent, NewIgnoreEvent).
     event_data BLOB NOT NULL
-);
+, event_key BLOB
+        CHECK(event_key IS NULL OR length(event_key) = 32));
+
+CREATE UNIQUE INDEX supply_update_events_event_key_idx
+    ON supply_update_events(event_key);
 
 CREATE INDEX supply_update_events_transition_id_idx ON supply_update_events(transition_id);
 
@@ -1210,6 +1214,19 @@ CREATE INDEX universe_events_event_time_idx ON universe_events(event_time);
 
 CREATE INDEX universe_events_type_idx ON universe_events(event_type);
 
+CREATE TABLE universe_leaf_journal (
+    seq BIGINT PRIMARY KEY,
+
+    leaf_id BIGINT NOT NULL UNIQUE REFERENCES universe_leaves(id)
+        ON DELETE CASCADE
+);
+
+CREATE TABLE universe_leaf_journal_tail (
+    id SMALLINT PRIMARY KEY,
+
+    tail BIGINT NOT NULL
+);
+
 CREATE TABLE "universe_leaves" (
     id INTEGER PRIMARY KEY,
     asset_genesis_id BIGINT NOT NULL REFERENCES genesis_assets(gen_asset_id),
@@ -1261,7 +1278,7 @@ CREATE TABLE universe_servers (
 
     -- TODO(roasbeef): can also add stuff like filters re which items to sync,
     -- etc? also sync mode, ones that should get everything pushed, etc
-);
+, last_sync_seq BIGINT NOT NULL DEFAULT 0);
 
 CREATE INDEX universe_servers_host ON universe_servers(server_host);
 

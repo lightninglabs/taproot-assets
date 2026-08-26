@@ -2,14 +2,26 @@ package tapfreighter
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"sync"
 	"time"
 
 	"github.com/btcsuite/btcd/wire/v2"
+	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
+)
+
+const (
+	// eligibleCoinsPageSize is the number of coins we fetch per query when
+	// listing eligible coins for a send. Coins are listed in descending
+	// amount order, so in most cases a single page is enough to cover the
+	// target amount. Listing a coin is expensive, as the full commitment
+	// of its anchor output is reconstructed, so we only fetch more pages
+	// when the previous ones can't cover the target.
+	eligibleCoinsPageSize = 32
 )
 
 // NewCoinSelect creates a new CoinSelect.
@@ -58,19 +70,43 @@ func (s *CoinSelect) SelectCoins(ctx context.Context,
 		PrevIDs:           constraints.PrevIDs,
 		DistinctSpecifier: constraints.DistinctSpecifier,
 	}
-	eligibleCommitments, err := s.coinLister.ListEligibleCoins(
-		ctx, listConstraints,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("unable to list eligible coins: %w", err)
+
+	// We list the eligible coins in pages of descending amounts, so we can
+	// stop listing as soon as the accumulated amount covers the target,
+	// instead of loading every coin the node holds. If specific inputs are
+	// requested, we can't bound the listing, as those are filtered out of
+	// the full listing.
+	pageSize := int32(eligibleCoinsPageSize)
+	if len(constraints.PrevIDs) > 0 {
+		pageSize = 0
 	}
 
-	if len(eligibleCommitments) == 0 {
-		return nil, ErrMatchingAssetsNotFound
+	listing, err := s.listCoins(
+		ctx, listConstraints, constraints.MinAmt, maxVersion, pageSize,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Each page is listed by a separate query, so the coin set can shift
+	// between two pages and move a coin out of a page we already read past.
+	// That can only ever hide coins from us, never invent ones, but it
+	// could make us report insufficient funds while the funds are actually
+	// there. So if a listing that took more than one page couldn't cover
+	// the target amount, we repeat it unbounded to be sure. A listing that
+	// took a single page needs no such check, as no offset was applied to
+	// it, so it saw the full coin set at that instant.
+	if listing.numPages > 1 && listing.amountSum < constraints.MinAmt {
+		listing, err = s.listCoins(
+			ctx, listConstraints, constraints.MinAmt, maxVersion, 0,
+		)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	anchorInputs := fn.Map(
-		eligibleCommitments, func(c *AnchoredCommitment) string {
+		listing.eligible, func(c *AnchoredCommitment) string {
 			return c.AnchorPoint.String()
 		},
 	)
@@ -78,19 +114,17 @@ func (s *CoinSelect) SelectCoins(ctx context.Context,
 		"%v", len(anchorInputs), constraints.MinAmt,
 		constraints.String(), anchorInputs)
 
-	// Only select coins anchored in a compatible commitment.
-	compatibleCommitments := fn.Filter(
-		eligibleCommitments, func(c *AnchoredCommitment) bool {
-			return c.Commitment.Version <= maxVersion
-		},
-	)
-	if len(compatibleCommitments) == 0 {
+	if len(listing.eligible) == 0 {
+		return nil, ErrMatchingAssetsNotFound
+	}
+
+	if len(listing.compatible) == 0 {
 		return nil, fmt.Errorf("%w: no compatible commitments for max "+
 			"version %v", ErrMatchingAssetsNotFound, maxVersion)
 	}
 
 	selectedCoins, err := s.selectForAmount(
-		constraints.MinAmt, compatibleCommitments, strategy,
+		constraints.MinAmt, listing.compatible, strategy,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to select coins: %w", err)
@@ -112,6 +146,104 @@ func (s *CoinSelect) SelectCoins(ctx context.Context,
 	}
 
 	return selectedCoins, nil
+}
+
+// coinListing is the set of coins a listing produced.
+type coinListing struct {
+	// eligible are all the coins that satisfied the constraints.
+	eligible []*AnchoredCommitment
+
+	// compatible are the eligible coins that are anchored in a commitment
+	// compatible with the requested maximum commitment version.
+	compatible []*AnchoredCommitment
+
+	// amountSum is the total amount of the compatible coins.
+	amountSum uint64
+
+	// numPages is the number of queries the listing took.
+	numPages int
+}
+
+// listCoins lists the coins that satisfy the given constraints.
+//
+// A non-zero pageSize bounds each query to that many coins, which the store
+// returns in descending amount order, and listing stops as soon as the
+// compatible coins cover the target amount. A zero pageSize lists all coins
+// that satisfy the constraints, in no particular order.
+//
+// A page holding fewer coins than the page size is what tells us that the
+// eligible coins are exhausted, so the lister must only return a short page
+// when it has nothing left to list.
+func (s *CoinSelect) listCoins(ctx context.Context,
+	constraints CommitmentConstraints, targetAmt uint64,
+	maxVersion commitment.TapCommitmentVersion,
+	pageSize int32) (*coinListing, error) {
+
+	var (
+		listing   = &coinListing{}
+		seenCoins = fn.NewSet[asset.PrevID]()
+	)
+	for offset := int32(0); ; offset += pageSize {
+		constraints.CoinLimit = pageSize
+		constraints.CoinOffset = offset
+
+		listing.numPages++
+
+		page, err := s.coinLister.ListEligibleCoins(ctx, constraints)
+		switch {
+		// A page past the end of the eligible coin set comes back
+		// empty, which the lister reports as no assets being found.
+		case errors.Is(err, ErrMatchingAssetsNotFound):
+			page = nil
+
+		case err != nil:
+			return nil, fmt.Errorf("unable to list eligible "+
+				"coins: %w", err)
+		}
+
+		// We use the raw number of listed coins to detect whether we've
+		// exhausted the eligible coins further below. It has to be the
+		// raw count, taken before the filters below: a page made up
+		// entirely of coins we've already seen, or of coins in
+		// incompatible commitments, is still a full page, and stopping
+		// on it would report insufficient funds while spendable coins
+		// sit on a later page.
+		numListed := len(page)
+
+		// The coin set can shift between pages, as the queries run in
+		// separate database transactions. We de-duplicate the coins
+		// here, so a shift can never cause the same coin to be
+		// selected twice.
+		page = fn.Filter(page, func(c *AnchoredCommitment) bool {
+			return !seenCoins.Contains(c.PrevID())
+		})
+		for _, c := range page {
+			seenCoins.Add(c.PrevID())
+		}
+
+		listing.eligible = append(listing.eligible, page...)
+
+		// Only coins anchored in a compatible commitment can be
+		// selected, so only those count towards the target amount.
+		compatible := fn.Filter(page, func(c *AnchoredCommitment) bool {
+			return c.Commitment.Version <= maxVersion
+		})
+		listing.compatible = append(listing.compatible, compatible...)
+		for _, c := range compatible {
+			listing.amountSum += c.Asset.Amount
+		}
+
+		// We stop listing once the compatible coins cover the target
+		// amount, once we've exhausted the eligible coins (which an
+		// unbounded or partial page indicates), or once a page no
+		// longer adds any coin we haven't already seen, which also
+		// guarantees that this loop terminates.
+		if listing.amountSum >= targetAmt || pageSize == 0 ||
+			numListed < int(pageSize) || len(page) == 0 {
+
+			return listing, nil
+		}
+	}
 }
 
 // ReleaseCoins releases/unlocks coins that were previously leased and makes

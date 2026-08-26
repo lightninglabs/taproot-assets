@@ -295,8 +295,29 @@ func checkAliasing(t *testing.T, debug, strict bool, f1, f2 reflect.Value,
 func AssertCopyEqual[T fn.Copyable[T]](t *testing.T, debug, strict bool,
 	original T) {
 
+	assertCopiedEqual(t, debug, strict, original, original.Copy())
+}
+
+// AssertCopyEqualErr is AssertCopyEqual for types whose Copy returns
+// (T, error), per fn.CopyableErr. The copy must succeed.
+func AssertCopyEqualErr[T fn.CopyableErr[T]](t *testing.T, debug, strict bool,
+	original T) {
+
+	copied, err := original.Copy()
+	if err != nil {
+		t.Fatalf("Copy failed: %v", err)
+	}
+
+	assertCopiedEqual(t, debug, strict, original, copied)
+}
+
+// assertCopiedEqual is the shared body of AssertCopyEqual and
+// AssertCopyEqualErr: it checks deep equality and walks both values
+// for aliased mutable fields.
+func assertCopiedEqual(t *testing.T, debug, strict bool, original,
+	copied any) {
+
 	originalVal := reflect.ValueOf(original)
-	copied := original.Copy()
 	copiedVal := reflect.ValueOf(copied)
 
 	if !reflect.DeepEqual(original, copied) {

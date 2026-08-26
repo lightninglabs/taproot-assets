@@ -36,7 +36,7 @@ WHERE universe_root_id = (SELECT id FROM root_id);
 DELETE FROM universe_roots
 WHERE namespace_root = @namespace_root;
 
--- name: UpsertUniverseLeaf :exec
+-- name: UpsertUniverseLeaf :one
 INSERT INTO universe_leaves (
     asset_genesis_id, script_key_bytes, universe_root_id, leaf_node_key,
     leaf_node_namespace, minting_point, block_height
@@ -49,7 +49,8 @@ INSERT INTO universe_leaves (
     DO UPDATE SET minting_point = EXCLUDED.minting_point,
                   script_key_bytes = EXCLUDED.script_key_bytes,
                   leaf_node_namespace = EXCLUDED.leaf_node_namespace,
-                  block_height = EXCLUDED.block_height;
+                  block_height = EXCLUDED.block_height
+RETURNING id;
 
 -- name: DeleteUniverseLeaves :exec
 DELETE FROM universe_leaves
@@ -103,6 +104,52 @@ LIMIT @num_limit OFFSET @num_offset;
 -- name: UniverseLeaves :many
 SELECT * FROM universe_leaves;
 
+-- name: FetchUniverseLeavesSince :many
+-- The commit-ordered delta serves federation sync, whose domain is
+-- issuance and transfer universes; other proof types flow through
+-- dedicated syncers. Sequencing comes from the journal, whose seq
+-- assignment guarantees seq order equals commit order, so a reader
+-- can never observe a seq while a lower unserved seq is still
+-- uncommitted.
+SELECT journal.seq, leaves.minting_point, leaves.script_key_bytes,
+       leaves.asset_genesis_id, nodes.value AS genesis_proof,
+       nodes.sum AS sum_amt, roots.asset_id AS root_asset_id,
+       roots.group_key AS root_group_key, roots.proof_type
+FROM universe_leaf_journal AS journal
+JOIN universe_leaves AS leaves
+    ON journal.leaf_id = leaves.id
+JOIN universe_roots AS roots
+    ON leaves.universe_root_id = roots.id
+JOIN mssmt_nodes AS nodes
+    ON leaves.leaf_node_key = nodes.key
+       AND leaves.leaf_node_namespace = nodes.namespace
+WHERE journal.seq > @since_seq
+      AND roots.proof_type IN ('issuance', 'transfer')
+ORDER BY journal.seq ASC
+LIMIT @num_limit;
+
+-- name: BumpUniverseLeafJournalTail :one
+-- Reserves a contiguous range of journal seq values ending at the
+-- returned tail. The row lock taken here is held until the enclosing
+-- transaction commits, serializing journal appends so that seq order
+-- equals commit order.
+UPDATE universe_leaf_journal_tail
+SET tail = tail + @delta
+WHERE id = 1
+RETURNING tail;
+
+-- name: InsertUniverseLeafJournal :exec
+-- A leaf already journaled keeps its original seq: re-upserts and
+-- in-place rewrites are not re-delivered by delta sync, and heal via
+-- the root comparison on the enumeration path instead.
+INSERT INTO universe_leaf_journal (seq, leaf_id)
+VALUES (@seq, @leaf_id)
+ON CONFLICT (leaf_id) DO NOTHING;
+
+-- name: MaxUniverseLeafJournalSeq :one
+SELECT CAST(COALESCE(MAX(seq), 0) AS BIGINT) AS max_seq
+FROM universe_leaf_journal;
+
 -- name: UniverseRoots :many
 SELECT universe_roots.asset_id, group_key, proof_type,
        mssmt_roots.root_hash AS root_hash, mssmt_nodes.sum AS root_sum,
@@ -149,6 +196,15 @@ WHERE server_host = @target_server OR id = @target_id;
 -- name: LogServerSync :exec
 UPDATE universe_servers
 SET last_sync_time = @new_sync_time
+WHERE server_host = @target_server;
+
+-- name: UpsertFederationSyncCursor :exec
+UPDATE universe_servers
+SET last_sync_seq = @last_sync_seq
+WHERE server_host = @target_server;
+
+-- name: QueryFederationSyncCursor :one
+SELECT last_sync_seq FROM universe_servers
 WHERE server_host = @target_server;
 
 -- name: QueryUniverseServers :many

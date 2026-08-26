@@ -260,7 +260,9 @@ func TestCustomAnchorHistoricalKeyRepairHealthAttachedToList(t *testing.T) {
 	planter.attachCustomAnchorKeyErrors(batches)
 	require.Equal(t, want, batches[0].CustomAnchorKeyError)
 	require.Empty(t, batches[1].CustomAnchorKeyError)
-	require.Equal(t, want, batches[0].Copy().CustomAnchorKeyError)
+	batchCopy, err := batches[0].Copy()
+	require.NoError(t, err)
+	require.Equal(t, want, batchCopy.CustomAnchorKeyError)
 }
 
 func TestCustomAnchorHistoricalKeyRepairUsesFinalTxID(t *testing.T) {

@@ -72,8 +72,11 @@ var (
 	)
 )
 
-// newMintingStore creates a new instance of the TapAddressBook book.
-func newMintingStore(t *testing.T) tapgarden.MintingStore {
+// newMintingStore creates a new in-memory asset minting store backed
+// by tapdb. The concrete type is returned because the harness needs
+// both BatchStore and MintingRefReader views of the same underlying
+// store as well as TapscriptTreeManager for the fallible tree mock.
+func newMintingStore(t *testing.T) *tapdb.AssetMintingStore {
 	db := tapdb.NewTestDB(t)
 
 	txCreator := func(tx *sql.Tx) tapdb.PendingAssetStore {
@@ -92,7 +95,7 @@ type mintingTestHarness struct {
 
 	chain *tapnodemock.ChainBridge
 
-	store tapgarden.MintingStore
+	store testMintingStore
 
 	treeStore *tapgarden.FallibleTapscriptTreeMgr
 
@@ -110,7 +113,11 @@ type mintingTestHarness struct {
 
 	proofWatcher *tapgarden.MockProofWatcher
 
-	*testing.T
+	// TB is the test context every harness assertion reports against.
+	// It is an interface rather than a concrete *testing.T so a rapid
+	// property can substitute an adapter that fails only the current
+	// iteration (letting rapid shrink) instead of the whole test.
+	testing.TB
 
 	errChan chan error
 
@@ -123,10 +130,16 @@ type mintingTestHarness struct {
 	pendingConfReq *int
 }
 
+type testMintingStore interface {
+	tapgarden.BatchStore
+	tapgarden.MintingRefReader
+	asset.TapscriptTreeManager
+}
+
 // newMintingTestHarness creates a new test harness from an active minting
 // store and an existing testing context.
-func newMintingTestHarness(t *testing.T,
-	store tapgarden.MintingStore) *mintingTestHarness {
+func newMintingTestHarness(t testing.TB,
+	store testMintingStore) *mintingTestHarness {
 
 	keyRing := tapnodemock.NewKeyRing()
 	genSigner := tapgarden.NewMockGenSigner(keyRing)
@@ -134,7 +147,7 @@ func newMintingTestHarness(t *testing.T,
 	archiver := proof.NewMockProofArchive()
 
 	return &mintingTestHarness{
-		T:            t,
+		TB:           t,
 		store:        store,
 		treeStore:    &treeMgr,
 		wallet:       tapnodemock.NewWalletAnchor(),
@@ -161,7 +174,8 @@ func (t *mintingTestHarness) refreshChainPlanter() {
 		GardenKit: tapgarden.GardenKit{
 			Wallet:       t.wallet,
 			ChainBridge:  t.chain,
-			Log:          t.store,
+			BatchStore:   t.store,
+			MintingRefs:  t.store,
 			TreeStore:    t.treeStore,
 			KeyRing:      t.keyRing,
 			GenSigner:    t.genSigner,
@@ -542,8 +556,11 @@ func (t *mintingTestHarness) finalizeBatchAssertFrozen(
 	var existingFrozenBatches []*tapgarden.MintingBatch
 	fn.ForEach(existingBatches, func(batch *tapgarden.VerboseBatch) {
 		if batchFrozenStates.Contains(batch.State()) {
+			mintingBatch, err := batch.ToMintingBatch()
+			require.NoError(t, err)
+
 			existingFrozenBatches = append(
-				existingFrozenBatches, batch.ToMintingBatch(),
+				existingFrozenBatches, mintingBatch,
 			)
 		}
 	})
@@ -697,9 +714,9 @@ func (t *mintingTestHarness) assertBatchCommitted(
 	return committedBatch
 }
 
-// assertNumCaretakersActive asserts that the specified number of caretakers
+// assertNumCultivatorsActive asserts that the specified number of cultivators
 // are active.
-func (t *mintingTestHarness) assertNumCaretakersActive(n int) {
+func (t *mintingTestHarness) assertNumCultivatorsActive(n int) {
 	t.Helper()
 
 	err := wait.Predicate(func() bool {
@@ -1167,8 +1184,11 @@ func (t *mintingTestHarness) queueInitialBatch(
 	var pendingBatches []*tapgarden.MintingBatch
 	fn.ForEach(existingBatches, func(batch *tapgarden.VerboseBatch) {
 		if batch.State() == tapgarden.BatchStatePending {
+			mintingBatch, err := batch.ToMintingBatch()
+			require.NoError(t, err)
+
 			pendingBatches = append(
-				pendingBatches, batch.ToMintingBatch(),
+				pendingBatches, mintingBatch,
 			)
 		}
 	})
@@ -1209,7 +1229,7 @@ func testBasicAssetCreation(t *mintingTestHarness) {
 	// launched as well. The batch should already be funded.
 	batch := t.fetchSingleBatch(nil)
 	t.assertBatchGenesisTx(&batch.GenesisPacket.FundedPsbt)
-	t.assertNumCaretakersActive(1)
+	t.assertNumCultivatorsActive(1)
 
 	// We'll now force yet another restart to ensure correctness of the
 	// state machine. We expect the PSBT packet to still be funded.
@@ -1278,7 +1298,7 @@ func testBasicAssetCreation(t *mintingTestHarness) {
 	t.assertNoError()
 
 	// At this point there should be no active caretakers.
-	t.assertNumCaretakersActive(0)
+	t.assertNumCultivatorsActive(0)
 }
 
 // testMintingTicker tests that we can start batch finalization with the planter
@@ -1355,7 +1375,7 @@ func testMintingTicker(t *mintingTestHarness) {
 	t.assertNoError()
 
 	// At this point there should be no active caretakers.
-	t.assertNumCaretakersActive(0)
+	t.assertNumCultivatorsActive(0)
 }
 
 // testBatchCancelFinalize tests that batches can be cancelled and finalized,
@@ -1473,7 +1493,7 @@ func testMintingCancelFinalize(t *mintingTestHarness) {
 	t.assertNoError()
 
 	// At this point there should be no active caretakers.
-	t.assertNumCaretakersActive(0)
+	t.assertNumCultivatorsActive(0)
 }
 
 // testFinalizeBatch tests that the planter can recover from funding
@@ -1512,7 +1532,7 @@ func testFinalizeBatch(t *mintingTestHarness) {
 
 	// The batch should stay pending so the user can retry. No
 	// caretakers should have been started.
-	t.assertNumCaretakersActive(caretakerCount)
+	t.assertNumCultivatorsActive(caretakerCount)
 	t.assertLastBatchState(
 		batchCount, tapgarden.BatchStatePending,
 	)
@@ -1540,7 +1560,7 @@ func testFinalizeBatch(t *mintingTestHarness) {
 	// The stopped caretaker will still exist but there should
 	// be no pending batch.
 	t.assertNoPendingBatch()
-	t.assertNumCaretakersActive(caretakerCount)
+	t.assertNumCultivatorsActive(caretakerCount)
 	t.assertLastBatchState(
 		batchCount, tapgarden.BatchStateBroadcast,
 	)
@@ -1570,7 +1590,7 @@ func testFinalizeBatch(t *mintingTestHarness) {
 	// The stopped caretaker will still exist but there should
 	// be no pending batch.
 	t.assertNoPendingBatch()
-	t.assertNumCaretakersActive(caretakerCount)
+	t.assertNumCultivatorsActive(caretakerCount)
 	t.assertLastBatchState(
 		batchCount, tapgarden.BatchStateBroadcast,
 	)
@@ -1581,7 +1601,7 @@ func testFinalizeBatch(t *mintingTestHarness) {
 	t.assertFinalizeBatch(
 		&wg, respChan, "no pending batch",
 	)
-	t.assertNumCaretakersActive(caretakerCount)
+	t.assertNumCultivatorsActive(caretakerCount)
 
 	// Queue another batch and drive the caretaker to a
 	// successful minting.
@@ -1604,7 +1624,7 @@ func testFinalizeBatch(t *mintingTestHarness) {
 	t.assertFinalizeBatch(&wg, respChan, "")
 	t.assertNoError()
 	t.assertNoPendingBatch()
-	t.assertNumCaretakersActive(caretakerCount)
+	t.assertNumCultivatorsActive(caretakerCount)
 	t.assertLastBatchState(
 		batchCount, tapgarden.BatchStateFinalized,
 	)
@@ -1630,8 +1650,8 @@ func testFinalizeWithTapscriptTree(t *mintingTestHarness) {
 	// created by other test helpers.
 	sigLockKey := test.RandPubKey(t)
 	hashLockWitness := []byte("foobar")
-	hashLockLeaf := test.ScriptHashLock(t.T, hashLockWitness)
-	sigLeaf := test.ScriptSchnorrSig(t.T, sigLockKey)
+	hashLockLeaf := test.ScriptHashLock(t, hashLockWitness)
+	sigLeaf := test.ScriptSchnorrSig(t, sigLockKey)
 	tapTreePreimage, err := asset.TapTreeNodesFromLeaves(
 		[]txscript.TapLeaf{hashLockLeaf, sigLeaf},
 	)
@@ -1712,7 +1732,7 @@ func testFinalizeWithTapscriptTree(t *mintingTestHarness) {
 	batchCount++
 
 	// Verify that the final genesis TX uses the correct Taproot output key.
-	treeRootChildren := test.BuildTapscriptTreeNoReveal(t.T, sigLockKey)
+	treeRootChildren := test.BuildTapscriptTreeNoReveal(t, sigLockKey)
 	siblingPreimage := commitment.NewPreimageFromBranch(treeRootChildren)
 	sendConfNtfn := t.progressCaretaker(false, &siblingPreimage, nil)
 	sendConfNtfn()
@@ -1723,7 +1743,7 @@ func testFinalizeWithTapscriptTree(t *mintingTestHarness) {
 	require.NotNil(t, batchWithSibling)
 	t.assertNoError()
 	t.assertNoPendingBatch()
-	t.assertNumCaretakersActive(0)
+	t.assertNumCultivatorsActive(0)
 	t.assertLastBatchState(batchCount, tapgarden.BatchStateFinalized)
 
 	// Verify that the final minting output key matches what we would derive
@@ -1744,8 +1764,8 @@ func testFundFailSiblingNotLeaked(t *mintingTestHarness) {
 	// Build a valid tapscript sibling preimage.
 	sigLockKey := test.RandPubKey(t)
 	hashLockWitness := []byte("foobar")
-	hashLockLeaf := test.ScriptHashLock(t.T, hashLockWitness)
-	sigLeaf := test.ScriptSchnorrSig(t.T, sigLockKey)
+	hashLockLeaf := test.ScriptHashLock(t, hashLockWitness)
+	sigLeaf := test.ScriptSchnorrSig(t, sigLockKey)
 	tapTreePreimage, err := asset.TapTreeNodesFromLeaves(
 		[]txscript.TapLeaf{hashLockLeaf, sigLeaf},
 	)
@@ -1802,7 +1822,7 @@ func testFundFailSiblingNotLeaked(t *mintingTestHarness) {
 	)
 	t.assertNoError()
 	t.assertNoPendingBatch()
-	t.assertNumCaretakersActive(0)
+	t.assertNumCultivatorsActive(0)
 	t.assertLastBatchState(
 		batchCount, tapgarden.BatchStateFinalized,
 	)
@@ -1822,8 +1842,8 @@ func testFundBatchFailRetry(t *mintingTestHarness) {
 	// Build a valid tapscript sibling preimage.
 	sigLockKey := test.RandPubKey(t)
 	hashLockWitness := []byte("foobar")
-	hashLockLeaf := test.ScriptHashLock(t.T, hashLockWitness)
-	sigLeaf := test.ScriptSchnorrSig(t.T, sigLockKey)
+	hashLockLeaf := test.ScriptHashLock(t, hashLockWitness)
+	sigLeaf := test.ScriptSchnorrSig(t, sigLockKey)
 	tapTreePreimage, err := asset.TapTreeNodesFromLeaves(
 		[]txscript.TapLeaf{hashLockLeaf, sigLeaf},
 	)
@@ -1918,9 +1938,9 @@ func testFundSealBeforeFinalize(t *mintingTestHarness) {
 	// We'll use the default test tapscript tree for both the batch
 	// tapscript sibling and a tapscript root for one asset group.
 	hashLockLeaf := test.ScriptHashLock(
-		t.T, bytes.Clone(test.DefaultHashLockWitness),
+		t, bytes.Clone(test.DefaultHashLockWitness),
 	)
-	sigLeaf := test.ScriptSchnorrSig(t.T, groupInternalKeyDesc.PubKey)
+	sigLeaf := test.ScriptSchnorrSig(t, groupInternalKeyDesc.PubKey)
 	tapTree := txscript.AssembleTaprootScriptTree(hashLockLeaf, sigLeaf)
 	defaultTapBranch := txscript.NewTapBranch(
 		tapTree.RootNode.Left(), tapTree.RootNode.Right(),
@@ -2105,7 +2125,7 @@ func testFundSealBeforeFinalize(t *mintingTestHarness) {
 
 	sendConfNtfn()
 
-	t.assertNumCaretakersActive(0)
+	t.assertNumCultivatorsActive(0)
 	t.assertLastBatchState(1, tapgarden.BatchStateFinalized)
 	t.assertMintOutputKey(mintedBatch, &defaultPreimage)
 }
@@ -2140,7 +2160,7 @@ func testFundSealOnRestart(t *mintingTestHarness) {
 	wg.Wait()
 
 	t.assertNoPendingBatch()
-	t.assertNumCaretakersActive(0)
+	t.assertNumCultivatorsActive(0)
 	t.assertNumBatchesWithState(
 		failedBatchCount, tapgarden.BatchStateSeedlingCancelled,
 	)
@@ -2167,7 +2187,7 @@ func testFundSealOnRestart(t *mintingTestHarness) {
 	wg.Wait()
 
 	t.assertNoPendingBatch()
-	t.assertNumCaretakersActive(0)
+	t.assertNumCultivatorsActive(0)
 	t.assertNumBatchesWithState(
 		failedBatchCount, tapgarden.BatchStateSeedlingCancelled,
 	)
@@ -2183,7 +2203,7 @@ func testFundSealOnRestart(t *mintingTestHarness) {
 
 	// With a caretaker started, the caretaker should broadcast the batch
 	// as normal.
-	t.assertNumCaretakersActive(1)
+	t.assertNumCultivatorsActive(1)
 	t.assertNoPendingBatch()
 
 	sendConfNtfn := t.progressCaretaker(true, nil, nil)
@@ -2191,7 +2211,7 @@ func testFundSealOnRestart(t *mintingTestHarness) {
 
 	sendConfNtfn()
 	t.assertNoError()
-	t.assertNumCaretakersActive(0)
+	t.assertNumCultivatorsActive(0)
 	t.assertLastBatchState(batchCount, tapgarden.BatchStateFinalized)
 
 	// The original test continued by inserting a second Pending
@@ -2221,8 +2241,8 @@ func testCaretakerResumeFailure(t *mintingTestHarness) {
 
 	sigLockKey := test.RandPubKey(t)
 	hashLockWitness := []byte("foobar")
-	hashLockLeaf := test.ScriptHashLock(t.T, hashLockWitness)
-	sigLeaf := test.ScriptSchnorrSig(t.T, sigLockKey)
+	hashLockLeaf := test.ScriptHashLock(t, hashLockWitness)
+	sigLeaf := test.ScriptSchnorrSig(t, sigLockKey)
 	tapTreePreimage, err := asset.TapTreeNodesFromLeaves(
 		[]txscript.TapLeaf{hashLockLeaf, sigLeaf},
 	)
@@ -2272,7 +2292,7 @@ func testCaretakerResumeFailure(t *mintingTestHarness) {
 	}, defaultTimeout)
 	require.NoError(t, err)
 
-	t.assertNumCaretakersActive(0)
+	t.assertNumCultivatorsActive(0)
 	t.assertNoPendingBatch()
 
 	// With the slot free, a new batch can be created without
@@ -2312,7 +2332,7 @@ func testFinalizeSignFailure(t *mintingTestHarness) {
 
 	// The batch must stay committed rather than being cancelled,
 	// with no caretaker and no pending batch.
-	t.assertNumCaretakersActive(0)
+	t.assertNumCultivatorsActive(0)
 	t.assertNoPendingBatch()
 	t.assertLastBatchState(1, tapgarden.BatchStateCommitted)
 
@@ -2325,7 +2345,7 @@ func testFinalizeSignFailure(t *mintingTestHarness) {
 
 	sendConfNtfn()
 	t.assertNoError()
-	t.assertNumCaretakersActive(0)
+	t.assertNumCultivatorsActive(0)
 	t.assertLastBatchState(1, tapgarden.BatchStateFinalized)
 }
 

@@ -118,11 +118,11 @@ const (
 	BatchStateFinalized BatchState = 5
 
 	// BatchStateSeedlingCancelled denotes that a batch has been cancelled,
-	// and will not be passed to a caretaker.
+	// and will not be passed to a cultivator.
 	BatchStateSeedlingCancelled BatchState = 6
 
 	// BatchStateSproutCancelled denotes that a batch has been cancelled
-	// after being passed to a caretaker and sprouting.
+	// after being passed to a cultivator and sprouting.
 	BatchStateSproutCancelled BatchState = 7
 )
 
@@ -192,13 +192,12 @@ func NewBatchState(state uint8) (BatchState, error) {
 	}
 }
 
-// MintingStore is a log that stores information related to the set of pending
-// minting batches. The ChainPlanter and ChainCaretaker use this log to record
-// the process of seeding, planting, and finally maturing taproot assets that are
-// a part of the batch.
-type MintingStore interface {
-	asset.TapscriptTreeManager
-
+// BatchStore persists the lifecycle of a minting batch: creation,
+// state transitions, and the writes that accompany each transition
+// (sprouts, signed genesis tx, confirmation). Both the planter and
+// the cultivator use it; the substance stored is exactly "minting
+// batches and their state."
+type BatchStore interface {
 	// CommitMintingBatch commits a new minting batch to disk, identified
 	// by its batch key.
 	CommitMintingBatch(ctx context.Context, newBatch *MintingBatch) error
@@ -280,11 +279,24 @@ type MintingStore interface {
 		blockHash *chainhash.Hash, blockHeight uint32,
 		txIndex uint32, mintingProofs proof.AssetBlobs) error
 
-	// FetchGroupByGenesis fetches the asset group created by the genesis
-	// referenced by the given ID.
-	FetchGroupByGenesis(ctx context.Context,
-		genesisID int64) (*asset.AssetGroup, error)
+	// CommitBatchFunding atomically persists the funded genesis
+	// transaction and the optional tapscript sibling root hash for a
+	// batch in a single transaction. Either both writes succeed or
+	// neither persists, so a partial-failure cannot leave the batch
+	// in an inconsistent on-disk state.
+	//
+	// NOTE: The tapscript tree referenced by rootHash (if non-nil)
+	// must already be committed to disk.
+	CommitBatchFunding(ctx context.Context, batchKey *btcec.PublicKey,
+		rootHash *chainhash.Hash,
+		genesisTx FundedMintAnchorPsbt) error
+}
 
+// MintingRefReader exposes the read-only lookups the planter performs
+// to validate seedlings before they enter a batch and to populate
+// listings. These are not batch state; they are pre-existing reference
+// data the planter consults but does not own.
+type MintingRefReader interface {
 	// FetchGroupByGroupKey fetches the asset group with a matching tweaked
 	// key, including the genesis information used to create the group.
 	FetchGroupByGroupKey(ctx context.Context,
@@ -299,32 +311,20 @@ type MintingStore interface {
 	FetchAssetMeta(ctx context.Context, ID asset.ID) (*proof.MetaReveal,
 		error)
 
-	// CommitBatchFunding atomically persists the funded genesis
-	// transaction and the optional tapscript sibling root hash for a
-	// batch in a single transaction. Either both writes succeed or
-	// neither persists, so a partial-failure cannot leave the batch
-	// in an inconsistent on-disk state.
-	//
-	// NOTE: The tapscript tree referenced by rootHash (if non-nil)
-	// must already be committed to disk.
-	CommitBatchFunding(ctx context.Context, batchKey *btcec.PublicKey,
-		rootHash *chainhash.Hash,
-		genesisTx FundedMintAnchorPsbt) error
-
 	// FetchDelegationKey fetches the delegation key for the given asset
 	// group public key.
 	FetchDelegationKey(ctx context.Context,
 		groupKey btcec.PublicKey) (fn.Option[DelegationKey], error)
 }
 
-// SignedGenesisPsbtStore is an optional MintingStore extension that durably
+// SignedGenesisPsbtStore is an optional BatchStore extension that durably
 // records a signed custom genesis packet before publication is attempted.
 type SignedGenesisPsbtStore interface {
 	StoreSignedGenesisPsbt(ctx context.Context, batchKey *btcec.PublicKey,
 		genesisTx *tapsend.FundedPsbt) error
 }
 
-// MintingInternalKeyStore is an optional MintingStore extension that persists
+// MintingInternalKeyStore is an optional BatchStore extension that persists
 // the wallet-proven internal key for a mint anchor. Custom anchors require this
 // capability because their internal key can differ from the batch key.
 type MintingInternalKeyStore interface {
@@ -334,7 +334,7 @@ type MintingInternalKeyStore interface {
 		merkleRoot, tapTreeRoot, tapSibling []byte) error
 }
 
-func storeSignedGenesisPsbt(ctx context.Context, store MintingStore,
+func storeSignedGenesisPsbt(ctx context.Context, store BatchStore,
 	batchKey *btcec.PublicKey, genesisTx *tapsend.FundedPsbt) error {
 
 	signedStore, ok := store.(SignedGenesisPsbtStore)
@@ -354,7 +354,7 @@ func storeSignedGenesisPsbt(ctx context.Context, store MintingStore,
 	)
 }
 
-func commitSignedGenesisTx(ctx context.Context, store MintingStore,
+func commitSignedGenesisTx(ctx context.Context, store BatchStore,
 	batch *MintingBatch, mintingInternalKey keychain.KeyDescriptor,
 	genesisTx *tapsend.FundedPsbt, anchorOutputIndex uint32,
 	merkleRoot, tapTreeRoot, tapSibling []byte) error {

@@ -886,6 +886,55 @@ func (q *Queries) FetchAssetProofsByAssetID(ctx context.Context, assetID []byte)
 	return items, nil
 }
 
+const FetchAssetProofsByIDs = `-- name: FetchAssetProofsByIDs :many
+SELECT asset_id, proof_file
+FROM asset_proofs
+WHERE asset_proofs.asset_id IN (/*SLICE:asset_ids*/?)
+`
+
+type FetchAssetProofsByIDsRow struct {
+	AssetID   int64
+	ProofFile []byte
+}
+
+// The proofs of all assets identified by the passed set of asset primary keys
+// are fetched in a single query.
+//
+// The asset_ids argument must NEVER be an empty slice, otherwise this query
+// will return no results.
+func (q *Queries) FetchAssetProofsByIDs(ctx context.Context, assetIds []int64) ([]FetchAssetProofsByIDsRow, error) {
+	query := FetchAssetProofsByIDs
+	var queryParams []interface{}
+	if len(assetIds) > 0 {
+		for _, v := range assetIds {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:asset_ids*/?", makeQueryParams(len(queryParams), len(assetIds)), 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:asset_ids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FetchAssetProofsByIDsRow
+	for rows.Next() {
+		var i FetchAssetProofsByIDsRow
+		if err := rows.Scan(&i.AssetID, &i.ProofFile); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const FetchAssetProofsSizes = `-- name: FetchAssetProofsSizes :many
 SELECT script_keys.tweaked_script_key AS script_key, 
        LENGTH(asset_proofs.proof_file) AS proof_file_length
@@ -925,16 +974,14 @@ func (q *Queries) FetchAssetProofsSizes(ctx context.Context) ([]FetchAssetProofs
 }
 
 const FetchAssetWitnesses = `-- name: FetchAssetWitnesses :many
-SELECT 
-    assets.asset_id, prev_out_point, prev_asset_id, prev_script_key, 
+SELECT
+    assets.asset_id, prev_out_point, prev_asset_id, prev_script_key,
     witness_stack, split_commitment_proof
 FROM asset_witnesses
 JOIN assets
     ON asset_witnesses.asset_id = assets.asset_id
-WHERE (
-    (assets.asset_id = $1) OR ($1 IS NULL)
-)
-ORDER BY witness_index
+WHERE assets.asset_id IN (/*SLICE:asset_ids*/?)
+ORDER BY assets.asset_id, witness_index
 `
 
 type FetchAssetWitnessesRow struct {
@@ -946,8 +993,23 @@ type FetchAssetWitnessesRow struct {
 	SplitCommitmentProof []byte
 }
 
-func (q *Queries) FetchAssetWitnesses(ctx context.Context, assetID sql.NullInt64) ([]FetchAssetWitnessesRow, error) {
-	rows, err := q.db.QueryContext(ctx, FetchAssetWitnesses, assetID)
+// The witnesses of all assets identified by the passed set of asset primary
+// keys are fetched in a single query.
+//
+// The asset_ids argument must NEVER be an empty slice, otherwise this query
+// will return no results.
+func (q *Queries) FetchAssetWitnesses(ctx context.Context, assetIds []int64) ([]FetchAssetWitnessesRow, error) {
+	query := FetchAssetWitnesses
+	var queryParams []interface{}
+	if len(assetIds) > 0 {
+		for _, v := range assetIds {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:asset_ids*/?", makeQueryParams(len(queryParams), len(assetIds)), 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:asset_ids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
 	if err != nil {
 		return nil, err
 	}
@@ -2737,12 +2799,14 @@ WHERE (
     $14 >= 0 AND
     $15 >= 0 AND
     COALESCE($16, 0) >= 0 AND
+    COALESCE($17, 0) >= 0 AND
     -- The script_key_type argument must NEVER be an empty slice, otherwise this
     -- query will return no results.
     COALESCE(script_keys.key_type, 0) IN
       (/*SLICE:script_key_type*/?)
 )
 ORDER BY
+    CASE WHEN COALESCE($17, 0) = 1 THEN assets.amount END DESC,
     CASE WHEN COALESCE($16, 0) = 1 THEN assets.asset_id END DESC,
     assets.asset_id ASC
 LIMIT $14 OFFSET $15
@@ -2765,6 +2829,7 @@ type QueryAssetsParams struct {
 	NumLimit         int32
 	NumOffset        int32
 	SortDirection    interface{}
+	OrderByAmount    interface{}
 	ScriptKeyType    []sql.NullInt16
 }
 
@@ -2815,6 +2880,10 @@ type QueryAssetsRow struct {
 // channel balances, and also coin selection. We use the sqlc.narg feature to
 // make the entire statement evaluate to true, if none of these extra args are
 // specified.
+// The trailing sort by asset_id is what makes this a total order, which the
+// paging of a bounded listing relies on: without it, rows that compare equal
+// on the optional terms above could come back in any order and a later page
+// could repeat or skip them. Any ordering term added here must go above it.
 func (q *Queries) QueryAssets(ctx context.Context, arg QueryAssetsParams) ([]QueryAssetsRow, error) {
 	query := QueryAssets
 	var queryParams []interface{}
@@ -2834,6 +2903,7 @@ func (q *Queries) QueryAssets(ctx context.Context, arg QueryAssetsParams) ([]Que
 	queryParams = append(queryParams, arg.NumLimit)
 	queryParams = append(queryParams, arg.NumOffset)
 	queryParams = append(queryParams, arg.SortDirection)
+	queryParams = append(queryParams, arg.OrderByAmount)
 	if len(arg.ScriptKeyType) > 0 {
 		for _, v := range arg.ScriptKeyType {
 			queryParams = append(queryParams, v)

@@ -45,7 +45,7 @@ type ChainBridge struct {
 	ConfTxIDs map[int]*chainhash.Hash
 
 	// BlocksMu protects concurrent access to Blocks. Readers (GetBlock,
-	// called from caretaker goroutines) hold it for read; all writers
+	// called from cultivator goroutines) hold it for read; all writers
 	// must go through SetBlock so the invariant cannot be violated
 	// piecemeal.
 	BlocksMu sync.RWMutex
