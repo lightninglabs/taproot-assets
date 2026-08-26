@@ -3,6 +3,7 @@ package tapchannel
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"net/url"
 	"slices"
@@ -2436,31 +2437,44 @@ func breachAuxSigInfo(
 	return req.AuxSigDesc
 }
 
-// verifyAuxSigCandidate checks whether a remote schnorr signature
-// is valid for a given candidate witness, leaf script, and virtual
-// transaction components. Returns true if the signature verifies
-// against the first key in the 2-of-2 tapscript leaf.
+// verifyAuxSigCandidate checks whether a remote schnorr signature is valid
+// for a given candidate witness, leaf script, and virtual transaction
+// components. The signature is verified against every x-only key found in
+// the tapscript leaf: the 2-of-2 leaves place the two signing keys at
+// different positions depending on the leaf variant (the success leaf
+// carries additional size/hash checks before the keys), and which of the
+// two keys the remote party signed for depends on the spend path. The
+// sighash is computed with the signature's recorded sighash type, so legacy
+// (non SigHashDefault) signatures verify as well.
 func verifyAuxSigCandidate(candidate wire.TxWitness,
-	remoteSigBytes []byte, vIn *tappsbt.VInput,
-	newAsset *asset.Asset) bool {
+	remoteSigBytes []byte, sigHashType txscript.SigHashType,
+	vIn *tappsbt.VInput, newAsset *asset.Asset) bool {
 
-	if len(candidate) < 4 {
+	if len(candidate) < 4 || len(remoteSigBytes) != 64 {
 		return false
 	}
 
 	leafScript := candidate[len(candidate)-2]
 
-	// 2-of-2 CHECKSIGVERIFY/CHECKSIG tapscript:
-	// <0x20><32-byte-key><0xad><0x20><32-byte-key><0xac>
-	// = 1+32+1+1+32+1 = 68 bytes.
-	if len(leafScript) != 68 || len(remoteSigBytes) != 64 {
+	sig, sErr := schnorr.ParseSignature(remoteSigBytes)
+	if sErr != nil {
 		return false
 	}
 
-	key1Bytes := leafScript[1:33]
-	key1, k1Err := schnorr.ParsePubKey(key1Bytes)
-	sig, sErr := schnorr.ParseSignature(remoteSigBytes)
-	if k1Err != nil || sErr != nil {
+	// Extract every 32-byte data push that parses as an x-only key from
+	// the leaf script.
+	var keys []*btcec.PublicKey
+	tokenizer := txscript.MakeScriptTokenizer(0, leafScript)
+	for tokenizer.Next() {
+		data := tokenizer.Data()
+		if len(data) != 32 {
+			continue
+		}
+		if k, err := schnorr.ParsePubKey(data); err == nil {
+			keys = append(keys, k)
+		}
+	}
+	if tokenizer.Err() != nil || len(keys) == 0 {
 		return false
 	}
 
@@ -2489,14 +2503,20 @@ func verifyAuxSigCandidate(candidate wire.TxWitness,
 	)
 	sh := txscript.NewTxSigHashes(vtCopy, pof)
 	sigHash, shErr := txscript.CalcTapscriptSignaturehash(
-		sh, txscript.SigHashDefault, vtCopy, 0,
+		sh, sigHashType, vtCopy, 0,
 		pof, tapLeaf,
 	)
 	if shErr != nil {
 		return false
 	}
 
-	return sig.Verify(sigHash, key1)
+	for _, key := range keys {
+		if sig.Verify(sigHash, key) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // signSecondLevelImport constructs valid asset-level witnesses for
@@ -2509,30 +2529,21 @@ func (a *AuxSweeper) signSecondLevelImport(
 	secondLevelPkts []*tappsbt.VPacket,
 	commitState *cmsg.Commitment) error {
 
+	// Without the stored AuxSigDesc (the counterparty's asset-level
+	// signature) there is no way to produce a valid 2-of-2 witness, and
+	// a placeholder witness would fail proof verification further down
+	// anyway. Fail loudly instead of pretending: the caller logs the
+	// error and falls back to a commitment-level proof stub. This can
+	// only happen for channel states created before the revocation
+	// AuxSigs were exchanged and persisted.
 	auxSigDesc, err := req.AuxSigDesc.UnwrapOrErr(
-		fmt.Errorf("no AuxSigDesc on resolution request"),
+		fmt.Errorf("no AuxSigDesc on resolution request: second-"+
+			"level witness for chan_point=%v cannot be "+
+			"constructed (state predates stored revocation aux "+
+			"sigs)", req.ChanPoint),
 	)
 	if err != nil {
-		// No AuxSigDesc available: set placeholder witnesses.
-		log.Warnf("No AuxSigDesc for second-level import, " +
-			"using placeholder witnesses")
-
-		for _, vPkt := range secondLevelPkts {
-			for _, vOut := range vPkt.Outputs {
-				if vOut.Asset == nil {
-					continue
-				}
-
-				wErr := vOut.Asset.UpdateTxWitness(
-					0, wire.TxWitness{{0x01}},
-				)
-				if wErr != nil {
-					return wErr
-				}
-			}
-		}
-
-		return nil
+		return err
 	}
 
 	// Determine if this is an incoming HTLC by checking which
@@ -2598,40 +2609,49 @@ func (a *AuxSweeper) signSecondLevelImport(
 	// select the correct leaf.
 	// Determine the spending path from the on-chain second-level
 	// tx. The asset-level mirrors the BTC-level: if the BTC
-	// witness contains a 32-byte preimage, it's the success
-	// path; otherwise it's the timeout path.
+	// witness of the input spending the commitment HTLC output
+	// contains the 32-byte preimage of this HTLC's payment hash,
+	// it's the success path; otherwise it's the timeout path.
 	//
-	// The preimage's position depends on the channel/sighash
-	// variant:
+	// The preimage's position depends on the witness layout:
 	//
-	//   * Anchor channels (sighash SINGLE|ANYONECANPAY):
+	//   * Success spend:
 	//     [sender_sig, receiver_sig, preimage, success_script, cb]
-	//     -> preimage at witness index 2.
-	//   * DeterministicHTLCs (SigHashDefault):
-	//     [sender_sig, receiver_sig, preimage, success_script, cb]
-	//     -> preimage at witness index 2 (same layout).
+	//     -> preimage at witness index 2; some legacy/anchor
+	//     variants place it at index 1.
 	//
-	// Some legacy/anchor variants may also have a 5-element
-	// witness with preimage at index 1, so we check both 1 and
-	// 2 to be safe.
+	// Only the input that actually spends the commitment tx is
+	// inspected (a legacy sweeper tx may carry unrelated wallet
+	// inputs whose witnesses are attacker-observable), and a
+	// candidate element only counts as the preimage if it hashes
+	// to the HTLC's payment hash.
 	isSuccessPath := false
 	var preimage []byte
 	req.SecondLevel.WhenSome(func(sl lnwallet.SecondLevelInfo) {
+		commitTxHash := req.CommitTx.TxHash()
 		for _, txIn := range sl.Tx.TxIn {
+			if txIn.PreviousOutPoint.Hash != commitTxHash {
+				continue
+			}
 			if len(txIn.Witness) < 4 {
 				continue
 			}
-			// Try index 2 first (taproot success layout).
+
+			isPreimage := func(c []byte) bool {
+				return len(c) == 32 &&
+					sha256.Sum256(c) == payHash
+			}
+
+			// Try index 2 first (taproot success layout),
+			// then the legacy variant at index 1.
 			if len(txIn.Witness) >= 5 &&
-				len(txIn.Witness[2]) == 32 {
+				isPreimage(txIn.Witness[2]) {
 
 				isSuccessPath = true
 				preimage = txIn.Witness[2]
 				break
 			}
-			// Fallback for legacy/anchor variants where
-			// preimage may sit at index 1.
-			if len(txIn.Witness[1]) == 32 {
+			if isPreimage(txIn.Witness[1]) {
 				isSuccessPath = true
 				preimage = txIn.Witness[1]
 				break
@@ -2794,6 +2814,24 @@ func (a *AuxSweeper) signSecondLevelImport(
 
 			remoteSig := assetSigs.Sigs[vPktIdx]
 			remoteSigBytes := remoteSig.Sig.Val.RawBytes()
+			remoteSigHashType := txscript.SigHashType(
+				remoteSig.SigHashType.Val,
+			)
+
+			// The witness element must carry the sighash byte
+			// when the recorded type is not SigHashDefault
+			// (BIP 342: 64-byte sigs imply default, 65-byte
+			// sigs carry the explicit flag). Legacy
+			// SINGLE|ANYONECANPAY signatures would otherwise
+			// fail script validation on proof import.
+			witnessSig := remoteSigBytes
+			if remoteSigHashType != txscript.SigHashDefault {
+				sigLen := len(witnessSig)
+				witnessSig = append(
+					witnessSig[:sigLen:sigLen],
+					byte(remoteSigHashType),
+				)
+			}
 
 			// Build candidate witness.
 			candidate := make(
@@ -2801,7 +2839,7 @@ func (a *AuxSweeper) signSecondLevelImport(
 			)
 			copy(candidate, basePrevWitness)
 			candidate = slices.Insert(
-				candidate, auxSigInsertIdx, remoteSigBytes,
+				candidate, auxSigInsertIdx, witnessSig,
 			)
 			if isSuccessPath && len(preimage) > 0 {
 				candidate = slices.Insert(
@@ -2809,11 +2847,11 @@ func (a *AuxSweeper) signSecondLevelImport(
 				)
 			}
 
-			// Verify the remote sig against the
-			// leaf's first key.
+			// Verify the remote sig against the keys in the
+			// selected leaf.
 			sigOK := verifyAuxSigCandidate(
 				candidate, remoteSigBytes,
-				vIn, newAsset,
+				remoteSigHashType, vIn, newAsset,
 			)
 
 			if sigOK {
@@ -2842,8 +2880,18 @@ func (a *AuxSweeper) signSecondLevelImport(
 					len(fbSigs.Sigs))
 			}
 
-			fbSigBytes := fbSigs.Sigs[vPktIdx].
-				Sig.Val.RawBytes()
+			fbSig := fbSigs.Sigs[vPktIdx]
+			fbSigBytes := fbSig.Sig.Val.RawBytes()
+			fbSigHashType := txscript.SigHashType(
+				fbSig.SigHashType.Val,
+			)
+			if fbSigHashType != txscript.SigHashDefault {
+				sigLen := len(fbSigBytes)
+				fbSigBytes = append(
+					fbSigBytes[:sigLen:sigLen],
+					byte(fbSigHashType),
+				)
+			}
 			bestWitness = make(
 				wire.TxWitness,
 				len(basePrevWitness),
@@ -2895,21 +2943,25 @@ func (a *AuxSweeper) importSecondLevelHtlcTx(
 	ctx := context.Background()
 	secondLevelTxHash := secondLevelTx.TxHash()
 
-	// Check if already imported.
+	// Check if the transfer was already shipped on a previous attempt.
+	// Even if it was, we must NOT return early here: the caller works
+	// with freshly reconstructed packets and relies on this function to
+	// populate their ProofSuffix (via the signing and proof-suffix steps
+	// below). Returning early would leave the packets without suffixes
+	// and force the caller onto an invalid fallback stub. Only the final
+	// shipping step is skipped when the parcel already exists, which
+	// makes this function idempotent.
 	existingParcels, err := a.cfg.TxSender.QueryParcels(
 		ctx, fn.Some(secondLevelTxHash), false,
 	)
 	if err != nil {
 		return fmt.Errorf("querying second-level parcels: %w", err)
 	}
-	if len(existingParcels) > 0 {
-		log.Infof("Second-level tx %v already imported",
-			secondLevelTxHash)
-		return nil
-	}
+	alreadyImported := len(existingParcels) > 0
 
-	log.Infof("Importing second-level HTLC tx %v (height=%d)",
-		secondLevelTxHash, secondLevelBlockHeight)
+	log.Infof("Importing second-level HTLC tx %v (height=%d, "+
+		"already_imported=%v)", secondLevelTxHash,
+		secondLevelBlockHeight, alreadyImported)
 
 	supportSTXO := commitState.STXO.Val
 
@@ -2976,6 +3028,15 @@ func (a *AuxSweeper) importSecondLevelHtlcTx(
 	heightHint := fn.None[uint32]()
 	if secondLevelBlockHeight > 0 {
 		heightHint = fn.Some(secondLevelBlockHeight)
+	}
+
+	// If the parcel already exists (a previous attempt shipped it), the
+	// work above still populated the fresh packets' proof suffixes, and
+	// re-shipping would only fail on the duplicate.
+	if alreadyImported {
+		log.Infof("Second-level tx %v already imported, skipping "+
+			"shipping", secondLevelTxHash)
+		return nil
 	}
 
 	var parcelOpts []tapfreighter.PreAnchoredParcelOpt
@@ -3502,24 +3563,47 @@ func (a *AuxSweeper) resolveContract(
 		// The proofs from commitAssetOutputs are now re-anchored
 		// with the correct block headers.
 		//
-		// Use the actual on-chain second-level tx output
-		// value (after fee deduction) rather than the HTLC
-		// amount. The signer used the fee-deducted value
-		// when creating the second-level tx.
+		// Use the actual on-chain second-level tx output value (after
+		// fee deduction) rather than the HTLC amount. The signer used
+		// the fee-deducted value when creating the second-level tx.
+		//
+		// The HTLC output's index is the index of the input that
+		// spends the commitment tx: the pre-signed deterministic tx
+		// has a single input and its output at index 0, and legacy
+		// SINGLE|ANYONECANPAY txs (which the sweeper may have
+		// aggregated with extra wallet inputs and change) commit each
+		// signed input to the same-index output.
+		htlcOutIdx := 0
+		if secondLevelTx != nil {
+			commitTxHash := req.CommitTx.TxHash()
+			for idx, txIn := range secondLevelTx.TxIn {
+				prevOut := txIn.PreviousOutPoint
+				if prevOut.Hash == commitTxHash {
+					htlcOutIdx = idx
+					break
+				}
+			}
+		}
+
 		secondLevelBtcAmt := req.HtlcAmt
 		if secondLevelTx != nil &&
-			len(secondLevelTx.TxOut) > 0 {
+			htlcOutIdx < len(secondLevelTx.TxOut) {
 
 			secondLevelBtcAmt = btcutil.Amount(
-				secondLevelTx.TxOut[0].Value,
+				secondLevelTx.TxOut[htlcOutIdx].Value,
 			)
 		}
 
 		// The on-chain second-level tx carries an anchor at index 1
-		// when it was signed under DeterministicHTLCs. Detect that
-		// via the actual tx output count so the allocations and
-		// exclusion proofs we build here mirror the on-chain layout.
-		secondLevelHasAnchor := secondLevelTx != nil &&
+		// when it was signed under DeterministicHTLCs: that shape is
+		// exactly one input (the commitment HTLC output) plus the
+		// HTLC output and its anchor. A second output on any other
+		// tx shape (e.g. a legacy sweeper tx with change) is NOT an
+		// anchor, so gate the detection on the deterministic shape
+		// and the commitment's recorded sighash mode.
+		secondLevelHasAnchor := commitState.SigHashDefault.Val &&
+			secondLevelTx != nil &&
+			len(secondLevelTx.TxIn) == 1 &&
 			len(secondLevelTx.TxOut) > 1
 
 		secondLevelPkts, secondLevelAllocs, err :=
@@ -3585,13 +3669,53 @@ func (a *AuxSweeper) resolveContract(
 		// header, merkle proof, and asset data. Use that
 		// directly instead of building a stub from the
 		// commitment-level proof.
+		// Match each second-level packet back to the commitment-level
+		// asset output it spends via the packet input's PrevID
+		// (asset ID + script key): packet generation groups and
+		// orders by asset ID, so the packet list is NOT positionally
+		// aligned with the blob's output list (grouped assets or
+		// multiple UTXOs per HTLC would be paired with the wrong
+		// proof otherwise).
+		findSourceOutput := func(
+			vPkt *tappsbt.VPacket) *cmsg.AssetOutput {
+
+			if len(vPkt.Inputs) == 0 {
+				return nil
+			}
+			prevID := vPkt.Inputs[0].PrevID
+
+			for _, ao := range assetOutputs {
+				srcAsset := ao.Proof.Val.Asset
+				srcKey := asset.ToSerialized(
+					srcAsset.ScriptKey.PubKey,
+				)
+				if srcAsset.ID() == prevID.ID &&
+					srcKey == prevID.ScriptKey {
+
+					return ao
+				}
+			}
+
+			return nil
+		}
+
 		var secondLevelAssetOutputs []*cmsg.AssetOutput
 		for i, vPkt := range secondLevelPkts {
-			if len(vPkt.Outputs) == 0 || i >= len(assetOutputs) {
+			if len(vPkt.Outputs) == 0 {
 				continue
 			}
 
 			vOut := vPkt.Outputs[0]
+			srcOut := findSourceOutput(vPkt)
+			if srcOut == nil {
+				log.Errorf("No commitment-level asset "+
+					"output matches second-level "+
+					"packet %d (num_outputs=%d), "+
+					"skipping", i, len(assetOutputs))
+
+				continue
+			}
+
 			if vOut.ProofSuffix != nil {
 				// Use the proof suffix from the
 				// successful import: it has the
@@ -3633,8 +3757,8 @@ func (a *AuxSweeper) resolveContract(
 				secondLevelAssetOutputs = append(
 					secondLevelAssetOutputs,
 					cmsg.NewAssetOutput(
-						assetOutputs[i].AssetID.Val,
-						assetOutputs[i].Amount.Val,
+						vOut.Asset.ID(),
+						vOut.Asset.Amount,
 						*vOut.ProofSuffix,
 					),
 				)
@@ -3642,7 +3766,7 @@ func (a *AuxSweeper) resolveContract(
 				// Fallback: build a minimal stub if
 				// the import didn't produce a suffix.
 				outAsset := vOut.Asset
-				secondLevelProof := assetOutputs[i].Proof.Val
+				secondLevelProof := srcOut.Proof.Val
 				secondLevelProof.Asset = *outAsset
 
 				if secondLevelTx != nil {
@@ -3656,7 +3780,8 @@ func (a *AuxSweeper) resolveContract(
 					}
 
 					slProof := &secondLevelProof
-					slProof.InclusionProof.OutputIndex = 0
+					slProof.InclusionProof.OutputIndex =
+						uint32(htlcOutIdx)
 				}
 
 				log.Warnf("No proof suffix for "+
@@ -3666,8 +3791,8 @@ func (a *AuxSweeper) resolveContract(
 				secondLevelAssetOutputs = append(
 					secondLevelAssetOutputs,
 					cmsg.NewAssetOutput(
-						assetOutputs[i].AssetID.Val,
-						assetOutputs[i].Amount.Val,
+						vOut.Asset.ID(),
+						vOut.Asset.Amount,
 						secondLevelProof,
 					),
 				)
