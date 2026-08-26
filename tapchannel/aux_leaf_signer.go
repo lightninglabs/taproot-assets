@@ -380,16 +380,16 @@ func verifyHtlcSignature(chainParams *address.ChainParams,
 	keyRing lnwallet.CommitmentKeyRing, sigs []*cmsg.AssetSig,
 	htlcOutputs []*cmsg.AssetOutput, baseJob lnwallet.BaseAuxJob) error {
 
-	// Determine the timeout. If explicit timeout is set (revocation
-	// verification), use it. Otherwise derive from Incoming.
-	var htlcTimeout fn.Option[uint32]
-	if v, err := baseJob.HtlcTimeout.UnwrapOrErr(
-		fmt.Errorf("no timeout"),
-	); err == nil {
+	// The job carries the timeout to use explicitly: lnd sets it for both
+	// the CommitSig flow and the revocation flow, from the second-level
+	// path the signature is for. We must NOT re-derive it from the
+	// direction here: the two flows sign for opposite commitments, so the
+	// same direction means the timeout path in one and the success path
+	// (which has no locktime) in the other.
+	htlcTimeout := fn.None[uint32]()
+	baseJob.HtlcTimeout.WhenSome(func(v uint32) {
 		htlcTimeout = fn.Some(v)
-	} else if !baseJob.Incoming {
-		htlcTimeout = fn.Some(baseJob.HTLC.Timeout)
-	}
+	})
 
 	vPackets, err := htlcSecondLevelPacketsFromCommit(
 		chainParams, chanState, commitTx, baseJob.KeyRing, htlcOutputs,
@@ -602,17 +602,13 @@ func (s *AuxLeafSigner) generateHtlcSignature(chanState lnwallet.AuxChanState,
 	signDesc input.SignDescriptor,
 	baseJob lnwallet.BaseAuxJob) (lnwallet.AuxSigJobResp, error) {
 
-	// Determine the timeout for the second-level tx. If an explicit
-	// timeout is set on the job (revocation signing), use it
-	// directly. Otherwise derive from Incoming (normal CommitSig).
-	var htlcTimeout fn.Option[uint32]
-	if v, err := baseJob.HtlcTimeout.UnwrapOrErr(
-		fmt.Errorf("no timeout"),
-	); err == nil {
+	// The job carries the timeout to use explicitly (see
+	// verifyHtlcSignature for why it must not be re-derived from the
+	// HTLC direction here).
+	htlcTimeout := fn.None[uint32]()
+	baseJob.HtlcTimeout.WhenSome(func(v uint32) {
 		htlcTimeout = fn.Some(v)
-	} else if baseJob.Incoming {
-		htlcTimeout = fn.Some(baseJob.HTLC.Timeout)
-	}
+	})
 
 	vPackets, err := htlcSecondLevelPacketsFromCommit(
 		s.cfg.ChainParams, chanState, commitTx, baseJob.KeyRing,
