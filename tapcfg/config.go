@@ -1036,13 +1036,19 @@ func ValidateConfig(cfg Config, cfgLogger btclog.Logger) (*Config, error) {
 		cfg.ReOrgSafeDepth = testnetDefaultReOrgSafeDepth
 	}
 
-	// Let's validate that the wallet's psbt max fee ratio is positive.
-	// Values above 1.0 are allowed: spending tiny asset-bearing UTXOs
-	// (e.g. post-sweep outputs near dust) can legitimately produce txs
-	// where the fee is several times the total output BTC value.
-	if cfg.Wallet.PsbtMaxFeeRatio <= 0.00 {
-		return nil, fmt.Errorf("psbt-max-fee-ratio must be greater " +
-			"than 0.00")
+	// Let's validate that the wallet's psbt max fee ratio is positive and
+	// within the allowed ceiling. Values above 1.0 are allowed: spending
+	// tiny asset-bearing UTXOs (e.g. post-sweep outputs near dust) can
+	// legitimately produce txs where the fee is several times the total
+	// output BTC value. The ceiling matches lnd's FundPsbt sanity check:
+	// a larger value would be rejected by lnd on every funding attempt
+	// anyway, and the bound catches order-of-magnitude typos.
+	if cfg.Wallet.PsbtMaxFeeRatio <= 0.00 ||
+		cfg.Wallet.PsbtMaxFeeRatio >
+			lndservices.MaxPsbtMaxFeeRatio {
+
+		return nil, fmt.Errorf("psbt-max-fee-ratio must be between "+
+			"0.00 and %.2f", lndservices.MaxPsbtMaxFeeRatio)
 	}
 
 	// Validate the healthcheck config.
