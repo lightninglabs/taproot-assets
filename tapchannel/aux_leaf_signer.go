@@ -522,13 +522,16 @@ func applySignDescToVIn(signDesc input.SignDescriptor, vIn *tappsbt.VInput,
 	// the same time, we apply the tweaks to a copy of the public key, so we
 	// can validate the produced signature.
 	//
-	// For breach scenarios, both DoubleTweak and SingleTweak are present.
-	// Both are added to the PSBT unknowns keyed by their type, so the
-	// append order here doesn't matter: the signer identifies them by
-	// key type, not position. However, when deriving the verification
-	// public key below, we must apply DoubleTweak (revocation) before
-	// SingleTweak (HTLC index) because DeriveRevocationPubkey hashes
-	// its input key, making the operations non-commutative.
+	// For breach scenarios, both DoubleTweak and SingleTweak are present
+	// and both are added to the PSBT unknowns keyed by their type. Two
+	// distinct lnd signer paths consume this pair and BOTH must combine
+	// them (double/revocation first, then single/HTLC index, since
+	// DeriveRevocationPrivKey hashes its input key and the operations do
+	// not commute): maybeTweakPrivKey in lnwallet/btcwallet/signer.go
+	// (local signer, reads the SignDescriptor fields) and
+	// maybeTweakPrivKeyPsbt in lnwallet/btcwallet/psbt.go (remote
+	// signer, reads these unknowns). The verification public key derived
+	// below applies the same order.
 	//
 	// For normal force closes, only one tweak is present at a time.
 	signingKey := signDesc.KeyDesc.PubKey
