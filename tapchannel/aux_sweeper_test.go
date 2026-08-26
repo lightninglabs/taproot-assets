@@ -5,17 +5,23 @@ import (
 	"context"
 	"crypto/sha256"
 	"net/url"
+	"slices"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/psbt/v2"
 	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
+	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/asset"
+	tapfn "github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapnode"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
+	"github.com/lightninglabs/taproot-assets/tapsend"
+	"github.com/lightningnetwork/lnd/channeldb"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -505,6 +511,51 @@ func TestRevocationSweepDescSignVerify(t *testing.T) {
 			)
 		})
 	}
+
+	// Finally, close the loop with the commitment-construction path:
+	// the second-level revoke desc must reproduce the exact asset-level
+	// script key that createSecondLevelHtlcAllocations committed to when
+	// the second-level transaction was originally constructed. Otherwise
+	// the sweep desc would sign for a key that never appeared on the
+	// revoked commitment.
+	t.Run("second-level desc matches allocation script key",
+		func(t *testing.T) {
+			chanType := channeldb.SimpleTaprootFeatureBit |
+				channeldb.AnchorOutputsBit |
+				channeldb.ZeroHtlcTxFeeBit |
+				channeldb.SingleFunderTweaklessBit |
+				channeldb.TapscriptRootBit
+
+			allocs, err := createSecondLevelHtlcAllocations(
+				chanType, true, nil, 1200, csvDelay, *keyRing,
+				tapfn.None[uint32](), tapfn.None[uint32](),
+				htlcIndex, true,
+			)
+			require.NoError(t, err)
+			require.NotEmpty(t, allocs)
+
+			allocScriptKey, err := allocs[0].GenScriptKey(
+				asset.ID{},
+			)
+			require.NoError(t, err)
+
+			descs := htlcSecondLevelRevokeSweepDesc(
+				keyRing, csvDelay, htlcIndex,
+			).UnwrapOrFail(t)
+			tree := descs.firstLevel.scriptTree.Tree()
+
+			// Compare x-only: the two paths may normalize the
+			// key's Y parity differently, which is irrelevant
+			// for taproot outputs.
+			require.Equal(
+				t,
+				schnorr.SerializePubKey(allocScriptKey.PubKey),
+				schnorr.SerializePubKey(tree.TaprootKey),
+				"revoke sweep desc must sign for the script "+
+					"key committed at commitment "+
+					"construction",
+			)
+		})
 }
 
 // TestApplySignDescTweakRoundTrip closes the loop between the sweeper's PSBT
@@ -563,38 +614,88 @@ func TestApplySignDescTweakRoundTrip(t *testing.T) {
 		signingKey.SerializeCompressed(),
 	)
 
-	// Now replay the unknowns the way lnd's wallet signer does: iterate
-	// in order and apply each tweak to the base private key.
-	signerPriv := revokeBasePriv
-	for _, unknown := range vIn.Unknowns {
-		switch {
-		case bytes.Equal(
-			unknown.Key,
-			btcwallet.PsbtKeyTypeInputSignatureTweakDouble,
-		):
-			doubleTweak, _ := btcec.PrivKeyFromBytes(unknown.Value)
-			signerPriv = input.DeriveRevocationPrivKey(
-				signerPriv, doubleTweak,
-			)
+	// Drive the actual consumer used on tapd's own signing path:
+	// tapsend.AddKeyTweaks reads the unknowns back into an lndclient
+	// SignDescriptor before SignOutputRaw. Both tweaks must survive the
+	// round trip.
+	var spendDesc lndclient.SignDescriptor
+	tapsend.AddKeyTweaks(vIn.Unknowns, &spendDesc)
+	require.Equal(t, singleTweak[:], spendDesc.SingleTweak)
+	require.NotNil(t, spendDesc.DoubleTweak)
+	require.Equal(
+		t, commitSecret.Serialize(),
+		spendDesc.DoubleTweak.Serialize(),
+	)
 
-		case bytes.Equal(
-			unknown.Key,
-			btcwallet.PsbtKeyTypeInputSignatureTweakSingle,
-		):
-			signerPriv = input.TweakPrivKey(
-				signerPriv, unknown.Value,
-			)
-		}
-	}
-
-	// The signer-derived key must match the manual chain and correspond
-	// to the public key the sweeper verifies against.
+	// lnd's direct signer (lnwallet/btcwallet/signer.go,
+	// maybeTweakPrivKey) derives from the SignDescriptor fields: double
+	// (revocation) tweak first, then single (HTLC index).
+	signerPriv := input.TweakPrivKey(
+		input.DeriveRevocationPrivKey(
+			revokeBasePriv, spendDesc.DoubleTweak,
+		),
+		spendDesc.SingleTweak,
+	)
 	require.Equal(
 		t, expectedPriv.PubKey().SerializeCompressed(),
 		signerPriv.PubKey().SerializeCompressed(),
 	)
+
+	// lnd's remote-signer path (lnwallet/btcwallet/psbt.go,
+	// maybeTweakPrivKeyPsbt) collects the tweaks from the PSBT unknowns
+	// and applies them combined in the same double-then-single order,
+	// regardless of the order the unknowns appear in. Replicate that
+	// derivation for both orderings of the unknowns to pin the
+	// order-independence this comment block relies on.
+	psbtDerive := func(unknowns []*psbt.Unknown) *btcec.PrivateKey {
+		var single, double []byte
+		for _, unknown := range unknowns {
+			if bytes.Equal(
+				unknown.Key,
+				btcwallet.PsbtKeyTypeInputSignatureTweakSingle,
+			) {
+
+				single = unknown.Value
+			}
+			if bytes.Equal(
+				unknown.Key,
+				btcwallet.PsbtKeyTypeInputSignatureTweakDouble,
+			) {
+
+				double = unknown.Value
+			}
+		}
+		require.NotNil(t, single)
+		require.NotNil(t, double)
+
+		doubleTweak, _ := btcec.PrivKeyFromBytes(double)
+		return input.TweakPrivKey(
+			input.DeriveRevocationPrivKey(
+				revokeBasePriv, doubleTweak,
+			),
+			single,
+		)
+	}
+
+	psbtPriv := psbtDerive(vIn.Unknowns)
+
+	reversed := make([]*psbt.Unknown, len(vIn.Unknowns))
+	copy(reversed, vIn.Unknowns)
+	slices.Reverse(reversed)
+	psbtPrivReversed := psbtDerive(reversed)
+
+	// All derivation paths must land on the same key, which is the
+	// public key the sweeper verifies against.
+	require.Equal(
+		t, expectedPriv.PubKey().SerializeCompressed(),
+		psbtPriv.PubKey().SerializeCompressed(),
+	)
+	require.Equal(
+		t, psbtPriv.PubKey().SerializeCompressed(),
+		psbtPrivReversed.PubKey().SerializeCompressed(),
+	)
 	require.Equal(
 		t, signingKey.SerializeCompressed(),
-		signerPriv.PubKey().SerializeCompressed(),
+		psbtPriv.PubKey().SerializeCompressed(),
 	)
 }
