@@ -44,6 +44,16 @@ func CommitmentSTXOFeatures(commitment *cmsg.Commitment) STXOFeatures {
 	}
 }
 
+// Or returns the union of the two feature sets. It is used to fall back to
+// the flags cached in a commitment when the live feature vector of the peer
+// is not populated yet.
+func (f STXOFeatures) Or(other STXOFeatures) STXOFeatures {
+	return STXOFeatures{
+		STXO:    f.STXO || other.STXO,
+		Spender: f.Spender || other.Spender,
+	}
+}
+
 // CommitOpts returns the options for creating output commitments that carry
 // the leaves of the features.
 func (f STXOFeatures) CommitOpts() []tapsend.OutputCommitmentOption {
