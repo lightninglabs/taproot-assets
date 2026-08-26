@@ -4913,22 +4913,40 @@ func (a *AuxSweeper) DeriveSweepAddr(inputs []input.Input,
 // ExtraBudgetForInputs takes a set of inputs and maybe returns an extra budget
 // that should be added to the sweep transaction.
 func ExtraBudgetForInputs(inputs []input.Input) lfn.Result[btcutil.Amount] {
-	inputsWithBlobs := fn.Filter(inputs, func(i input.Input) bool {
-		return i.ResolutionBlob().IsSome()
-	})
-
-	_ = inputsWithBlobs
-	// extraBudget is intentionally zero: LND's sweeper interprets the
-	// returned budget as additional sats it is allowed to spend on fees
-	// on top of the input value. Any positive value drives LND to pull
-	// wallet UTXOs into the sweep tx; under DeterministicHTLCs the
-	// chained anchor outputs make btcwallet's UTXO accounting drift
-	// from btcd's by AnchorSize-sized increments, which causes mempool
-	// rejection on the resulting bundled sweep. The HTLC-second-level
-	// inputs already carry enough BTC value (after the 2nd-level
-	// fee + anchor are deducted) to cover floor-rate sweep fees, so
-	// they self-fund without any extra budget.
+	// Asset-carrying outputs hold a token BTC amount that is unrelated to
+	// the value of the assets they carry, so the sweeper generally needs
+	// extra budget (pulled from wallet UTXOs) to get an asset sweep
+	// confirmed.
+	//
+	// The exception is second-level HTLC outputs: under
+	// DeterministicHTLCs they self-fund (after the pre-signed second
+	// level fee and anchor are deducted they still carry enough BTC to
+	// cover floor-rate sweep fees), and any positive budget drives lnd
+	// to pull wallet UTXOs into the sweep tx, where the chained anchor
+	// outputs make btcwallet's UTXO accounting drift from btcd's by
+	// AnchorSize-sized increments and the bundled sweep is rejected from
+	// the mempool. We therefore return zero budget for second-level
+	// output sweeps only, and keep the regular budget for every other
+	// aux input (commitment sweeps, breach keyspends, first-level HTLC
+	// sweeps), whose asset value would otherwise be lost whenever fees
+	// exceed the token BTC amount.
 	var extraBudget btcutil.Amount
+	for _, inp := range inputs {
+		if inp.ResolutionBlob().IsNone() {
+			continue
+		}
+
+		switch inp.WitnessType() {
+		case input.TaprootHtlcAcceptedSuccessSecondLevel,
+			input.TaprootHtlcAcceptedSuccessSecondLevelFinal,
+			input.TaprootHtlcOfferedTimeoutSecondLevel,
+			input.TaprootHtlcOfferedTimeoutSecondLevelFinal:
+
+			continue
+		}
+
+		extraBudget += tapsend.DummyAmtSats * sweeperBudgetMultiplier
+	}
 
 	return lfn.Ok(extraBudget)
 }
