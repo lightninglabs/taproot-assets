@@ -389,8 +389,8 @@ func processAddEntry(htlc *DecodedDescriptor, ourBalance, theirBalance uint64,
 func SanityCheckAmounts(ourBalance, theirBalance btcutil.Amount,
 	ourAssetBalance, theirAssetBalance uint64, assetView,
 	nonAssetView *DecodedView, chanType channeldb.ChannelType,
-	whoseCommit lntypes.ChannelParty, dustLimit btcutil.Amount) (bool, bool,
-	error) {
+	whoseCommit lntypes.ChannelParty, dustLimit btcutil.Amount,
+	sigHashDefault bool) (bool, bool, error) {
 
 	log.Tracef("Sanity checking amounts, whoseCommit=%v, ourBalance=%d, "+
 		"theirBalance=%d, ourAssetBalance=%d, theirAssetBalance=%d",
@@ -410,7 +410,7 @@ func SanityCheckAmounts(ourBalance, theirBalance btcutil.Amount,
 		if !lnwallet.HtlcIsDust(
 			chanType, false, whoseCommit, feePerKw,
 			entry.Amount.ToSatoshis(), dustLimit,
-			true,
+			sigHashDefault,
 		) {
 
 			numHTLCs++
@@ -420,7 +420,7 @@ func SanityCheckAmounts(ourBalance, theirBalance btcutil.Amount,
 		if !lnwallet.HtlcIsDust(
 			chanType, true, whoseCommit, feePerKw,
 			entry.Amount.ToSatoshis(), dustLimit,
-			true,
+			sigHashDefault,
 		) {
 
 			numHTLCs++
@@ -433,7 +433,7 @@ func SanityCheckAmounts(ourBalance, theirBalance btcutil.Amount,
 		isDust := lnwallet.HtlcIsDust(
 			chanType, false, whoseCommit, feePerKw,
 			entry.Amount.ToSatoshis(), dustLimit,
-			true,
+			sigHashDefault,
 		)
 		if rfqmsg.Sum(entry.AssetBalances) > 0 && isDust {
 			return false, false, fmt.Errorf("outgoing HTLC asset "+
@@ -449,7 +449,7 @@ func SanityCheckAmounts(ourBalance, theirBalance btcutil.Amount,
 		isDust := lnwallet.HtlcIsDust(
 			chanType, true, whoseCommit, feePerKw,
 			entry.Amount.ToSatoshis(), dustLimit,
-			true,
+			sigHashDefault,
 		)
 		if rfqmsg.Sum(entry.AssetBalances) > 0 && isDust {
 			return false, false, fmt.Errorf("incoming HTLC asset "+
@@ -545,7 +545,7 @@ func GenerateCommitmentAllocations(prevState *cmsg.Commitment,
 	wantLocalAnchor, wantRemoteAnchor, err := SanityCheckAmounts(
 		ourBalance.ToSatoshis(), theirBalance.ToSatoshis(),
 		ourAssetBalance, theirAssetBalance, filteredView, nonAssetView,
-		chanState.ChanType, whoseCommit, dustLimit,
+		chanState.ChanType, whoseCommit, dustLimit, sigHashDefault,
 	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("error checking amounts: %w", err)
@@ -559,6 +559,7 @@ func GenerateCommitmentAllocations(prevState *cmsg.Commitment,
 		chanState, ourBalance.ToSatoshis(), theirBalance.ToSatoshis(),
 		ourAssetBalance, theirAssetBalance, wantLocalAnchor,
 		wantRemoteAnchor, filteredView, whoseCommit, keys, nonAssetView,
+		sigHashDefault,
 	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to create allocations: %w",
@@ -672,8 +673,8 @@ func CreateAllocations(chanState lnwallet.AuxChanState, ourBalance,
 	theirBalance btcutil.Amount, ourAssetBalance, theirAssetBalance uint64,
 	wantLocalCommitAnchor, wantRemoteCommitAnchor bool,
 	filteredView *DecodedView, whoseCommit lntypes.ChannelParty,
-	keys lnwallet.CommitmentKeyRing,
-	nonAssetView *DecodedView) ([]*tapsend.Allocation, error) {
+	keys lnwallet.CommitmentKeyRing, nonAssetView *DecodedView,
+	sigHashDefault bool) ([]*tapsend.Allocation, error) {
 
 	log.Tracef("Creating allocations, whoseCommit=%v, initiator=%v, "+
 		"ourBalance=%d, theirBalance=%d, ourAssetBalance=%d, "+
@@ -792,7 +793,7 @@ func CreateAllocations(chanState lnwallet.AuxChanState, ourBalance,
 		isDust := lnwallet.HtlcIsDust(
 			chanState.ChanType, isIncoming, whoseCommit,
 			filteredView.FeePerKw, htlc.Amount.ToSatoshis(),
-			dustLimit, true,
+			dustLimit, sigHashDefault,
 		)
 		if isDust {
 			// We need to error out, as a dust HTLC carrying assets
@@ -889,7 +890,7 @@ func CreateAllocations(chanState lnwallet.AuxChanState, ourBalance,
 		isDust := lnwallet.HtlcIsDust(
 			chanState.ChanType, isIncoming, whoseCommit,
 			filteredView.FeePerKw, htlc.Amount.ToSatoshis(),
-			dustLimit, true,
+			dustLimit, sigHashDefault,
 		)
 		if isDust {
 			return nil
