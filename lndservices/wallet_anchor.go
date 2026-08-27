@@ -229,8 +229,8 @@ func (l *LndRpcWalletAnchor) LeaseInput(ctx context.Context,
 		}
 		if lease.LockID != lockID {
 			return false, fmt.Errorf(
-				"wallet input is already leased by another batch or " +
-					"subsystem",
+				"wallet input is already leased by another " +
+					"batch or subsystem",
 			)
 		}
 

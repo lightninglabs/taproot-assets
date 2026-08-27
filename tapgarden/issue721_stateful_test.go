@@ -1407,9 +1407,11 @@ func TestIssue721ImportRestartLeaseFailureWatches(t *testing.T) {
 		return h.fetchSingleBatch(prepared.BatchKey.PubKey).State() ==
 			tapgarden.BatchStateBroadcast
 	}, defaultTimeout, 10*time.Millisecond)
-	pending, err := h.planter.PendingBatch()
-	require.NoError(t, err)
-	require.Equal(t, tapgarden.BatchStateBroadcast, pending.State())
+	require.Eventually(t, func() bool {
+		pending, err := h.planter.PendingBatch()
+		return err == nil &&
+			pending.State() == tapgarden.BatchStateBroadcast
+	}, defaultTimeout, 10*time.Millisecond)
 	h.assertNumCultivatorsActive(1)
 	batches, err := h.planter.ListBatches(tapgarden.ListBatchesParams{
 		BatchKey: prepared.BatchKey.PubKey,

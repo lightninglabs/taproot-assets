@@ -106,7 +106,9 @@ type ChainBridge interface {
 // DefinitivePublisher is an optional ChainBridge extension that can
 // distinguish conclusive policy rejection from ambiguous publication errors.
 type DefinitivePublisher interface {
-	ValidateAndPublishTransaction(context.Context, *wire.MsgTx, string) error
+	ValidateAndPublishTransaction(
+		context.Context, *wire.MsgTx, string,
+	) error
 }
 
 // ValidateAndPublishTransaction uses definitive publication when available.

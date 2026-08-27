@@ -3229,7 +3229,6 @@ func (c *ChainPlanter) gardener() {
 						continue
 					}
 					if customAnchorPublicationPending(batchSnapshot) {
-
 						c.pendingBatch = batchSnapshot
 					} else {
 						c.pendingBatch = nil
@@ -5652,36 +5651,5 @@ func (p PreCommitmentOutput) Copy() PreCommitmentOutput {
 		OutIdx:      p.OutIdx,
 		InternalKey: asset.CopyKeyDescriptor(p.InternalKey),
 		GroupPubKey: p.GroupPubKey,
-	}
-}
-
-func copyMalformedPsbt(pkt *psbt.Packet) *psbt.Packet {
-	copyUnknowns := func(src []*psbt.Unknown) []*psbt.Unknown {
-		if src == nil {
-			return nil
-		}
-		dst := make([]*psbt.Unknown, len(src))
-		for idx, unknown := range src {
-			if unknown == nil {
-				continue
-			}
-			dst[idx] = &psbt.Unknown{
-				Key:   fn.CopySlice(unknown.Key),
-				Value: fn.CopySlice(unknown.Value),
-			}
-		}
-		return dst
-	}
-
-	var txCopy *wire.MsgTx
-	if pkt.UnsignedTx != nil {
-		txCopy = pkt.UnsignedTx.Copy()
-	}
-	return &psbt.Packet{
-		UnsignedTx: txCopy,
-		Inputs:     fn.CopySlice(pkt.Inputs),
-		Outputs:    fn.CopySlice(pkt.Outputs),
-		XPubs:      fn.CopySlice(pkt.XPubs),
-		Unknowns:   copyUnknowns(pkt.Unknowns),
 	}
 }

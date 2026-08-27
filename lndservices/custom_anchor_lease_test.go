@@ -119,7 +119,9 @@ func TestCustomAnchorLeaseIsScopedToBatch(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, owned)
 	require.Len(t, walletKit.leaseCalls, 1)
-	require.Equal(t, wtxmgr.LockID(leaseIDA), walletKit.leaseCalls[0].LockID)
+	require.Equal(
+		t, wtxmgr.LockID(leaseIDA), walletKit.leaseCalls[0].LockID,
+	)
 
 	// A second batch cannot renew A's lease or release it by presenting its
 	// own owner ID.

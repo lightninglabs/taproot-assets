@@ -19,7 +19,8 @@ type legacyMintingStore struct {
 }
 
 func (l *legacyMintingStore) CommitSignedGenesisTx(_ context.Context,
-	_ *MintingBatch, _ *tapsend.FundedPsbt, _ uint32, _, _, _ []byte) error {
+	_ *MintingBatch, _ *tapsend.FundedPsbt, _ uint32, _, _, _ []byte,
+) error {
 
 	l.commits++
 	return nil
@@ -137,9 +138,11 @@ func TestMintingStoreCompatibilityAdapters(t *testing.T) {
 		require.ErrorContains(t, err, "custom anchor internal keys")
 		require.False(t, partial.stored)
 
-		store := &customMintingStore{internalKeyStore: &internalKeyStore{
-			legacyMintingStore: legacy,
-		}}
+		store := &customMintingStore{
+			internalKeyStore: &internalKeyStore{
+				legacyMintingStore: legacy,
+			},
+		}
 		err = storeSignedGenesisPsbt(
 			t.Context(), store, nil, customPacket,
 		)

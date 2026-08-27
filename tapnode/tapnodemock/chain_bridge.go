@@ -40,8 +40,9 @@ type ChainBridge struct {
 	// It follows the same ConfReqSignal synchronization contract as
 	// ConfReqs.
 	ConfPkScripts map[int][]byte
-	// ConfTxIDs records the transaction ID for each confirmation request. It
-	// follows the same ConfReqSignal synchronization contract as ConfReqs.
+	// ConfTxIDs records the transaction ID for each confirmation request.
+	// It follows the same ConfReqSignal synchronization contract as
+	// ConfReqs.
 	ConfTxIDs map[int]*chainhash.Hash
 
 	// BlocksMu protects concurrent access to Blocks. Readers (GetBlock,
