@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"sync"
+	"time"
 
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -69,15 +70,19 @@ type MultiSubscription struct {
 	// subscribed account, regardless of which mailbox server it belongs to.
 	msgQueue *fn.ConcurrentQueue[*ReceivedMessages]
 
-	// dropSignals carries the serialized receiver keys of message bundles
-	// that were dropped from the shared message queue because the overflow
-	// cap was reached.
-	dropSignals chan asset.SerializedKey
+	// pendingDrops holds the serialized receiver keys whose message
+	// bundles were dropped from the shared message queue and still need a
+	// replay resubscription. The set makes drop coalescing lossless: a
+	// drop is never forgotten just because another receiver's drop is
+	// being handled.
+	pendingDrops dropSet
 
-	// pendingReplays tracks the receiver keys for which a replay
-	// resubscription is currently in flight, so that a burst of drops
-	// only triggers one replay per subscription.
-	pendingReplays map[asset.SerializedKey]bool
+	// dropMu guards pendingDrops.
+	dropMu sync.Mutex
+
+	// dropWake wakes the drop handler when pendingDrops is non-empty. It
+	// is only a wake-up signal; the set above carries the actual state.
+	dropWake chan struct{}
 
 	// startSubscription creates a new receive subscription for a client.
 	// It is a field so that tests can stub it out.
@@ -85,6 +90,14 @@ type MultiSubscription struct {
 		msgChan chan<- *ReceivedMessages,
 		receiverKey keychain.KeyDescriptor,
 		filter MessageFilter) (ReceiveSubscription, error)
+
+	// replayCtx is the parent context for replay resubscriptions. It is
+	// canceled by Stop before waiting for the drop handler, so an
+	// in-flight replay can never block shutdown.
+	replayCtx context.Context
+
+	// replayCancel cancels replayCtx.
+	replayCancel context.CancelFunc
 
 	// quit signals the drop handler goroutine to stop.
 	quit chan struct{}
@@ -101,12 +114,16 @@ func NewMultiSubscription(baseClientConfig ClientConfig) *MultiSubscription {
 		fn.DefaultQueueSize, fn.WithMaxOverflow(maxMsgQueueOverflow),
 	)
 
+	replayCtx, replayCancel := context.WithCancel(context.Background())
+
 	m := &MultiSubscription{
 		baseClientConfig: baseClientConfig,
 		clients:          make(map[url.URL]*clientSubscriptions),
 		msgQueue:         queue,
-		dropSignals:      make(chan asset.SerializedKey, 1),
-		pendingReplays:   make(map[asset.SerializedKey]bool),
+		pendingDrops:     make(dropSet),
+		dropWake:         make(chan struct{}, 1),
+		replayCtx:        replayCtx,
+		replayCancel:     replayCancel,
 		quit:             make(chan struct{}),
 	}
 	m.startSubscription = func(ctx context.Context, client *Client,
@@ -203,8 +220,9 @@ func (m *MultiSubscription) Subscribe(ctx context.Context, serverURL url.URL,
 }
 
 // onQueueDrop is invoked by the shared message queue when a received message
-// bundle is dropped because the overflow cap was reached. It signals the drop
-// handler so the affected subscription can be re-established for a replay.
+// bundle is dropped because the overflow cap was reached. It records the
+// affected receiver and wakes the drop handler so the subscription can be
+// re-established for a replay.
 func (m *MultiSubscription) onQueueDrop(msg *ReceivedMessages) {
 	if msg == nil || msg.Receiver.PubKey == nil {
 		return
@@ -212,27 +230,96 @@ func (m *MultiSubscription) onQueueDrop(msg *ReceivedMessages) {
 
 	key := asset.ToSerialized(msg.Receiver.PubKey)
 
-	// Never block the queue's goroutine; if a signal is already pending,
-	// the replay it triggers will cover this drop as well.
+	// The pending set makes the coalescing lossless: even if the handler
+	// is busy with another receiver, this drop is remembered.
+	m.dropMu.Lock()
+	m.pendingDrops[key] = struct{}{}
+	m.dropMu.Unlock()
+
+	// Never block the queue's goroutine; the wake-up is only a hint, the
+	// pending set carries the actual state.
 	select {
-	case m.dropSignals <- key:
+	case m.dropWake <- struct{}{}:
 	default:
 	}
 }
 
 // dropHandler processes queue drop signals and triggers a replay of the
-// affected subscription.
+// affected subscriptions.
 func (m *MultiSubscription) dropHandler() {
 	defer m.wg.Done()
 
 	for {
 		select {
-		case key := <-m.dropSignals:
-			m.replaySubscription(key)
-
+		case <-m.dropWake:
 		case <-m.quit:
 			return
 		}
+
+		// Wait until the queue has drained before replaying. Replaying
+		// into a still-saturated queue would just drop the replayed
+		// messages again and feed a reconnect loop.
+		if !m.waitForDrain() {
+			return
+		}
+
+		for key := range m.takePendingDrops() {
+			if m.replayCtx.Err() != nil {
+				return
+			}
+
+			m.replaySubscription(key)
+		}
+	}
+}
+
+// waitForDrain blocks until the shared message queue's overflow list is
+// empty, the quit signal fires, or the replay context is canceled. It returns
+// false in the two latter cases.
+func (m *MultiSubscription) waitForDrain() bool {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+
+	for {
+		if m.msgQueue.OverflowLen() == 0 {
+			return true
+		}
+
+		select {
+		case <-ticker.C:
+		case <-m.quit:
+			return false
+		case <-m.replayCtx.Done():
+			return false
+		}
+	}
+}
+
+// dropSet is the set of receiver keys waiting for a replay resubscription.
+type dropSet map[asset.SerializedKey]struct{}
+
+// takePendingDrops atomically collects and clears the set of receiver keys
+// waiting for a replay.
+func (m *MultiSubscription) takePendingDrops() dropSet {
+	m.dropMu.Lock()
+	defer m.dropMu.Unlock()
+
+	keys := m.pendingDrops
+	m.pendingDrops = make(dropSet)
+
+	return keys
+}
+
+// requeueDrop puts a receiver key back into the pending set, so a failed
+// replay is retried after the next drain cycle.
+func (m *MultiSubscription) requeueDrop(key asset.SerializedKey) {
+	m.dropMu.Lock()
+	m.pendingDrops[key] = struct{}{}
+	m.dropMu.Unlock()
+
+	select {
+	case m.dropWake <- struct{}{}:
+	default:
 	}
 }
 
@@ -241,45 +328,28 @@ func (m *MultiSubscription) dropHandler() {
 // subscription's filter from its durable store. This recovers messages that
 // were dropped from the shared message queue under overflow.
 func (m *MultiSubscription) replaySubscription(key asset.SerializedKey) {
+	// Lookup phase: find the client serving this receiver key and tear
+	// down the current subscription. The server keeps undelivered
+	// messages in its durable store, so the brief gap before the new
+	// subscription is up does not lose anything.
 	m.Lock()
-	defer m.Unlock()
 
-	// Only one replay per subscription at a time. Drops that happen while
-	// a replay is in flight are covered by that replay, since the replay
-	// re-fetches everything matching the original filter.
-	if m.pendingReplays[key] {
-		return
-	}
-
-	// Find the client that serves this receiver key.
-	var (
-		client *clientSubscriptions
-		found  bool
-	)
+	var client *clientSubscriptions
 	for _, c := range m.clients {
 		if _, ok := c.params[key]; ok {
 			client = c
-			found = true
 			break
 		}
 	}
-	if !found {
+	if client == nil {
+		m.Unlock()
 		log.Warnf("Dropped mailbox messages for unknown receiver "+
 			"%s, cannot replay", key)
 		return
 	}
 
-	m.pendingReplays[key] = true
-	defer delete(m.pendingReplays, key)
-
 	params := client.params[key]
 
-	log.Infof("Mailbox message queue overflowed, re-establishing "+
-		"subscription for receiver %s to replay dropped messages", key)
-
-	// Cancel the current subscription, then start a fresh one with the
-	// same filter. The server replays all messages matching the filter,
-	// including the dropped ones.
 	if cancel, ok := client.cancels[key]; ok {
 		cancel()
 	}
@@ -288,22 +358,41 @@ func (m *MultiSubscription) replaySubscription(key asset.SerializedKey) {
 			log.Errorf("Error stopping subscription for replay: %v",
 				err)
 		}
-	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+		delete(client.subscriptions, key)
+		delete(client.cancels, key)
+	}
+	m.Unlock()
+
+	log.Infof("Mailbox message queue overflowed, re-establishing "+
+		"subscription for receiver %s to replay dropped messages", key)
+
+	// Network phase: no lock held, and the context is tied to the
+	// MultiSubscription lifetime so a stuck server can never block
+	// shutdown.
+	ctx, cancel := context.WithCancel(m.replayCtx)
 	subscription, err := m.startSubscription(
 		ctx, client.client, m.msgQueue.ChanIn(), params.receiverKey,
 		params.filter,
 	)
 	if err != nil {
 		cancel()
+
 		log.Errorf("Unable to re-establish subscription for "+
 			"receiver %s after queue overflow: %v", key, err)
+
+		// The old subscription is gone and the messages are still
+		// waiting on the server, so retry after the next drain cycle.
+		m.requeueDrop(key)
+
 		return
 	}
 
+	// Swap-in phase.
+	m.Lock()
 	client.subscriptions[key] = subscription
 	client.cancels[key] = cancel
+	m.Unlock()
 }
 
 // MessageChan returns a channel that can be used to receive messages from all
@@ -340,6 +429,11 @@ func (m *MultiSubscription) Stop() error {
 	log.Info("Stopping all mailbox clients and subscriptions...")
 
 	close(m.quit)
+
+	// Cancel the replay context before waiting for the drop handler, so
+	// an in-flight replay resubscription (which may be retrying a
+	// network call) is interrupted and shutdown never hangs on it.
+	m.replayCancel()
 	m.wg.Wait()
 
 	m.RLock()
