@@ -162,6 +162,7 @@ type Querier interface {
 	// timestamp reaches the same row as the migration.
 	FetchMintingBatchesByInverseState(ctx context.Context, batchState int16) ([]FetchMintingBatchesByInverseStateRow, error)
 	FetchMultiverseRoot(ctx context.Context, namespaceRoot string) (FetchMultiverseRootRow, error)
+	FetchOrphanManagedUTXOs(ctx context.Context, arg FetchOrphanManagedUTXOsParams) ([]FetchOrphanManagedUTXOsRow, error)
 	FetchPeerAcceptedBuyPeerByScid(ctx context.Context, scid int64) ([]byte, error)
 	FetchReorgAnchoring(ctx context.Context, id int64) (ReorgAnchoring, error)
 	FetchReorgCandidateSpends(ctx context.Context, anchoringID int64) ([]ReorgCandidateSpend, error)

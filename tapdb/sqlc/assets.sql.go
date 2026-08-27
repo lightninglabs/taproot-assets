@@ -1918,6 +1918,100 @@ func (q *Queries) FetchMintingBatchesByInverseState(ctx context.Context, batchSt
 	return items, nil
 }
 
+const FetchOrphanManagedUTXOs = `-- name: FetchOrphanManagedUTXOs :many
+SELECT
+    utxos.utxo_id, utxos.outpoint, utxos.amt_sats, utxos.internal_key_id, utxos.taproot_asset_root, utxos.tapscript_sibling, utxos.merkle_root, utxos.txn_id, utxos.lease_owner, utxos.lease_expiry, utxos.root_version, utxos.swept_txn_id,
+    keys.key_id, keys.raw_key, keys.key_family, keys.key_index,
+    MAX(CASE
+        WHEN COALESCE(script_keys.key_type, 0) = $1
+        THEN 1 ELSE 0
+    END) = 1 AS needs_asset_validation
+FROM managed_utxos utxos
+JOIN internal_keys keys
+    ON utxos.internal_key_id = keys.key_id
+JOIN assets
+    ON assets.anchor_utxo_id = utxos.utxo_id
+JOIN script_keys
+    ON assets.script_key_id = script_keys.script_key_id
+GROUP BY utxos.utxo_id, keys.key_id
+HAVING SUM(CASE
+    WHEN COALESCE(script_keys.key_type, 0) = $1
+        OR script_keys.key_type = $2
+        OR (
+            script_keys.key_type = $3
+            AND assets.amount = 0
+        )
+    THEN 0 ELSE 1
+END) = 0
+`
+
+type FetchOrphanManagedUTXOsParams struct {
+	UnknownKeyType   sql.NullInt16
+	BurnKeyType      sql.NullInt16
+	TombstoneKeyType sql.NullInt16
+}
+
+type FetchOrphanManagedUTXOsRow struct {
+	UtxoID               int64
+	Outpoint             []byte
+	AmtSats              int64
+	InternalKeyID        int64
+	TaprootAssetRoot     []byte
+	TapscriptSibling     []byte
+	MerkleRoot           []byte
+	TxnID                int64
+	LeaseOwner           []byte
+	LeaseExpiry          sql.NullTime
+	RootVersion          sql.NullInt16
+	SweptTxnID           sql.NullInt64
+	KeyID                int64
+	RawKey               []byte
+	KeyFamily            int32
+	KeyIndex             int32
+	NeedsAssetValidation bool
+}
+
+func (q *Queries) FetchOrphanManagedUTXOs(ctx context.Context, arg FetchOrphanManagedUTXOsParams) ([]FetchOrphanManagedUTXOsRow, error) {
+	rows, err := q.db.QueryContext(ctx, FetchOrphanManagedUTXOs, arg.UnknownKeyType, arg.BurnKeyType, arg.TombstoneKeyType)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FetchOrphanManagedUTXOsRow
+	for rows.Next() {
+		var i FetchOrphanManagedUTXOsRow
+		if err := rows.Scan(
+			&i.UtxoID,
+			&i.Outpoint,
+			&i.AmtSats,
+			&i.InternalKeyID,
+			&i.TaprootAssetRoot,
+			&i.TapscriptSibling,
+			&i.MerkleRoot,
+			&i.TxnID,
+			&i.LeaseOwner,
+			&i.LeaseExpiry,
+			&i.RootVersion,
+			&i.SweptTxnID,
+			&i.KeyID,
+			&i.RawKey,
+			&i.KeyFamily,
+			&i.KeyIndex,
+			&i.NeedsAssetValidation,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const FetchScriptKeyByTweakedKey = `-- name: FetchScriptKeyByTweakedKey :one
 SELECT script_keys.script_key_id, script_keys.internal_key_id, script_keys.tweaked_script_key, script_keys.tweak, script_keys.key_type, internal_keys.key_id, internal_keys.raw_key, internal_keys.key_family, internal_keys.key_index
 FROM script_keys
