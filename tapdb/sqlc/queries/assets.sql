@@ -533,10 +533,17 @@ WHERE (
     @num_offset >= 0 AND
     COALESCE(sqlc.narg('sort_direction'), 0) >= 0 AND
     COALESCE(sqlc.narg('order_by_amount'), 0) >= 0 AND
+    COALESCE(sqlc.narg('use_prev_id_filter'), 0) >= 0 AND
     -- The script_key_type argument must NEVER be an empty slice, otherwise this
     -- query will return no results.
     COALESCE(script_keys.key_type, 0) IN
-      (sqlc.slice('script_key_type')/*SLICE:script_key_type*/)
+      (sqlc.slice('script_key_type')/*SLICE:script_key_type*/) AND
+    (
+        COALESCE(sqlc.narg('use_prev_id_filter'), 0) = 0 OR
+        utxos.outpoint IN (
+            sqlc.slice('prev_id_anchor_points')/*SLICE:prev_id_anchor_points*/
+        )
+    )
 )
 -- The trailing sort by asset_id is what makes this a total order, which the
 -- paging of a bounded listing relies on: without it, rows that compare equal

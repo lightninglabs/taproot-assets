@@ -67,9 +67,10 @@ type CommitmentConstraints struct {
 	// eligible coins are returned first. A value of 0 means no limit, in
 	// which case no specific order is guaranteed.
 	//
-	// This cannot be combined with PrevIDs, as those are filtered for
-	// after the listing, so a bounded listing could return a page that
-	// holds none of the requested inputs.
+	// This cannot be combined with PrevIDs, as their asset ID and script
+	// key components are filtered after the listing. A bounded listing
+	// could return a page holding only other assets from the requested
+	// anchors.
 	CoinLimit int32
 
 	// CoinOffset is the number of coins to skip in a bounded listing. This

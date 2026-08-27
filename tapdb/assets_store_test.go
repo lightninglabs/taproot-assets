@@ -1962,6 +1962,70 @@ func TestListEligibleCoinsBounded(t *testing.T) {
 	require.ErrorContains(t, err, "cannot be combined")
 }
 
+// TestListEligibleCoinsPinnedInputQuery verifies that a pinned-input listing
+// materializes only assets anchored at the requested UTXOs.
+func TestListEligibleCoinsPinnedInputQuery(t *testing.T) {
+	t.Parallel()
+
+	const numAssets = 64
+
+	db := NewTestDB(t)
+	_, assetsStore := newAssetStoreFromDB(db.BaseDB)
+	assetGen := newAssetGenerator(t, numAssets, 1)
+	descs := make([]assetDesc, numAssets)
+	for i := range descs {
+		descs[i] = assetDesc{
+			assetGen:    assetGen.assetGens[i],
+			anchorPoint: assetGen.anchorPoints[i],
+			amt:         uint64(i + 1),
+			noGroupKey:  true,
+		}
+	}
+	assetGen.genAssets(t, assetsStore, descs)
+
+	ctx := context.Background()
+	allCoins, err := assetsStore.ListEligibleCoins(
+		ctx, tapfreighter.CommitmentConstraints{MinAmt: 1},
+	)
+	require.NoError(t, err)
+	require.Len(t, allCoins, numAssets)
+
+	pinned := allCoins[numAssets/2]
+	anchorPoint, err := encodeOutpoint(pinned.AnchorPoint)
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, `
+		DELETE FROM asset_proofs
+		WHERE asset_id NOT IN (
+			SELECT assets.asset_id
+			FROM assets
+			JOIN managed_utxos utxos
+				ON assets.anchor_utxo_id = utxos.utxo_id
+			WHERE utxos.outpoint = $1
+		)`, anchorPoint,
+	)
+	require.NoError(t, err)
+
+	coins, err := assetsStore.ListEligibleCoins(
+		ctx, tapfreighter.CommitmentConstraints{
+			MinAmt:  1,
+			PrevIDs: []asset.PrevID{pinned.PrevID()},
+		},
+	)
+	require.NoError(t, err)
+	require.Len(t, coins, 1)
+	require.Equal(t, pinned.PrevID(), coins[0].PrevID())
+
+	unknownPrevID := pinned.PrevID()
+	unknownPrevID.ScriptKey[0] ^= 1
+	_, err = assetsStore.ListEligibleCoins(
+		ctx, tapfreighter.CommitmentConstraints{
+			MinAmt:  1,
+			PrevIDs: []asset.PrevID{unknownPrevID},
+		},
+	)
+	require.ErrorIs(t, err, tapfreighter.ErrMatchingAssetsNotFound)
+}
+
 // TestListEligibleCoinsBoundedEqualAmounts tests that paging through a bounded
 // eligible coin listing neither repeats nor skips coins when all the coins hold
 // the same amount, which is the case where the amount ordering alone doesn't
