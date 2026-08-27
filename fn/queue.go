@@ -44,12 +44,6 @@ type ConcurrentQueue[T any] struct {
 	maxOverflow int
 	overflowLen atomic.Int64
 
-	// onOverflowDrop is an optional callback that is invoked whenever an
-	// item is dropped from the overflow list because the max overflow cap
-	// was reached. It runs on the queue's goroutine, so it must not
-	// block.
-	onOverflowDrop func(T)
-
 	wg   sync.WaitGroup
 	quit chan struct{}
 }
@@ -80,14 +74,6 @@ func NewConcurrentQueue[T any](bufferSize int,
 // overflow list.
 func (cq *ConcurrentQueue[T]) OverflowLen() int64 {
 	return cq.overflowLen.Load()
-}
-
-// SetOnOverflowDrop registers a callback that is invoked each time an item
-// is dropped from the overflow list due to the max overflow cap. It must be
-// called before Start. The callback runs on the queue's goroutine and must
-// not block.
-func (cq *ConcurrentQueue[T]) SetOnOverflowDrop(cb func(T)) {
-	cq.onOverflowDrop = cb
 }
 
 // ChanIn returns a channel that can be used to push new items into the queue.
@@ -182,14 +168,8 @@ func (cq *ConcurrentQueue[T]) trimOverflow() {
 	if cq.maxOverflow > 0 &&
 		cq.overflow.Len() > cq.maxOverflow {
 
-		front := cq.overflow.Front()
-		dropped := front.Value.(T)
-		cq.overflow.Remove(front)
+		cq.overflow.Remove(cq.overflow.Front())
 		cq.overflowLen.Add(-1)
-
-		if cq.onOverflowDrop != nil {
-			cq.onOverflowDrop(dropped)
-		}
 	}
 }
 
