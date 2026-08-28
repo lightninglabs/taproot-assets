@@ -2163,8 +2163,68 @@ func TestUpsertMintSupplyPreCommit(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestSupplyPreCommitBindRequired verifies that the store rejects a funded
-// supply-commit batch without the payload needed to persist its pre-commitment.
+// TestValidatePreCommitBind exhaustively verifies the correspondence between
+// a funded batch's supply-commit flag and its pre-commit bind payload.
+func TestValidatePreCommitBind(t *testing.T) {
+	t.Parallel()
+
+	noBind := fn.None[tapgarden.PreCommitBindData]()
+
+	testCases := []struct {
+		name              string
+		supplyCommitments bool
+		preCommit         fn.Option[tapgarden.PreCommitBindData]
+		errContains       string
+	}{
+		{
+			name:              "ordinary without bind data",
+			supplyCommitments: false,
+			preCommit:         noBind,
+		},
+		{
+			name:              "ordinary with bind data",
+			supplyCommitments: false,
+			preCommit: fn.Some(
+				tapgarden.PreCommitBindData{},
+			),
+			errContains: "non-supply-commit batch",
+		},
+		{
+			name:              "supply without bind data",
+			supplyCommitments: true,
+			preCommit:         noBind,
+			errContains:       "has no pre-commit bind data",
+		},
+		{
+			name:              "supply with bind data",
+			supplyCommitments: true,
+			preCommit: fn.Some(
+				tapgarden.PreCommitBindData{},
+			),
+		},
+	}
+
+	for _, testCase := range testCases {
+		testCase := testCase
+
+		t.Run(testCase.name, func(t *testing.T) {
+			batch := &tapgarden.MintingBatch{
+				SupplyCommitments: testCase.supplyCommitments,
+			}
+
+			err := validatePreCommitBind(batch, testCase.preCommit)
+			if testCase.errContains == "" {
+				require.NoError(t, err)
+				return
+			}
+
+			require.ErrorContains(t, err, testCase.errContains)
+		})
+	}
+}
+
+// TestSupplyPreCommitBindRequired verifies that CommitMintingBatch applies the
+// bind-payload validation before attempting to persist a funded batch.
 func TestSupplyPreCommitBindRequired(t *testing.T) {
 	t.Parallel()
 

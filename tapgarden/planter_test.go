@@ -2439,6 +2439,114 @@ var _ tapgarden.GenesisTxAugmenter = (*failingConfirmAugmenter)(nil)
 // specific confirmation-side writes while the corresponding flag is
 // set. Tests use it to pin the retry behavior of the confirmation
 // branch around each of its persistence writes.
+// blockingSproutStore exposes the point after the cultivator has staged its
+// sprouts but before AddSproutsToBatch has made them durable.
+type blockingSproutStore struct {
+	tapgarden.BatchStore
+
+	entered     chan struct{}
+	release     chan struct{}
+	releaseOnce sync.Once
+
+	batch         *tapgarden.MintingBatch
+	genesisPacket *tapgarden.FundedMintAnchorPsbt
+	assetRoot     *commitment.TapCommitment
+}
+
+func newBlockingSproutStore(
+	store tapgarden.BatchStore) *blockingSproutStore {
+
+	return &blockingSproutStore{
+		BatchStore: store,
+		entered:    make(chan struct{}),
+		release:    make(chan struct{}),
+	}
+}
+
+func (s *blockingSproutStore) AddSproutsToBatch(ctx context.Context,
+	batch *tapgarden.MintingBatch,
+	genesisPacket *tapgarden.FundedMintAnchorPsbt,
+	assetRoot *commitment.TapCommitment,
+	_ fn.Option[tapgarden.PreCommitBindData]) error {
+
+	s.batch = batch
+	s.genesisPacket = genesisPacket
+	s.assetRoot = assetRoot
+	close(s.entered)
+
+	select {
+	case <-s.release:
+		return fmt.Errorf("simulated sprout persistence failure")
+
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (s *blockingSproutStore) unblock() {
+	s.releaseOnce.Do(func() {
+		close(s.release)
+	})
+}
+
+// TestCopyDoesNotObserveStagedSprouts pins the cultivator's staged-mutation
+// invariant. While the sprout write is blocked, Copy and a fresh database read
+// must both expose the same frozen batch, even though the store has already
+// received the newly computed commitment and genesis packet.
+func TestCopyDoesNotObserveStagedSprouts(t *testing.T) {
+	mintingStore := newMintingStore(t)
+	blockingStore := newBlockingSproutStore(mintingStore)
+	mintTest := newMintingTestHarness(t, mintingStore)
+	mintTest.batchStore = blockingStore
+	mintTest.refreshChainPlanter()
+
+	t.Cleanup(func() {
+		blockingStore.unblock()
+		require.NoError(t, mintTest.planter.Stop())
+	})
+
+	_ = mintTest.queueInitialBatch(1)
+
+	var (
+		wg       sync.WaitGroup
+		respChan = make(chan *FinalizeBatchResp, 1)
+	)
+	mintTest.finalizeBatch(&wg, respChan, nil)
+	_ = mintTest.assertGenesisTxFunded(nil)
+
+	select {
+	case <-blockingStore.entered:
+	case <-time.After(defaultTimeout):
+		t.Fatal("cultivator did not reach the sprout persistence " +
+			"boundary")
+	}
+
+	require.NotNil(t, blockingStore.batch)
+	require.NotNil(t, blockingStore.genesisPacket)
+	require.NotNil(t, blockingStore.assetRoot)
+
+	liveCopy, err := blockingStore.batch.Copy()
+	require.NoError(t, err)
+	diskBatch := mintTest.fetchSingleBatch(liveCopy.BatchKey.PubKey)
+
+	require.Equal(t, tapgarden.BatchStateFrozen, liveCopy.State())
+	require.Equal(t, diskBatch.State(), liveCopy.State())
+	require.Nil(t, liveCopy.RootAssetCommitment)
+	require.Nil(t, diskBatch.RootAssetCommitment)
+	require.NotNil(t, liveCopy.GenesisPacket)
+	require.NotNil(t, diskBatch.GenesisPacket)
+
+	var livePSBT, diskPSBT bytes.Buffer
+	require.NoError(t, liveCopy.GenesisPacket.Pkt.Serialize(&livePSBT))
+	require.NoError(t, diskBatch.GenesisPacket.Pkt.Serialize(&diskPSBT))
+	require.Equal(t, diskPSBT.Bytes(), livePSBT.Bytes())
+
+	blockingStore.unblock()
+	mintTest.assertFinalizeBatch(
+		&wg, respChan, "simulated sprout persistence failure",
+	)
+}
+
 type failingBatchStore struct {
 	tapgarden.BatchStore
 
