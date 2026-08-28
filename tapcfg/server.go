@@ -33,6 +33,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapreorg"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/universe"
+	"github.com/lightninglabs/taproot-assets/universe/mintpublish"
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
 	"github.com/lightninglabs/taproot-assets/universe/supplyverifier"
 	"github.com/lightningnetwork/lnd/clock"
@@ -234,7 +235,7 @@ func genServerConfig(ctx context.Context, cfg *Config,
 	headerVerifier := tapnode.GenHeaderVerifier(
 		context.Background(), chainBridge,
 	)
-	groupVerifier := tapgarden.GenGroupVerifier(
+	groupVerifier := tapnode.GenGroupVerifier(
 		context.Background(), assetMintingStore,
 	)
 
@@ -832,6 +833,21 @@ func genServerConfig(ctx context.Context, cfg *Config,
 			ProofWatcher:       reOrgWatcher,
 		},
 	)
+	genesisAugmenter, err := supplycommit.NewGenesisAugmenter(
+		supplycommit.GenesisAugmenterCfg{
+			PreCommitStore: tapdb.NewSupplyPreCommitStore(
+				mintingStore,
+			),
+			KeyRing:              keyRing,
+			DelegationKeyChecker: addrBook,
+			MintEvents:           supplyCommitManager,
+			ChainParams:          tapChainParams,
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create genesis augmenter: %w",
+			err)
+	}
 
 	// nolint: lll
 	return &tapconfig.Config{
@@ -845,22 +861,23 @@ func genServerConfig(ctx context.Context, cfg *Config,
 		AssetMinter: tapgarden.NewChainPlanter(tapgarden.PlanterConfig{
 			// nolint: lll
 			GardenKit: tapgarden.GardenKit{
-				Wallet:                walletAnchor,
-				ChainBridge:           chainBridge,
-				BatchStore:            assetMintingStore,
-				MintingRefs:           assetMintingStore,
-				TreeStore:             assetMintingStore,
-				KeyRing:               keyRing,
-				GenSigner:             virtualTxSigner,
-				GenTxBuilder:          &tapscript.GroupTxBuilder{},
-				TxValidator:           &tap.ValidatorV0{},
-				ProofFiles:            proofFileStore,
-				Universe:              universeFederation,
-				ProofWatcher:          reOrgWatcher,
-				UniversePushBatchSize: defaultUniverseSyncBatchSize,
-				IgnoreChecker:         ignoreCheckerOpt,
-				MintSupplyCommitter:   supplyCommitManager,
-				DelegationKeyChecker:  addrBook,
+				Wallet:       walletAnchor,
+				ChainBridge:  chainBridge,
+				BatchStore:   assetMintingStore,
+				MintingRefs:  assetMintingStore,
+				TreeStore:    assetMintingStore,
+				KeyRing:      keyRing,
+				GenSigner:    virtualTxSigner,
+				GenTxBuilder: &tapscript.GroupTxBuilder{},
+				TxValidator:  &tap.ValidatorV0{},
+				ProofFiles:   proofFileStore,
+				MintProofPublisher: mintpublish.NewPublisher(
+					universeFederation,
+					defaultUniverseSyncBatchSize,
+				),
+				ProofWatcher:       reOrgWatcher,
+				IgnoreChecker:      ignoreCheckerOpt,
+				GenesisTxAugmenter: genesisAugmenter,
 			},
 			ChainParams:  tapChainParams,
 			ProofUpdates: proofArchive,

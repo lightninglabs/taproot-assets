@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS mint_supply_pre_commits_unique_batch;

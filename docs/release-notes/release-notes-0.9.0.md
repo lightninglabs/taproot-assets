@@ -60,12 +60,37 @@
 
 * [PR#2247](https://github.com/lightninglabs/taproot-assets/pull/2247)
   fixes several latent bugs in asset minting. Note for operators:
-  database migration 63 deduplicates the supply-update event log.
+  database migration 65 deduplicates the supply-update event log.
   Duplicate rows produced by a now-fixed double-counting bug are
   deleted, and any pending supply-commit transition left empty by that
   cleanup is removed, with its state machine reset to the default
   state. The next supply update for the affected asset group simply
   starts a fresh commitment cycle.
+
+* [PR#2259](https://github.com/lightninglabs/taproot-assets/pull/2259)
+  makes supply-commit mint event emission atomic with mint
+  confirmation: on a failed augmenter call the batch stays in
+  Broadcast and the confirmation is retried, in place and across
+  restarts, instead of completing the mint while still owing the
+  supply-commit event. A failed delegation-key lookup is likewise an
+  error rather than a silent drop of the asset from emission. The
+  `event_key` dedup index (migration 64) keeps retries idempotent.
+  Note for operators: database migration 66 enforces that a minting
+  batch has at most one supply pre-commitment output.
+
+* [PR#2259](https://github.com/lightninglabs/taproot-assets/pull/2259)
+  closes several deadlock and race hazards in the minting pipeline: a
+  batch cancellation request arriving after the batch's worker has
+  already finished no longer hangs the planter until shutdown; a mint
+  request arriving while an earlier batch is still in a pre-broadcast
+  state -- resumed at startup, or left orphaned on disk -- is refused
+  with a clear error before any wallet inputs are leased, instead of
+  tripping the batch singleton index with a raw SQL error; wallet
+  inputs leased while funding a batch are released again when a later
+  funding step fails; and the confirmation path no longer mutates the
+  in-memory batch ahead of the corresponding database writes, so a
+  concurrent batch snapshot can never observe state that disk does
+  not yet hold.
 
 # New Features
 
@@ -127,6 +152,17 @@
 
 ## Breaking Changes
 
+* [PR#2259](https://github.com/lightninglabs/taproot-assets/pull/2259)
+  changes the exported Go API of `tapgarden`; RPC and database
+  interfaces are unaffected. The `Planter` interface is removed, and
+  configuration structs that previously held a `tapgarden.Planter`
+  (the `AssetMinter` fields in `tapconfig` and `monitoring`) now hold
+  the concrete `*tapgarden.ChainPlanter`. `FundBatch` returns
+  `*VerboseBatch` directly instead of the former `FundBatchResp`
+  wrapper, and `PendingAssetGroup`'s embedded `asset.GroupKeyRequest`
+  and `asset.GroupVirtualTx` are now the named fields `KeyRequest`
+  and `VirtualTx`.
+
 ## Performance Improvements
 
 * [PR#2251](https://github.com/lightninglabs/taproot-assets/pull/2251)
@@ -168,6 +204,14 @@
 
 * [PR#2247](https://github.com/lightninglabs/taproot-assets/pull/2247)
   simplifies the internals of the minting state machine.
+
+* [PR#2259](https://github.com/lightninglabs/taproot-assets/pull/2259)
+  routes supply-commit participation and universe publication
+  through new `GenesisTxAugmenter` and `MintProofPublisher`
+  interfaces so the two concerns evolve independently of the minting
+  state machine. The group-verifier generators similarly move out of
+  `tapgarden` into `tapnode`, alongside the rest of the
+  proof-verifier code.
 
 ## Tooling and Documentation
 
