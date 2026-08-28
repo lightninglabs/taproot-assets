@@ -6,7 +6,7 @@ require (
 	github.com/btcsuite/btcd v0.26.0
 	github.com/btcsuite/btcd/address/v2 v2.0.0
 	github.com/btcsuite/btcd/btcec/v2 v2.5.0
-	github.com/btcsuite/btcd/btcutil v1.1.6
+	github.com/btcsuite/btcd/btcutil v1.2.0
 	github.com/btcsuite/btcd/btcutil/v2 v2.0.0
 	github.com/btcsuite/btcd/chaincfg/v2 v2.0.0
 	github.com/btcsuite/btcd/chainhash/v2 v2.0.0
@@ -36,7 +36,7 @@ require (
 	github.com/lightninglabs/lndclient v1.0.1-0.20260701212139-09c54915cfba
 	github.com/lightninglabs/neutrino/cache v1.1.4
 	github.com/lightninglabs/taproot-assets/taprpc v1.1.0
-	github.com/lightningnetwork/lnd v0.21.0-beta.rc2.0.20260630214209-40c64f9db30d
+	github.com/lightningnetwork/lnd v0.21.0-beta.rc2.0.20260828135403-cb58f8bb3d5c
 	github.com/lightningnetwork/lnd/cert v1.2.2
 	github.com/lightningnetwork/lnd/clock v1.1.1
 	github.com/lightningnetwork/lnd/fn/v2 v2.0.9

@@ -1302,6 +1302,24 @@ func (s *Server) IsCustomHTLC(htlcRecords lnwire.CustomRecords) bool {
 	return rfqmsg.HasAssetHTLCCustomRecords(htlcRecords)
 }
 
+// AuxCloseShape returns the fee-independent shape of the auxiliary close
+// outputs required to close a channel.
+//
+// NOTE: This method is part of the types.AuxChanCloser interface.
+func (s *Server) AuxCloseShape(
+	desc types.AuxCloseShapeDesc) (lfn.Option[chancloser.AuxCloseShape],
+	error) {
+
+	srvrLog.Tracef("AuxCloseShape called, desc=%v",
+		lnutils.SpewLogClosure(desc))
+
+	if err := s.waitForReady(); err != nil {
+		return lfn.None[chancloser.AuxCloseShape](), err
+	}
+
+	return s.cfg.AuxChanCloser.AuxCloseShape(desc)
+}
+
 // AuxCloseOutputs returns the set of close outputs to use for this co-op close
 // attempt. We'll add some extra outputs to the co-op close transaction, and
 // also give the caller a custom sorting routine.
