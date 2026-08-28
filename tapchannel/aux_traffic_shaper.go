@@ -122,6 +122,24 @@ func (s *AuxTrafficShaper) ShouldHandleTraffic(cid lnwire.ShortChannelID,
 // is no bandwidth available. To find out if a channel is a custom channel that
 // should be handled by the traffic shaper, the HandleTraffic method should be
 // called first.
+// onChainHtlcAmt returns the on-chain BTC amount an asset HTLC to the given
+// peer carries: the deterministic-HTLC carrier value (which funds the
+// pre-signed second-level fee, its CPFP anchor and the eventual sweep) when
+// the peer negotiated DeterministicHTLCs, and the legacy just-above-dust
+// value otherwise. Channels without the feature get nothing in return for a
+// larger carrier, so they must not pay for it (nor have their minimum
+// quotable payment raised by it).
+func (s *AuxTrafficShaper) onChainHtlcAmt(
+	peer route.Vertex) lnwire.MilliSatoshi {
+
+	features := s.cfg.AuxChanNegotiator.GetPeerFeatures(peer)
+	if features.HasFeature(tapfeatures.DeterministicHTLCsOptional) {
+		return rfqmath.DefaultOnChainHtlcMSat
+	}
+
+	return rfqmath.LegacyOnChainHtlcMSat
+}
+
 func (s *AuxTrafficShaper) PaymentBandwidth(fundingBlob, htlcBlob,
 	commitmentBlob lfn.Option[tlv.Blob], linkBandwidth,
 	htlcAmt lnwire.MilliSatoshi, htlcView lnwallet.AuxHtlcView,
@@ -202,8 +220,8 @@ func (s *AuxTrafficShaper) PaymentBandwidth(fundingBlob, htlcBlob,
 			return prettyPrintLocalView(*decodedView)
 		}))
 
-	// Get the minimum HTLC amount, which is just above dust.
-	minHtlcAmt := rfqmath.DefaultOnChainHtlcMSat
+	// Get the minimum HTLC amount this channel's HTLCs carry on-chain.
+	minHtlcAmt := s.onChainHtlcAmt(peer)
 
 	// LND calls this hook twice. Once to see if the overall budget of the
 	// node is enough, and then during pathfinding to actually see if
@@ -590,9 +608,10 @@ func (s *AuxTrafficShaper) ProduceHtlcExtraData(totalAmount lnwire.MilliSatoshi,
 	}
 
 	// Encode the updated HTLC TLV back into a blob and return it with the
-	// amount that should be sent on-chain, which is a value in satoshi that
-	// is just above the dust limit.
-	htlcAmountMSat := rfqmath.DefaultOnChainHtlcMSat
+	// amount that should be sent on-chain: the deterministic-HTLC carrier
+	// value when the peer negotiated DeterministicHTLCs, the legacy
+	// just-above-dust value otherwise.
+	htlcAmountMSat := s.onChainHtlcAmt(peer)
 
 	// Now we set the flag that marks this HTLC as a noop_add, which means
 	// that the above dust will eventually return to us. This means that

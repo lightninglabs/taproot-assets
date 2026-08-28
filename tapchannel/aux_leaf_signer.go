@@ -24,7 +24,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/vm"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
-	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -235,8 +234,12 @@ func VerifySecondLevelSigs(chainParams *address.ChainParams,
 			verifyJobs[idx].BaseAuxJob,
 		)
 		if err != nil {
-			return fmt.Errorf("error verifying second level sig: "+
-				"%w", err)
+			return fmt.Errorf("error verifying second "+
+				"level sig (idx=%d htlcIdx=%d "+
+				"incoming=%v whoseCommit=%v): %w",
+				idx, verifyJob.HTLC.HtlcIndex,
+				verifyJob.Incoming,
+				verifyJob.WhoseCommit, err)
 		}
 	}
 
@@ -302,7 +305,12 @@ func (s *AuxLeafSigner) processAuxSigBatch(chanState lnwallet.AuxChanState,
 			htlcs       = com.OutgoingHtlcAssets.Val.HtlcOutputs
 			htlcOutputs []*cmsg.AssetOutput
 		)
-		if sigJob.Incoming {
+		// Use IncomingHTLCLookup (not Incoming) to find the
+		// asset outputs. Incoming controls the script variant,
+		// while IncomingHTLCLookup controls which HTLC asset
+		// list to search. These differ for revocation self-
+		// signing where the Incoming flag is flipped.
+		if sigJob.IncomingHTLCLookup {
 			htlcs = com.IncomingHtlcAssets.Val.HtlcOutputs
 		}
 		for outIndex := range htlcs {
@@ -328,6 +336,9 @@ func (s *AuxLeafSigner) processAuxSigBatch(chanState lnwallet.AuxChanState,
 				return
 			}
 		}
+
+		// NOTE: The blob's stored script keys are already correct
+		// for the commitment being revoked. No override needed.
 
 		resp, err := s.generateHtlcSignature(
 			chanState, commitTx, htlcOutputs, sigJob.SignDesc,
@@ -361,17 +372,23 @@ func verifyHtlcSignature(chainParams *address.ChainParams,
 	keyRing lnwallet.CommitmentKeyRing, sigs []*cmsg.AssetSig,
 	htlcOutputs []*cmsg.AssetOutput, baseJob lnwallet.BaseAuxJob) error {
 
-	// If we're validating a signature for an outgoing HTLC, then it's an
-	// outgoing HTLC for the remote party, so we'll need to sign it with the
-	// proper lock time.
-	var htlcTimeout fn.Option[uint32]
-	if !baseJob.Incoming {
-		htlcTimeout = fn.Some(baseJob.HTLC.Timeout)
-	}
+	// The job carries the timeout to use explicitly: lnd sets it for both
+	// the CommitSig flow (derived from the HTLC direction) and the
+	// revocation flow (derived from the primary/alt path split). We must
+	// NOT re-derive it from the direction here: a revocation job for the
+	// success path deliberately carries None (the canonical success
+	// transition has no locktime), and restoring the timeout would make
+	// signing and verification agree with each other but diverge from
+	// the transition the sweeper later reconstructs.
+	htlcTimeout := fn.None[uint32]()
+	baseJob.HtlcTimeout.WhenSome(func(v uint32) {
+		htlcTimeout = fn.Some(v)
+	})
 
 	vPackets, err := htlcSecondLevelPacketsFromCommit(
 		chainParams, chanState, commitTx, baseJob.KeyRing, htlcOutputs,
 		baseJob, htlcTimeout, baseJob.HTLC.HtlcIndex,
+		sigHashDefaultFromCommitBlob(baseJob.CommitBlob),
 	)
 	if err != nil {
 		return fmt.Errorf("error generating second level packets: %w",
@@ -410,9 +427,10 @@ func verifyHtlcSignature(chainParams *address.ChainParams,
 			return err
 		}
 
-		// We are always verifying the signature of the remote party,
-		// which are for our commitment transaction.
-		const whoseCommit = lntypes.Local
+		// Use the WhoseCommit field from the job. For the normal
+		// CommitSig verification flow this is Local (verifying
+		// remote's sigs on our commitment).
+		whoseCommit := baseJob.WhoseCommit
 
 		htlcScript, err := lnwallet.GenTaprootHtlcScript(
 			baseJob.Incoming, whoseCommit, baseJob.HTLC.Timeout,
@@ -424,8 +442,10 @@ func verifyHtlcSignature(chainParams *address.ChainParams,
 				"verify second level: %w", err)
 		}
 
+		wsToSign := htlcScript.WitnessScriptToSign()
+
 		leafToVerify := txscript.TapLeaf{
-			Script:      htlcScript.WitnessScriptToSign(),
+			Script:      wsToSign,
 			LeafVersion: txscript.BaseLeafVersion,
 		}
 		validator := &schnorrSigValidator{
@@ -456,52 +476,70 @@ func verifyHtlcSignature(chainParams *address.ChainParams,
 // applySignDescToVIn applies the sign descriptor to the virtual input. This
 // entails updating all the input bip32, taproot, and witness fields with the
 // information from the sign descriptor. This function returns the public key
-// that should be used to verify the generated signature, and also the leaf to
-// be signed.
+// that should be used to verify the generated signature. For scriptspend, it
+// also returns the leaf to be signed. For breach scenarios (keyspend), the
+// leaf will be empty.
+//
+// The isBreach parameter must be true when the input is spent as part of a
+// breach (justice) key spend: the signer then derives the signing key by
+// applying both the revocation DoubleTweak and the HTLC index SingleTweak,
+// and no leaf script is attached to the input. Callers supply this from the
+// sweep descriptor context (the resolution type, equivalently the absence of
+// a control block), so there is a single source of truth for the decision
+// rather than re-deriving it here from tweak presence.
 func applySignDescToVIn(signDesc input.SignDescriptor, vIn *tappsbt.VInput,
-	chainParams *address.ChainParams,
-	tapscriptRoot []byte) (btcec.PublicKey, txscript.TapLeaf) {
+	chainParams *address.ChainParams, tapscriptRoot []byte,
+	isBreach bool) (btcec.PublicKey, txscript.TapLeaf) {
 
-	leafToSign := txscript.TapLeaf{
-		Script:      signDesc.WitnessScript,
-		LeafVersion: txscript.BaseLeafVersion,
-	}
-	vIn.TaprootLeafScript = []*psbt.TaprootTapLeafScript{
-		{
-			Script:      leafToSign.Script,
-			LeafVersion: leafToSign.LeafVersion,
-		},
-	}
+	var leafToSign txscript.TapLeaf
 
+	// Set up derivation paths for the key.
 	deriv, trDeriv := tappsbt.Bip32DerivationFromKeyDesc(
 		signDesc.KeyDesc, chainParams.HDCoinType,
 	)
 	vIn.Bip32Derivation = []*psbt.Bip32Derivation{deriv}
-	vIn.TaprootBip32Derivation = []*psbt.TaprootBip32Derivation{
-		trDeriv,
+	vIn.TaprootBip32Derivation = []*psbt.TaprootBip32Derivation{trDeriv}
+
+	if !isBreach {
+		// For normal sweeps (scriptspend), set up the leaf script.
+		leafToSign = txscript.TapLeaf{
+			Script:      signDesc.WitnessScript,
+			LeafVersion: txscript.BaseLeafVersion,
+		}
+		vIn.TaprootLeafScript = []*psbt.TaprootTapLeafScript{
+			{
+				Script:      leafToSign.Script,
+				LeafVersion: leafToSign.LeafVersion,
+			},
+		}
+		vIn.TaprootBip32Derivation[0].LeafHashes = [][]byte{
+			fn.ByteSlice(leafToSign.TapHash()),
+		}
 	}
-	vIn.TaprootBip32Derivation[0].LeafHashes = [][]byte{
-		fn.ByteSlice(leafToSign.TapHash()),
-	}
+
 	vIn.SighashType = signDesc.HashType
 	vIn.TaprootMerkleRoot = tapscriptRoot
 
-	// Apply single or double tweaks if present in the sign
-	// descriptor. At the same time, we apply the tweaks to a copy
-	// of the public key, so we can validate the produced signature.
+	// Apply single or double tweaks if present in the sign descriptor. At
+	// the same time, we apply the tweaks to a copy of the public key, so we
+	// can validate the produced signature.
+	//
+	// For breach scenarios, both DoubleTweak and SingleTweak are present
+	// and both are added to the PSBT unknowns keyed by their type. Two
+	// distinct lnd signer paths consume this pair and BOTH must combine
+	// them (double/revocation first, then single/HTLC index, since
+	// DeriveRevocationPrivKey hashes its input key and the operations do
+	// not commute): maybeTweakPrivKey in lnwallet/btcwallet/signer.go
+	// (local signer, reads the SignDescriptor fields) and
+	// maybeTweakPrivKeyPsbt in lnwallet/btcwallet/psbt.go (remote
+	// signer, reads these unknowns). The verification public key derived
+	// below applies the same order.
+	//
+	// For normal force closes, only one tweak is present at a time.
 	signingKey := signDesc.KeyDesc.PubKey
-	if len(signDesc.SingleTweak) > 0 {
-		key := btcwallet.PsbtKeyTypeInputSignatureTweakSingle
-		vIn.Unknowns = append(vIn.Unknowns, &psbt.Unknown{
-			Key:   key,
-			Value: signDesc.SingleTweak,
-		})
 
-		signingKey = input.TweakPubKeyWithTweak(
-			signingKey, signDesc.SingleTweak,
-		)
-	}
-	if signDesc.DoubleTweak != nil {
+	if isBreach {
+		// Breach scenario: set both tweaks in PSBT unknowns.
 		key := btcwallet.PsbtKeyTypeInputSignatureTweakDouble
 		vIn.Unknowns = append(vIn.Unknowns, &psbt.Unknown{
 			Key:   key,
@@ -511,6 +549,41 @@ func applySignDescToVIn(signDesc input.SignDescriptor, vIn *tappsbt.VInput,
 		signingKey = input.DeriveRevocationPubkey(
 			signingKey, signDesc.DoubleTweak.PubKey(),
 		)
+
+		key = btcwallet.PsbtKeyTypeInputSignatureTweakSingle
+		vIn.Unknowns = append(vIn.Unknowns, &psbt.Unknown{
+			Key:   key,
+			Value: signDesc.SingleTweak,
+		})
+
+		signingKey = input.TweakPubKeyWithTweak(
+			signingKey, signDesc.SingleTweak,
+		)
+	} else {
+		// Normal force close: Apply tweaks in the original order.
+		// Apply SingleTweak first (if present), then DoubleTweak.
+		if len(signDesc.SingleTweak) > 0 {
+			key := btcwallet.PsbtKeyTypeInputSignatureTweakSingle
+			vIn.Unknowns = append(vIn.Unknowns, &psbt.Unknown{
+				Key:   key,
+				Value: signDesc.SingleTweak,
+			})
+
+			signingKey = input.TweakPubKeyWithTweak(
+				signingKey, signDesc.SingleTweak,
+			)
+		}
+		if signDesc.DoubleTweak != nil {
+			key := btcwallet.PsbtKeyTypeInputSignatureTweakDouble
+			vIn.Unknowns = append(vIn.Unknowns, &psbt.Unknown{
+				Key:   key,
+				Value: signDesc.DoubleTweak.Serialize(),
+			})
+
+			signingKey = input.DeriveRevocationPubkey(
+				signingKey, signDesc.DoubleTweak.PubKey(),
+			)
+		}
 	}
 
 	return *signingKey, leafToSign
@@ -523,26 +596,28 @@ func (s *AuxLeafSigner) generateHtlcSignature(chanState lnwallet.AuxChanState,
 	signDesc input.SignDescriptor,
 	baseJob lnwallet.BaseAuxJob) (lnwallet.AuxSigJobResp, error) {
 
-	// If we're generating a signature for an incoming HTLC, then it's an
-	// outgoing HTLC for the remote party, so we'll need to sign it with the
-	// proper lock time.
-	var htlcTimeout fn.Option[uint32]
-	if baseJob.Incoming {
-		htlcTimeout = fn.Some(baseJob.HTLC.Timeout)
-	}
+	// The job carries the timeout to use explicitly (see
+	// verifyHtlcSignature for why it must not be re-derived from the
+	// HTLC direction here).
+	htlcTimeout := fn.None[uint32]()
+	baseJob.HtlcTimeout.WhenSome(func(v uint32) {
+		htlcTimeout = fn.Some(v)
+	})
 
 	vPackets, err := htlcSecondLevelPacketsFromCommit(
 		s.cfg.ChainParams, chanState, commitTx, baseJob.KeyRing,
 		htlcOutputs, baseJob, htlcTimeout, baseJob.HTLC.HtlcIndex,
+		sigHashDefaultFromCommitBlob(baseJob.CommitBlob),
 	)
 	if err != nil {
 		return lnwallet.AuxSigJobResp{}, fmt.Errorf("error generating "+
 			"second level packets: %w", err)
 	}
 
-	// We are always signing the commitment transaction of the remote party,
-	// which is why we set whoseCommit to remote.
-	const whoseCommit = lntypes.Remote
+	// Use the WhoseCommit field from the job to determine which
+	// party's commitment we're signing. For the normal CommitSig
+	// flow this is Remote; for revocation self-signing this is Local.
+	whoseCommit := baseJob.WhoseCommit
 
 	htlcScript, err := lnwallet.GenTaprootHtlcScript(
 		baseJob.Incoming, whoseCommit, baseJob.HTLC.Timeout,
@@ -556,12 +631,19 @@ func (s *AuxLeafSigner) generateHtlcSignature(chanState lnwallet.AuxChanState,
 
 	tapscriptRoot := htlcScript.TapscriptRoot
 
+	// Note: signDesc.WitnessScript comes from the SignJob (BTC-level).
+	// For normal CommitSig, it matches htlcScript.WitnessScriptToSign().
+	// For revocation self-signing, it may differ (Local vs Remote
+	// perspective). The signDesc's leaf is what the signer actually
+	// signs over.
+
 	var sigs []*cmsg.AssetSig
 	for _, vPacket := range vPackets {
 		vIn := vPacket.Inputs[0]
 
 		signingKey, leafToSign := applySignDescToVIn(
 			signDesc, vIn, s.cfg.ChainParams, tapscriptRoot,
+			false,
 		)
 
 		// We can now sign this virtual packet, as we've given the
@@ -623,11 +705,13 @@ func htlcSecondLevelPacketsFromCommit(chainParams *address.ChainParams,
 	chanState lnwallet.AuxChanState, commitTx *wire.MsgTx,
 	keyRing lnwallet.CommitmentKeyRing, htlcOutputs []*cmsg.AssetOutput,
 	baseJob lnwallet.BaseAuxJob, htlcTimeout fn.Option[uint32],
-	htlcIndex uint64) ([]*tappsbt.VPacket, error) {
+	htlcIndex uint64,
+	addAnchor bool) ([]*tappsbt.VPacket, error) {
 
 	packets, _, err := CreateSecondLevelHtlcPackets(
 		chanState, commitTx, baseJob.HTLC.Amount.ToSatoshis(),
 		keyRing, chainParams, htlcOutputs, htlcTimeout, htlcIndex,
+		addAnchor,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error creating second level HTLC "+
@@ -635,6 +719,25 @@ func htlcSecondLevelPacketsFromCommit(chainParams *address.ChainParams,
 	}
 
 	return packets, nil
+}
+
+// sigHashDefaultFromCommitBlob extracts the cached DeterministicHTLCs
+// flag from a commitment blob. Returns false when the blob is absent or
+// malformed (the safe default: no anchor on the 2nd-level tx).
+func sigHashDefaultFromCommitBlob(
+	blob lfn.Option[tlv.Blob]) bool {
+
+	raw, err := blob.UnwrapOrErr(fmt.Errorf("no commit blob"))
+	if err != nil {
+		return false
+	}
+
+	c, err := cmsg.DecodeCommitment(raw)
+	if err != nil {
+		return false
+	}
+
+	return c.SigHashDefault.Val
 }
 
 // schnorrSigValidator validates a single Schnorr signature against the given

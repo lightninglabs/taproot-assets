@@ -26,7 +26,17 @@ import (
 // that may carry relatively small bitcoin amounts, we want to bump the allowed
 // ratio between fees paid and total produced output amount. This can prove
 // useful in high fee environments where we'd otherwise fail to fund the psbt.
-const DefaultPsbtMaxFeeRatio = 0.75
+// Values > 1.0 are valid here: spending tiny asset-bearing UTXOs (e.g.
+// post-sweep outputs near dust) can produce txs where the fee is several
+// times the total output BTC value.
+const DefaultPsbtMaxFeeRatio = 5.0
+
+// MaxPsbtMaxFeeRatio is the hard ceiling for the configurable
+// psbt-max-fee-ratio. It matches lnd's own FundPsbt sanity-check ceiling:
+// any larger value would be rejected by lnd on every funding attempt, and a
+// fat-fingered config value (e.g. 50 instead of 5.0) would otherwise
+// silently authorize burning many times the output value in fees.
+const MaxPsbtMaxFeeRatio = 5.0
 
 // LndRpcWalletAnchor is an implementation of the tapnode.WalletAnchor
 // interfaced backed by an active remote lnd node.

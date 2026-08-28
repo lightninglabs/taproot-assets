@@ -3,14 +3,30 @@ package tapchannel
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"net/url"
+	"slices"
 	"testing"
 
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/psbt/v2"
+	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
+	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/asset"
+	tapfn "github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapnode"
+	"github.com/lightninglabs/taproot-assets/tappsbt"
+	"github.com/lightninglabs/taproot-assets/tapsend"
+	"github.com/lightningnetwork/lnd/channeldb"
+	lfn "github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
 )
@@ -343,4 +359,343 @@ func TestAuxSweeperStop(t *testing.T) {
 
 	// A second stop must be a no-op instead of a double close.
 	require.NoError(t, sweeper.Stop())
+}
+
+// TestRevocationSweepDescSignVerify tests that the revocation sweep descriptor
+// functions produce taproot output keys consistent with the signing key derived
+// from the same base material. For each revocation type (offered, accepted,
+// second-level), it performs a full sign+verify round-trip using the same
+// routines used in production to create the scripts and derive the keys.
+func TestRevocationSweepDescSignVerify(t *testing.T) {
+	t.Parallel()
+
+	// Generate base key material. In production, revokeBasePriv is our
+	// revocation base point secret, and commitSecret is the per-commitment
+	// secret revealed when the remote party broadcasts a revoked
+	// commitment.
+	revokeBasePriv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	commitSecret, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	// Generate HTLC keys and delay key for the commitment keyring.
+	localHtlcPriv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	remoteHtlcPriv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	toLocalPriv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	// Derive the revocation public key using the standard LND routine.
+	// This key becomes the internal key of all HTLC taproot outputs.
+	revocationKey := input.DeriveRevocationPubkey(
+		revokeBasePriv.PubKey(), commitSecret.PubKey(),
+	)
+
+	keyRing := &lnwallet.CommitmentKeyRing{
+		RevocationKey: revocationKey,
+		LocalHtlcKey:  localHtlcPriv.PubKey(),
+		RemoteHtlcKey: remoteHtlcPriv.PubKey(),
+		ToLocalKey:    toLocalPriv.PubKey(),
+	}
+
+	payHash := sha256.Sum256([]byte("test preimage"))
+	htlcIndex := input.HtlcIndex(42)
+	csvDelay := uint32(144)
+	htlcExpiry := uint32(800_000)
+
+	// Derive the signing private key that the LND signer computes when
+	// processing a breach sweep:
+	// 1. DeriveRevocationPrivKey (DoubleTweak) — recovers the revocation
+	//    private key from our base secret and the revealed commit secret.
+	// 2. TweakPrivKey with HTLC index (SingleTweak) — applies the
+	//    asset-level HTLC index tweak.
+	revocationPriv := input.DeriveRevocationPrivKey(
+		revokeBasePriv, commitSecret,
+	)
+
+	tweakScalar := ScriptKeyTweakFromHtlcIndex(htlcIndex)
+	var singleTweak [32]byte
+	tweakScalar.PutBytesUnchecked(singleTweak[:])
+	signingPriv := input.TweakPrivKey(revocationPriv, singleTweak[:])
+
+	// Verify that the private key tweak path is consistent with the public
+	// key tweak path. This confirms that TweakPrivKey + SingleTweak on the
+	// private side produces the same result as TweakPubKeyWithTweak on the
+	// public side.
+	derivedInternalKey := input.TweakPubKeyWithTweak(
+		revocationKey, singleTweak[:],
+	)
+	require.Equal(
+		t, derivedInternalKey.SerializeCompressed(),
+		signingPriv.PubKey().SerializeCompressed(),
+		"private key tweak path should match public key tweak path",
+	)
+
+	testCases := []struct {
+		name          string
+		getSweepDescs func() lfn.Result[tapscriptSweepDescs]
+	}{
+		{
+			name: "offered HTLC revocation",
+			getSweepDescs: func() lfn.Result[tapscriptSweepDescs] {
+				return htlcOfferedRevokeSweepDesc(
+					keyRing, payHash[:], htlcExpiry,
+					htlcIndex,
+				)
+			},
+		},
+		{
+			name: "accepted HTLC revocation",
+			getSweepDescs: func() lfn.Result[tapscriptSweepDescs] {
+				return htlcAcceptedRevokeSweepDesc(
+					keyRing, payHash[:], htlcIndex,
+				)
+			},
+		},
+		{
+			name: "second-level HTLC revocation",
+			getSweepDescs: func() lfn.Result[tapscriptSweepDescs] {
+				return htlcSecondLevelRevokeSweepDesc(
+					keyRing, csvDelay, htlcIndex,
+				)
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Get the sweep descriptor.
+			descs := tc.getSweepDescs().UnwrapOrFail(t)
+			desc := descs.firstLevel
+
+			// Revocation sweeps use keyspend (no control block).
+			require.Empty(t, desc.ctrlBlockBytes,
+				"revocation sweep should use keyspend")
+
+			// Verify the descriptor's internal key matches what
+			// we derived from applying both tweaks to the base
+			// keys on the public key side.
+			tree := desc.scriptTree.Tree()
+			require.Equal(
+				t,
+				derivedInternalKey.SerializeCompressed(),
+				tree.InternalKey.SerializeCompressed(),
+				"descriptor internal key should match "+
+					"derived key",
+			)
+
+			// Apply the taproot tweak for keyspend signing.
+			// This mirrors what RawTxInTaprootSignature does
+			// internally.
+			tapTweak := desc.scriptTree.TapTweak()
+			taprootPriv := txscript.TweakTaprootPrivKey(
+				*signingPriv, tapTweak,
+			)
+
+			// Sign a test message.
+			testMsg := sha256.Sum256([]byte(tc.name))
+			sig, err := schnorr.Sign(taprootPriv, testMsg[:])
+			require.NoError(t, err)
+
+			// Verify the signature against the taproot output
+			// key from the descriptor. This is the key that the
+			// UTXO is locked to on-chain.
+			require.True(
+				t, sig.Verify(testMsg[:], tree.TaprootKey),
+				"signature should verify against taproot "+
+					"output key",
+			)
+		})
+	}
+
+	// Finally, close the loop with the commitment-construction path:
+	// the second-level revoke desc must reproduce the exact asset-level
+	// script key that createSecondLevelHtlcAllocations committed to when
+	// the second-level transaction was originally constructed. Otherwise
+	// the sweep desc would sign for a key that never appeared on the
+	// revoked commitment.
+	t.Run("second-level desc matches allocation script key",
+		func(t *testing.T) {
+			chanType := channeldb.SimpleTaprootFeatureBit |
+				channeldb.AnchorOutputsBit |
+				channeldb.ZeroHtlcTxFeeBit |
+				channeldb.SingleFunderTweaklessBit |
+				channeldb.TapscriptRootBit
+
+			allocs, err := createSecondLevelHtlcAllocations(
+				chanType, true, nil, 1200, csvDelay, *keyRing,
+				tapfn.None[uint32](), tapfn.None[uint32](),
+				htlcIndex, true,
+			)
+			require.NoError(t, err)
+			require.NotEmpty(t, allocs)
+
+			allocScriptKey, err := allocs[0].GenScriptKey(
+				asset.ID{},
+			)
+			require.NoError(t, err)
+
+			descs := htlcSecondLevelRevokeSweepDesc(
+				keyRing, csvDelay, htlcIndex,
+			).UnwrapOrFail(t)
+			tree := descs.firstLevel.scriptTree.Tree()
+
+			// Compare x-only: the two paths may normalize the
+			// key's Y parity differently, which is irrelevant
+			// for taproot outputs.
+			require.Equal(
+				t,
+				schnorr.SerializePubKey(allocScriptKey.PubKey),
+				schnorr.SerializePubKey(tree.TaprootKey),
+				"revoke sweep desc must sign for the script "+
+					"key committed at commitment "+
+					"construction",
+			)
+		})
+}
+
+// TestApplySignDescTweakRoundTrip closes the loop between the sweeper's PSBT
+// encoding and the wallet signer's decoding: applySignDescToVIn packs the
+// revocation (double) and HTLC index (single) tweaks as PSBT unknowns on the
+// virtual input, and lnd's wallet signer re-derives the signing key from
+// those unknowns in the order they appear. This test re-derives the private
+// key exactly like the signer does and asserts it matches both the manual
+// derivation chain and the public key applySignDescToVIn reports.
+func TestApplySignDescTweakRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	revokeBasePriv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	commitSecret, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	revocationKey := input.DeriveRevocationPubkey(
+		revokeBasePriv.PubKey(), commitSecret.PubKey(),
+	)
+
+	htlcIndex := input.HtlcIndex(42)
+	tweakScalar := ScriptKeyTweakFromHtlcIndex(htlcIndex)
+	var singleTweak [32]byte
+	tweakScalar.PutBytesUnchecked(singleTweak[:])
+
+	// The manual derivation chain, mirroring what the breach sweep needs:
+	// base -> DoubleTweak (revocation) -> SingleTweak (HTLC index).
+	expectedPriv := input.TweakPrivKey(
+		input.DeriveRevocationPrivKey(revokeBasePriv, commitSecret),
+		singleTweak[:],
+	)
+
+	signDesc := input.SignDescriptor{
+		KeyDesc: keychain.KeyDescriptor{
+			PubKey: revokeBasePriv.PubKey(),
+		},
+		SingleTweak: singleTweak[:],
+		DoubleTweak: commitSecret,
+	}
+
+	vIn := &tappsbt.VInput{}
+	signingKey, leaf := applySignDescToVIn(
+		signDesc, vIn, testChainParams, nil, true,
+	)
+
+	// Breach key spends carry no leaf script.
+	require.Empty(t, leaf.Script)
+
+	// The reported signing key must equal the tweaked revocation key.
+	expectedPub := input.TweakPubKeyWithTweak(
+		revocationKey, singleTweak[:],
+	)
+	require.Equal(
+		t, expectedPub.SerializeCompressed(),
+		signingKey.SerializeCompressed(),
+	)
+
+	// Drive the actual consumer used on tapd's own signing path:
+	// tapsend.AddKeyTweaks reads the unknowns back into an lndclient
+	// SignDescriptor before SignOutputRaw. Both tweaks must survive the
+	// round trip.
+	var spendDesc lndclient.SignDescriptor
+	tapsend.AddKeyTweaks(vIn.Unknowns, &spendDesc)
+	require.Equal(t, singleTweak[:], spendDesc.SingleTweak)
+	require.NotNil(t, spendDesc.DoubleTweak)
+	require.Equal(
+		t, commitSecret.Serialize(),
+		spendDesc.DoubleTweak.Serialize(),
+	)
+
+	// lnd's direct signer (lnwallet/btcwallet/signer.go,
+	// maybeTweakPrivKey) derives from the SignDescriptor fields: double
+	// (revocation) tweak first, then single (HTLC index).
+	signerPriv := input.TweakPrivKey(
+		input.DeriveRevocationPrivKey(
+			revokeBasePriv, spendDesc.DoubleTweak,
+		),
+		spendDesc.SingleTweak,
+	)
+	require.Equal(
+		t, expectedPriv.PubKey().SerializeCompressed(),
+		signerPriv.PubKey().SerializeCompressed(),
+	)
+
+	// lnd's remote-signer path (lnwallet/btcwallet/psbt.go,
+	// maybeTweakPrivKeyPsbt) collects the tweaks from the PSBT unknowns
+	// and applies them combined in the same double-then-single order,
+	// regardless of the order the unknowns appear in. Replicate that
+	// derivation for both orderings of the unknowns to pin the
+	// order-independence this comment block relies on.
+	psbtDerive := func(unknowns []*psbt.Unknown) *btcec.PrivateKey {
+		var single, double []byte
+		for _, unknown := range unknowns {
+			if bytes.Equal(
+				unknown.Key,
+				btcwallet.PsbtKeyTypeInputSignatureTweakSingle,
+			) {
+
+				single = unknown.Value
+			}
+			if bytes.Equal(
+				unknown.Key,
+				btcwallet.PsbtKeyTypeInputSignatureTweakDouble,
+			) {
+
+				double = unknown.Value
+			}
+		}
+		require.NotNil(t, single)
+		require.NotNil(t, double)
+
+		doubleTweak, _ := btcec.PrivKeyFromBytes(double)
+		return input.TweakPrivKey(
+			input.DeriveRevocationPrivKey(
+				revokeBasePriv, doubleTweak,
+			),
+			single,
+		)
+	}
+
+	psbtPriv := psbtDerive(vIn.Unknowns)
+
+	reversed := make([]*psbt.Unknown, len(vIn.Unknowns))
+	copy(reversed, vIn.Unknowns)
+	slices.Reverse(reversed)
+	psbtPrivReversed := psbtDerive(reversed)
+
+	// All derivation paths must land on the same key, which is the
+	// public key the sweeper verifies against.
+	require.Equal(
+		t, expectedPriv.PubKey().SerializeCompressed(),
+		psbtPriv.PubKey().SerializeCompressed(),
+	)
+	require.Equal(
+		t, psbtPriv.PubKey().SerializeCompressed(),
+		psbtPrivReversed.PubKey().SerializeCompressed(),
+	)
+	require.Equal(
+		t, signingKey.SerializeCompressed(),
+		psbtPriv.PubKey().SerializeCompressed(),
+	)
 }

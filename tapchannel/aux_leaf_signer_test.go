@@ -475,6 +475,7 @@ func htlcVerifyJob(t *testing.T, numSigs int) (*wire.MsgTx,
 
 	com := cmsg.NewCommitment(
 		nil, nil, outgoingHtlcs, nil, lnwallet.CommitAuxLeaves{}, false,
+		cmsg.SigHashAll,
 	)
 
 	sigs := make([]*cmsg.AssetSig, numSigs)
@@ -677,6 +678,7 @@ func TestVerifyHtlcSignatureMultiAsset(t *testing.T) {
 	vPackets, err := htlcSecondLevelPacketsFromCommit(
 		testChainParams, chanState, &commitTx, keyRing, htlcOutputs,
 		baseJob, fn.Some(baseJob.HTLC.Timeout), baseJob.HTLC.HtlcIndex,
+		false,
 	)
 	require.NoError(t, err)
 	require.Len(t, vPackets, len(htlcOutputs))
@@ -740,4 +742,74 @@ func TestVerifyHtlcSignatureMultiAsset(t *testing.T) {
 		testChainParams, chanState, &commitTx, keyRing, sigs,
 		htlcOutputs, baseJob,
 	), "signature verification failed")
+}
+
+// TestSecondLevelPacketsLockTime pins the semantics of the HtlcTimeout job
+// field: the second-level packets carry a locktime exactly when the job says
+// so, and None means NO locktime. The revocation flow deliberately sends
+// None for success-path signatures (the canonical success transition has no
+// locktime), so the packet builder must never re-derive a timeout from the
+// HTLC direction; doing so would make signing and verification agree with
+// each other while diverging from the transition the sweeper later
+// reconstructs on the breach path.
+func TestSecondLevelPacketsLockTime(t *testing.T) {
+	privKey := test.RandPrivKey()
+
+	keyRing := test.RandCommitmentKeyRing(t)
+	keyRing.RemoteHtlcKey = privKey.PubKey()
+
+	commitTx := randProof(t).AnchorTx
+
+	groupKey := &asset.GroupKey{
+		GroupPubKey: *test.RandPubKey(t),
+	}
+	assetID, p := htlcGroupProof(t, groupKey, commitTx)
+	htlcOutputs := []*cmsg.AssetOutput{
+		cmsg.NewAssetOutput(assetID, p.Asset.Amount, *p),
+	}
+
+	// An incoming HTLC: the legacy CommitSig-time convention would have
+	// derived a timeout for it, which is exactly what the explicit None
+	// must override on the revocation success path.
+	baseJob := lnwallet.BaseAuxJob{
+		KeyRing:  keyRing,
+		Incoming: true,
+		HTLC: lnwallet.AuxHtlcDescriptor{
+			HtlcIndex: 0,
+			Timeout:   800_000,
+			Amount:    lnwire.NewMSatFromSatoshis(354),
+			EntryType: lnwallet.Add,
+		},
+	}
+
+	// HtlcTimeout of None must yield packets with no locktime.
+	vPackets, err := htlcSecondLevelPacketsFromCommit(
+		testChainParams, chanState, &commitTx, keyRing, htlcOutputs,
+		baseJob, fn.None[uint32](), baseJob.HTLC.HtlcIndex, false,
+	)
+	require.NoError(t, err)
+	require.NotEmpty(t, vPackets)
+	for _, vPkt := range vPackets {
+		for _, vOut := range vPkt.Outputs {
+			require.EqualValues(t, 0, vOut.LockTime,
+				"None timeout must not produce a locktime")
+		}
+	}
+
+	// An explicit timeout must be carried through verbatim.
+	vPackets, err = htlcSecondLevelPacketsFromCommit(
+		testChainParams, chanState, &commitTx, keyRing, htlcOutputs,
+		baseJob, fn.Some(baseJob.HTLC.Timeout),
+		baseJob.HTLC.HtlcIndex, false,
+	)
+	require.NoError(t, err)
+	require.NotEmpty(t, vPackets)
+	for _, vPkt := range vPackets {
+		for _, vOut := range vPkt.Outputs {
+			require.EqualValues(
+				t, baseJob.HTLC.Timeout, vOut.LockTime,
+				"explicit timeout must be carried through",
+			)
+		}
+	}
 }

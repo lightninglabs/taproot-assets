@@ -214,6 +214,7 @@ type invoiceConfig struct {
 	groupKey   []byte
 	msats      lnwire.MilliSatoshi
 	routeHints []*lnrpc.RouteHint
+	expiry     int64
 }
 
 func defaultInvoiceConfig() *invoiceConfig {
@@ -227,6 +228,12 @@ type invoiceOpt func(*invoiceConfig)
 func withInvoiceErrSubStr(errSubStr string) invoiceOpt {
 	return func(c *invoiceConfig) {
 		c.errSubStr = errSubStr
+	}
+}
+
+func withInvoiceExpiry(seconds int64) invoiceOpt {
+	return func(c *invoiceConfig) {
+		c.expiry = seconds
 	}
 }
 
@@ -1323,8 +1330,10 @@ func sendAssetKeySendPayment(t *testing.T, src, dst *itest.IntegratedNode,
 	customRecords[record.KeySendType] = preimage[:]
 
 	sendReq := &routerrpc.SendPaymentRequest{
-		Dest:              dst.PubKey[:],
-		Amt:               btcAmt.UnwrapOr(500),
+		Dest: dst.PubKey[:],
+		Amt: btcAmt.UnwrapOr(
+			int64(rfqmath.DefaultOnChainHtlcSat),
+		),
 		DestCustomRecords: customRecords,
 		PaymentHash:       hash[:],
 		TimeoutSeconds:    int32(PaymentTimeout.Seconds()),
@@ -1569,11 +1578,22 @@ func defaultCoOpCloseBalanceCheck(t *testing.T,
 
 	outIdx := 0
 	dummyAmt := int64(1000)
-	require.LessOrEqual(t, closeTx.TxOut[outIdx].Value, dummyAmt)
+
+	// A party whose total BTC balance exceeds the 1k sat asset anchor
+	// amount by less than the dust limit has the sub-dust remainder
+	// folded into its asset output instead of creating an unspendable
+	// BTC output. Under DeterministicHTLCs the received HTLCs carry
+	// 1200 sats each, so a receiver of a single HTLC ends up with
+	// 1000 + 200 on its asset output.
+	dustLimit := int64(354)
+	maxAssetOutAmt := dummyAmt + dustLimit
+	require.LessOrEqual(t, closeTx.TxOut[outIdx].Value, maxAssetOutAmt)
 
 	if remoteAssetBalance {
 		outIdx++
-		require.LessOrEqual(t, closeTx.TxOut[outIdx].Value, dummyAmt)
+		require.LessOrEqual(
+			t, closeTx.TxOut[outIdx].Value, maxAssetOutAmt,
+		)
 	}
 
 	require.Len(t, closeUpdate.AdditionalOutputs, additionalOutputs)
@@ -2362,6 +2382,9 @@ func createAssetHodlInvoice(t *testing.T, dstRfqPeer,
 	defer cancel()
 
 	timeoutSeconds := int64(rfq.DefaultInvoiceExpiry.Seconds())
+	if cfg.expiry > 0 {
+		timeoutSeconds = cfg.expiry
+	}
 
 	var rfqPeer []byte
 	if dstRfqPeer != nil {
@@ -2596,6 +2619,38 @@ func assertSpendableBalance(t *testing.T, client *itest.IntegratedNode,
 
 // locateAssetTransfers finds and returns the asset transfer for the given
 // transaction ID.
+// mineUntilSpendableBalance drives block production until the node's
+// spendable asset balance reaches the expected value. Under the async
+// pre-signed publish + CPFP anchor design, force-close transactions (the
+// pre-signed second-level HTLC txs, sweeper-driven sweeps and anchor CPFP
+// sweeps) reach the mempool on their own schedule and may confirm during
+// earlier block batches, so outcome-driven block production is more robust
+// than asserting on transient PendingSweeps or mempool snapshots.
+func mineUntilSpendableBalance(t *ccHarnessTest,
+	net *itest.IntegratedNetworkHarness, node *itest.IntegratedNode,
+	assetID, groupKey []byte, expectedBalance uint64) {
+
+	t.t.Helper()
+
+	for i := 0; i < 6; i++ {
+		balance, err := spendableBalance(node, assetID, groupKey)
+		if err == nil && balance == expectedBalance {
+			return
+		}
+
+		// Confirm whatever is waiting in the mempool; if nothing is
+		// waiting, mine an empty block to tick the sweeper.
+		numTxs, _ := waitForAtLeastNTxsInMempool(
+			net.Miner, 1, ccShortTimeout,
+		)
+		mineBlocks(t, net, 1, len(numTxs))
+	}
+
+	assertSpendableBalance(
+		t.t, node, assetID, groupKey, expectedBalance,
+	)
+}
+
 func locateAssetTransfers(t *testing.T, node *itest.IntegratedNode,
 	txid chainhash.Hash) *taprpc.AssetTransfer {
 
@@ -2627,6 +2682,128 @@ func locateAssetTransfers(t *testing.T, node *itest.IntegratedNode,
 		return nil
 	}, ccTransferTimeout)
 	require.NoError(t, err)
+
+	return transfer
+}
+
+// locateBlockAssetTransfer locates the (single) confirmed asset transfer
+// anchored by one of the non-coinbase transactions in the given block. With
+// the CPFP anchor design, a sweep block may also contain pure-BTC
+// transactions (e.g. second-level anchor sweeps) that never produce an asset
+// transfer, so we scan the block instead of assuming a fixed transaction
+// index.
+func locateBlockAssetTransfer(t *testing.T, node *itest.IntegratedNode,
+	block *wire.MsgBlock) *taprpc.AssetTransfer {
+
+	var transfer *taprpc.AssetTransfer
+	err := wait.NoError(func() error {
+		ctxb := context.Background()
+		for _, tx := range block.Transactions[1:] {
+			txHash := tx.TxHash()
+			resp, err := node.ListTransfers(
+				ctxb, &taprpc.ListTransfersRequest{
+					AnchorTxid: txHash.String(),
+				},
+			)
+			if err != nil {
+				return fmt.Errorf("unable to list %v "+
+					"transfers: %w", node.Cfg.Name, err)
+			}
+			if len(resp.Transfers) != 1 {
+				continue
+			}
+			if resp.Transfers[0].AnchorTxBlockHash == nil {
+				continue
+			}
+
+			transfer = resp.Transfers[0]
+
+			return nil
+		}
+
+		return fmt.Errorf("%v: no confirmed asset transfer found "+
+			"in block %v", node.Cfg.Name, block.BlockHash())
+	}, ccTransferTimeout)
+	require.NoError(t, err)
+
+	return transfer
+}
+
+// locateSweepAssetTransfer locates a confirmed asset transfer anchored in one
+// of the already-mined sweep blocks, mining up to a few extra blocks if
+// needed. Under the CPFP anchor design a mined block may contain only
+// pure-BTC transactions (e.g. second-level anchor sweeps) while the
+// asset-bearing sweep is still pending in the sweeper, so we keep confirming
+// mempool transactions until the transfer shows up.
+func locateSweepAssetTransfer(t *ccHarnessTest,
+	net *itest.IntegratedNetworkHarness, node *itest.IntegratedNode,
+	initial []*wire.MsgBlock) *taprpc.AssetTransfer {
+
+	blocks := append([]*wire.MsgBlock{}, initial...)
+
+	probe := func(timeout time.Duration) *taprpc.AssetTransfer {
+		var tr *taprpc.AssetTransfer
+		err := wait.NoError(func() error {
+			ctxb := context.Background()
+			for _, block := range blocks {
+				for _, tx := range block.Transactions[1:] {
+					txHash := tx.TxHash()
+					resp, err := node.ListTransfers(
+						ctxb,
+						&taprpc.ListTransfersRequest{
+							AnchorTxid: txHash.
+								String(),
+						},
+					)
+					if err != nil {
+						return err
+					}
+					if len(resp.Transfers) != 1 {
+						continue
+					}
+					anchorBlock := resp.Transfers[0].
+						AnchorTxBlockHash
+					if anchorBlock == nil {
+						continue
+					}
+
+					tr = resp.Transfers[0]
+
+					return nil
+				}
+			}
+
+			return fmt.Errorf("no confirmed asset transfer "+
+				"in %d blocks", len(blocks))
+		}, timeout)
+		if err != nil {
+			return nil
+		}
+
+		return tr
+	}
+
+	// Probe the blocks we have, mining a few extra blocks to flush any
+	// still-pending sweeps out of the sweeper and mempool.
+	for i := 0; i < 3; i++ {
+		if transfer := probe(ccShortTimeout); transfer != nil {
+			return transfer
+		}
+
+		// Confirm whatever is waiting in the mempool. If nothing is
+		// waiting, mine an empty block anyway: the sweeper batches
+		// pending sweeps on block ticks, so an empty block can be
+		// exactly what flushes the next sweep transaction out.
+		memTxs, _ := waitForAtLeastNTxsInMempool(
+			net.Miner, 1, ccShortTimeout,
+		)
+
+		blocks = append(blocks, mineBlocks(t, net, 1, len(memTxs))[0])
+	}
+
+	transfer := probe(ccTransferTimeout)
+	require.NotNil(t.t, transfer, "%v: no confirmed asset transfer "+
+		"found in %d mined sweep blocks", node.Cfg.Name, len(blocks))
 
 	return transfer
 }
@@ -3130,7 +3307,7 @@ func assertForceCloseSweeps(ctx context.Context,
 		walletrpc.WitnessType_TAPROOT_HTLC_ACCEPTED_REMOTE_SUCCESS,
 	)
 
-	_, err = waitForNTxsInMempool(
+	memTxs, err := waitForAtLeastNTxsInMempool(
 		net.Miner, 1, ccShortTimeout,
 	)
 	require.NoError(t.t, err)
@@ -3139,27 +3316,25 @@ func assertForceCloseSweeps(ctx context.Context,
 	// both his commitment output, and the incoming HTLC that we just
 	// settled above. We use the txid from the mined block (not from the
 	// mempool check above) because the sweeper may RBF between the two.
-	bobSweepBlocks1 := mineBlocks(t, net, 1, 1)
+	bobSweepBlocks1 := mineBlocks(t, net, 1, len(memTxs))
 
 	// At this point, we should have the next sweep transaction in the
 	// mempool: Bob's incoming HTLC sweep directly off the commitment
 	// transaction.
-	_, err = waitForNTxsInMempool(
+	memTxs, err = waitForAtLeastNTxsInMempool(
 		net.Miner, 1, ccShortTimeout,
 	)
 	require.NoError(t.t, err)
 
 	// We'll now mine the next block, which should confirm Bob's HTLC sweep
 	// transaction.
-	bobSweepBlocks2 := mineBlocks(t, net, 1, 1)
+	bobSweepBlocks2 := mineBlocks(t, net, 1, len(memTxs))
 
 	// Wait for tapd to process the confirmed sweep transactions before
 	// checking balances. We extract the txid from the mined blocks rather
 	// than from the earlier mempool checks to avoid RBF mismatches.
-	bobSweepTxHash1 := bobSweepBlocks1[0].Transactions[1].TxHash()
-	bobSweepTxHash2 := bobSweepBlocks2[0].Transactions[1].TxHash()
-	locateAssetTransfers(t.t, bob, bobSweepTxHash1)
-	locateAssetTransfers(t.t, bob, bobSweepTxHash2)
+	locateBlockAssetTransfer(t.t, bob, bobSweepBlocks1[0])
+	locateBlockAssetTransfer(t.t, bob, bobSweepBlocks2[0])
 
 	t.Logf("Confirming Bob's remote HTLC success sweep")
 
@@ -3180,17 +3355,16 @@ func assertForceCloseSweeps(ctx context.Context,
 	// sweep her to-local output.
 	mineBlocks(t, net, 1, 0)
 
-	_, err = waitForNTxsInMempool(
+	memTxs, err = waitForAtLeastNTxsInMempool(
 		net.Miner, 1, ccShortTimeout,
 	)
 	require.NoError(t.t, err)
 
-	aliceToLocalBlocks := mineBlocks(t, net, 1, 1)
+	aliceToLocalBlocks := mineBlocks(t, net, 1, len(memTxs))
 
 	// Wait for tapd to register the to-local sweep transfer. We use the
 	// txid from the mined block to avoid RBF mismatches.
-	aliceToLocalHash := aliceToLocalBlocks[0].Transactions[1].TxHash()
-	locateAssetTransfers(t.t, alice, aliceToLocalHash)
+	locateBlockAssetTransfer(t.t, alice, aliceToLocalBlocks[0])
 
 	t.Logf("Confirming Alice's to-local sweep")
 
@@ -3213,33 +3387,24 @@ func assertForceCloseSweeps(ctx context.Context,
 	)
 	require.NoError(t.t, err)
 
-	// We'll pause here for Alice to extend the sweep request to the
-	// sweeper.
-	assertSweepExists(
-		t.t, alice,
-		walletrpc.WitnessType_TAPROOT_HTLC_ACCEPTED_LOCAL_SUCCESS,
+	// Under the negotiated DeterministicHTLCs feature, the htlc success
+	// resolver publishes the pre-signed 2nd-level HTLC success tx
+	// directly to the mempool (SigHashDefault, baked-in fees) without
+	// going through the sweeper, so no TAPROOT_HTLC_ACCEPTED_LOCAL_SUCCESS
+	// entry ever shows up in lnd's PendingSweeps. Wait for the tx in the
+	// mempool instead, then mine a block to confirm it.
+	memTxs, err = waitForAtLeastNTxsInMempool(
+		net.Miner, 1, ccShortTimeout,
 	)
+	require.NoError(t.t, err)
 
-	// We'll now mine a block, which should trigger Alice's broadcast of the
-	// second level sweep transaction.
-	sweepBlocks := mineBlocks(t, net, 1, 0)
-
-	// If the block mined above didn't also mine our sweep, then we'll mine
-	// one final block which will confirm Alice's sweep transaction.
-	if len(sweepBlocks[0].Transactions) == 1 {
-		_, err := waitForNTxsInMempool(
-			net.Miner, 1, ccShortTimeout,
-		)
-		require.NoError(t.t, err)
-
-		// With the sweep transaction in the mempool, we'll mine a block
-		// to confirm the sweep.
-		sweepBlocks = mineBlocks(t, net, 1, 1)
-	}
-
-	// Use the txid from the mined block to avoid RBF mismatches.
-	sweepTxHash := sweepBlocks[0].Transactions[1].TxHash()
-	locateAssetTransfers(t.t, alice, sweepTxHash)
+	// Mine a block to confirm the pre-signed 2nd-level HTLC success tx.
+	// Under DeterministicHTLCs the resolver publishes this tx directly
+	// (bypassing the aux sweeper's NotifyBroadcast), so tapd does not
+	// record an asset transfer for this anchor txid. We assert balance
+	// progress later once the second-level output sweep flows through
+	// the sweeper.
+	mineBlocks(t, net, 1, len(memTxs))
 
 	t.Logf("Confirming Alice's second level remote HTLC success sweep")
 
@@ -3259,21 +3424,20 @@ func assertForceCloseSweeps(ctx context.Context,
 
 	// Now that we know the sweep was offered, we'll mine an extra block to
 	// actually trigger a sweeper broadcast.
-	sweepBlocks = mineBlocks(t, net, 1, 0)
+	sweepBlocks := mineBlocks(t, net, 1, 0)
 
 	// If the block mined above didn't also mine our sweep, then we'll mine
 	// one final block which will confirm Alice's sweep transaction.
 	if len(sweepBlocks[0].Transactions) == 1 {
-		_, err := waitForNTxsInMempool(
+		memTxs, err := waitForAtLeastNTxsInMempool(
 			net.Miner, 1, ccShortTimeout,
 		)
 		require.NoError(t.t, err)
 
-		sweepBlocks = mineBlocks(t, net, 1, 1)
+		sweepBlocks = mineBlocks(t, net, 1, len(memTxs))
 	}
 
-	sweepTxHash = sweepBlocks[0].Transactions[1].TxHash()
-	locateAssetTransfers(t.t, alice, sweepTxHash)
+	locateSweepAssetTransfer(t, net, alice, sweepBlocks)
 
 	// With the sweep transaction confirmed, Alice's balance should have
 	// incremented by the amt of the HTLC.
@@ -3290,181 +3454,54 @@ func assertForceCloseSweeps(ctx context.Context,
 	blockToMine := closeExpiryInfo.blockTillExpiry(
 		aliceHodlInvoices[1].preimage.Hash(),
 	)
-	mineBlocks(t, net, blockToMine, 0)
 
-	// We'll wait for both Alice and Bob to present their respective sweeps
-	// to the sweeper.
-	numTimeoutHTLCs := 1
-	if mpp {
-		numTimeoutHTLCs += numAdditionalShards
+	// Mine all but the final block first, then trigger the expiry with a
+	// single block. If we mined the whole batch at once, the sweeper
+	// could broadcast the remote-timeout sweep mid-batch and a later
+	// block of the same batch would confirm it, so it would no longer be
+	// listed as pending by the time we assert below.
+	if blockToMine > 1 {
+		mineBlocks(t, net, blockToMine-1, 0)
 	}
-	assertSweepExists(
-		t.t, alice,
-		walletrpc.WitnessType_TAPROOT_HTLC_LOCAL_OFFERED_TIMEOUT,
-	)
-	assertSweepExists(
-		t.t, bob,
-		walletrpc.WitnessType_TAPROOT_HTLC_OFFERED_REMOTE_TIMEOUT,
-	)
+	mineBlocks(t, net, 1, 0)
 
-	t.Logf("Confirming initial HTLC timeout txns")
+	// We'll wait for Bob to present his remote-timeout sweep to the
+	// sweeper. Alice's local outgoing HTLC times out via the pre-signed
+	// 2nd-level timeout tx under DeterministicHTLCs (SigHashDefault,
+	// baked-in fees), so it is published directly to the mempool by the
+	// htlc timeout resolver and never appears in lnd's PendingSweeps -
+	// the mempool wait below covers it.
+	t.Logf("Confirming HTLC timeout txns")
 
-	// Mine the HTLC timeout sweeps sequentially. A wallet UTXO
-	// selection bug in the sweeper can cause competing InputSets
-	// to pick the same fee-paying UTXO, so both sweeps may not
-	// coexist in the mempool simultaneously. We mine what's
-	// available and let the sweeper retry on the next tick.
-	_, err = waitForAtLeastNTxsInMempool(
-		net.Miner, 1, wait.DefaultTimeout,
-	)
-	require.NoError(t.t, err)
-
-	// Mine a block containing whatever timeout sweeps are
-	// currently in the mempool.
-	sweepBlocks = mineBlocks(t, net, 1, 0)
-	numMined := len(sweepBlocks[0].Transactions) - 1
-
-	// Collect txids from the mined block for Bob's sweep
-	// identification below.
-	var timeoutSweeps []*chainhash.Hash
-	for i := range sweepBlocks[0].Transactions[1:] {
-		hash := sweepBlocks[0].Transactions[i+1].TxHash()
-		timeoutSweeps = append(timeoutSweeps, &hash)
-	}
-
-	// If only one sweep was mined (the other was RBF'd out due to
-	// a UTXO collision), wait for the sweeper to retry and mine
-	// the second sweep.
-	if numMined < 2 {
-		_, err = waitForAtLeastNTxsInMempool(
-			net.Miner, 1, wait.DefaultTimeout,
-		)
-		require.NoError(t.t, err)
-
-		sweepBlocks2 := mineBlocks(t, net, 1, 0)
-		for i := range sweepBlocks2[0].Transactions[1:] {
-			hash := sweepBlocks2[0].Transactions[i+1].TxHash()
-			timeoutSweeps = append(timeoutSweeps, &hash)
-		}
-	}
-
-	t.Logf("Asserting balance on sweeps: %v", timeoutSweeps)
-
-	// The sweeper records a sweep in its store only after its own
-	// publish path has completed, which can lag the transaction's
-	// appearance in the mempool (and its confirmation, since we mine
-	// aggressively). So we poll ListSweeps instead of asserting on a
-	// single snapshot.
-	var bobSweepTx *wire.MsgTx
-	err = wait.NoError(func() error {
-		bobSweeps, err := bob.WalletKitClient.ListSweeps(
-			ctx, &walletrpc.ListSweepsRequest{
-				Verbose: true,
-			},
-		)
-		if err != nil {
-			return err
-		}
-
-		txns := bobSweeps.GetTransactionDetails().Transactions
-		for _, sweep := range txns {
-			for _, tx := range timeoutSweeps {
-				if sweep.TxHash != tx.String() {
-					continue
-				}
-
-				txBytes, err := hex.DecodeString(
-					sweep.RawTxHex,
-				)
-				if err != nil {
-					return err
-				}
-
-				bobSweepTx = &wire.MsgTx{}
-				err = bobSweepTx.Deserialize(
-					bytes.NewReader(txBytes),
-				)
-				if err != nil {
-					return err
-				}
-
-				return nil
-			}
-		}
-
-		if bobSweepTx == nil {
-			return fmt.Errorf("Bob's sweep transaction not found")
-		}
-
-		return nil
-	}, ccShortTimeout)
-	require.NoError(t.t, err)
-
-	// There's always an extra input that pays for the fees. So we can only
-	// count the remainder as HTLC inputs.
-	numSweptHTLCs := len(bobSweepTx.TxIn) - 1
-
-	// If we didn't yet sweep all HTLCs, then we need to wait for another
-	// sweep.
-	if numSweptHTLCs < numTimeoutHTLCs {
-		// nolint:lll
-		assertSweepExists(
-			t.t, bob,
-			walletrpc.WitnessType_TAPROOT_HTLC_OFFERED_REMOTE_TIMEOUT,
-		)
-
-		t.Logf("Confirming additional HTLC timeout sweep txns")
-
-		_, err := waitForAtLeastNTxsInMempool(
-			net.Miner, 1, ccShortTimeout,
-		)
-		require.NoError(t.t, err)
-
-		// Mine a block to confirm the additional sweeps.
-		mineBlocks(t, net, 1, 0)
-	}
-
-	// At this point, Bob's balance should be incremented by an additional
-	// HTLC value.
+	// Bob recovers the timed-out HTLC value via his remote-timeout sweep,
+	// while Alice's pre-signed second-level timeout txs confirm on their
+	// own schedule. Drive block production until Bob's asset balance
+	// reflects the swept HTLCs.
 	bobExpectedBalance += uint64(assetInvoiceAmt - 1)
-	assertSpendableBalance(
-		t.t, bob, assetID, groupKey, bobExpectedBalance,
+	mineUntilSpendableBalance(
+		t, net, bob, assetID, groupKey, bobExpectedBalance,
 	)
 
 	t.Logf("Mining extra blocks for Alice's CSV to expire on 2nd level txn")
 
 	// Next, we'll mine additional blocks so Alice's CSV delay expires for
-	// the second level timeout output.
-	mineBlocks(t, net, closeExpiryInfo.csvDelay, 0)
-
-	// Wait for Alice to extend the second level output to the sweeper
-	// before we mine the next block to the sweeper.
-	assertSweepExists(
-		t.t, alice,
-		walletrpc.WitnessType_TAPROOT_HTLC_OFFERED_TIMEOUT_SECOND_LEVEL,
-	)
+	// the second level timeout output. The sweeper may already broadcast
+	// the sweep while these blocks are being mined (the CSV expires one
+	// block before the last), so these blocks are included in the probe
+	// set below.
+	csvBlocks := mineBlocks(t, net, closeExpiryInfo.csvDelay, 0)
 
 	t.Logf("Confirming Alice's final timeout sweep")
 
-	// With the way the sweeper works, we'll now need to mine an extra block
-	// to trigger the sweep.
+	// With the way the sweeper works, we'll now need to mine an extra
+	// block to trigger the sweep. The sweep may need additional block
+	// ticks to broadcast and confirm; locateSweepAssetTransfer drives
+	// block production until Alice's transfer for the swept second-level
+	// timeout output shows up.
 	sweepBlocks = mineBlocks(t, net, 1, 0)
-
-	// If the block mined above didn't also mine our sweep, then we'll mine
-	// one final block which will confirm Alice's sweep transaction.
-	if len(sweepBlocks[0].Transactions) == 1 {
-		_, err := waitForNTxsInMempool(
-			net.Miner, 1, ccShortTimeout,
-		)
-		require.NoError(t.t, err)
-
-		// We'll mine one final block which will confirm Alice's sweep
-		// transaction.
-		sweepBlocks = mineBlocks(t, net, 1, 1)
-	}
-
-	sweepTxHash = sweepBlocks[0].Transactions[1].TxHash()
-	locateAssetTransfers(t.t, alice, sweepTxHash)
+	locateSweepAssetTransfer(
+		t, net, alice, append(csvBlocks, sweepBlocks...),
+	)
 
 	return aliceExpectedBalance, bobExpectedBalance
 }

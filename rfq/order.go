@@ -424,7 +424,16 @@ func (c *AssetSalePolicy) GenerateInterceptorResponse(
 	htlc lndclient.InterceptedHtlc) (*lndclient.InterceptedHtlcResponse,
 	error) {
 
-	outgoingAmt := rfqmath.DefaultOnChainHtlcMSat
+	// The on-chain BTC amount the outgoing HTLC carries: the
+	// deterministic-HTLC carrier value when the peer negotiated
+	// DeterministicHTLCs, the legacy just-above-dust value otherwise.
+	outgoingAmt := rfqmath.LegacyOnChainHtlcMSat
+	if c.auxChanNegotiator != nil {
+		features := c.auxChanNegotiator.GetPeerFeatures(c.peer)
+		if features.HasFeature(tapfeatures.DeterministicHTLCsOptional) {
+			outgoingAmt = rfqmath.DefaultOnChainHtlcMSat
+		}
+	}
 
 	var assetID asset.ID
 

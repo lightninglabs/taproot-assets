@@ -32,7 +32,6 @@ func testCustomChannelsSelfPayment(_ context.Context,
 
 	lndArgs := slices.Clone(lndArgsTemplate)
 	tapdArgs := slices.Clone(tapdArgsTemplate)
-
 	// We use Alice as the proof courier. But in order for Alice to also
 	// use itself, we need to define its port upfront.
 	alicePort := port.NextAvailablePort()
@@ -128,12 +127,12 @@ func testCustomChannelsSelfPayment(_ context.Context,
 	t.Logf("Key sending 15k assets from Alice to Bob...")
 	const (
 		assetKeySendAmount = 15_000
-		numInvoicePayments = 10
+		numInvoicePayments = 5
 		assetInvoiceAmount = 1_234
 		btcInvoiceAmount   = 10_000
 		btcKeySendAmount   = 200_000
 		btcReserveAmount   = 2000
-		btcHtlcCost        = numInvoicePayments * 354
+		btcHtlcCost        = numInvoicePayments * 2124
 	)
 	sendAssetKeySendPayment(
 		t.t, alice, bob, assetKeySendAmount, assetID,
