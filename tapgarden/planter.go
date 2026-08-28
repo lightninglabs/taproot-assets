@@ -578,6 +578,15 @@ func (c *ChainPlanter) Start() error {
 					log.Warnf("Unable to cancel batch (%x)",
 						batchKey)
 				}
+
+				// The batch is now cancelled on disk, so any
+				// wallet inputs leased when it was funded can
+				// be released.
+				if err == nil {
+					releaseBatchFundingInputs(
+						ctx, c.cfg.Wallet, batch,
+					)
+				}
 			}
 
 			// TODO(jhb): Log manual fee rates?
@@ -1860,6 +1869,10 @@ func (c *ChainPlanter) cancelMintingBatch(ctx context.Context,
 		return fmt.Errorf("unable to cancel minting batch: %w", err)
 	}
 
+	// The batch is now cancelled on disk, so any wallet inputs leased
+	// when it was funded can be released.
+	releaseBatchFundingInputs(ctx, c.cfg.Wallet, c.pendingBatch)
+
 	return nil
 }
 
@@ -1897,6 +1910,10 @@ func (c *ChainPlanter) cancelFailedBatch(batch *MintingBatch) error {
 		return fmt.Errorf("unable to cancel failed batch (%x): %w",
 			batchKeySerial[:], err)
 	}
+
+	// The batch is now cancelled on disk, so any wallet inputs leased
+	// when it was funded can be released.
+	releaseBatchFundingInputs(ctx, c.cfg.Wallet, batch)
 
 	return nil
 }
@@ -2066,21 +2083,32 @@ type fundingPrep struct {
 }
 
 // releaseFundingInputs releases every wallet input leased while funding a
-// PSBT. A fresh planter-scoped context is used so a cancelled request context
-// does not prevent cleanup.
-func (c *ChainPlanter) releaseFundingInputs(
+// PSBT. The leased outpoints are read from LockedUTXOs when present. That
+// field is never persisted, so a packet reloaded from disk carries none;
+// in that case the outpoints are derived from the unsigned transaction's
+// inputs instead. Every input of a mint anchor was leased by the wallet
+// during funding, so the two sets coincide.
+func releaseFundingInputs(ctx context.Context, wallet tapnode.WalletAnchor,
 	funded *tapsend.FundedPsbt) error {
 
-	if funded == nil || len(funded.LockedUTXOs) == 0 {
+	if funded == nil {
 		return nil
 	}
 
-	ctx, cancel := c.WithCtxQuit()
-	defer cancel()
+	outpoints := funded.LockedUTXOs
+	if len(outpoints) == 0 && funded.Pkt != nil &&
+		funded.Pkt.UnsignedTx != nil {
+
+		txIns := funded.Pkt.UnsignedTx.TxIn
+		outpoints = make([]wire.OutPoint, 0, len(txIns))
+		for _, txIn := range txIns {
+			outpoints = append(outpoints, txIn.PreviousOutPoint)
+		}
+	}
 
 	var unlockErrs []error
-	for _, outpoint := range funded.LockedUTXOs {
-		if err := c.cfg.Wallet.UnlockInput(ctx, outpoint); err != nil {
+	for _, outpoint := range outpoints {
+		if err := wallet.UnlockInput(ctx, outpoint); err != nil {
 			unlockErrs = append(unlockErrs, fmt.Errorf(
 				"unable to unlock input %v: %w", outpoint, err,
 			))
@@ -2090,12 +2118,41 @@ func (c *ChainPlanter) releaseFundingInputs(
 	return errors.Join(unlockErrs...)
 }
 
+// releaseBatchFundingInputs releases the wallet inputs leased for a
+// batch's genesis packet after the batch has been cancelled on disk. A
+// batch that was never funded has no genesis packet and nothing to
+// release. Unlock failures are only logged, never returned: the
+// cancellation itself has already been written, and a stale lease
+// expires on its own once the wallet's lease TTL passes (for the same
+// reason, an input may already be reported as not leased).
+func releaseBatchFundingInputs(ctx context.Context,
+	wallet tapnode.WalletAnchor, batch *MintingBatch) {
+
+	if batch.GenesisPacket == nil {
+		return
+	}
+
+	err := releaseFundingInputs(
+		ctx, wallet, &batch.GenesisPacket.FundedPsbt,
+	)
+	if err != nil {
+		batchKeySerial := asset.ToSerialized(batch.BatchKey.PubKey)
+		log.Warnf("Unable to release funding inputs of cancelled "+
+			"batch (%x): %v", batchKeySerial[:], err)
+	}
+}
+
 // fundingError releases a funded PSBT's wallet leases and preserves both the
-// original failure and any cleanup failure for the caller.
+// original failure and any cleanup failure for the caller. A fresh
+// planter-scoped context is used so a cancelled request context does not
+// prevent cleanup.
 func (c *ChainPlanter) fundingError(funded *tapsend.FundedPsbt,
 	cause error) error {
 
-	unlockErr := c.releaseFundingInputs(funded)
+	ctx, cancel := c.WithCtxQuit()
+	defer cancel()
+
+	unlockErr := releaseFundingInputs(ctx, c.cfg.Wallet, funded)
 	if unlockErr == nil {
 		return cause
 	}

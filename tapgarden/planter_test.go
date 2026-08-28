@@ -1918,6 +1918,227 @@ func testFundFailureReleasesWalletLeases(t *mintingTestHarness) {
 	require.Equal(t, funded.LockedUTXOs[0], *unlocked)
 }
 
+// testCancelFundedBatchReleasesLeases verifies that cancelling a funded
+// batch releases every wallet input leased during funding.
+func testCancelFundedBatchReleasesLeases(t *mintingTestHarness) {
+	t.refreshChainPlanter()
+
+	_ = t.queueInitialBatch(2)
+
+	var (
+		wg       sync.WaitGroup
+		respChan = make(chan *FundBatchResp, 1)
+	)
+	t.fundBatch(&wg, respChan, nil)
+	funded := t.assertGenesisTxFunded(nil)
+	fundedBatch := t.assertFundBatch(&wg, respChan, "")
+	require.True(t, fundedBatch.IsFunded())
+
+	// Cancelling the funded batch must release the leased inputs.
+	batchKey := t.cancelMintingBatch(false)
+	t.assertBatchState(
+		batchKey, tapgarden.BatchStateSeedlingCancelled,
+	)
+
+	require.Len(t, funded.LockedUTXOs, 1)
+	unlocked, err := fn.RecvOrTimeout(
+		t.wallet.UnlockInputSignal, defaultTimeout,
+	)
+	require.NoError(t, err)
+	require.Equal(t, funded.LockedUTXOs[0], *unlocked)
+}
+
+// testCancelUnfundedBatchNoLeaseRelease verifies that cancelling a batch
+// that was never funded does not release any wallet inputs.
+func testCancelUnfundedBatchNoLeaseRelease(t *mintingTestHarness) {
+	t.refreshChainPlanter()
+
+	_ = t.queueInitialBatch(2)
+
+	batchKey := t.cancelMintingBatch(false)
+	t.assertBatchState(
+		batchKey, tapgarden.BatchStateSeedlingCancelled,
+	)
+
+	select {
+	case outpoint := <-t.wallet.UnlockInputSignal:
+		t.Fatalf("unexpected input unlock: %v", outpoint)
+	default:
+	}
+}
+
+// testFailedBroadcastKeepsLeases verifies that a batch retained at
+// Committed after a broadcast-path failure keeps its wallet leases, so
+// the same inputs are still reserved when the batch is retried on
+// restart.
+func testFailedBroadcastKeepsLeases(t *mintingTestHarness) {
+	t.refreshChainPlanter()
+
+	_ = t.queueInitialBatch(2)
+
+	var (
+		wg       sync.WaitGroup
+		respChan = make(chan *FinalizeBatchResp, 1)
+	)
+
+	// Arm the wallet so signing the genesis TX fails after the
+	// batch has been committed.
+	t.wallet.FailSignPsbtOnce()
+	t.finalizeBatch(&wg, respChan, nil)
+
+	_ = t.assertGenesisTxFunded(nil)
+	t.assertFinalizeBatch(&wg, respChan, "unable to sign psbt")
+
+	// The batch stays committed for a restart to retry, so its
+	// funding leases must not be released.
+	t.assertNumCultivatorsActive(0)
+	t.assertNoPendingBatch()
+	t.assertLastBatchState(1, tapgarden.BatchStateCommitted)
+
+	select {
+	case outpoint := <-t.wallet.UnlockInputSignal:
+		t.Fatalf("unexpected input unlock: %v", outpoint)
+	default:
+	}
+}
+
+// testCaretakerResumeFailureReleasesLeases verifies that a batch
+// cancelled after its resumed cultivator fails pre-broadcast still
+// releases its funding inputs. A batch reloaded from disk carries no
+// LockedUTXOs (the field is never persisted), so the outpoints must be
+// derived from the funded PSBT's inputs instead.
+func testCaretakerResumeFailureReleasesLeases(t *mintingTestHarness) {
+	t.refreshChainPlanter()
+
+	const numSeedlings = 5
+	seedlings := t.newRandSeedlings(numSeedlings)
+	t.queueSeedlingsInBatch(false, seedlings...)
+
+	// Fund the batch with a tapscript sibling, so the resumed
+	// cultivator must load the tapscript tree before it can commit
+	// the batch.
+	sigLockKey := test.RandPubKey(t)
+	hashLockWitness := []byte("foobar")
+	hashLockLeaf := test.ScriptHashLock(t, hashLockWitness)
+	sigLeaf := test.ScriptSchnorrSig(t, sigLockKey)
+	tapTreePreimage, err := asset.TapTreeNodesFromLeaves(
+		[]txscript.TapLeaf{hashLockLeaf, sigLeaf},
+	)
+	require.NoError(t, err)
+
+	var (
+		wg       sync.WaitGroup
+		respChan = make(chan *FundBatchResp, 1)
+	)
+
+	fundReq := tapgarden.FundParams{
+		SiblingTapTree: fn.Some(*tapTreePreimage),
+	}
+	t.fundBatch(&wg, respChan, &fundReq)
+	funded := t.assertGenesisTxFunded(nil)
+	t.assertFundBatch(&wg, respChan, "")
+
+	// Force tapscript tree loading to fail, then restart the
+	// planter. The resumed cultivator fails before broadcast and
+	// the planter cancels the batch in the background.
+	t.treeStore.FailLoad = true
+	t.refreshChainPlanter()
+
+	err = wait.NoError(func() error {
+		batches, err := t.store.FetchAllBatches(
+			context.Background(),
+		)
+		if err != nil {
+			return err
+		}
+		if len(batches) != 1 {
+			return fmt.Errorf("expected 1 batch, found %d",
+				len(batches))
+		}
+
+		batchState := batches[0].State()
+		if batchState != tapgarden.BatchStateSeedlingCancelled {
+			return fmt.Errorf("batch not cancelled, state %v",
+				batchState)
+		}
+
+		return nil
+	}, defaultTimeout)
+	require.NoError(t, err)
+
+	// The reloaded batch has no LockedUTXOs, so the released
+	// outpoints must have been derived from the funded PSBT's
+	// inputs.
+	require.Len(t, funded.LockedUTXOs, 1)
+	unlocked, err := fn.RecvOrTimeout(
+		t.wallet.UnlockInputSignal, defaultTimeout,
+	)
+	require.NoError(t, err)
+	require.Equal(t, funded.LockedUTXOs[0], *unlocked)
+}
+
+// testResumeSealFailureReleasesLeases verifies that a funded batch that
+// fails to seal while being resumed at startup, and is therefore
+// cancelled by the resume loop itself, releases its funding inputs. As
+// on the other resume paths, the reloaded batch carries no LockedUTXOs,
+// so the outpoints must be derived from the funded PSBT's inputs.
+func testResumeSealFailureReleasesLeases(t *mintingTestHarness) {
+	t.refreshChainPlanter()
+
+	// Create a batch with a grouped seedling, so sealing must
+	// create an asset group witness.
+	const numSeedlings = 2
+	seedlings := t.newRandSeedlings(numSeedlings)
+	seedlings[0].EnableEmission = true
+	seedlings[0].GroupInternalKey = nil
+	seedlings[1].EnableEmission = false
+	t.queueSeedlingsInBatch(false, seedlings...)
+
+	var (
+		wg       sync.WaitGroup
+		respChan = make(chan *FundBatchResp, 1)
+	)
+	t.fundBatch(&wg, respChan, nil)
+	funded := t.assertGenesisTxFunded(nil)
+	t.assertFundBatch(&wg, respChan, "")
+
+	// Set group key signing to fail, then restart the planter. The
+	// resume loop skips funding (the batch is already funded), fails
+	// to seal the batch, and cancels it before any cultivator is
+	// launched.
+	t.genSigner.FailSigningOnce()
+	t.refreshChainPlanter()
+
+	err := wait.NoError(func() error {
+		batches, err := t.store.FetchAllBatches(
+			context.Background(),
+		)
+		if err != nil {
+			return err
+		}
+		if len(batches) != 1 {
+			return fmt.Errorf("expected 1 batch, found %d",
+				len(batches))
+		}
+
+		batchState := batches[0].State()
+		if batchState != tapgarden.BatchStateSeedlingCancelled {
+			return fmt.Errorf("batch not cancelled, state %v",
+				batchState)
+		}
+
+		return nil
+	}, defaultTimeout)
+	require.NoError(t, err)
+
+	require.Len(t, funded.LockedUTXOs, 1)
+	unlocked, err := fn.RecvOrTimeout(
+		t.wallet.UnlockInputSignal, defaultTimeout,
+	)
+	require.NoError(t, err)
+	require.Equal(t, funded.LockedUTXOs[0], *unlocked)
+}
+
 // testFundBatchChecksDurableSingleton verifies that FundBatch checks the
 // durable singleton before it asks the wallet to lease inputs.
 func testFundBatchChecksDurableSingleton(t *mintingTestHarness) {
@@ -2917,6 +3138,26 @@ var testCases = []mintingStoreTestCase{
 	{
 		name:     "fund_failure_releases_wallet_leases",
 		testFunc: testFundFailureReleasesWalletLeases,
+	},
+	{
+		name:     "cancel_funded_batch_releases_leases",
+		testFunc: testCancelFundedBatchReleasesLeases,
+	},
+	{
+		name:     "cancel_unfunded_batch_no_lease_release",
+		testFunc: testCancelUnfundedBatchNoLeaseRelease,
+	},
+	{
+		name:     "failed_broadcast_keeps_leases",
+		testFunc: testFailedBroadcastKeepsLeases,
+	},
+	{
+		name:     "caretaker_resume_failure_releases_leases",
+		testFunc: testCaretakerResumeFailureReleasesLeases,
+	},
+	{
+		name:     "resume_seal_failure_releases_leases",
+		testFunc: testResumeSealFailureReleasesLeases,
 	},
 	{
 		name:     "fund_batch_checks_durable_singleton",
