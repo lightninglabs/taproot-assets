@@ -108,6 +108,10 @@ var testCases = []*ccTestCase{
 		test: testCustomChannelsFee,
 	},
 	{
+		name: "coop close fee baseline",
+		test: testCustomChannelsCoopCloseFeeBaseline,
+	},
+	{
 		name: "breach",
 		test: testCustomChannelsBreach,
 	},

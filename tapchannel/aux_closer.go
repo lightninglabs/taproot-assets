@@ -275,6 +275,56 @@ func signCommitVirtualPackets(ctx context.Context,
 	return nil
 }
 
+// AuxCloseShape returns the fee-independent shape of the auxiliary close
+// outputs: one P2TR asset output per party with a non-zero asset balance.
+// The close fee only affects the values of these outputs, never their number
+// or script sizes.
+//
+// NOTE: This method is part of the chancloser.AuxChanCloser interface.
+func (a *AuxChanCloser) AuxCloseShape(
+	desc types.AuxCloseShapeDesc) (lfn.Option[chancloser.AuxCloseShape],
+	error) {
+
+	none := lfn.None[chancloser.AuxCloseShape]()
+
+	// If there's no commit blob present, there are no assets in the
+	// channel, and no auxiliary outputs on the close transaction.
+	if desc.CommitBlob.IsNone() {
+		return none, nil
+	}
+
+	commitState, err := tapchannelmsg.DecodeCommitment(
+		desc.CommitBlob.UnwrapOr(nil),
+	)
+	if err != nil {
+		return none, err
+	}
+
+	sumAmounts := func(accu uint64, o *tapchannelmsg.AssetOutput) uint64 {
+		return accu + o.Amount.Val
+	}
+	localSum := fn.Reduce(commitState.LocalAssets.Val.Outputs, sumAmounts)
+	remoteSum := fn.Reduce(
+		commitState.RemoteAssets.Val.Outputs, sumAmounts,
+	)
+
+	var outputs []chancloser.AuxCloseOutputShape
+	if localSum > 0 {
+		outputs = append(outputs, chancloser.AuxCloseOutputShape{
+			IsLocal:      true,
+			PkScriptSize: input.P2TRSize,
+		})
+	}
+	if remoteSum > 0 {
+		outputs = append(outputs, chancloser.AuxCloseOutputShape{
+			IsLocal:      false,
+			PkScriptSize: input.P2TRSize,
+		})
+	}
+
+	return lfn.Some(chancloser.AuxCloseShape{Outputs: outputs}), nil
+}
+
 // AuxCloseOutputs returns the set of close outputs to use for this co-op close
 // attempt. We'll add some extra outputs to the co-op close transaction, and
 // also give the caller a custom sorting routine.
