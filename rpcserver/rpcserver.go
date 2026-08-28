@@ -1014,7 +1014,7 @@ func (r *RPCServer) FundBatch(ctx context.Context,
 	if req.PreCommitOutputIndex != nil {
 		preCommitIdx = fn.Some(req.GetPreCommitOutputIndex())
 	}
-	fundBatchResp, err := r.cfg.AssetMinter.FundBatch(tapgarden.FundParams{
+	verboseBatch, err := r.cfg.AssetMinter.FundBatch(tapgarden.FundParams{
 		FeeRate:              feeRateOpt,
 		SiblingTapTree:       tapTreeOpt,
 		AnchorPsbt:           anchorPsbt,
@@ -1027,12 +1027,12 @@ func (r *RPCServer) FundBatch(ctx context.Context,
 	}
 
 	// If there was no batch to fund, return an empty response.
-	if fundBatchResp.Batch == nil {
+	if verboseBatch == nil {
 		return &mintrpc.FundBatchResponse{}, nil
 	}
 
 	rpcBatch, err := marshalVerboseBatch(
-		*r.cfg.ChainParams.Params, fundBatchResp.Batch,
+		*r.cfg.ChainParams.Params, verboseBatch,
 		!req.ShortResponse, req.ShortResponse,
 	)
 	if err != nil {
@@ -1049,13 +1049,7 @@ func (r *RPCServer) FundBatch(ctx context.Context,
 func (r *RPCServer) PrepareBatch(_ context.Context,
 	req *mintrpc.PrepareBatchRequest) (*mintrpc.PrepareBatchResponse, error) {
 
-	preparer, ok := r.cfg.AssetMinter.(tapgarden.BatchPreparer)
-	if !ok {
-		return nil, fmt.Errorf("asset minter does not support caller-funded " +
-			"batch preparation")
-	}
-
-	batch, err := preparer.PrepareBatch()
+	batch, err := r.cfg.AssetMinter.PrepareBatch()
 	if err != nil {
 		return nil, fmt.Errorf("unable to prepare batch: %w", err)
 	}
@@ -6440,14 +6434,14 @@ func marshalUnsealedSeedling(params chaincfg.Params, verbose bool,
 
 	if verbose && seedling.PendingAssetGroup != nil {
 		groupVirtualTx, err = rpcutils.MarshalGroupVirtualTx(
-			&seedling.PendingAssetGroup.GroupVirtualTx,
+			&seedling.PendingAssetGroup.VirtualTx,
 		)
 		if err != nil {
 			return nil, err
 		}
 
 		groupReq, err = rpcutils.MarshalGroupKeyRequest(
-			&seedling.PendingAssetGroup.GroupKeyRequest,
+			&seedling.PendingAssetGroup.KeyRequest,
 		)
 		if err != nil {
 			return nil, err
@@ -12551,7 +12545,7 @@ func (r *RPCServer) RegisterTransfer(ctx context.Context,
 // proofs in the RPC server.
 func (r *RPCServer) ProofVerifierCtx(ctx context.Context) proof.VerifierCtx {
 	headerVerifier := tapnode.GenHeaderVerifier(ctx, r.cfg.ChainBridge)
-	groupVerifier := tapgarden.GenGroupVerifier(ctx, r.cfg.MintingStore)
+	groupVerifier := tapnode.GenGroupVerifier(ctx, r.cfg.MintingStore)
 
 	var ignoreChecker proof.IgnoreChecker = r.cfg.IgnoreChecker
 	return proof.VerifierCtx{

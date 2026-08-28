@@ -335,7 +335,8 @@ func testCustomAnchorPacket(t *testing.T) *psbt.Packet {
 func TestCustomGenesisPsbtValidation(t *testing.T) {
 	pkt := testCustomAnchorPacket(t)
 	funded, err := customGenesisPsbt(
-		address.TestNet3Tap, nil, pkt, 0, -1, noneUint32(),
+		context.Background(), address.TestNet3Tap, nil, pkt, 0, -1,
+		noneUint32(), NoOpAugmenter{},
 	)
 	require.NoError(t, err)
 	require.True(t, isCustomAnchorPsbt(funded.Pkt))
@@ -345,8 +346,8 @@ func TestCustomGenesisPsbtValidation(t *testing.T) {
 	missingDerivation.Outputs[0].Bip32Derivation = nil
 	missingDerivation.Outputs[0].TaprootBip32Derivation = nil
 	_, err = customGenesisPsbt(
-		address.TestNet3Tap, nil, missingDerivation, 0, -1,
-		noneUint32(),
+		context.Background(), address.TestNet3Tap, nil,
+		missingDerivation, 0, -1, noneUint32(), NoOpAugmenter{},
 	)
 	require.ErrorContains(t, err, "exactly one BIP32")
 
@@ -356,7 +357,8 @@ func TestCustomGenesisPsbtValidation(t *testing.T) {
 		Value: []byte{1},
 	})
 	funded, err = customGenesisPsbt(
-		address.TestNet3Tap, nil, forgedMarker, 0, -1, noneUint32(),
+		context.Background(), address.TestNet3Tap, nil, forgedMarker, 0,
+		-1, noneUint32(), NoOpAugmenter{},
 	)
 	require.NoError(t, err)
 	require.Equal(
@@ -367,14 +369,16 @@ func TestCustomGenesisPsbtValidation(t *testing.T) {
 	bad := testCustomAnchorPacket(t)
 	bad.Inputs = nil
 	_, err = customGenesisPsbt(
-		address.TestNet3Tap, nil, bad, 0, -1, noneUint32(),
+		context.Background(), address.TestNet3Tap, nil, bad, 0, -1,
+		noneUint32(), NoOpAugmenter{},
 	)
 	require.ErrorContains(t, err, "input maps")
 
 	underfunded := testCustomAnchorPacket(t)
 	underfunded.Inputs[0].WitnessUtxo.Value = 500
 	_, err = customGenesisPsbt(
-		address.TestNet3Tap, nil, underfunded, 0, -1, noneUint32(),
+		context.Background(), address.TestNet3Tap, nil, underfunded, 0,
+		-1, noneUint32(), NoOpAugmenter{},
 	)
 	require.ErrorContains(t, err, "outputs exceed")
 
@@ -382,7 +386,8 @@ func TestCustomGenesisPsbtValidation(t *testing.T) {
 	dust.UnsignedTx.TxOut[0].Value = 1
 	dust.UnsignedTx.TxOut[0].PkScript = []byte{txscript.OP_RETURN}
 	_, err = customGenesisPsbt(
-		address.TestNet3Tap, nil, dust, 0, -1, noneUint32(),
+		context.Background(), address.TestNet3Tap, nil, dust, 0, -1,
+		noneUint32(), NoOpAugmenter{},
 	)
 	require.ErrorContains(t, err, "anchor output is dust")
 
@@ -390,8 +395,8 @@ func TestCustomGenesisPsbtValidation(t *testing.T) {
 		anchorTapTree := testCustomAnchorPacket(t)
 		anchorTapTree.Outputs[0].TaprootTapTree = tapTree
 		_, err = customGenesisPsbt(
-			address.TestNet3Tap, nil, anchorTapTree, 0, -1,
-			noneUint32(),
+			context.Background(), address.TestNet3Tap, nil,
+			anchorTapTree, 0, -1, noneUint32(), NoOpAugmenter{},
 		)
 		require.ErrorContains(t, err, "must not specify a PSBT tap tree")
 	}
@@ -446,8 +451,8 @@ func TestCustomGenesisPsbtValidation(t *testing.T) {
 			})
 			invalid.Outputs = append(invalid.Outputs, testCase.output)
 			_, err := customGenesisPsbt(
-				address.TestNet3Tap, nil, invalid, 0, -1,
-				noneUint32(),
+				context.Background(), address.TestNet3Tap, nil,
+				invalid, 0, -1, noneUint32(), NoOpAugmenter{},
 			)
 			require.ErrorContains(t, err, testCase.errContains)
 		})
@@ -471,7 +476,8 @@ func TestCustomGenesisPsbtValidation(t *testing.T) {
 		),
 	})
 	_, err = customGenesisPsbt(
-		address.TestNet3Tap, nil, validMetadata, 0, -1, noneUint32(),
+		context.Background(), address.TestNet3Tap, nil, validMetadata, 0,
+		-1, noneUint32(), NoOpAugmenter{},
 	)
 	require.NoError(t, err)
 }
@@ -548,6 +554,10 @@ func TestFundedMintAnchorPsbtCopyPreservesMetadata(t *testing.T) {
 }
 
 func TestCustomGenesisPsbtSupplyPreCommitment(t *testing.T) {
+	ctx := context.Background()
+	augmenter := mockSupplyCommitAugmenter{
+		chainParams: address.TestNet3Tap,
+	}
 	seedling := RandGroupAnchorSeedling(t, "supply-anchor", true)
 	batch := &MintingBatch{
 		Seedlings: map[string]*Seedling{
@@ -561,34 +571,65 @@ func TestCustomGenesisPsbtSupplyPreCommitment(t *testing.T) {
 		errors.New("delegation key missing"),
 	)
 	require.NoError(t, err)
-	preCommitOut, err := PreCommitTxOut(*delegationKey.PubKey)
+	preCommitOut, err := mockPreCommitTxOut(*delegationKey.PubKey)
 	require.NoError(t, err)
 	pkt.UnsignedTx.AddTxOut(&preCommitOut)
 	pkt.Outputs = append(pkt.Outputs, psbt.POutput{})
 
 	_, err = customGenesisPsbt(
-		address.TestNet3Tap, batch, clonePsbt(t, pkt), 0, -1,
-		noneUint32(),
+		ctx, address.TestNet3Tap, batch, clonePsbt(t, pkt), 0, -1,
+		noneUint32(), augmenter,
 	)
 	require.ErrorContains(t, err, "requires a pre-commitment output index")
 
 	wrong := clonePsbt(t, pkt)
 	wrong.UnsignedTx.TxOut[1].PkScript[0] ^= 1
 	_, err = customGenesisPsbt(
-		address.TestNet3Tap, batch, wrong, 0, -1, fn.Some(uint32(1)),
+		ctx, address.TestNet3Tap, batch, wrong, 0, -1,
+		fn.Some(uint32(1)), augmenter,
 	)
-	require.ErrorContains(t, err, "doesn't match the batch delegation key")
+	require.ErrorContains(t, err, "unique output matching the augmenter")
+
+	wrongValue := clonePsbt(t, pkt)
+	wrongValue.UnsignedTx.TxOut[1].Value--
+	_, err = customGenesisPsbt(
+		ctx, address.TestNet3Tap, batch, wrongValue, 0, -1,
+		fn.Some(uint32(1)), augmenter,
+	)
+	require.ErrorContains(t, err, "unique output matching the augmenter")
+
+	duplicate := clonePsbt(t, pkt)
+	duplicate.Inputs[0].WitnessUtxo.Value += preCommitOut.Value
+	duplicate.UnsignedTx.AddTxOut(&wire.TxOut{
+		Value:    preCommitOut.Value,
+		PkScript: fn.CopySlice(preCommitOut.PkScript),
+	})
+	duplicate.Outputs = append(duplicate.Outputs, psbt.POutput{})
+	_, err = customGenesisPsbt(
+		ctx, address.TestNet3Tap, batch, duplicate, 0, -1,
+		fn.Some(uint32(1)), augmenter,
+	)
+	require.ErrorContains(t, err, "unique output matching the augmenter")
+
+	_, err = customGenesisPsbt(
+		ctx, address.TestNet3Tap, nil, clonePsbt(t, pkt), 0, -1,
+		fn.Some(uint32(1)), NoOpAugmenter{},
+	)
+	require.ErrorContains(t, err, "without augmenter output")
 
 	funded, err := customGenesisPsbt(
-		address.TestNet3Tap, batch, clonePsbt(t, pkt), 0, -1,
-		fn.Some(uint32(1)),
+		ctx, address.TestNet3Tap, batch, clonePsbt(t, pkt), 0, -1,
+		fn.Some(uint32(1)), augmenter,
 	)
 	require.NoError(t, err)
-	preCommit, err := funded.PreCommitmentOutput.UnwrapOrErr(
+	batch.GenesisPacket = &funded
+	bindData, err := augmenter.BindData(ctx, batch)
+	require.NoError(t, err)
+	preCommit, err := bindData.UnwrapOrErr(
 		errors.New("pre-commitment output missing"),
 	)
 	require.NoError(t, err)
-	require.Equal(t, uint32(1), preCommit.OutIdx)
+	require.Equal(t, uint32(1), preCommit.OutputIndex)
 	require.Equal(t, schnorr.SerializePubKey(delegationKey.PubKey),
 		funded.Pkt.Outputs[1].TaprootInternalKey)
 	require.Len(t, funded.Pkt.Outputs[1].Bip32Derivation, 1)

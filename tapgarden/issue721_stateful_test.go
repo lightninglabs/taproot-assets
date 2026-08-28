@@ -34,9 +34,10 @@ import (
 
 type issue721FailSignedStore struct {
 	testMintingStore
-	fail            bool
-	failCommit      bool
-	commitAttempted bool
+	fail                  bool
+	failCommit            bool
+	commitAttempted       bool
+	commitLockedOutpoints []wire.OutPoint
 }
 
 func (s *issue721FailSignedStore) CommitSignedGenesisTxWithKey(
@@ -46,6 +47,7 @@ func (s *issue721FailSignedStore) CommitSignedGenesisTxWithKey(
 	merkleRoot, tapTreeRoot, tapSibling []byte) error {
 
 	s.commitAttempted = true
+	s.commitLockedOutpoints = fn.CopySlice(genesisTx.LockedUTXOs)
 	if s.failCommit {
 		return fmt.Errorf("injected signed genesis commit failure")
 	}
@@ -71,8 +73,9 @@ type issue721TimeoutFundingStore struct {
 }
 
 func (s *issue721TimeoutFundingStore) CommitBatchFunding(ctx context.Context,
-	_ *btcec.PublicKey, _ *chainhash.Hash,
-	_ tapgarden.FundedMintAnchorPsbt) error {
+	_ *tapgarden.MintingBatch, _ *chainhash.Hash,
+	_ tapgarden.FundedMintAnchorPsbt,
+	_ fn.Option[tapgarden.PreCommitBindData]) error {
 
 	<-ctx.Done()
 	return ctx.Err()
@@ -220,7 +223,7 @@ func issue721Fund(t *testing.T, h *mintingTestHarness,
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 
-	batch, err := resp.Batch.ToMintingBatch()
+	batch, err := resp.ToMintingBatch()
 	require.NoError(t, err)
 	return batch
 }
@@ -1536,6 +1539,8 @@ func TestIssue721PublishSuccessCommitFailureRetainsReservation(t *testing.T) {
 		&wg, respChan, "injected signed genesis commit failure",
 	)
 	require.True(t, store.commitAttempted)
+	require.Equal(t, []wire.OutPoint{ownedInput},
+		store.commitLockedOutpoints)
 
 	pending, err := h.planter.PendingBatch()
 	require.NoError(t, err)
@@ -1828,6 +1833,12 @@ func TestIssue721PersistenceTimeoutRollsBackLease(t *testing.T) {
 
 	case <-time.After(time.Second):
 		t.Fatal("persistence timeout did not roll back acquired lease")
+	}
+	select {
+	case unlocked := <-h.wallet.UnlockInputSignal:
+		t.Fatalf("custom input used wallet-funded unlock path: %v",
+			unlocked)
+	default:
 	}
 
 	pending, err := h.planter.PendingBatch()
@@ -2169,7 +2180,8 @@ func TestIssue721LegacyRawOnlyPreflightIsNonMutating(t *testing.T) {
 			legacy.Pkt.Outputs[1].Bip32Derivation = nil
 			legacy.Pkt.Outputs[1].TaprootBip32Derivation = nil
 			require.NoError(t, store.CommitBatchFunding(
-				t.Context(), batch.BatchKey.PubKey, nil, *legacy,
+				t.Context(), batch, nil, *legacy,
+				fn.None[tapgarden.PreCommitBindData](),
 			))
 			if state == tapgarden.BatchStateFrozen {
 				require.NoError(t, store.UpdateBatchState(

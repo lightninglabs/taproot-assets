@@ -1436,6 +1436,8 @@ func TestMigration65BackfillSupplyUpdateEventKeys(t *testing.T) {
 	}
 
 	for _, s := range seeds {
+		// EventKey is intentionally nil so the row mimics what a
+		// legacy database holds before migration 65's backfill.
 		_, err := db.InsertSupplyUpdateEvent(
 			ctx, sqlc.InsertSupplyUpdateEventParams{
 				GroupKey:     groupKey,
@@ -1541,8 +1543,14 @@ func TestMigration65BackfillDedupesLegacyDuplicates(t *testing.T) {
 	require.NoError(t, err)
 
 	// Exactly one row should survive, and its event_key should
-	// match the hash of the duplicated content.
+	// match the hash of the duplicated content. MAX(bytea) is not
+	// defined in Postgres, so fetch count and key separately.
 	var postCount int
+	require.NoError(t, db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM supply_update_events
+	`).Scan(&postCount))
+	require.Equal(t, 1, postCount)
+
 	var survivingKey []byte
 	require.NoError(t, db.QueryRowContext(ctx, `
 		SELECT COUNT(*) FROM supply_update_events

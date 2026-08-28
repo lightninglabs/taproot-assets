@@ -22,6 +22,13 @@ type Querier interface {
 	AssetsDBSizeSqlite(ctx context.Context) (int32, error)
 	AssetsInBatch(ctx context.Context, rawKey []byte) ([]AssetsInBatchRow, error)
 	BindMintingBatchWithTapSibling(ctx context.Context, arg BindMintingBatchWithTapSiblingParams) error
+	// universe_commitments is intentionally not in the SET clause: the
+	// flag is set once at batch creation (NewMintingBatch) from the
+	// seedling's SupplyCommitments intent and must not change at
+	// funding time. Overwriting it here from a caller-derived value
+	// would silently disable supply commitments if no augmenter bind
+	// payload was produced for a batch that legitimately requested
+	// them.
 	BindMintingBatchWithTx(ctx context.Context, arg BindMintingBatchWithTxParams) (int64, error)
 	// Reserves a contiguous range of journal seq values ending at the
 	// returned tail. The row lock taken here is held until the enclosing
@@ -128,6 +135,10 @@ type Querier interface {
 	// filtering.
 	FetchMintSupplyPreCommits(ctx context.Context, arg FetchMintSupplyPreCommitsParams) ([]FetchMintSupplyPreCommitsRow, error)
 	FetchMintingBatch(ctx context.Context, rawKey []byte) (FetchMintingBatchRow, error)
+	// ORDER BY matches the tie-break used by migration 61's self-heal
+	// (creation_time_unix DESC, batch_id DESC), so any code that has to
+	// pick "the most recent" pre-broadcast batch when several share a
+	// timestamp reaches the same row as the migration.
 	FetchMintingBatchesByInverseState(ctx context.Context, batchState int16) ([]FetchMintingBatchesByInverseStateRow, error)
 	FetchMultiverseRoot(ctx context.Context, namespaceRoot string) (FetchMultiverseRootRow, error)
 	FetchPeerAcceptedBuyPeerByScid(ctx context.Context, scid int64) ([]byte, error)
