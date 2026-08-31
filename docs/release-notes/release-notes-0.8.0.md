@@ -399,6 +399,12 @@
   `universe.mbox-cleanup-check-timeout` to configure periodic cleanup of
   auth mailbox messages whose claimed outpoints have been spent on chain.
 
+## Performance Improvements
+
+- [PR#2264](https://github.com/lightninglabs/taproot-assets/pull/2264)
+  bounds pinned input coin selection to the requested anchor UTXOs instead of
+  materializing all eligible wallet assets.
+
 # Tooling and Documentation
 
 - [PR#1962](https://github.com/lightninglabs/taproot-assets/pull/1962)
@@ -411,4 +417,3 @@
 - [PR#2056](https://github.com/lightninglabs/taproot-assets/pull/2056)
   expands the example portfolio pilot with constraint enforcement,
   configurable fill caps, and live CoinGecko pricing.
-
