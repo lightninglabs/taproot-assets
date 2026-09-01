@@ -2139,6 +2139,101 @@ func testResumeSealFailureReleasesLeases(t *mintingTestHarness) {
 	require.Equal(t, funded.LockedUTXOs[0], *unlocked)
 }
 
+// cancelBatchWithCultivator loads the given batch from disk, hands it
+// to a cultivator built over the harness stores, and cancels it,
+// asserting that the batch reaches cancelledState and that the wallet
+// input leased during funding is released. Cancel is invoked directly
+// because a cancel routed through a running cultivator is only read
+// between state steps, a window no mock can hold open
+// deterministically.
+func (t *mintingTestHarness) cancelBatchWithCultivator(
+	batchKey *btcec.PublicKey, funded *tapsend.FundedPsbt,
+	cancelledState tapgarden.BatchState) {
+
+	t.Helper()
+
+	cultivator := tapgarden.NewCultivator(&tapgarden.CultivatorConfig{
+		Batch: t.fetchSingleBatch(batchKey),
+		GardenKit: &tapgarden.GardenKit{
+			Wallet:     t.wallet,
+			BatchStore: t.store,
+		},
+		PublishMintEvent: func(event fn.Event) {},
+	})
+
+	respCh := make(chan tapgarden.CancelResp, 1)
+	require.NoError(t, cultivator.Cancel(respCh))
+
+	t.assertBatchState(batchKey, cancelledState)
+
+	// The reloaded batch carries no LockedUTXOs, so the released
+	// outpoints must have been derived from the funded PSBT's
+	// inputs.
+	require.Len(t, funded.LockedUTXOs, 1)
+	unlocked, err := fn.RecvOrTimeout(
+		t.wallet.UnlockInputSignal, defaultTimeout,
+	)
+	require.NoError(t, err)
+	require.Equal(t, funded.LockedUTXOs[0], *unlocked)
+}
+
+// testCultivatorCancelReleasesLeases verifies that both cancel branches
+// of the cultivator release the wallet inputs leased during funding: a
+// batch cancelled at BatchStateFrozen (to SeedlingCancelled) and one
+// cancelled at BatchStateCommitted (to SproutCancelled).
+func testCultivatorCancelReleasesLeases(t *mintingTestHarness) {
+	t.refreshChainPlanter()
+
+	// First, cancel a funded batch at BatchStateFrozen. The batch is
+	// frozen manually; freezing normally happens inside batch
+	// finalization, which would also hand the batch to a live
+	// cultivator.
+	_ = t.queueInitialBatch(2)
+
+	var (
+		wg       sync.WaitGroup
+		fundResp = make(chan *FundBatchResp, 1)
+	)
+	t.fundBatch(&wg, fundResp, nil)
+	funded := t.assertGenesisTxFunded(nil)
+	fundedBatch := t.assertFundBatch(&wg, fundResp, "")
+
+	frozenKey := fundedBatch.BatchKey.PubKey
+	require.NoError(t, t.store.UpdateBatchState(
+		context.Background(), t.fetchSingleBatch(frozenKey),
+		tapgarden.BatchStateFrozen,
+	))
+
+	t.cancelBatchWithCultivator(
+		frozenKey, funded, tapgarden.BatchStateSeedlingCancelled,
+	)
+
+	// Next, cancel a batch at BatchStateCommitted. Finalize a second
+	// batch with signing armed to fail: the cultivator commits the
+	// batch's sprouts to disk, fails to sign the genesis TX, and the
+	// planter retains the batch at Committed with its leases intact.
+	t.refreshChainPlanter()
+	_ = t.queueInitialBatch(2)
+
+	finalizeResp := make(chan *FinalizeBatchResp, 1)
+	t.wallet.FailSignPsbtOnce()
+	t.finalizeBatch(&wg, finalizeResp, nil)
+
+	funded = t.assertGenesisTxFunded(nil)
+	t.assertFinalizeBatch(&wg, finalizeResp, "unable to sign psbt")
+	t.assertNumCultivatorsActive(0)
+
+	committedBatch := t.fetchLastBatch()
+	require.Equal(
+		t, tapgarden.BatchStateCommitted, committedBatch.State(),
+	)
+
+	t.cancelBatchWithCultivator(
+		committedBatch.BatchKey.PubKey, funded,
+		tapgarden.BatchStateSproutCancelled,
+	)
+}
+
 // testFundBatchChecksDurableSingleton verifies that FundBatch checks the
 // durable singleton before it asks the wallet to lease inputs.
 func testFundBatchChecksDurableSingleton(t *mintingTestHarness) {
@@ -3158,6 +3253,10 @@ var testCases = []mintingStoreTestCase{
 	{
 		name:     "resume_seal_failure_releases_leases",
 		testFunc: testResumeSealFailureReleasesLeases,
+	},
+	{
+		name:     "cultivator_cancel_releases_leases",
+		testFunc: testCultivatorCancelReleasesLeases,
 	},
 	{
 		name:     "fund_batch_checks_durable_singleton",
