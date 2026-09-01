@@ -113,6 +113,13 @@
   long-running node the series steps down. The per-day `sync_events`
   series is unchanged and still reflects sync traffic volume.
 
+* [PR#2267](https://github.com/lightninglabs/taproot-assets/pull/2267)
+  rejects a negative `expiry` when adding a Taproot Asset channel
+  invoice. A negative expiry previously skipped the default and was
+  passed through to lnd, which treated it as unset and applied its own
+  86400 second default instead of returning an error. Fixes
+  [#2261](https://github.com/lightninglabs/taproot-assets/issues/2261).
+
 # New Features
 
 ## Functional Enhancements
@@ -237,3 +244,5 @@
 ## Tooling and Documentation
 
 # Contributors (Alphabetical Order)
+
+* Vandit Singh
