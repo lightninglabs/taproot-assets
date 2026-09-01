@@ -120,14 +120,16 @@ func TestSyncFixture_StaleContentAtSharedKeys(t *testing.T) {
 		}
 	}
 
-	require.NoError(t, f.Remote.Multiverse.UpsertProofLeafBatch(
+	_, err := f.Remote.Multiverse.UpsertProofLeafBatch(
 		ctx, remoteItems,
-	))
-	require.NoError(t, f.Local.Multiverse.UpsertProofLeafBatch(
+	)
+	require.NoError(t, err)
+	_, err = f.Local.Multiverse.UpsertProofLeafBatch(
 		ctx, localItems,
-	))
+	)
+	require.NoError(t, err)
 
-	_, err := f.Syncer.SyncUniverse(
+	_, err = f.Syncer.SyncUniverse(
 		ctx, universe.ServerAddr{}, universe.SyncFull,
 		GlobalSyncConfig(),
 	)
@@ -192,14 +194,16 @@ func TestSyncFixture_RemoteBehindPeer(t *testing.T) {
 		}
 	}
 
-	require.NoError(t, f.Remote.Multiverse.UpsertProofLeafBatch(
+	_, err := f.Remote.Multiverse.UpsertProofLeafBatch(
 		ctx, shared,
-	))
-	require.NoError(t, f.Local.Multiverse.UpsertProofLeafBatch(
+	)
+	require.NoError(t, err)
+	_, err = f.Local.Multiverse.UpsertProofLeafBatch(
 		ctx, append(shared, extras...),
-	))
+	)
+	require.NoError(t, err)
 
-	_, err := f.Syncer.SyncUniverse(
+	_, err = f.Syncer.SyncUniverse(
 		ctx, universe.ServerAddr{}, universe.SyncFull,
 		GlobalSyncConfig(),
 	)

@@ -2086,3 +2086,147 @@ func TestMigration61CancelsDuplicatePreBroadcastBatches(t *testing.T) {
 	`).Scan(&cancelledCount))
 	require.Equal(t, 3, cancelledCount)
 }
+
+// TestMigration67UniverseStatsFromLeaves tests that the universe stats view
+// starts reporting the number of leaves held rather than the number of
+// NEW_PROOF events logged, and that it does so for a database that already
+// accumulated duplicate events. It also checks that supply commitment
+// sub-tree leaves, which live in the same table, stay excluded.
+func TestMigration67UniverseStatsFromLeaves(t *testing.T) {
+	ctx := context.Background()
+
+	// Start just before the migration under test.
+	db := NewTestDBWithVersion(t, 66)
+
+	// Build a universe holding two leaves, with the NEW_PROOF event log
+	// inflated to five entries the way a pre-fix node's would be, plus a
+	// burn sub-tree root with a leaf of its own.
+	_, err := db.ExecContext(ctx, transformByteLiterals(t, db.BaseDB, `
+	  INSERT INTO mssmt_nodes (
+	      hash_key, l_hash_key, r_hash_key, key, value, sum, namespace
+	  ) VALUES (
+	    X'2222222222222222222222222222222222222222222222222222222222222222',
+	    NULL, NULL, X'00', X'00', 0, 'ns_issuance'
+	  ), (
+	    X'3333333333333333333333333333333333333333333333333333333333333333',
+	    NULL, NULL, X'00', X'00', 0, 'ns_burn'
+	  );
+
+	  INSERT INTO mssmt_roots (namespace, root_hash) VALUES (
+	    'ns_issuance',
+	    X'2222222222222222222222222222222222222222222222222222222222222222'
+	  ), (
+	    'ns_burn',
+	    X'3333333333333333333333333333333333333333333333333333333333333333'
+	  );
+
+	  INSERT INTO genesis_points (genesis_id, prev_out)
+	  VALUES (1, X'0011');
+
+	  INSERT INTO genesis_assets (
+	      gen_asset_id, asset_id, asset_tag, output_index, asset_type,
+	      genesis_point_id
+	  ) VALUES (
+	    1,
+	    X'4444444444444444444444444444444444444444444444444444444444444444',
+	    'stats-asset', 0, 0, 1
+	  );
+
+	  INSERT INTO universe_roots (
+	      id, namespace_root, asset_id, group_key, proof_type
+	  ) VALUES (
+	    1, 'ns_issuance',
+	    X'4444444444444444444444444444444444444444444444444444444444444444',
+	    NULL, 'issuance'
+	  ), (
+	    2, 'ns_burn',
+	    X'4444444444444444444444444444444444444444444444444444444444444444',
+	    NULL, 'burn'
+	  );
+
+	  INSERT INTO universe_leaves (
+	      id, asset_genesis_id, minting_point, script_key_bytes,
+	      universe_root_id, leaf_node_key, leaf_node_namespace
+	  ) VALUES
+(1, 1, X'0011',
+X'0101010101010101010101010101010101010101010101010101010101010101',
+1, X'aa', 'ns_issuance'),
+(2, 1, X'0011',
+X'0202020202020202020202020202020202020202020202020202020202020202',
+1, X'bb', 'ns_issuance'),
+(3, 1, X'0011',
+X'0303030303030303030303030303030303030303030303030303030303030303',
+2, X'cc', 'ns_burn');
+
+	  INSERT INTO universe_events (
+	      event_id, event_type, universe_root_id, event_time,
+	      event_timestamp
+	  ) VALUES
+	    (1, 'NEW_PROOF', 1, '2024-01-01 00:00:00', 1704067200),
+	    (2, 'NEW_PROOF', 1, '2024-01-01 00:00:00', 1704067200),
+	    (3, 'NEW_PROOF', 1, '2024-01-01 00:00:00', 1704067200),
+	    (4, 'NEW_PROOF', 1, '2024-01-01 00:00:00', 1704067200),
+	    (5, 'NEW_PROOF', 1, '2024-01-01 00:00:00', 1704067200),
+	    (6, 'SYNC', 1, '2024-01-01 00:00:00', 1704067200),
+	    (7, 'SYNC', 1, '2024-01-01 00:00:00', 1704067200);
+	`))
+	require.NoError(t, err)
+
+	// Before the migration the view counts the five event rows.
+	var preProofs, preSyncs int64
+	err = db.QueryRowContext(ctx, `
+		SELECT COALESCE(SUM(total_asset_proofs), 0),
+		       COALESCE(SUM(total_asset_syncs), 0)
+		FROM universe_stats
+	`).Scan(&preProofs, &preSyncs)
+	require.NoError(t, err)
+	require.EqualValues(t, 5, preProofs)
+	require.EqualValues(t, 2, preSyncs)
+
+	// Migrate.
+	require.NoError(t, db.ExecuteMigrations(TargetLatest))
+
+	// The proof count now reflects the two leaves we actually hold. The
+	// burn sub-tree leaf is not counted, and the sync count is untouched.
+	var postProofs, postSyncs int64
+	err = db.QueryRowContext(ctx, `
+		SELECT COALESCE(SUM(total_asset_proofs), 0),
+		       COALESCE(SUM(total_asset_syncs), 0)
+		FROM universe_stats
+	`).Scan(&postProofs, &postSyncs)
+	require.NoError(t, err)
+	require.EqualValues(t, 2, postProofs)
+	require.EqualValues(t, 2, postSyncs)
+
+	// The event rows are left alone: QueryAssetStatsPerDay still reads
+	// them, so the migration must not delete history.
+	var events int64
+	err = db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM universe_events
+		WHERE event_type = 'NEW_PROOF'
+	`).Scan(&events)
+	require.NoError(t, err)
+	require.EqualValues(t, 5, events)
+
+	// The burn root is absent from the view entirely, as before: it has no
+	// sync events and its leaves aren't counted.
+	var burnRows int64
+	err = db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM universe_stats WHERE proof_type = 'burn'
+	`).Scan(&burnRows)
+	require.NoError(t, err)
+	require.Zero(t, burnRows)
+
+	// Downgrading restores the event-derived count, so an operator rolling
+	// back to an older tapd gets the view that release expects.
+	require.NoError(t, db.ExecuteMigrations(TargetVersion(66)))
+
+	err = db.QueryRowContext(ctx, `
+		SELECT COALESCE(SUM(total_asset_proofs), 0),
+		       COALESCE(SUM(total_asset_syncs), 0)
+		FROM universe_stats
+	`).Scan(&preProofs, &preSyncs)
+	require.NoError(t, err)
+	require.EqualValues(t, 5, preProofs)
+	require.EqualValues(t, 2, preSyncs)
+}

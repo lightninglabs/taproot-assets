@@ -32,6 +32,10 @@ type (
 	// insertion journal.
 	InsertUniverseLeafJournal = sqlc.InsertUniverseLeafJournalParams
 
+	// UniverseLeafIDQuery is used to look up the primary key of a single
+	// universe leaf.
+	UniverseLeafIDQuery = sqlc.QueryUniverseLeafIDParams
+
 	// NewUniverseRoot is used to insert a new universe root.
 	NewUniverseRoot = sqlc.UpsertUniverseRootParams
 
@@ -117,6 +121,12 @@ type BaseUniverseStore interface {
 	// key.
 	FetchUniverseRoot(ctx context.Context,
 		namespace string) (UniverseRoot, error)
+
+	// QueryUniverseLeafID returns the primary key of the universe leaf
+	// identified by the given namespace, minting point and script key. It
+	// returns sql.ErrNoRows if no such leaf exists.
+	QueryUniverseLeafID(ctx context.Context,
+		arg UniverseLeafIDQuery) (int64, error)
 
 	// UpsertUniverseLeaf upserts a Universe leaf in the database,
 	// returning the leaf's primary key.
@@ -785,7 +795,7 @@ func (b *BaseUniverseTree) UpsertProofLeaf(ctx context.Context,
 
 		// The block height is extracted from the decoded proof by
 		// universeUpsertProofLeaf itself.
-		issuanceProof, _, leafID, err := universeUpsertProofLeaf(
+		issuanceProof, res, err := universeUpsertProofLeaf(
 			ctx, dbTx, namespace, b.id.ProofType,
 			b.id.GroupKey, key, leaf, metaReveal,
 			lfn.None[uint32](),
@@ -793,7 +803,6 @@ func (b *BaseUniverseTree) UpsertProofLeaf(ctx context.Context,
 		if err != nil {
 			return fmt.Errorf("failed universe upsert: %w", err)
 		}
-
 		err = upsertMultiverseLeafEntry(
 			ctx, dbTx, b.id, issuanceProof.UniverseRoot,
 		)
@@ -814,7 +823,7 @@ func (b *BaseUniverseTree) UpsertProofLeaf(ctx context.Context,
 
 		if shouldJournalLeaf(b.id) {
 			err = journalUniverseLeaves(
-				ctx, dbTx, []int64{leafID},
+				ctx, dbTx, []int64{res.leafID},
 			)
 			if err != nil {
 				return err
@@ -1071,13 +1080,33 @@ const (
 	universeRootUpdated
 )
 
+// universeUpsertResult reports what an upsert of a proof leaf changed within
+// its universe tree. Both fields are deliberately safe in their zero value,
+// so an error return that never sets them drives the conservative path:
+// a full cache wipe, and no new proof event.
+type universeUpsertResult struct {
+	// rootStatus indicates whether the upsert created the universe tree
+	// or updated one that already existed.
+	rootStatus universeRootStatus
+
+	// leafInserted is true if the upsert created a new universe leaf, and
+	// false if it replaced the proof of a leaf the universe already held.
+	// Callers use this to avoid counting a re-registration of a leaf we
+	// already have as a new proof.
+	leafInserted bool
+
+	// leafID is the primary key of the upserted universe leaf. It is only
+	// set when the upsert succeeds.
+	leafID int64
+}
+
 // universeUpsertProofLeaf upserts a proof leaf within the universe tree (stored
 // at the proof leaf key). It handles the insertion into the specific universe's
 // SMT and updates the relevant database tables for that universe.
 //
 // This function returns the inserted/updated proof leaf, whether the upsert
-// created the universe tree, and the leaf's database id. It does NOT insert
-// into the top-level multiverse tree.
+// created the universe tree, whether it created the leaf itself, and the
+// leaf's database id. It does NOT insert into the top-level multiverse tree.
 //
 // NOTE: This function accepts a db transaction, as it's used when making
 // broader DB updates.
@@ -1085,8 +1114,8 @@ func universeUpsertProofLeaf(ctx context.Context, dbTx BaseUniverseStore,
 	namespace string, proofType universe.ProofType,
 	groupKey *btcec.PublicKey,
 	key universe.LeafKey, leaf *universe.Leaf, metaReveal *proof.MetaReveal,
-	blockHeight lfn.Option[uint32]) (*universe.Proof, universeRootStatus,
-	int64, error) {
+	blockHeight lfn.Option[uint32]) (*universe.Proof, universeUpsertResult,
+	error) {
 
 	// With the tree store created, we'll now obtain byte representation of
 	// the minting key, as that'll be the key in the SMT itself.
@@ -1101,16 +1130,18 @@ func universeUpsertProofLeaf(ctx context.Context, dbTx BaseUniverseStore,
 		groupKeyBytes = schnorr.SerializePubKey(groupKey)
 	}
 
-	// rootStatus reports whether this upsert created the universe tree.
-	// The zero value is the safe, over-invalidating universeRootCreated,
-	// which is what all error returns below hand back; the status is
-	// only meaningful when the upsert succeeds.
-	var rootStatus universeRootStatus
+	// res reports what this upsert changed. Its zero value is the safe,
+	// over-invalidating universeRootCreated with no leaf insertion, which
+	// is what all error returns below hand back; the result is only
+	// meaningful when the upsert succeeds.
+	var res universeUpsertResult
 
 	mintingPointBytes, err := encodeOutpoint(key.LeafOutPoint())
 	if err != nil {
-		return nil, rootStatus, 0, err
+		return nil, res, err
 	}
+
+	scriptKeyBytes := schnorr.SerializePubKey(key.LeafScriptKey().PubKey)
 
 	var (
 		leafInclusionProof *mssmt.Proof
@@ -1131,17 +1162,42 @@ func universeUpsertProofLeaf(ctx context.Context, dbTx BaseUniverseStore,
 	// non-empty root.
 	existingRoot, err := universeTree.Root(ctx)
 	if err != nil {
-		return nil, rootStatus, 0, err
+		return nil, res, err
 	}
 	if existingRoot.NodeHash() != mssmt.EmptyTreeRootHash {
-		rootStatus = universeRootUpdated
+		res.rootStatus = universeRootUpdated
+	}
+
+	// Whether we're about to create the leaf or replace the proof of one
+	// we already hold decides if this counts as a new proof for the
+	// universe stats. A universe tree that didn't exist can't have held
+	// the leaf, so the lookup is only needed for an existing tree.
+	var leafInserted bool
+	switch res.rootStatus {
+	case universeRootCreated:
+		leafInserted = true
+
+	case universeRootUpdated:
+		_, err := dbTx.QueryUniverseLeafID(ctx, UniverseLeafIDQuery{
+			Namespace:      namespace,
+			MintingPoint:   mintingPointBytes,
+			ScriptKeyBytes: scriptKeyBytes,
+		})
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			leafInserted = true
+
+		case err != nil:
+			return nil, res, fmt.Errorf("unable to query "+
+				"universe leaf: %w", err)
+		}
 	}
 
 	// Now that we have a tree instance linked to this DB transaction, we'll
 	// insert the leaf into the tree based on its SMT key.
 	_, err = universeTree.Insert(ctx, smtKey, leafNode)
 	if err != nil {
-		return nil, rootStatus, 0, err
+		return nil, res, err
 	}
 
 	// Next, we'll upsert the universe root in the DB, which gives us the
@@ -1153,7 +1209,7 @@ func universeUpsertProofLeaf(ctx context.Context, dbTx BaseUniverseStore,
 		ProofType:     sqlStr(proofType.String()),
 	})
 	if err != nil {
-		return nil, rootStatus, 0, err
+		return nil, res, err
 	}
 
 	// Before we insert the asset genesis, we'll insert the meta first. The
@@ -1161,7 +1217,7 @@ func universeUpsertProofLeaf(ctx context.Context, dbTx BaseUniverseStore,
 	// meta blob on disk.
 	_, err = maybeUpsertAssetMeta(ctx, dbTx, &leaf.Genesis, metaReveal)
 	if err != nil {
-		return nil, rootStatus, 0, err
+		return nil, res, err
 	}
 
 	// On the ingest path the archive has already decoded and memoized the
@@ -1169,7 +1225,7 @@ func universeUpsertProofLeaf(ctx context.Context, dbTx BaseUniverseStore,
 	// transaction.
 	leafProof, err := leaf.DecodedProof()
 	if err != nil {
-		return nil, rootStatus, 0, err
+		return nil, res, err
 	}
 
 	// Upsert into the DB: the genesis point, asset genesis,
@@ -1179,7 +1235,7 @@ func universeUpsertProofLeaf(ctx context.Context, dbTx BaseUniverseStore,
 		ctx, dbTx, leaf.Genesis, leaf.GroupKey, leafProof,
 	)
 	if err != nil {
-		return nil, rootStatus, 0, err
+		return nil, res, err
 	}
 
 	// If the asset group supports supply commitments and this is an
@@ -1189,8 +1245,8 @@ func universeUpsertProofLeaf(ctx context.Context, dbTx BaseUniverseStore,
 		ctx, dbTx, proofType, *leafProof, metaReveal,
 	)
 	if err != nil {
-		return nil, rootStatus, 0, fmt.Errorf("unable to upsert "+
-			"supply pre-commit: %w", err)
+		return nil, res, fmt.Errorf("unable to upsert supply "+
+			"pre-commit: %w", err)
 	}
 
 	// If the block height isn't specified, then we'll attempt to extract it
@@ -1208,8 +1264,6 @@ func universeUpsertProofLeaf(ctx context.Context, dbTx BaseUniverseStore,
 		},
 	)
 
-	scriptKey := key.LeafScriptKey()
-	scriptKeyBytes := schnorr.SerializePubKey(scriptKey.PubKey)
 	leafID, err := dbTx.UpsertUniverseLeaf(ctx, UpsertUniverseLeaf{
 		AssetGenesisID:    assetGenID,
 		ScriptKeyBytes:    scriptKeyBytes,
@@ -1220,22 +1274,26 @@ func universeUpsertProofLeaf(ctx context.Context, dbTx BaseUniverseStore,
 		BlockHeight:       sqlBlockHeight,
 	})
 	if err != nil {
-		return nil, rootStatus, 0, err
+		return nil, res, err
 	}
 
 	// Finally, we'll obtain the merkle proof from the tree for the leaf we
 	// just inserted.
 	leafInclusionProof, err = universeTree.MerkleProof(ctx, smtKey)
 	if err != nil {
-		return nil, rootStatus, 0, err
+		return nil, res, err
 	}
 
 	// With the insertion complete, we'll now fetch the root of the tree as
 	// it stands and return it to the caller.
 	universeRoot, err = universeTree.Root(ctx)
 	if err != nil {
-		return nil, rootStatus, 0, err
+		return nil, res, err
 	}
+
+	// The upsert succeeded, so the leaf-level outcome is now meaningful.
+	res.leafInserted = leafInserted
+	res.leafID = leafID
 
 	// Return the proof containing only universe-level information.
 	// Multiverse details will be added by the caller if needed.
@@ -1244,7 +1302,7 @@ func universeUpsertProofLeaf(ctx context.Context, dbTx BaseUniverseStore,
 		UniverseRoot:           universeRoot,
 		UniverseInclusionProof: leafInclusionProof,
 		Leaf:                   leaf,
-	}, rootStatus, leafID, nil
+	}, res, nil
 }
 
 // FetchProof retrieves a universe proof corresponding to the given key. If the

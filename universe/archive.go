@@ -348,7 +348,7 @@ func (a *Archive) UpsertProofLeaf(ctx context.Context, id Identifier,
 
 	// Now that we know the proof is valid, we'll insert it into the base
 	// multiverse backend, and return the new issuance proof.
-	issuanceProof, err := a.cfg.Multiverse.UpsertProofLeaf(
+	issuanceProof, leafInserted, err := a.cfg.Multiverse.UpsertProofLeaf(
 		ctx, id, key, leaf, assetSnapshot.MetaReveal,
 	)
 	if err != nil && !errors.Is(err, ErrMultiversePending) {
@@ -361,15 +361,22 @@ func (a *Archive) UpsertProofLeaf(ctx context.Context, id Identifier,
 	// async goroutine. This runs for the pending case too: the universe
 	// leaf is durably stored, only its multiverse entry is still
 	// outstanding.
-	go func() {
-		err := a.cfg.UniverseStats.LogNewProofEvent(
-			context.Background(), id, key,
-		)
-		if err != nil {
-			log.Warnf("unable to log new proof event (id=%v): %v",
-				id.StringForLog(), err)
-		}
-	}()
+	//
+	// We skip it if we already held the leaf, since then the upsert only
+	// replaced the proof of a leaf that's already counted in the stats.
+	// The multiverse decides that inside its write transaction, so two
+	// clients racing to register the same new leaf log exactly one event.
+	if leafInserted {
+		go func() {
+			err := a.cfg.UniverseStats.LogNewProofEvent(
+				context.Background(), id, key,
+			)
+			if err != nil {
+				log.Warnf("unable to log new proof event "+
+					"(id=%v): %v", id.StringForLog(), err)
+			}
+		}()
+	}
 
 	// With the proof stored but its multiverse update outstanding, no
 	// composing receipt exists to return; surface the typed error to
@@ -457,8 +464,8 @@ func extractBatchDeps(batch []*Item) map[UniverseKey]*asset.Asset {
 }
 
 // UpsertProofLeafBatch inserts a batch of proof leaves within the target
-// universe tree. We assume the proofs within the batch have already been
-// checked that they don't yet exist in the local database.
+// universe tree. Leaves that we already hold are upserted as well, but they
+// don't count towards the new proof events we log for the universe stats.
 func (a *Archive) UpsertProofLeafBatch(ctx context.Context,
 	items []*Item) error {
 
@@ -573,7 +580,9 @@ func (a *Archive) UpsertProofLeafBatch(ctx context.Context,
 
 	log.InfoS(ctx, "Inserting verified group anchor proofs into Universe",
 		"count", len(anchorItems))
-	err = a.cfg.Multiverse.UpsertProofLeafBatch(ctx, anchorItems)
+	newAnchorItems, err := a.cfg.Multiverse.UpsertProofLeafBatch(
+		ctx, anchorItems,
+	)
 	switch {
 	case errors.Is(err, ErrMultiversePending):
 		upsertErr = fmt.Errorf("upsert group anchor proof leaf "+
@@ -591,7 +600,9 @@ func (a *Archive) UpsertProofLeafBatch(ctx context.Context,
 
 	log.InfoS(ctx, "Inserting verified proofs into Universe",
 		"count", len(nonAnchorItems))
-	err = a.cfg.Multiverse.UpsertProofLeafBatch(ctx, nonAnchorItems)
+	newNonAnchorItems, err := a.cfg.Multiverse.UpsertProofLeafBatch(
+		ctx, nonAnchorItems,
+	)
 	switch {
 	case errors.Is(err, ErrMultiversePending):
 		upsertErr = fmt.Errorf("upsert proof leaf batch "+
@@ -602,11 +613,23 @@ func (a *Archive) UpsertProofLeafBatch(ctx context.Context,
 			len(nonAnchorItems), err)
 	}
 
-	// Log a sync event for the newly inserted leaf in the background as an
-	// async goroutine. This runs for the pending case too: the universe
-	// leaves are durably stored, only their multiverse entries are still
-	// outstanding.
-	ids := fn.Map(items, func(item *Item) Identifier {
+	// Log a sync event for each leaf that was actually new to us, in the
+	// background as an async goroutine. This runs for the pending case
+	// too: the universe leaves are durably stored, only their multiverse
+	// entries are still outstanding.
+	//
+	// Items we already held are no-op upserts, and counting them would
+	// inflate the total proof count reported by the universe stats.
+	numNew := len(newAnchorItems) + len(newNonAnchorItems)
+	if numNew == 0 {
+		return upsertErr
+	}
+
+	newItems := make([]*Item, 0, numNew)
+	newItems = append(newItems, newAnchorItems...)
+	newItems = append(newItems, newNonAnchorItems...)
+
+	ids := fn.Map(newItems, func(item *Item) Identifier {
 		return item.ID
 	})
 	go func() {
