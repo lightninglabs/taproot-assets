@@ -34,6 +34,7 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -41,7 +42,14 @@ var (
 	testPollInterval = 20 * time.Millisecond
 	testTimeout      = 1 * time.Second
 	defaultTimeout   = time.Second * 30
-	chainParams      = &address.RegressionNetTap
+
+	// eventTimeout is the maximum time we wait for an address event
+	// to reach an expected status. The confirmed-to-completed
+	// pipeline (courier fetch, proof import, event mapping) crosses
+	// several goroutines and database writes, which can take well
+	// over a second under the race detector on a loaded machine.
+	eventTimeout = 5 * time.Second
+	chainParams  = &address.RegressionNetTap
 
 	txTypeTaproot = lnrpc.OutputScriptType_SCRIPT_TYPE_WITNESS_V1_TAPROOT
 )
@@ -264,38 +272,28 @@ func (h *custodianHarness) assertEventsPresent(numEvents int,
 	status address.Status) []*address.Event {
 
 	ctx := context.Background()
-	ctxt, cancel := context.WithTimeout(ctx, testTimeout)
+	ctxt, cancel := context.WithTimeout(ctx, eventTimeout)
 	defer cancel()
 
 	// Only one event should be registered though, as we've only created one
 	// transaction.
 	var finalEvents []*address.Event
-	err := wait.NoError(func() error {
+	require.EventuallyWithT(h.t, func(t *assert.CollectT) {
 		events, err := h.tapdbBook.QueryAddrEvents(
 			ctxt, address.EventQueryParams{},
 		)
-		if err != nil {
-			return err
-		}
-
-		if len(events) != numEvents {
-			return fmt.Errorf("wanted %d events but got %d",
-				numEvents, len(events))
-		}
+		require.NoError(t, err)
+		require.Len(t, events, numEvents)
 
 		for idx, event := range events {
-			if event.Status != status {
-				return fmt.Errorf("event %d has status %v "+
-					"but wanted %v", idx, event.Status,
-					status)
-			}
+			require.Equalf(
+				t, status, event.Status, "event %d status",
+				idx,
+			)
 		}
 
 		finalEvents = events
-
-		return nil
-	}, testTimeout)
-	require.NoError(h.t, err)
+	}, eventTimeout, testPollInterval)
 
 	return finalEvents
 }
@@ -387,8 +385,12 @@ func newHarness(t *testing.T,
 		require.NoError(t, err)
 	}
 
+	// The archive timeout must comfortably exceed eventTimeout: if an
+	// import hits the archiver deadline, the custodian only logs the
+	// error and never retries, stranding the event short of
+	// StatusCompleted.
 	archive := proof.NewMultiArchiver(
-		newMockVerifier(t), testTimeout, assetDB,
+		newMockVerifier(t), 2*eventTimeout, assetDB,
 	)
 
 	errChan := make(chan error, 1)
@@ -1290,7 +1292,7 @@ func TestCustodianEventSubscriber(t *testing.T) {
 		default:
 		}
 		return false
-	}, testTimeout, testPollInterval)
+	}, eventTimeout, testPollInterval)
 
 	// Verify we received events and the final one has the correct address.
 	require.NotEmpty(t, receivedEvents)
