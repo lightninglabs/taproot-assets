@@ -10400,6 +10400,10 @@ func (r *RPCServer) AddInvoice(ctx context.Context,
 	}
 	iReq := req.InvoiceRequest
 
+	if err := validateInvoiceExpiry(iReq.Expiry); err != nil {
+		return nil, err
+	}
+
 	existingQuotes := iReq.RouteHints != nil
 
 	if existingQuotes && !tapchannel.IsAssetInvoice(
@@ -11496,6 +11500,18 @@ func notifyUserForPaymentQuotes(
 			},
 		},
 	})
+}
+
+// validateInvoiceExpiry checks that the requested invoice expiry is not
+// negative. A zero expiry is allowed and later replaced with the default, but a
+// negative value is meaningless and, if passed through, is treated by lnd as
+// "unset" and silently replaced with lnd's own default expiry.
+func validateInvoiceExpiry(expiry int64) error {
+	if expiry < 0 {
+		return fmt.Errorf("invoice expiry must not be negative")
+	}
+
+	return nil
 }
 
 // validateInvoiceAmount validates the quote against the invoice we're trying to

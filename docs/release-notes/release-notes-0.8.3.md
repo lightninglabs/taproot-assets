@@ -16,3 +16,10 @@
   fixes a check-then-track race in the RFQ order policies by which
   concurrently intercepted HTLCs could collectively exceed the agreed
   maximum amount of an accepted quote.
+
+* [PR#2267](https://github.com/lightninglabs/taproot-assets/pull/2267)
+  rejects a negative `expiry` when adding a Taproot Asset channel
+  invoice. A negative expiry previously skipped the default and was
+  passed through to lnd, which treated it as unset and applied its own
+  86400 second default instead of returning an error. Fixes
+  [#2261](https://github.com/lightninglabs/taproot-assets/issues/2261).
