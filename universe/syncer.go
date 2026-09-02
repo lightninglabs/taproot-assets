@@ -575,9 +575,7 @@ func (s *SimpleSyncer) syncRoot(ctx context.Context, remoteRoot Root,
 		for _, item := range transferLeaves {
 			var blockHeight uint32
 			record := proof.BlockHeightRecord(&blockHeight)
-			if err := proof.SparseDecode(bytes.NewReader(item.Leaf.RawProof), record); err != nil {
-				return fmt.Errorf("failed to decode block height for sorting: %w", err)
-			}
+			_ = proof.SparseDecode(bytes.NewReader(item.Leaf.RawProof), record)
 			leavesWithHeight = append(leavesWithHeight, leafWithHeight{
 				leaf:        item,
 				blockHeight: blockHeight,
