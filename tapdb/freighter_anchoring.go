@@ -535,6 +535,18 @@ func (a *AssetStore) ApplyTransferAbandonment(ctx context.Context,
 				"output: %w", err)
 		}
 
+		// A self-send stakes this row from the receive side too,
+		// which holds a custody reference to it. The reference
+		// must go before the row it points at; the address event
+		// itself is the receive compensation's to reset.
+		_, err = q.DeleteAddrEventProofsByAssetID(
+			ctx, sqlInt64(assetID),
+		)
+		if err != nil {
+			return fmt.Errorf("unable to delete address event "+
+				"proof references: %w", err)
+		}
+
 		if err := q.DeleteAssetWitnesses(ctx, assetID); err != nil {
 			return fmt.Errorf("unable to delete asset "+
 				"witnesses: %w", err)

@@ -21,6 +21,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/internal/ecies"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapnode"
+	"github.com/lightninglabs/taproot-assets/tapreorg"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -221,6 +222,20 @@ type Config struct {
 	// identified an asset transfer on-chain and before retrieving the
 	// corresponding proof via the proof courier service.
 	ProofRetrievalDelay time.Duration
+
+	// AnchoringWatcher is the re-org watcher the custodian registers
+	// received transfers with as speculative anchorings. When set,
+	// received state converges through the watcher's registry
+	// instead of the legacy proof watcher.
+	AnchoringWatcher *tapreorg.Watcher
+
+	// AnchoringLog is the transaction-scoped persistence surface the
+	// receive site drives from its watcher handlers.
+	AnchoringLog ReceiveAnchoringLog
+
+	// AnchoringThreshold is the confirmation depth at which the
+	// receive side considers a transfer act-confirmed (buried).
+	AnchoringThreshold uint32
 
 	// ProofWatcher is used to watch new proofs for their anchor transaction
 	// to be confirmed safely with a minimum number of confirmations.
@@ -1709,25 +1724,55 @@ func (c *Custodian) assertProofInLocalArchive(p *proof.AnnotatedProof) error {
 
 // setReceiveCompleted updates the address event in the database to mark it as
 // completed successfully and to link it to the proof we received.
+//
+// Recovery invariant. The proof was already imported into the archive by the
+// caller (mapProofToEvent's ImportProofs, or the mailbox / courier import
+// path), so we're crossing three writes: archive import (already durable) →
+// RegisterReceiveAnchoring → CompleteEvent. A crash between the archive
+// import and CompleteEvent is recovered by the custodian's startup path: the
+// address event stays at its pre-Completed status (StatusProofReceived or
+// earlier), inspectWalletTx re-drives the pipeline for its wallet
+// transaction, and the flow lands back here. Both ImportProofs (idempotent
+// via archive locator dedupe) and RegisterReceiveAnchoring (idempotent via
+// the anchoring registry's (site, match_key) unique index) tolerate the
+// repeat, and CompleteEvent is the final act that closes the resume window.
 func (c *Custodian) setReceiveCompleted(event *address.Event,
 	proofFile *proof.File) error {
-
-	// The proof is created after a single confirmation. To make sure we
-	// notice if the anchor transaction is re-organized out of the chain, we
-	// give all the not-yet-sufficiently-buried proofs in the received proof
-	// file to the re-org watcher and replace the updated proof in the local
-	// proof archive if a re-org happens. The sender will do the same, so no
-	// re-send of the proof is necessary.
-	err := c.cfg.ProofWatcher.MaybeWatch(
-		proofFile, c.cfg.ProofWatcher.DefaultUpdateCallback(),
-	)
-	if err != nil {
-		return fmt.Errorf("error watching received proof: %w", err)
-	}
 
 	// Let's not be interrupted by a shutdown.
 	ctxt, cancel := c.CtxBlocking()
 	defer cancel()
+
+	// The proof is created after a single confirmation. To make sure we
+	// notice if the anchor transaction is re-organized out of the chain,
+	// the receive registers with the re-org watcher as a speculative
+	// anchoring; its handlers converge received state to whatever the
+	// chain answers. Files whose trigger set cannot be derived (a
+	// single-proof genesis file), or deployments without the watcher,
+	// fall back to the legacy proof watcher.
+	registered := false
+	if c.cfg.AnchoringWatcher != nil {
+		err := c.RegisterReceiveAnchoring(ctxt, proofFile)
+		switch {
+		case err == nil:
+			registered = true
+
+		case errors.Is(err, ErrNoTriggers):
+
+		default:
+			return fmt.Errorf("error registering receive "+
+				"anchoring: %w", err)
+		}
+	}
+	if !registered {
+		err := c.cfg.ProofWatcher.MaybeWatch(
+			proofFile, c.cfg.ProofWatcher.DefaultUpdateCallback(),
+		)
+		if err != nil {
+			return fmt.Errorf("error watching received proof: "+
+				"%w", err)
+		}
+	}
 
 	// Do we have all proofs for all outputs of the event? If not, then we
 	// can't complete the event yet. We'll be called again here with more
@@ -1757,7 +1802,7 @@ func (c *Custodian) setReceiveCompleted(event *address.Event,
 	log.Debugf("All proofs received for event %s, completing it",
 		event.Outpoint)
 
-	err = c.cfg.AddrBook.CompleteEvent(
+	err := c.cfg.AddrBook.CompleteEvent(
 		ctxt, event, address.StatusCompleted, event.Outpoint,
 	)
 	if err != nil {

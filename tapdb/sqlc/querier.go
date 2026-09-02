@@ -17,6 +17,18 @@ type Querier interface {
 	AnchorGenesisPoint(ctx context.Context, arg AnchorGenesisPointParams) error
 	AnchorPendingAssets(ctx context.Context, arg AnchorPendingAssetsParams) error
 	ApplyPendingOutput(ctx context.Context, arg ApplyPendingOutputParams) (int64, error)
+	// The assets a receive materialized in outputs of the given
+	// transaction: managed UTXO outpoints are stored as txid || index, so
+	// a prefix match on the txid finds every output of the transaction.
+	//
+	// Passive assets are excluded. A passive_assets row records that a
+	// transfer re-anchored a pre-existing holding into one of its own
+	// outputs, so such an asset is staked by that transfer and is the
+	// porter's to compensate, not the receive's. Deleting it here would
+	// destroy a holding the receive never materialized — and, because
+	// passive_assets.asset_id is a NOT NULL reference to the row being
+	// deleted, would fail the delivery transaction outright.
+	AssetIDsByAnchorTxPrefix(ctx context.Context, txid []byte) ([]int64, error)
 	// The proof blob keyed by the asset's primary key (not the BIPS
 	// asset ID), as needed when compensating passive re-anchors.
 	AssetProofBlobByAssetID(ctx context.Context, assetID int64) ([]byte, error)
@@ -57,6 +69,19 @@ type Querier interface {
 	// either.
 	CountStuckReorgAnchorings(ctx context.Context) (int64, error)
 	CountUnconfirmedAssets(ctx context.Context, arg CountUnconfirmedAssetsParams) (int64, error)
+	// The events' materialized custody references. On abandonment the
+	// proof and asset rows they point at are deleted, so the references
+	// must go first; the events themselves and their expected-output
+	// rows stand.
+	DeleteAddrEventProofsByAnchorTx(ctx context.Context, txid []byte) (int64, error)
+	// One asset's materialized custody reference. A self-send stakes the
+	// same asset row from two sites: the porter materialized it as a
+	// transfer output and the receive took custody of it. Whichever
+	// compensates first deletes the row, so it must shed the reference
+	// pointing at it — addr_event_proofs.asset_id_fk is unconstrained by
+	// ON DELETE, and would otherwise fail the delivery transaction. The
+	// event itself is left for the receive's compensation to reset.
+	DeleteAddrEventProofsByAssetID(ctx context.Context, assetID sql.NullInt64) (int64, error)
 	DeleteAllNodes(ctx context.Context, namespace string) (int64, error)
 	DeleteAssetByID(ctx context.Context, assetID int64) error
 	DeleteAssetProofByAssetID(ctx context.Context, assetID int64) error
@@ -386,6 +411,12 @@ type Querier interface {
 	ReAnchorPassiveAssets(ctx context.Context, arg ReAnchorPassiveAssetsParams) error
 	RecordReorgDeliveryFailure(ctx context.Context, arg RecordReorgDeliveryFailureParams) error
 	RecordReorgEffectFailure(ctx context.Context, arg RecordReorgEffectFailureParams) error
+	// The receive-side inverse of event completion: the anchor
+	// transaction the events were keyed to was decided against by the
+	// chain, so the events return to the given (pre-completion) status.
+	// Their expected-output rows (addr_event_outputs) stand: they
+	// describe the address's expectation, not materialized state.
+	ResetAddrEventsByAnchorTx(ctx context.Context, arg ResetAddrEventsByAnchorTxParams) (int64, error)
 	// The inverse of ReAnchorPassiveAssets: restore the anchor UTXO and
 	// the spend-template fields that the re-anchor reset.
 	RestoreAssetSpendTemplate(ctx context.Context, arg RestoreAssetSpendTemplateParams) error

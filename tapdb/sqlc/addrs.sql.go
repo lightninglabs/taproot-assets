@@ -11,6 +11,48 @@ import (
 	"time"
 )
 
+const DeleteAddrEventProofsByAnchorTx = `-- name: DeleteAddrEventProofsByAnchorTx :execrows
+DELETE FROM addr_event_proofs
+WHERE addr_event_id IN (
+    SELECT id FROM addr_events
+    WHERE chain_txn_id IN (
+        SELECT txn_id FROM chain_txns WHERE txid = $1
+    )
+)
+`
+
+// The events' materialized custody references. On abandonment the
+// proof and asset rows they point at are deleted, so the references
+// must go first; the events themselves and their expected-output
+// rows stand.
+func (q *Queries) DeleteAddrEventProofsByAnchorTx(ctx context.Context, txid []byte) (int64, error) {
+	result, err := q.db.ExecContext(ctx, DeleteAddrEventProofsByAnchorTx, txid)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const DeleteAddrEventProofsByAssetID = `-- name: DeleteAddrEventProofsByAssetID :execrows
+DELETE FROM addr_event_proofs
+WHERE asset_id_fk = $1
+`
+
+// One asset's materialized custody reference. A self-send stakes the
+// same asset row from two sites: the porter materialized it as a
+// transfer output and the receive took custody of it. Whichever
+// compensates first deletes the row, so it must shed the reference
+// pointing at it — addr_event_proofs.asset_id_fk is unconstrained by
+// ON DELETE, and would otherwise fail the delivery transaction. The
+// event itself is left for the receive's compensation to reset.
+func (q *Queries) DeleteAddrEventProofsByAssetID(ctx context.Context, assetID sql.NullInt64) (int64, error) {
+	result, err := q.db.ExecContext(ctx, DeleteAddrEventProofsByAssetID, assetID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const FetchAddrEvent = `-- name: FetchAddrEvent :one
 SELECT
     creation_time,
@@ -482,6 +524,32 @@ func (q *Queries) QueryLastEventHeight(ctx context.Context, version int16) (int6
 	var last_height int64
 	err := row.Scan(&last_height)
 	return last_height, err
+}
+
+const ResetAddrEventsByAnchorTx = `-- name: ResetAddrEventsByAnchorTx :execrows
+UPDATE addr_events
+SET status = $1
+WHERE chain_txn_id IN (
+    SELECT txn_id FROM chain_txns WHERE txid = $2
+)
+`
+
+type ResetAddrEventsByAnchorTxParams struct {
+	NewStatus int16
+	Txid      []byte
+}
+
+// The receive-side inverse of event completion: the anchor
+// transaction the events were keyed to was decided against by the
+// chain, so the events return to the given (pre-completion) status.
+// Their expected-output rows (addr_event_outputs) stand: they
+// describe the address's expectation, not materialized state.
+func (q *Queries) ResetAddrEventsByAnchorTx(ctx context.Context, arg ResetAddrEventsByAnchorTxParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, ResetAddrEventsByAnchorTx, arg.NewStatus, arg.Txid)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const SetAddrManaged = `-- name: SetAddrManaged :exec

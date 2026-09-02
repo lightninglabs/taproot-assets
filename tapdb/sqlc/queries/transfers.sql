@@ -374,3 +374,26 @@ SET anchor_utxo_id = @anchor_utxo_id,
     lock_time = @lock_time,
     relative_lock_time = @relative_lock_time
 WHERE asset_id = @asset_id;
+
+-- name: AssetIDsByAnchorTxPrefix :many
+-- The assets a receive materialized in outputs of the given
+-- transaction: managed UTXO outpoints are stored as txid || index, so
+-- a prefix match on the txid finds every output of the transaction.
+--
+-- Passive assets are excluded. A passive_assets row records that a
+-- transfer re-anchored a pre-existing holding into one of its own
+-- outputs, so such an asset is staked by that transfer and is the
+-- porter's to compensate, not the receive's. Deleting it here would
+-- destroy a holding the receive never materialized — and, because
+-- passive_assets.asset_id is a NOT NULL reference to the row being
+-- deleted, would fail the delivery transaction outright.
+SELECT assets.asset_id
+FROM assets
+JOIN managed_utxos utxos
+  ON assets.anchor_utxo_id = utxos.utxo_id
+WHERE substr(utxos.outpoint, 1, 32) = @txid
+  AND NOT EXISTS (
+      SELECT 1
+      FROM passive_assets passives
+      WHERE passives.asset_id = assets.asset_id
+  );

@@ -782,10 +782,30 @@ func genServerConfig(ctx context.Context, cfg *Config,
 		},
 	)
 
-	// The porter runs as a site on the anchoring watcher: its
-	// handlers, delivery nudges and act-gated burn dispatch are all
+	assetCustodian := tapcustody.NewCustodian(&tapcustody.Config{
+		ChainParams:            &tapChainParams,
+		WalletAnchor:           walletAnchor,
+		ChainBridge:            chainBridge,
+		GroupVerifier:          groupVerifier,
+		AddrBook:               addrBook,
+		Signer:                 lndServices.Signer,
+		ProofArchive:           proofArchive,
+		ProofNotifier:          multiNotifier,
+		ErrChan:                mainErrChan,
+		ProofCourierDispatcher: proofCourierDispatcher,
+		MboxBackoffCfg:         cfg.UniverseRpcCourier.BackoffCfg,
+		ProofRetrievalDelay:    cfg.CustodianProofRetrievalDelay,
+		ProofWatcher:           reOrgWatcher,
+		IgnoreChecker:          ignoreCheckerOpt,
+		AnchoringWatcher:       anchoringWatcher,
+		AnchoringLog:           assetStore,
+		AnchoringThreshold:     uint32(cfg.ReOrgSafeDepth),
+	})
+
+	// The sites run on the anchoring watcher: their handlers,
+	// delivery nudges and act-gated effect dispatch are all
 	// registered before the watcher starts. A disabled watcher has
-	// nothing to register against — the porter keeps its legacy
+	// nothing to register against — every site keeps its legacy
 	// re-org path instead.
 	if anchoringWatcher != nil {
 		err = anchoringWatcher.RegisterSite(
@@ -809,6 +829,13 @@ func genServerConfig(ctx context.Context, cfg *Config,
 		if err != nil {
 			return nil, fmt.Errorf("unable to register burn "+
 				"effect handler: %w", err)
+		}
+		err = anchoringWatcher.RegisterSite(
+			assetCustodian.AnchoringSite(),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to register receive "+
+				"site: %w", err)
 		}
 	}
 
@@ -879,6 +906,16 @@ func genServerConfig(ctx context.Context, cfg *Config,
 			CloseStore:         auxCloseStore,
 		},
 	)
+	// The sweeper falls back to the legacy proof watcher when its
+	// registrar is nil. The custodian itself is always non-nil, so
+	// it must only be offered as a registrar when the anchoring
+	// watcher it registers against is actually running — otherwise
+	// force-close sweep proofs would get no re-org protection from
+	// either watcher.
+	var sweepRegistrar tapchannel.ReceiveAnchoringRegistrar
+	if anchoringWatcher != nil {
+		sweepRegistrar = assetCustodian
+	}
 	auxSweeper := tapchannel.NewAuxSweeper(
 		&tapchannel.AuxSweeperCfg{
 			AddrBook:           addrBook,
@@ -892,6 +929,7 @@ func genServerConfig(ctx context.Context, cfg *Config,
 			GroupVerifier:      groupVerifier,
 			ChainBridge:        chainBridge,
 			IgnoreChecker:      ignoreCheckerOpt,
+			AnchoringRegistrar: sweepRegistrar,
 			ProofWatcher:       reOrgWatcher,
 		},
 	)
@@ -999,32 +1037,17 @@ func genServerConfig(ctx context.Context, cfg *Config,
 
 	// nolint: lll
 	return &tapconfig.Config{
-		DebugLevel:            cfg.DebugLevel,
-		Version:               tap.Version(),
-		RuntimeID:             runtimeID,
-		EnableChannelFeatures: enableChannelFeatures,
-		Lnd:                   lndServices,
-		ChainParams:           tapChainParams,
-		ReOrgWatcher:          reOrgWatcher,
-		AnchoringWatcher:      anchoringWatcher,
-		AnchoringRegistry:     anchoringRegistry,
-		AssetMinter:           assetMinter,
-		AssetCustodian: tapcustody.NewCustodian(&tapcustody.Config{
-			ChainParams:            &tapChainParams,
-			WalletAnchor:           walletAnchor,
-			ChainBridge:            chainBridge,
-			GroupVerifier:          groupVerifier,
-			AddrBook:               addrBook,
-			Signer:                 lndServices.Signer,
-			ProofArchive:           proofArchive,
-			ProofNotifier:          multiNotifier,
-			ErrChan:                mainErrChan,
-			ProofCourierDispatcher: proofCourierDispatcher,
-			MboxBackoffCfg:         cfg.UniverseRpcCourier.BackoffCfg,
-			ProofRetrievalDelay:    cfg.CustodianProofRetrievalDelay,
-			ProofWatcher:           reOrgWatcher,
-			IgnoreChecker:          ignoreCheckerOpt,
-		}),
+		DebugLevel:               cfg.DebugLevel,
+		Version:                  tap.Version(),
+		RuntimeID:                runtimeID,
+		EnableChannelFeatures:    enableChannelFeatures,
+		Lnd:                      lndServices,
+		ChainParams:              tapChainParams,
+		ReOrgWatcher:             reOrgWatcher,
+		AnchoringWatcher:         anchoringWatcher,
+		AnchoringRegistry:        anchoringRegistry,
+		AssetMinter:              assetMinter,
+		AssetCustodian:           assetCustodian,
 		ChainBridge:              chainBridge,
 		AddrBook:                 addrBook,
 		AddrBookDisableSyncer:    cfg.AddrBook.DisableSyncer,
