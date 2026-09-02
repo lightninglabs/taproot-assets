@@ -745,10 +745,21 @@ func (c *AssetPurchasePolicy) GenerateInterceptorResponse(
 	// amount. Due to rounding errors, we may slightly underreport the
 	// incoming value of the asset. So we increase it by exactly one asset
 	// unit to ensure that the fee logic in lnd does not reject the HTLC.
-	const roundingCorrection = 1
-	htlcAssetAmount := htlcRecord.Amounts.Val.Sum() + roundingCorrection
+	//
+	// The sum of the asset balances may exceed the uint64 range, so we
+	// accumulate them using big integer arithmetic.
+	htlcAssetAmount := rfqmath.NewBigIntFromUint64(0)
+	for idx := range htlcRecord.Amounts.Val.Balances {
+		balanceAmt := rfqmath.NewBigIntFromUint64(
+			htlcRecord.Amounts.Val.Balances[idx].Amount.Val,
+		)
+		htlcAssetAmount = htlcAssetAmount.Add(balanceAmt)
+	}
 
-	assetAmt := rfqmath.NewBigIntFixedPoint(htlcAssetAmount, 0)
+	roundingCorrection := rfqmath.NewBigIntFromUint64(1)
+	htlcAssetAmount = htlcAssetAmount.Add(roundingCorrection)
+
+	assetAmt := new(rfqmath.BigIntFixedPoint).SetIntValue(htlcAssetAmount)
 	incomingHtlcMsats, err := rfqmath.UnitsToMilliSatoshi(
 		assetAmt, c.BidAssetRate,
 	)

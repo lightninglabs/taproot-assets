@@ -710,6 +710,46 @@ func TestComputeView(t *testing.T) {
 			expectedOurUpdates:   1,
 			expectedTheirUpdates: 1,
 		},
+		{
+			name: "outgoing htlc exceeds our balance" +
+				" (error)",
+			ourBalance:   100000,
+			theirBalance: 100000,
+			whoseCommit:  lntypes.Remote,
+			viewConfig: viewConfig{
+				nextHeight: 50,
+				localHtlcs: []assetHtlc{
+					// Being committed NOW
+					{
+						amount:          100001,
+						htlcIndex:       10,
+						entryType:       htlcNoOpAdd,
+						addHeightRemote: 50,
+					},
+				},
+			},
+			expectError: true,
+		},
+		{
+			name: "incoming htlc exceeds their balance" +
+				" (error)",
+			ourBalance:   100000,
+			theirBalance: 100000,
+			whoseCommit:  lntypes.Remote,
+			viewConfig: viewConfig{
+				nextHeight: 50,
+				remoteHtlcs: []assetHtlc{
+					// Being committed NOW
+					{
+						amount:          100001,
+						htlcIndex:       20,
+						entryType:       htlcNoOpAdd,
+						addHeightRemote: 50,
+					},
+				},
+			},
+			expectError: true,
+		},
 	}
 
 	for _, tc := range testCases {
