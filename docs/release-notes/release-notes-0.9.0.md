@@ -120,6 +120,11 @@
   86400 second default instead of returning an error. Fixes
   [#2261](https://github.com/lightninglabs/taproot-assets/issues/2261).
 
+* [PR#2274](https://github.com/lightninglabs/taproot-assets/pull/2274)
+  makes `AssetLeaves` reject an unspecified proof type with an error
+  instead of returning an empty leaf list. Fixes
+  [#701](https://github.com/lightninglabs/taproot-assets/issues/701).
+
 # New Features
 
 ## Functional Enhancements
