@@ -568,7 +568,7 @@ func (s *SimpleSyncer) syncRoot(ctx context.Context, remoteRoot Root,
 	if !isIssuanceTree {
 		transferLeaves := fn.Collect(transferLeafProofs)
 		type leafWithHeight struct {
-			leaf        ItemProof
+			leaf        *Item
 			blockHeight uint32
 		}
 		leavesWithHeight := make([]leafWithHeight, 0, len(transferLeaves))
