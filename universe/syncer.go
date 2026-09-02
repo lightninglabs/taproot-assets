@@ -567,28 +567,28 @@ func (s *SimpleSyncer) syncRoot(ctx context.Context, remoteRoot Root,
 	// need to sort them to ensure we can validate them in dep order.
 	if !isIssuanceTree {
 		transferLeaves := fn.Collect(transferLeafProofs)
-		sort.Slice(transferLeaves, func(i, j int) bool {
-			// We'll need to decode the block heights from the
-			// proof, so we'll make a record to do so.
-			var iBlockHeight, jBlockHeight uint32
-
-			iRecord := proof.BlockHeightRecord(&iBlockHeight)
-			jRecord := proof.BlockHeightRecord(&jBlockHeight)
-
-			_ = proof.SparseDecode(
-				//nolint:lll
-				bytes.NewReader(transferLeaves[i].Leaf.RawProof),
-				iRecord,
-			)
-
-			_ = proof.SparseDecode(
-				//nolint:lll
-				bytes.NewReader(transferLeaves[j].Leaf.RawProof),
-				jRecord,
-			)
-
-			return iBlockHeight < jBlockHeight
+		type leafWithHeight struct {
+			leaf        ItemProof
+			blockHeight uint32
+		}
+		leavesWithHeight := make([]leafWithHeight, 0, len(transferLeaves))
+		for _, item := range transferLeaves {
+			var blockHeight uint32
+			record := proof.BlockHeightRecord(&blockHeight)
+			if err := proof.SparseDecode(bytes.NewReader(item.Leaf.RawProof), record); err != nil {
+				return fmt.Errorf("failed to decode block height for sorting: %w", err)
+			}
+			leavesWithHeight = append(leavesWithHeight, leafWithHeight{
+				leaf:        item,
+				blockHeight: blockHeight,
+			})
+		}
+		sort.Slice(leavesWithHeight, func(i, j int) bool {
+			return leavesWithHeight[i].blockHeight < leavesWithHeight[j].blockHeight
 		})
+		for i, item := range leavesWithHeight {
+			transferLeaves[i] = item.leaf
+		}
 
 		fn.SendAll(fetchedLeaves, transferLeaves...)
 	}
