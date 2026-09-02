@@ -21,6 +21,7 @@ import (
 	"github.com/jessevdk/go-flags"
 	"github.com/lightninglabs/lndclient"
 	tap "github.com/lightninglabs/taproot-assets"
+	"github.com/lightninglabs/taproot-assets/backup"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/lncfg"
 	"github.com/lightninglabs/taproot-assets/lndservices"
@@ -330,6 +331,18 @@ type WalletConfig struct {
 	DisableSweepOrphanUtxos bool `long:"disable-sweep-orphan-utxos" description:"Disable sweeping orphaned UTXOs into anchor transactions created during sends and burns. Sweeping is enabled by default."`
 }
 
+// BackupConfig holds the configuration for the on-disk asset wallet backup
+// file that is kept in sync with the wallet state.
+type BackupConfig struct {
+	// Disable turns off the on-disk backup file entirely. The export and
+	// import RPCs keep working regardless of this setting.
+	Disable bool `long:"disable" description:"Disable keeping the encrypted asset wallet backup file on disk up to date."`
+
+	// FilePath is the location of the backup file. If empty, it defaults
+	// to assets.backup inside the network data directory.
+	FilePath string `long:"filepath" description:"The full path to the encrypted asset wallet backup file that is kept up to date with the wallet state. Defaults to assets.backup in the network data directory."`
+}
+
 // UniverseConfig is the config that houses any Universe related config
 // values.
 type UniverseConfig struct {
@@ -439,6 +452,8 @@ type Config struct {
 	Universe *UniverseConfig `group:"universe" namespace:"universe"`
 
 	Wallet *WalletConfig `group:"wallet" namespace:"wallet"`
+
+	Backup *BackupConfig `group:"backup" namespace:"backup"`
 
 	AddrBook *AddrBookConfig `group:"address" namespace:"address"`
 
@@ -560,6 +575,7 @@ func DefaultConfig() Config {
 		Wallet: &WalletConfig{
 			PsbtMaxFeeRatio: DefaultPsbtMaxFeeRatio,
 		},
+		Backup: &BackupConfig{},
 		AddrBook: &AddrBookConfig{
 			DisableSyncer: false,
 		},
@@ -878,6 +894,15 @@ func ValidateConfig(cfg Config, cfgLogger btclog.Logger) (*Config, error) {
 	cfg.networkDir = filepath.Join(
 		cfg.DataDir, lncfg.NormalizeNetwork(cfg.ActiveNetParams.Name),
 	)
+
+	// The backup file lives next to the database unless the user chose a
+	// different location.
+	if cfg.Backup.FilePath == "" {
+		cfg.Backup.FilePath = filepath.Join(
+			cfg.networkDir, backup.DefaultBackupFileName,
+		)
+	}
+	cfg.Backup.FilePath = CleanAndExpandPath(cfg.Backup.FilePath)
 
 	// We'll also update the database file location as well, if it wasn't
 	// set.
