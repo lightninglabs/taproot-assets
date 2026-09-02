@@ -255,10 +255,14 @@ func ComputeView(ourBalance, theirBalance uint64,
 			AuxHtlcDescriptor: entry,
 			AssetBalances:     assetHtlc.Balances(),
 		}
-		local, remote = processAddEntry(
+		local, remote, err = processAddEntry(
 			decodedEntry, local, remote, whoseCommit, false,
 			nextHeight,
 		)
+		if err != nil {
+			return 0, 0, nil, nil, fmt.Errorf("unable to process "+
+				"add entry: %w", err)
+		}
 
 		newView.OurUpdates = append(newView.OurUpdates, decodedEntry)
 	}
@@ -297,10 +301,14 @@ func ComputeView(ourBalance, theirBalance uint64,
 			AuxHtlcDescriptor: entry,
 			AssetBalances:     assetHtlc.Balances(),
 		}
-		local, remote = processAddEntry(
+		local, remote, err = processAddEntry(
 			decodedEntry, local, remote, whoseCommit, true,
 			nextHeight,
 		)
+		if err != nil {
+			return 0, 0, nil, nil, fmt.Errorf("unable to process "+
+				"add entry: %w", err)
+		}
 
 		newView.TheirUpdates = append(
 			newView.TheirUpdates, decodedEntry,
@@ -360,12 +368,12 @@ func processRemoveEntry(htlc *DecodedDescriptor, ourBalance,
 // transaction. It returns the updated balances for both parties.
 func processAddEntry(htlc *DecodedDescriptor, ourBalance, theirBalance uint64,
 	whoseCommit lntypes.ChannelParty, isIncoming bool,
-	nextHeight uint64) (uint64, uint64) {
+	nextHeight uint64) (uint64, uint64, error) {
 
 	// Ignore any add entries which have already been processed.
 	addHeight := htlc.AddHeight(whoseCommit)
 	if addHeight != nextHeight {
-		return ourBalance, theirBalance
+		return ourBalance, theirBalance, nil
 	}
 
 	var amount = rfqmsg.Sum(htlc.AssetBalances)
@@ -373,14 +381,26 @@ func processAddEntry(htlc *DecodedDescriptor, ourBalance, theirBalance uint64,
 		// If this is a new incoming (un-committed) HTLC, then we need
 		// to update their balance accordingly by subtracting the
 		// amount of the HTLC that are funds pending.
+		if amount > theirBalance {
+			return 0, 0, fmt.Errorf("incoming HTLC asset amount "+
+				"%d exceeds their balance %d", amount,
+				theirBalance)
+		}
+
 		theirBalance -= amount
 	} else {
 		// Similarly, we need to debit our balance if this is an
 		// outgoing HTLC to reflect the pending balance.
+		if amount > ourBalance {
+			return 0, 0, fmt.Errorf("outgoing HTLC asset amount "+
+				"%d exceeds our balance %d", amount,
+				ourBalance)
+		}
+
 		ourBalance -= amount
 	}
 
-	return ourBalance, theirBalance
+	return ourBalance, theirBalance, nil
 }
 
 // SanityCheckAmounts makes sure that any output that carries an asset has a
