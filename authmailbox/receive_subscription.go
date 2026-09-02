@@ -441,15 +441,35 @@ func (s *receiveSubscription) readIncomingStream(ctx context.Context) {
 				Messages: t.Messages.Messages,
 			}
 
-			// Inform the subscription about the arrived message.
-			select {
-			case <-s.quit:
-			case s.msgChan <- bundle:
+			// Inform the subscription about the arrived
+			// message. Once the shared queue is full, this
+			// blocks further reads from the stream and lets
+			// gRPC apply transport backpressure.
+			if !s.deliverMessage(ctx, bundle) {
+				return
 			}
 
 		default:
 			log.Warnf("Received unexpected message type: %T", t)
 		}
+	}
+}
+
+// deliverMessage forwards a received message bundle to the shared consumer.
+// It deliberately blocks while the queue is full, but never prevents context
+// cancellation or subscription shutdown from completing.
+func (s *receiveSubscription) deliverMessage(ctx context.Context,
+	bundle *ReceivedMessages) bool {
+
+	select {
+	case s.msgChan <- bundle:
+		return true
+
+	case <-ctx.Done():
+		return false
+
+	case <-s.quit:
+		return false
 	}
 }
 
