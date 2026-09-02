@@ -1,5 +1,6 @@
 # Release Notes
 - [Bug Fixes](#bug-fixes)
+- [Improvements](#improvements)
 
 # Bug Fixes
 
@@ -23,3 +24,11 @@
   passed through to lnd, which treated it as unset and applied its own
   86400 second default instead of returning an error. Fixes
   [#2261](https://github.com/lightninglabs/taproot-assets/issues/2261).
+
+# Improvements
+
+* [PR#2091](https://github.com/lightninglabs/taproot-assets/pull/2091)
+  bumps the `lnd` dependency to `v0.21.3-beta` and implements the new
+  `AuxCloseShape` interface method, which lets `lnd` account for the
+  auxiliary asset outputs when estimating the fee of a cooperative
+  close transaction.
