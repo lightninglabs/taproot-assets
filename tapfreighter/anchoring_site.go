@@ -2,6 +2,7 @@ package tapfreighter
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -54,8 +55,10 @@ type AnchoringLog interface {
 		anchorTxid chainhash.Hash) error
 
 	// ApplyTransferAbandonment compensates an act-level loss.
+	// foreclosure, when non-nil, is the transaction the chain
+	// decided for; inputs it consumed are not restored.
 	ApplyTransferAbandonment(ctx context.Context, q *sqlc.Queries,
-		anchorTxid chainhash.Hash) error
+		anchorTxid chainhash.Hash, foreclosure *wire.MsgTx) error
 
 	// RebuildAnchorConfirm reconstructs the confirmation event from
 	// stored state plus the witness's block context, without
@@ -258,6 +261,29 @@ func (s *porterSite) OnBuried(ctx context.Context, tx tapreorg.RegistryTx,
 	})
 }
 
+// foreclosingTx extracts the transaction the chain decided for from
+// an abandoned anchoring's phase evidence: the buried foreign spend,
+// or the witness whose burial foreclosed a depended-upon parent. Its
+// input set is what compensation needs — an outpoint that transaction
+// consumed is gone from the node's control, not restorable. Nil when
+// the phase carries no such transaction.
+func foreclosingTx(anchoring *tapreorg.Anchoring) *wire.MsgTx {
+	abandoned, ok := anchoring.Phase.(tapreorg.Abandoned)
+	if !ok {
+		return nil
+	}
+
+	switch cause := abandoned.Cause.(type) {
+	case tapreorg.ForeignBurial:
+		return cause.Spend.W.Tx()
+
+	case tapreorg.Foreclosed:
+		return cause.W.Tx()
+	}
+
+	return nil
+}
+
 // OnAbandoned compensates: the chain decided against the transfer's
 // anchor with act-level finality.
 func (s *porterSite) OnAbandoned(ctx context.Context,
@@ -269,7 +295,7 @@ func (s *porterSite) OnAbandoned(ctx context.Context,
 	}
 
 	return s.porter.cfg.AnchoringLog.ApplyTransferAbandonment(
-		ctx, tx.Queries(), blob.AnchorTxid,
+		ctx, tx.Queries(), blob.AnchorTxid, foreclosingTx(anchoring),
 	)
 }
 
@@ -340,6 +366,10 @@ func (p *ChainPorter) DispatchBurnSupplyEvents(ctx context.Context,
 	return p.sendBurnSupplyCommitEvents(ctx, burns)
 }
 
+// ErrNoParcelAnchoring is returned when the site's per-txid identity
+// index has no anchoring for a transfer's anchor transaction.
+var ErrNoParcelAnchoring = errors.New("no anchoring for anchor tx")
+
 // findAnchoring resolves the porter anchoring for the given anchor
 // transaction via the site's per-txid identity index.
 func (p *ChainPorter) findAnchoring(ctx context.Context,
@@ -352,7 +382,7 @@ func (p *ChainPorter) findAnchoring(ctx context.Context,
 		return nil, fmt.Errorf("unable to look up anchoring: %w", err)
 	}
 	if anchoring == nil {
-		return nil, fmt.Errorf("no anchoring found for anchor tx %v",
+		return nil, fmt.Errorf("%w: %v", ErrNoParcelAnchoring,
 			anchorTxid)
 	}
 
@@ -428,6 +458,76 @@ func (p *ChainPorter) registerParcelAnchoring(ctx context.Context,
 	)
 }
 
+// registerResumedParcelAnchoring adopts a resumed parcel that has no
+// anchoring: one written before the anchoring watcher existed and
+// carried across the upgrade. The pending transfer state is already
+// durable, so the registration stakes nothing (a nil phase-1 body);
+// the trigger scripts, which the original registration read from the
+// in-memory virtual packets, are recovered from the inputs' proof
+// files instead.
+//
+// The registration blob carries an empty burn note: the note is not
+// recoverable from durable transfer state, so burn supply events
+// rebuilt for an adopted parcel lose the user's description.
+func (p *ChainPorter) registerResumedParcelAnchoring(ctx context.Context,
+	pkg *sendPackage) (tapreorg.AnchoringID, error) {
+
+	parcel := pkg.OutboundPkg
+
+	points := make([]tapreorg.TriggerOutPoint, 0, len(parcel.Inputs))
+	seen := make(map[wire.OutPoint]struct{}, len(parcel.Inputs))
+	for idx := range parcel.Inputs {
+		op := parcel.Inputs[idx].OutPoint
+		if _, ok := seen[op]; ok {
+			continue
+		}
+		seen[op] = struct{}{}
+
+		file, err := p.fetchInputProof(ctx, parcel.Inputs[idx].PrevID)
+		if err != nil {
+			return 0, fmt.Errorf("unable to fetch input proof "+
+				"for %v: %w", op, err)
+		}
+		last, err := file.LastProof()
+		if err != nil {
+			return 0, fmt.Errorf("unable to read input proof "+
+				"for %v: %w", op, err)
+		}
+		if last.OutPoint() != op {
+			return 0, fmt.Errorf("input proof for %v anchors at "+
+				"%v", op, last.OutPoint())
+		}
+		if op.Index >= uint32(len(last.AnchorTx.TxOut)) {
+			return 0, fmt.Errorf("input outpoint %v exceeds "+
+				"anchor outputs", op)
+		}
+
+		points = append(points, tapreorg.TriggerOutPoint{
+			OutPoint:   op,
+			PkScript:   last.AnchorTx.TxOut[op.Index].PkScript,
+			HeightHint: parcel.AnchorTxHeightHint,
+		})
+	}
+	triggers, err := tapreorg.NewTriggerSet(points)
+	if err != nil {
+		return 0, fmt.Errorf("unable to build trigger set: %w", err)
+	}
+
+	anchorTxid := parcel.AnchorTx.TxHash()
+	blob := encodePorterBlob(porterBlob{
+		AnchorTxid: anchorTxid,
+	})
+
+	return p.cfg.AnchoringWatcher.Register(ctx, tapreorg.RegistrationSpec{
+		Site:      PorterSiteID,
+		Triggers:  triggers,
+		MatchData: blob,
+		Payload:   blob,
+		MatchKey:  anchorTxid.CloneBytes(),
+		Threshold: p.cfg.AnchoringThreshold,
+	}, nil)
+}
+
 // anchoringOutcome is what waiting on an anchoring resolves to.
 type anchoringOutcome struct {
 	// witness is set for a positive outcome (witnessed or buried,
@@ -452,10 +552,30 @@ func (p *ChainPorter) waitForAnchoringOutcome(ctx context.Context,
 	// Resolve the anchoring ID (cheap after the first pass).
 	if pkg.AnchoringID == 0 {
 		anchoring, err := p.findAnchoring(ctx, anchorTxid)
-		if err != nil {
+		switch {
+		// A parcel written before the anchoring watcher existed
+		// resumes at broadcast without an anchoring. Adopt it
+		// now, so the transfer confirms through the watcher like
+		// any other instead of failing terminally on every
+		// restart with its inputs leased.
+		case errors.Is(err, ErrNoParcelAnchoring):
+			id, err := p.registerResumedParcelAnchoring(ctx, pkg)
+			if err != nil {
+				return nil, fmt.Errorf("unable to adopt "+
+					"resumed parcel: %w", err)
+			}
+
+			log.Infof("Adopted resumed parcel without an "+
+				"anchoring (anchor_txid=%v, anchoring_id=%d)",
+				anchorTxid, id)
+			pkg.AnchoringID = id
+
+		case err != nil:
 			return nil, err
+
+		default:
+			pkg.AnchoringID = anchoring.ID
 		}
-		pkg.AnchoringID = anchoring.ID
 	}
 
 	nudge := p.waiters.Channel(pkg.AnchoringID)

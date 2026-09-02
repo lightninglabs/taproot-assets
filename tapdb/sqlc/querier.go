@@ -16,19 +16,25 @@ type Querier interface {
 	AllMintingBatches(ctx context.Context) ([]AllMintingBatchesRow, error)
 	AnchorGenesisPoint(ctx context.Context, arg AnchorGenesisPointParams) error
 	AnchorPendingAssets(ctx context.Context, arg AnchorPendingAssetsParams) error
-	ApplyPendingOutput(ctx context.Context, arg ApplyPendingOutputParams) (int64, error)
-	// The assets a receive materialized in outputs of the given
-	// transaction: managed UTXO outpoints are stored as txid || index, so
-	// a prefix match on the txid finds every output of the transaction.
+	// The assets a receive (or mint) materialized in outputs of the given
+	// transaction, each with the parts of its proof locator: managed UTXO
+	// outpoints are stored as txid || index, so a prefix match on the
+	// txid finds every output of the transaction.
 	//
-	// Passive assets are excluded. A passive_assets row records that a
-	// transfer re-anchored a pre-existing holding into one of its own
-	// outputs, so such an asset is staked by that transfer and is the
-	// porter's to compensate, not the receive's. Deleting it here would
-	// destroy a holding the receive never materialized — and, because
-	// passive_assets.asset_id is a NOT NULL reference to the row being
-	// deleted, would fail the delivery transaction outright.
-	AssetIDsByAnchorTxPrefix(ctx context.Context, txid []byte) ([]int64, error)
+	// A holding anchored in the transaction's outputs is the
+	// transaction's materialization — and so this site's to re-stamp and
+	// to compensate — unless the transaction's own transfer re-anchored
+	// it there: a passive_assets row of a transfer anchored by this very
+	// transaction marks a pre-existing holding the transfer carried
+	// along, which the porter's confirmation re-stamps and the porter's
+	// abandonment restores to its prior anchor. Only those are excluded.
+	// A passive row of some other transfer (a successor that staked the
+	// holding before broadcasting, and whose re-anchor has not yet
+	// confirmed) does not change what this transaction materialized: the
+	// holding still goes with it, and the compensation body sheds the
+	// successor's reference first.
+	AnchoredAssetsByAnchorTxPrefix(ctx context.Context, txid []byte) ([]AnchoredAssetsByAnchorTxPrefixRow, error)
+	ApplyPendingOutput(ctx context.Context, arg ApplyPendingOutputParams) (int64, error)
 	// The proof blob keyed by the asset's primary key (not the BIPS
 	// asset ID), as needed when compensating passive re-anchors.
 	AssetProofBlobByAssetID(ctx context.Context, assetID int64) ([]byte, error)
@@ -63,6 +69,12 @@ type Querier interface {
 	// metrics scrape never materializes anchoring rows.
 	CountLiveReorgAnchoringsByPhase(ctx context.Context) ([]CountLiveReorgAnchoringsByPhaseRow, error)
 	CountLiveReorgDependents(ctx context.Context, parentID int64) (int64, error)
+	// The live claimants of an anchor point other than the given
+	// (abandoned) transfer: unconfirmed transfers, not superseded, that
+	// spend the point. A revived rival is one — its replacement is still
+	// in flight to spend the input — so the abandonment retains the
+	// input's lease rather than releasing it.
+	CountLiveTransfersSpendingPoint(ctx context.Context, arg CountLiveTransfersSpendingPointParams) (int64, error)
 	// Over ALL anchorings, terminal included: the delivery predicate has
 	// no terminal restriction (a buried or abandoned anchoring's site
 	// handler can still be failing), so the alarm gauges must not
@@ -95,6 +107,25 @@ type Querier interface {
 	DeleteMultiverseLeaf(ctx context.Context, arg DeleteMultiverseLeafParams) error
 	DeleteMultiverseRoot(ctx context.Context, namespaceRoot string) error
 	DeleteNode(ctx context.Context, arg DeleteNodeParams) (int64, error)
+	// The passive re-anchor records pointing at one asset row.
+	//
+	// A transfer records its intent to re-anchor a pre-existing holding
+	// before it broadcasts, so an asset that an earlier, confirmed
+	// transfer materialized as one of its outputs can already be a
+	// successor's passive holding by the time that earlier transfer is
+	// abandoned. passive_assets.asset_id is NOT NULL with no ON DELETE, so
+	// the reference has to be shed before the row it points at; otherwise
+	// the delete fails the watcher's entire delivery transaction and the
+	// abandonment can never apply at all.
+	//
+	// Discarding the successor's record is the correct reversal rather
+	// than merely the expedient one. The asset is being erased because the
+	// transaction that created it is gone from the surviving chain, so the
+	// successor's re-anchor of it never had a subject — and the successor,
+	// which spends an anchor output that no longer exists, cannot confirm
+	// either. The successor's own compensation reads passive_assets by
+	// transfer and simply finds nothing left to restore.
+	DeletePassiveAssetsByAssetID(ctx context.Context, assetID int64) (int64, error)
 	DeleteRoot(ctx context.Context, namespace string) (int64, error)
 	DeleteSupplyCommitTransition(ctx context.Context, transitionID int64) error
 	DeleteSupplyCommitment(ctx context.Context, commitID int64) error
@@ -356,6 +387,9 @@ type Querier interface {
 	// An abandoned transfer is permanently dead: its anchor inputs were
 	// claimed by a buried foreign transaction, so its own anchor can
 	// never confirm. Superseded transfers are not resumed at startup.
+	//
+	// The abandoned flag records *why* it is superseded, so that a later
+	// abandonment of a sibling sharing an input cannot revive it.
 	MarkTransferSuperseded(ctx context.Context, transferID int64) error
 	MaxUniverseLeafJournalSeq(ctx context.Context) (int64, error)
 	NewMintingBatch(ctx context.Context, arg NewMintingBatchParams) error
@@ -443,18 +477,27 @@ type Querier interface {
 	RestoreAssetSpendTemplate(ctx context.Context, arg RestoreAssetSpendTemplateParams) error
 	SetAddrManaged(ctx context.Context, arg SetAddrManagedParams) error
 	SetAssetSpent(ctx context.Context, arg SetAssetSpentParams) (int64, error)
+	// Marks one asset row spent by its primary key. Used by abandonment
+	// compensation for a passive holding whose restored anchor outpoint
+	// the foreclosing transaction consumed: the holding's provenance is
+	// intact but the outpoint belongs to someone else, so it must not
+	// count toward balances or coin selection.
+	SetAssetSpentByID(ctx context.Context, assetID int64) error
 	// The inverse of SetAssetSpent, applied when the transfer that spent
-	// the asset is abandoned: the asset's anchor input was never
-	// consumed on the surviving chain.
+	// the asset is abandoned and nothing else consumed its anchor input
+	// on the surviving chain.
 	//
-	// Unless some other transfer legitimately consumed it. Two local
-	// transfers may spend one input — the sweeper's fee bump composes a
-	// replacement form against the same outpoint — and only the losing
-	// form is abandoned. Un-spending then contradicts the winner's
-	// confirmed spend and inflates the balance, so the same
-	// surviving-claimant test UnsupersedeSafeTransfers applies is applied
-	// here. The abandoned transfer's own confirmation is withdrawn before
-	// this runs, so it cannot answer for itself.
+	// Two claimants can contradict that premise. A rival local transfer
+	// may have confirmed against the same outpoint — the sweeper's fee
+	// bump composes a replacement form — and only the losing form is
+	// abandoned; the surviving-claimant test below guards that case, the
+	// same test UnsupersedeSafeTransfers applies. Or the foreclosing
+	// transaction itself consumed the outpoint (a third party, routine
+	// for tapchannel triggers): that transaction is not a local transfer
+	// and is invisible here, so the caller must not invoke this query
+	// for inputs the foreclosure consumed. The abandoned transfer's own
+	// confirmation is withdrawn before this runs, so it cannot answer
+	// for itself.
 	SetAssetUnspent(ctx context.Context, arg SetAssetUnspentParams) (int64, error)
 	// A newly sensed phase is a new delivery objective, so the failure
 	// bookkeeping of the previous objective (backoff, attempts, stuck)
@@ -474,6 +517,22 @@ type Querier interface {
 	// conflicting transfer has confirmed on-chain, these transfers' anchor
 	// transactions can never confirm.
 	SupersedeConflictingTransfers(ctx context.Context, arg SupersedeConflictingTransfersParams) (int64, error)
+	// Re-enter supersession for the transfer of the given anchor
+	// transaction when another confirmed transfer claims one of its
+	// inputs, applied when its confirmation is withdrawn. The rival's
+	// confirmation did not supersede this transfer — only unconfirmed
+	// rivals are superseded, and this one was confirmed at the time — so
+	// without this it would sit unconfirmed and unsuperseded, be resumed
+	// at startup, and rebroadcast an anchor that can never confirm.
+	SupersedeIfConflictingConfirmed(ctx context.Context, txid []byte) error
+	// The superseded rivals of an abandoned transfer at one of its anchor
+	// points: the candidates for revival when it is abandoned.
+	//
+	// Only rivalry losers are candidates. A transfer marked abandoned was
+	// superseded by its own abandonment — its inputs were claimed by a
+	// buried foreign transaction — so reviving it would resume a transfer
+	// whose anchor can never confirm.
+	SupersededTransfersSpendingPoint(ctx context.Context, arg SupersededTransfersSpendingPointParams) ([]int64, error)
 	// The asset row a transfer output materialized into, if any: the
 	// convergence guard for re-applying a confirmation, and the target
 	// of compensation when the transfer is abandoned. The genesis filter
@@ -489,11 +548,24 @@ type Querier interface {
 	UniverseLeaves(ctx context.Context) ([]UniverseLeafe, error)
 	UniverseRoots(ctx context.Context, arg UniverseRootsParams) ([]UniverseRootsRow, error)
 	UniverseRootsAfterID(ctx context.Context, arg UniverseRootsAfterIDParams) ([]UniverseRootsAfterIDRow, error)
-	// The inverse of SupersedeConflictingTransfers, applied when the
-	// confirming transfer is abandoned: unconfirmed transfers spending
-	// the given anchor point become live again, provided no other
-	// confirmed transfer still spends it.
-	UnsupersedeSafeTransfers(ctx context.Context, arg UnsupersedeSafeTransfersParams) (int64, error)
+	// The inverse of SupersedeConflictingTransfers for one rivalry loser,
+	// applied when the transfer that superseded it is abandoned: the loser
+	// becomes live again, provided no confirmed transfer conflicts with it
+	// on any of its inputs — not merely on the input it shared with the
+	// abandoned transfer. A rival that also spends an input some other
+	// confirmed transfer claims can never confirm, and reviving it would
+	// resume a parcel that rebroadcasts a doomed anchor.
+	//
+	// The abandoned transfer's own confirmation is withdrawn before this
+	// runs, so it cannot answer as the conflicting claimant.
+	UnsupersedeSafeTransfer(ctx context.Context, transferID int64) (int64, error)
+	// Lift the confirming transfer's own superseded flag. A rivalry loser
+	// can still confirm — the rival that superseded it may since have been
+	// re-organized out — and once it does, its confirmation supersedes the
+	// rival in turn; the flag on the transfer itself must be lifted too,
+	// or it is skipped at startup and never completes. An abandoned
+	// transfer is left alone: it was compensated by its own abandonment.
+	UnsupersedeTransfer(ctx context.Context, transferID int64) error
 	// The inverse of MarkManagedUTXOAsSwept for every UTXO swept by the
 	// given (now abandoned) transaction.
 	UnsweepManagedUTXOsByTxid(ctx context.Context, txid []byte) error

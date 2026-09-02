@@ -13,9 +13,11 @@ import (
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/address"
+	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
+	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/stretchr/testify/require"
 	"pgregory.net/rapid"
@@ -73,6 +75,24 @@ type contractWorld struct {
 	// transferID is the asset_transfers row staked on the anchor
 	// transaction, owning the outputs and passive references.
 	transferID int64
+
+	// inputDBIDs are the asset rows the transfer spent: holdings at
+	// prior anchors, marked spent, each referenced by one of the
+	// transfer's asset_transfer_inputs rows.
+	inputDBIDs []int64
+
+	// inputPoints are the anchor outpoints of inputDBIDs, in order.
+	inputPoints []wire.OutPoint
+
+	// foreclosure is the transaction the chain decided for, when the
+	// abandonment has a known cause. It consumes a drawn subset of
+	// inputPoints, which compensation must then leave spent. Nil
+	// models an abandonment without a cause to bound the reversal.
+	foreclosure *wire.MsgTx
+
+	// foreclosed marks the input rows whose outpoint foreclosure
+	// consumed.
+	foreclosed map[int64]bool
 }
 
 // contractFixture holds the shared, expensive scaffolding. A fresh
@@ -155,19 +175,43 @@ func (f *contractFixture) liveAssets(t require.TestingT,
 	return live
 }
 
+// worldOption adjusts the shape genContractWorld draws.
+type worldOption func(*worldConfig)
+
+type worldConfig struct {
+	events bool
+}
+
+// withoutEvents draws a world with no address events: the shape a
+// minting batch leaves, whose assets no receive ever completed.
+func withoutEvents() worldOption {
+	return func(cfg *worldConfig) {
+		cfg.events = false
+	}
+}
+
 // genContractWorld draws a ledger state: a unique anchor transaction,
 // one to three assets anchored in it, and — per asset — an optional
-// passive-asset reference and an optional completed address event.
+// passive-asset reference and an optional completed address event;
+// plus up to two spent inputs at prior anchors for the transaction's
+// transfer, and an optional foreclosing transaction consuming a subset
+// of them.
 //
 // The anchor transaction is made unique per iteration so that the
 // txid-prefix scoping used by the receive site isolates iterations
 // from one another on the shared database.
-func genContractWorld(rt *rapid.T, t *testing.T,
-	f *contractFixture) *contractWorld {
+func genContractWorld(rt *rapid.T, t *testing.T, f *contractFixture,
+	opts ...worldOption) *contractWorld {
+
+	cfg := &worldConfig{events: true}
+	for _, opt := range opts {
+		opt(cfg)
+	}
 
 	ctx := context.Background()
 
 	numAssets := rapid.IntRange(1, 3).Draw(rt, "numAssets")
+	numInputs := rapid.IntRange(0, 2).Draw(rt, "numInputs")
 
 	// A unique anchor transaction for this iteration. The generator
 	// builds deterministic anchors, which would collide across
@@ -194,27 +238,59 @@ func genContractWorld(rt *rapid.T, t *testing.T,
 	}
 	anchorPoint := wire.OutPoint{Hash: anchorTx.TxHash(), Index: 0}
 
-	assetGen := newAssetGenerator(t, numAssets, 1)
+	assetGen := newAssetGenerator(t, numAssets+numInputs, 1)
 	assetGen.anchorPointsToTx[anchorPoint] = anchorTx
 	assetGen.anchorPointsToHeights[anchorPoint] = 500
 
-	descs := make([]assetDesc, numAssets)
+	descs := make([]assetDesc, 0, numAssets+numInputs)
 	for i := 0; i < numAssets; i++ {
-		descs[i] = assetDesc{
+		descs = append(descs, assetDesc{
 			assetGen:    assetGen.assetGens[i],
 			anchorPoint: anchorPoint,
 			amt:         uint64(10 + i),
+		})
+	}
+
+	// The transfer's inputs: one holding per prior anchor
+	// transaction, already spent, as the pending write leaves them.
+	// Distinct anchors keep the outpoints distinct, so a foreclosure
+	// can consume some inputs and not others.
+	inputPoints := make([]wire.OutPoint, numInputs)
+	for i := 0; i < numInputs; i++ {
+		pkScript := bytes.Repeat([]byte{0xcd}, 25)
+		pkScript = append(pkScript, byte(i))
+		pkScript = append(pkScript, nonce[:]...)
+
+		priorTx := &wire.MsgTx{
+			TxIn: []*wire.TxIn{{}},
+			TxOut: []*wire.TxOut{{
+				PkScript: pkScript,
+				Value:    1000,
+			}},
 		}
+		point := wire.OutPoint{Hash: priorTx.TxHash(), Index: 0}
+		assetGen.anchorPointsToTx[point] = priorTx
+		assetGen.anchorPointsToHeights[point] = 400
+		inputPoints[i] = point
+
+		descs = append(descs, assetDesc{
+			assetGen:    assetGen.assetGens[numAssets+i],
+			anchorPoint: point,
+			amt:         uint64(20 + i),
+			spent:       true,
+		})
 	}
 	newAssets, _ := assetGen.genAssets(t, f.assetsStore, descs)
 
 	w := &contractWorld{
-		anchorTx:   anchorTx,
-		anchorTxid: anchorTx.TxHash(),
+		anchorTx:    anchorTx,
+		anchorTxid:  anchorTx.TxHash(),
+		inputPoints: inputPoints,
+		foreclosed:  make(map[int64]bool),
 	}
 
-	suffixes := make(map[int64][]byte, len(newAssets))
-	for i, a := range newAssets {
+	suffixes := make(map[int64][]byte, numAssets)
+	for i, a := range newAssets[:numAssets] {
 		dbID := f.assetDBID(
 			t, a.ScriptKey.PubKey.SerializeCompressed(),
 		)
@@ -251,14 +327,45 @@ func genContractWorld(rt *rapid.T, t *testing.T,
 		}
 
 		label = fmt.Sprintf("event%d", i)
-		if rapid.Bool().Draw(rt, label) {
+		if cfg.events && rapid.Bool().Draw(rt, label) {
 			w.eventDBIDs = append(w.eventDBIDs, dbID)
 		}
 	}
 
-	w.transferID = f.addTransfer(t, w, suffixes)
+	inputs := newAssets[numAssets:]
+	for _, a := range inputs {
+		w.inputDBIDs = append(w.inputDBIDs, f.assetDBID(
+			t, a.ScriptKey.PubKey.SerializeCompressed(),
+		))
+	}
+
+	w.transferID = f.addTransfer(t, w, suffixes, inputs)
 	for _, dbID := range w.eventDBIDs {
 		f.addAddrEventRef(t, anchorTx, dbID)
+	}
+
+	// The foreclosing transaction, when the loss has a cause: it
+	// consumes a drawn subset of the transfer's inputs.
+	if numInputs > 0 && rapid.Bool().Draw(rt, "foreclosure") {
+		w.foreclosure = &wire.MsgTx{
+			TxOut: []*wire.TxOut{{
+				PkScript: bytes.Repeat([]byte{0xef}, 34),
+				Value:    500,
+			}},
+		}
+		for i, dbID := range w.inputDBIDs {
+			label := fmt.Sprintf("foreclosed%d", i)
+			if !rapid.Bool().Draw(rt, label) {
+				continue
+			}
+
+			w.foreclosure.TxIn = append(
+				w.foreclosure.TxIn, &wire.TxIn{
+					PreviousOutPoint: w.inputPoints[i],
+				},
+			)
+			w.foreclosed[dbID] = true
+		}
 	}
 
 	return w
@@ -266,11 +373,12 @@ func genContractWorld(rt *rapid.T, t *testing.T,
 
 // addTransfer records the asset_transfers row staked on the anchor
 // transaction: one materialized output per non-passive asset — the
-// state a confirmation application leaves behind — and a
-// passive_assets reference per passive one, the state
-// reAnchorPassiveAssets leaves behind.
+// state a confirmation application leaves behind — a passive_assets
+// reference per passive one, the state reAnchorPassiveAssets leaves
+// behind, and one asset_transfer_inputs row per spent input, the
+// state the pending write leaves behind.
 func (f *contractFixture) addTransfer(t *testing.T, w *contractWorld,
-	suffixes map[int64][]byte) int64 {
+	suffixes map[int64][]byte, inputs []*asset.Asset) int64 {
 
 	ctx := context.Background()
 
@@ -316,6 +424,23 @@ func (f *contractFixture) addTransfer(t *testing.T, w *contractWorld,
 				"0, $2, 0, 0, $3 "+
 				"FROM assets WHERE assets.asset_id = $4",
 			transferID, suffixes[dbID], idx, dbID,
+		)
+		require.NoError(t, err)
+	}
+
+	for i, in := range inputs {
+		anchorPoint, err := encodeOutpoint(w.inputPoints[i])
+		require.NoError(t, err)
+		assetID := in.ID()
+
+		_, err = f.db.DB.ExecContext(
+			ctx, "INSERT INTO asset_transfer_inputs "+
+				"(transfer_id, anchor_point, asset_id, "+
+				"script_key, amount) "+
+				"VALUES ($1, $2, $3, $4, $5)",
+			transferID, anchorPoint, assetID[:],
+			in.ScriptKey.PubKey.SerializeCompressed(),
+			int64(in.Amount),
 		)
 		require.NoError(t, err)
 	}
@@ -375,6 +500,191 @@ func (f *contractFixture) addAddrEventRef(t *testing.T,
 	require.NoError(t, err)
 }
 
+// count runs a COUNT(*) query against the fixture's database.
+func (f *contractFixture) count(t require.TestingT, query string,
+	args ...any) int {
+
+	var n int
+	err := f.db.DB.QueryRowContext(
+		context.Background(), query, args...,
+	).Scan(&n)
+	require.NoError(t, err)
+
+	return n
+}
+
+// witnessRows counts the witness rows stored for the given asset.
+func (f *contractFixture) witnessRows(t require.TestingT, dbID int64) int {
+	return f.count(
+		t, "SELECT COUNT(*) FROM asset_witnesses WHERE asset_id = $1",
+		dbID,
+	)
+}
+
+// proofRows counts the proof files stored for the given asset.
+func (f *contractFixture) proofRows(t require.TestingT, dbID int64) int {
+	return f.count(
+		t, "SELECT COUNT(*) FROM asset_proofs WHERE asset_id = $1",
+		dbID,
+	)
+}
+
+// eventsWithStatus counts the address events keyed to the anchor
+// transaction that record the given status.
+func (f *contractFixture) eventsWithStatus(t require.TestingT,
+	txid chainhash.Hash, status address.Status) int {
+
+	return f.count(
+		t, "SELECT COUNT(*) FROM addr_events "+
+			"WHERE status = $1 AND chain_txn_id IN "+
+			"(SELECT txn_id FROM chain_txns WHERE txid = $2)",
+		int16(status), txid[:],
+	)
+}
+
+// transferAbandoned reports a transfer's abandoned flag.
+func (f *contractFixture) transferAbandoned(t require.TestingT,
+	transferID int64) bool {
+
+	var abandoned bool
+	err := f.db.DB.QueryRowContext(
+		context.Background(),
+		"SELECT abandoned FROM asset_transfers WHERE id = $1",
+		transferID,
+	).Scan(&abandoned)
+	require.NoError(t, err)
+
+	return abandoned
+}
+
+// addMintingBatch records a minting batch in the broadcast state,
+// keyed to a fresh internal key, and returns the raw batch key.
+func (f *contractFixture) addMintingBatch(t *testing.T) []byte {
+	ctx := context.Background()
+
+	rawKey := test.RandPubKey(t).SerializeCompressed()
+	_, err := f.db.DB.ExecContext(
+		ctx, "INSERT INTO internal_keys (raw_key, key_family, "+
+			"key_index) VALUES ($1, 0, 0)", rawKey,
+	)
+	require.NoError(t, err)
+
+	_, err = f.db.DB.ExecContext(
+		ctx, "INSERT INTO asset_minting_batches "+
+			"(batch_id, batch_state, height_hint, "+
+			"creation_time_unix) "+
+			"SELECT key_id, $1, 1, CURRENT_TIMESTAMP "+
+			"FROM internal_keys WHERE raw_key = $2",
+		int16(tapgarden.BatchStateBroadcast), rawKey,
+	)
+	require.NoError(t, err)
+
+	return rawKey
+}
+
+// batchState reports the recorded state of the batch with the given
+// raw key.
+func (f *contractFixture) batchState(t require.TestingT,
+	rawKey []byte) tapgarden.BatchState {
+
+	var state int16
+	err := f.db.DB.QueryRowContext(
+		context.Background(),
+		"SELECT batch_state FROM asset_minting_batches "+
+			"JOIN internal_keys ON batch_id = key_id "+
+			"WHERE raw_key = $1", rawKey,
+	).Scan(&state)
+	require.NoError(t, err)
+
+	return tapgarden.BatchState(state)
+}
+
+// assertOutputsWithdrawn asserts that the assets a compensation must
+// delete are gone along with everything that hung off them: the rows,
+// their witnesses and their proof files.
+func (f *contractFixture) assertOutputsWithdrawn(t require.TestingT,
+	w *contractWorld, where string) {
+
+	live := f.liveAssets(t, w.assetDBIDs)
+	for _, dbID := range w.outputDBIDs {
+		require.False(
+			t, live[dbID], "%s: materialized asset %d survived",
+			where, dbID,
+		)
+		require.Zero(
+			t, f.witnessRows(t, dbID),
+			"%s: witnesses of asset %d survived", where, dbID,
+		)
+		require.Zero(
+			t, f.proofRows(t, dbID),
+			"%s: proof of asset %d survived", where, dbID,
+		)
+	}
+}
+
+// assertReceiveCompensated asserts the state a receive abandonment
+// owes its caller: the materialized assets withdrawn, every address
+// event keyed to the transaction returned to the reset status with no
+// custody reference left, and the transaction unconfirmed. numEvents
+// is the number of address events keyed to the transaction.
+func (f *contractFixture) assertReceiveCompensated(t require.TestingT,
+	w *contractWorld, numEvents int, where string) {
+
+	f.assertOutputsWithdrawn(t, w, where)
+
+	for _, dbID := range w.assetDBIDs {
+		require.Zero(
+			t, f.custodyRefs(t, dbID),
+			"%s: custody reference left on asset %d", where, dbID,
+		)
+	}
+	require.Zero(
+		t, f.eventsWithStatus(t, w.anchorTxid, address.StatusCompleted),
+		"%s: a completed receive survived", where,
+	)
+	require.Equal(
+		t, numEvents, f.eventsWithStatus(
+			t, w.anchorTxid, address.StatusTransactionDetected,
+		),
+		"%s: address events not reset to the given status", where,
+	)
+	require.Nil(
+		t, f.chainConfirmed(t, w.anchorTxid),
+		"%s: the discarded transaction is still confirmed", where,
+	)
+}
+
+// assertTransferCompensated asserts the state a transfer abandonment
+// owes its caller: the materialized outputs withdrawn, every input
+// released except those the foreclosing transaction consumed, the
+// transfer marked superseded and abandoned, and the transaction
+// unconfirmed.
+func (f *contractFixture) assertTransferCompensated(t require.TestingT,
+	w *contractWorld, where string) {
+
+	f.assertOutputsWithdrawn(t, w, where)
+
+	for _, dbID := range w.inputDBIDs {
+		require.Equal(
+			t, w.foreclosed[dbID], f.assetSpent(t, dbID),
+			"%s: input %d spent flag; a foreclosed input stays "+
+				"spent, any other is released", where, dbID,
+		)
+	}
+	require.True(
+		t, f.transferSuperseded(t, w.transferID),
+		"%s: abandoned transfer not superseded", where,
+	)
+	require.True(
+		t, f.transferAbandoned(t, w.transferID),
+		"%s: abandoned transfer not marked abandoned", where,
+	)
+	require.Nil(
+		t, f.chainConfirmed(t, w.anchorTxid),
+		"%s: the discarded transaction is still confirmed", where,
+	)
+}
+
 // TestPorterCompensationContract asserts the compensation contract for
 // the porter's abandonment over generated ledger states, including the
 // self-send shape: a completed receive holds custody references to the
@@ -398,6 +708,7 @@ func TestPorterCompensationContract(t *testing.T) {
 					return f.assetsStore.
 						ApplyTransferAbandonment(
 							ctx, q, w.anchorTxid,
+							w.foreclosure,
 						)
 				},
 			)
@@ -415,6 +726,17 @@ func TestPorterCompensationContract(t *testing.T) {
 			)
 		}
 
+		// The staked state before the loss, so that the assertions
+		// below are not vacuous: the transaction is confirmed, the
+		// inputs are spent and every output's proof is stored.
+		require.NotNil(rt, f.chainConfirmed(rt, w.anchorTxid))
+		for _, dbID := range w.inputDBIDs {
+			require.True(rt, f.assetSpent(rt, dbID))
+		}
+		for _, dbID := range w.outputDBIDs {
+			require.Equal(rt, 1, f.proofRows(rt, dbID))
+		}
+
 		// Totality, in whichever order the two sites' deliveries
 		// run. Either handler failing rolls back its phase
 		// acknowledgement and retries forever.
@@ -427,17 +749,15 @@ func TestPorterCompensationContract(t *testing.T) {
 			require.NoError(rt, porterAbandon(), "porter second")
 		}
 
-		// Scope: the materialized outputs are withdrawn, the
-		// passive holdings survive (they pre-existed the
-		// transfer), and no custody reference is left dangling.
+		// Scope: the porter's stake is withdrawn in full — the
+		// materialized outputs, the spent inputs (except those the
+		// foreclosure took), the transfer's liveness and the
+		// transaction's confirmation — the passive holdings survive
+		// (they pre-existed the transfer), and no custody reference
+		// is left dangling.
+		f.assertTransferCompensated(rt, w, "abandonment")
+
 		live := f.liveAssets(rt, w.assetDBIDs)
-		for _, dbID := range w.outputDBIDs {
-			require.False(
-				rt, live[dbID],
-				"abandonment left materialized output %d",
-				dbID,
-			)
-		}
 		for _, dbID := range w.passiveDBIDs {
 			require.True(
 				rt, live[dbID],
@@ -461,16 +781,22 @@ func TestPorterCompensationContract(t *testing.T) {
 			rt, live, after,
 			"abandonment is not convergent under redelivery",
 		)
+		f.assertTransferCompensated(rt, w, "redelivery")
 	})
 }
 
 // TestAnchoringCompensationContract asserts the compensation contract
-// over generated ledger states.
+// for the receive's abandonment over generated ledger states.
 //
 // Totality is the property that matters most: these handlers run
 // inside the watcher's delivery transaction, so a returned error rolls
 // back the phase acknowledgement along with the compensation and the
 // anchoring is retried forever without ever converging.
+//
+// The scope assertions cover the receive's own stake: the assets it
+// materialized, the events it completed and the confirmation it
+// recorded. Passive holdings are the porter's transfer's, not the
+// receive's, and are left out.
 func TestAnchoringCompensationContract(t *testing.T) {
 	t.Parallel()
 
@@ -494,6 +820,19 @@ func TestAnchoringCompensationContract(t *testing.T) {
 			)
 		}
 
+		// The staked state before the loss, so that the assertions
+		// below are not vacuous: the transaction is confirmed,
+		// every output's proof is stored, and each event records a
+		// completed receive.
+		require.NotNil(rt, f.chainConfirmed(rt, w.anchorTxid))
+		for _, dbID := range w.outputDBIDs {
+			require.Equal(rt, 1, f.proofRows(rt, dbID))
+		}
+		numEvents := f.eventsWithStatus(
+			rt, w.anchorTxid, address.StatusCompleted,
+		)
+		require.Equal(rt, len(w.eventDBIDs), numEvents)
+
 		// Totality.
 		require.NoError(
 			rt, abandon(),
@@ -501,21 +840,12 @@ func TestAnchoringCompensationContract(t *testing.T) {
 				"the delivery transaction",
 		)
 
-		// Scope: a passive asset was re-anchored into this
-		// transaction's outputs by a transfer. It is the
-		// porter's stake, not the receive's, and the receive
-		// must leave it alone.
-		live := f.liveAssets(rt, w.assetDBIDs)
-		for _, dbID := range w.passiveDBIDs {
-			require.True(
-				rt, live[dbID],
-				"receive abandonment deleted passive asset "+
-					"%d, which it never staked", dbID,
-			)
-		}
+		// Scope: the receive's stake is withdrawn in full.
+		f.assertReceiveCompensated(rt, w, numEvents, "abandonment")
 
 		// Convergence: a redelivered abandonment reaches the
 		// same state.
+		live := f.liveAssets(rt, w.assetDBIDs)
 		require.NoError(rt, abandon(), "redelivered abandonment failed")
 
 		after := f.liveAssets(rt, w.assetDBIDs)
@@ -523,5 +853,79 @@ func TestAnchoringCompensationContract(t *testing.T) {
 			rt, live, after,
 			"abandonment is not convergent under redelivery",
 		)
+		f.assertReceiveCompensated(rt, w, numEvents, "redelivery")
+	})
+}
+
+// TestMintCompensationContract asserts the compensation contract for
+// the mint's abandonment over generated ledger states. A minted batch
+// stakes the shape a receive does — asset rows anchored in the genesis
+// transaction's outputs, with their proofs — plus the batch row, which
+// the compensation must move out of every resumable state.
+func TestMintCompensationContract(t *testing.T) {
+	t.Parallel()
+
+	f := newContractFixture(t)
+	ctx := context.Background()
+
+	rapid.Check(t, func(rt *rapid.T) {
+		// A minted asset has no address event: nothing was received.
+		w := genContractWorld(rt, t, f, withoutEvents())
+		rawBatchKey := f.addMintingBatch(t)
+
+		abandon := func() error {
+			return f.executor.ExecTx(
+				ctx, WriteTxOption(),
+				func(q *sqlc.Queries) error {
+					return f.assetsStore.
+						ApplyMintAbandonment(
+							ctx, q, w.anchorTxid,
+							rawBatchKey,
+						)
+				},
+			)
+		}
+
+		require.NotNil(rt, f.chainConfirmed(rt, w.anchorTxid))
+		for _, dbID := range w.outputDBIDs {
+			require.Equal(rt, 1, f.proofRows(rt, dbID))
+		}
+
+		// Totality.
+		require.NoError(
+			rt, abandon(),
+			"mint abandonment must not fail; it runs inside the "+
+				"delivery transaction",
+		)
+
+		// Scope: the minted assets are withdrawn, the genesis
+		// transaction is unconfirmed, and the batch is cancelled so
+		// it is neither resumed nor counted.
+		assertCompensated := func(where string) {
+			f.assertOutputsWithdrawn(rt, w, where)
+			require.Nil(
+				rt, f.chainConfirmed(rt, w.anchorTxid),
+				"%s: the discarded genesis transaction is "+
+					"still confirmed", where,
+			)
+			require.Equal(
+				rt, tapgarden.BatchStateSproutCancelled,
+				f.batchState(rt, rawBatchKey),
+				"%s: batch not cancelled", where,
+			)
+		}
+		assertCompensated("abandonment")
+
+		// Convergence: a redelivered abandonment reaches the same
+		// state.
+		live := f.liveAssets(rt, w.assetDBIDs)
+		require.NoError(rt, abandon(), "redelivered abandonment failed")
+
+		after := f.liveAssets(rt, w.assetDBIDs)
+		require.Equal(
+			rt, live, after,
+			"abandonment is not convergent under redelivery",
+		)
+		assertCompensated("redelivery")
 	})
 }

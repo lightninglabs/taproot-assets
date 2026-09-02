@@ -23,9 +23,11 @@ import (
 // chain decided against the genesis transaction with act-level
 // finality (its funding inputs were claimed by a buried conflicting
 // transaction), so the batch's assets never came to be. The minted
-// asset rows (witnesses, proofs, the assets themselves) are deleted,
-// the chain transaction is unconfirmed, and the batch is moved to the
-// sprout-cancelled state so it is neither resumed nor counted.
+// asset rows (any successor's passive references to them, witnesses,
+// proofs, the assets themselves) are deleted, the chain transaction
+// is unconfirmed, and the batch is moved to the sprout-cancelled
+// state so it is neither resumed nor counted. Returns the locators
+// of the proofs it deleted.
 func (a *AssetStore) ApplyMintAbandonment(ctx context.Context,
 	q *sqlc.Queries, genesisTxid chainhash.Hash,
 	rawBatchKey []byte) error {
@@ -35,9 +37,35 @@ func (a *AssetStore) ApplyMintAbandonment(ctx context.Context,
 		return fmt.Errorf("unable to find minted assets: %w", err)
 	}
 
-	for _, assetID := range assetIDs {
-		if err := q.DeleteAssetWitnesses(ctx, assetID); err != nil {
-			return fmt.Errorf("unable to delete witnesses: %w",
+	deleted := make([]proof.Locator, 0, len(rows))
+	for _, row := range rows {
+		loc, err := anchoredAssetLocator(row)
+		if err != nil {
+			return nil, err
+		}
+
+		// A successor transfer may already have staked this row as
+		// a passive holding: passive references are written before
+		// broadcast, so one can exist against an asset this
+		// transaction materialized. That reference must go before
+		// the row it points at (passive_assets.asset_id is NOT
+		// NULL with no ON DELETE), and with the same finality —
+		// the successor re-anchors a holding that, on the
+		// surviving chain, was never created.
+		_, err = q.DeletePassiveAssetsByAssetID(ctx, row.AssetID)
+		if err != nil {
+			return nil, fmt.Errorf("unable to delete passive "+
+				"asset references: %w", err)
+		}
+
+		err = q.DeleteAssetWitnesses(ctx, row.AssetID)
+		if err != nil {
+			return nil, fmt.Errorf("unable to delete "+
+				"witnesses: %w", err)
+		}
+		err = q.DeleteAssetProofByAssetID(ctx, row.AssetID)
+		if err != nil {
+			return nil, fmt.Errorf("unable to delete proof: %w",
 				err)
 		}
 		if err := q.DeleteAssetProofByAssetID(ctx, assetID); err != nil {

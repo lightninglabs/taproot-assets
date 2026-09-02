@@ -117,7 +117,11 @@ type ChainPorterConfig struct {
 	// transfers with as speculative anchorings. When set, the porter
 	// stakes and converges transfer state through the watcher's
 	// registry instead of subscribing to confirmations itself.
-	AnchoringWatcher *tapreorg.Watcher
+	//
+	// NOTE: this is an interface field; a disabled watcher must be
+	// wired as an explicit interface nil, never as a nil concrete
+	// pointer.
+	AnchoringWatcher tapreorg.Registrar
 
 	// AnchoringLog is the transaction-scoped persistence surface the
 	// porter site drives from its watcher handlers.

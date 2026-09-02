@@ -64,10 +64,12 @@ func (l *recordingPorterLog) ApplyAnchorTxUnconfirm(_ context.Context,
 }
 
 func (l *recordingPorterLog) ApplyTransferAbandonment(_ context.Context,
-	_ *sqlc.Queries, anchorTxid chainhash.Hash) error {
+	_ *sqlc.Queries, anchorTxid chainhash.Hash,
+	foreclosure *wire.MsgTx) error {
 
 	l.abandonment++
 	l.lastTxid = anchorTxid
+	l.lastForeclosure = foreclosure
 
 	return nil
 }
@@ -187,11 +189,36 @@ func TestPorterSiteActGating(t *testing.T) {
 	require.Equal(t, payload, tx.effects[0].Payload)
 
 	// Abandonment compensates locally; the burn events never went
-	// out, so nothing further is emitted or retracted.
+	// out, so nothing further is emitted or retracted. Without a
+	// cause there is no foreclosing transaction to hand down.
 	anchoring.Phase = tapreorg.Abandoned{}
 	require.NoError(t, site.OnAbandoned(ctx, tx, anchoring))
 	require.Equal(t, 1, log.abandonment)
 	require.Len(t, tx.effects, 1)
+	require.Nil(t, log.lastForeclosure)
+
+	// A foreign burial names the transaction the chain decided for;
+	// the compensation receives it so it can leave that
+	// transaction's inputs alone.
+	foreignTx := wire.NewMsgTx(2)
+	foreignTx.AddTxIn(wire.NewTxIn(&wire.OutPoint{Index: 7}, nil, nil))
+	foreignTx.AddTxOut(wire.NewTxOut(500, []byte{0x51, 0xff}))
+	foreignWitness, err := tapreorg.NewWitness(
+		foreignTx, chainhash.Hash{0xdd}, 701, 2,
+	)
+	require.NoError(t, err)
+
+	anchoring.Phase = tapreorg.Abandoned{
+		Cause: tapreorg.ForeignBurial{
+			Spend: tapreorg.ForeignSpend{W: foreignWitness},
+		},
+	}
+	require.NoError(t, site.OnAbandoned(ctx, tx, anchoring))
+	require.Equal(t, 2, log.abandonment)
+	require.NotNil(t, log.lastForeclosure)
+	require.Equal(
+		t, foreignTx.TxHash(), log.lastForeclosure.TxHash(),
+	)
 }
 
 // TestPorterBlobRoundTrip asserts that every porter blob survives the

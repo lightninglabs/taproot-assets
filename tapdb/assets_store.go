@@ -352,6 +352,10 @@ type ActiveAssetsStore interface {
 	SupersedeConflictingTransfers(ctx context.Context,
 		arg sqlc.SupersedeConflictingTransfersParams) (int64, error)
 
+	// UnsupersedeTransfer lifts the given (just confirmed) transfer's
+	// own superseded flag, unless it is abandoned.
+	UnsupersedeTransfer(ctx context.Context, transferID int64) error
+
 	// QuerySupersededTransferIDs returns the IDs of all transfers that
 	// have been marked as superseded.
 	QuerySupersededTransferIDs(ctx context.Context) ([]int64, error)
