@@ -375,7 +375,7 @@ func TestPorterAnchoringPersistence(t *testing.T) {
 		return executor.ExecTx(
 			ctx, WriteTxOption(), func(q *sqlc.Queries) error {
 				return assetsStore.ApplyTransferAbandonment(
-					ctx, q, anchorTxHash,
+					ctx, q, anchorTxHash, nil,
 				)
 			},
 		)
@@ -960,7 +960,7 @@ func TestPorterAnchoringApplySharedAnchorOutput(t *testing.T) {
 	err = executor.ExecTx(
 		ctx, WriteTxOption(), func(q *sqlc.Queries) error {
 			return assetsStore.ApplyTransferAbandonment(
-				ctx, q, anchorTxHash,
+				ctx, q, anchorTxHash, nil,
 			)
 		},
 	)
@@ -976,4 +976,1477 @@ func TestPorterAnchoringApplySharedAnchorOutput(t *testing.T) {
 	).Scan(&remaining)
 	require.NoError(t, err)
 	require.Equal(t, 0, remaining)
+}
+
+// TestPorterAnchoringZeroValueSweep asserts the rebuilt confirmation
+// derives the zero-value sweep set from stored state.
+//
+// The live confirmation event carries the funding step's selection out
+// of porter memory; the watcher path rebuilds the event from rows, and
+// a rebuild that omits the set never marks the swept anchors. The mark
+// (swept_txn_id) is the only durable guard FetchOrphanUTXOs consults,
+// so once the sweep lease expires, coin selection offers the outpoint
+// again and the next transfer funds a transaction spending a UTXO the
+// chain already consumed — the registration and pending write commit
+// before broadcast fails, and the transfer wedges on every resume.
+func TestPorterAnchoringZeroValueSweep(t *testing.T) {
+	t.Parallel()
+
+	db := NewTestDB(t)
+	_, assetsStore := newAssetStoreFromDB(db.BaseDB)
+	ctx := context.Background()
+
+	executor := NewTransactionExecutor(
+		db, func(tx *sql.Tx) *sqlc.Queries {
+			return db.WithTx(tx)
+		},
+	)
+
+	// One confirmed input asset, with its proof file stored where
+	// the rebuild fetches it.
+	targetScriptKey := asset.NewScriptKeyBip86(keychain.KeyDescriptor{
+		PubKey: test.RandPubKey(t),
+		KeyLocator: keychain.KeyLocator{
+			Family: test.RandInt[keychain.KeyFamily](),
+			Index:  uint32(test.RandInt[int32]()),
+		},
+	})
+
+	assetGen := newAssetGenerator(t, 1, 1)
+	assetGen.genAssets(t, assetsStore, []assetDesc{{
+		assetGen:    assetGen.assetGens[0],
+		anchorPoint: assetGen.anchorPoints[0],
+		scriptKey:   &targetScriptKey,
+		amt:         16,
+	}})
+
+	allAssets, err := assetsStore.FetchAllAssets(ctx, true, false, nil)
+	require.NoError(t, err)
+	require.Len(t, allAssets, 1)
+	inputAsset := allAssets[0]
+
+	inputAnchorPoint := wire.OutPoint{
+		Hash:  assetGen.anchorTxs[0].TxHash(),
+		Index: 0,
+	}
+
+	inputProof := randProof(t, inputAsset.Asset)
+	inputFile, err := proof.NewFile(proof.V0, *inputProof)
+	require.NoError(t, err)
+	var inputFileBuf bytes.Buffer
+	require.NoError(t, inputFile.Encode(&inputFileBuf))
+
+	var inputAssetDBID int64
+	err = db.DB.QueryRowContext(
+		ctx, "SELECT assets.asset_id FROM assets "+
+			"JOIN script_keys ON assets.script_key_id = "+
+			"script_keys.script_key_id "+
+			"WHERE script_keys.tweaked_script_key = $1",
+		inputAsset.ScriptKey.PubKey.SerializeCompressed(),
+	).Scan(&inputAssetDBID)
+	require.NoError(t, err)
+	require.NoError(t, db.UpsertAssetProofByID(ctx, ProofUpdateByID{
+		AssetID:   inputAssetDBID,
+		ProofFile: inputFileBuf.Bytes(),
+	}))
+
+	// A zero-value anchor: a managed UTXO holding only a tombstone,
+	// unswept and unleased, which the sweeper offers to funding.
+	zeroValuePoint := insertOrphanUTXO(
+		t, ctx, db, assetsStore, 212, 5, false,
+	)
+
+	orphanPoints := func() []wire.OutPoint {
+		orphans, err := assetsStore.FetchOrphanUTXOs(ctx)
+		require.NoError(t, err)
+
+		points := make([]wire.OutPoint, len(orphans))
+		for i, orphan := range orphans {
+			points[i] = orphan.OutPoint
+		}
+
+		return points
+	}
+	require.Contains(t, orphanPoints(), zeroValuePoint)
+
+	// The transfer: the asset input plus the zero-value sweep, one
+	// full-value output.
+	newAnchorTx := wire.NewMsgTx(2)
+	newAnchorTx.AddTxIn(&wire.TxIn{PreviousOutPoint: inputAnchorPoint})
+	newAnchorTx.AddTxIn(&wire.TxIn{PreviousOutPoint: zeroValuePoint})
+	newAnchorTx.AddTxOut(&wire.TxOut{
+		PkScript: bytes.Repeat([]byte{0x01}, 34),
+		Value:    1000,
+	})
+	anchorTxHash := newAnchorTx.TxHash()
+
+	inputPrevID := asset.PrevID{
+		OutPoint: inputAnchorPoint,
+		ID:       inputAsset.ID(),
+		ScriptKey: asset.ToSerialized(
+			inputAsset.ScriptKey.PubKey,
+		),
+	}
+
+	newScriptKey := asset.NewScriptKeyBip86(keychain.KeyDescriptor{
+		PubKey: test.RandPubKey(t),
+		KeyLocator: keychain.KeyLocator{
+			Index:  uint32(rand.Int31()),
+			Family: keychain.KeyFamily(rand.Int31()),
+		},
+	})
+
+	receiverAsset := inputAsset.Copy()
+	receiverAsset.ScriptKey = newScriptKey
+	receiverAsset.PrevWitnesses = []asset.Witness{{
+		PrevID:    &inputPrevID,
+		TxWitness: [][]byte{{0x01}},
+	}}
+	receiverProof := randProof(t, receiverAsset)
+	receiverProofBytes, err := receiverProof.Bytes()
+	require.NoError(t, err)
+
+	parcel := &tapfreighter.OutboundParcel{
+		AnchorTx:           newAnchorTx,
+		AnchorTxHeightHint: 1450,
+		TransferTime:       time.Now(),
+		ChainFees:          100,
+		Inputs: []tapfreighter.TransferInput{{
+			PrevID: inputPrevID,
+			Amount: inputAsset.Amount,
+		}},
+		Outputs: []tapfreighter.TransferOutput{{
+			Anchor: tapfreighter.Anchor{
+				Value: 1000,
+				OutPoint: wire.OutPoint{
+					Hash:  anchorTxHash,
+					Index: 0,
+				},
+				InternalKey: keychain.KeyDescriptor{
+					PubKey: test.RandPubKey(t),
+					KeyLocator: keychain.KeyLocator{
+						Family: keychain.KeyFamily(
+							rand.Int31(),
+						),
+						Index: uint32(
+							test.RandInt[int32](),
+						),
+					},
+				},
+				TaprootAssetRoot: bytes.Repeat(
+					[]byte{0x1}, 32,
+				),
+				MerkleRoot: bytes.Repeat([]byte{0x1}, 32),
+				PkScript:   bytes.Repeat([]byte{0x01}, 34),
+			},
+			ScriptKey:      newScriptKey,
+			ScriptKeyLocal: true,
+			Amount:         inputAsset.Amount,
+			WitnessData: []asset.Witness{{
+				PrevID:    &inputPrevID,
+				TxWitness: [][]byte{{0x01}, {0x02}},
+			}},
+			SplitCommitmentRoot: mssmt.NewComputedNode(
+				[32]byte{0x10}, 100,
+			),
+			ProofSuffix: receiverProofBytes,
+			Position:    0,
+		}},
+		ZeroValueInputs: []*tapfreighter.ZeroValueInput{{
+			OutPoint: zeroValuePoint,
+		}},
+	}
+
+	leaseOwner := fn.ToArray[[32]byte](test.RandBytes(32))
+	leaseExpiry := time.Now().Add(time.Hour)
+
+	err = executor.ExecTx(
+		ctx, WriteTxOption(), func(q *sqlc.Queries) error {
+			return assetsStore.ApplyPendingParcel(
+				ctx, q, parcel, leaseOwner, leaseExpiry,
+			)
+		},
+	)
+	require.NoError(t, err)
+
+	rebuildAndApply := func(nonce uint32) {
+		blockHash, header, merkle := blockContextFor(
+			t, newAnchorTx, nonce,
+		)
+		err := executor.ExecTx(
+			ctx, WriteTxOption(), func(q *sqlc.Queries) error {
+				conf, burns, err := assetsStore.
+					RebuildAnchorConfirm(
+						ctx, q, newAnchorTx,
+						blockHash, 600, 0, header,
+						merkle, "",
+					)
+				if err != nil {
+					return err
+				}
+
+				_, err = assetsStore.ApplyAnchorTxConfirm(
+					ctx, q, conf, burns,
+				)
+
+				return err
+			},
+		)
+		require.NoError(t, err)
+	}
+	rebuildAndApply(1)
+
+	// The pending write only leased the zero-value anchor; the
+	// lease is released on expiry (a year, in production). The
+	// swept mark must outlive it, or the next funding round
+	// re-selects an outpoint this transaction already spent.
+	outpointBytes, err := encodeOutpoint(zeroValuePoint)
+	require.NoError(t, err)
+	require.NoError(t, db.DeleteUTXOLease(ctx, outpointBytes))
+
+	require.NotContains(
+		t, orphanPoints(), zeroValuePoint,
+		"confirmed sweep re-offered to coin selection: the "+
+			"rebuilt confirmation did not mark it swept",
+	)
+
+	// A redelivered confirmation converges.
+	rebuildAndApply(1)
+	require.NotContains(t, orphanPoints(), zeroValuePoint)
+
+	// Abandonment reverses the mark: the sweeping transaction is
+	// gone from the surviving chain, so the anchor is genuinely
+	// unspent and must be offered again.
+	err = executor.ExecTx(
+		ctx, WriteTxOption(), func(q *sqlc.Queries) error {
+			return assetsStore.ApplyTransferAbandonment(
+				ctx, q, anchorTxHash, nil,
+			)
+		},
+	)
+	require.NoError(t, err)
+	require.Contains(t, orphanPoints(), zeroValuePoint)
+}
+
+// rivalryWorld is a confirmed transfer against a real database, with
+// an optional superseded rival spending the same inputs and an
+// optional second input shared by both. The database handle's
+// concrete type is build-tag dependent, so the world exposes bound
+// helpers instead of the handle itself.
+type rivalryWorld struct {
+	inputPoint  wire.OutPoint
+	secondPoint wire.OutPoint
+	oldPassive  wire.OutPoint
+	inputDBID   int64
+	secondDBID  int64
+	passiveDBID int64
+	transferID  int64
+	rivalID     int64
+
+	abandon       func(t *testing.T, foreclosures ...*wire.MsgTx)
+	unconfirm     func(t *testing.T)
+	confirmRival  func(t *testing.T)
+	assetSpent    func(t *testing.T, dbID int64) bool
+	leaseHeld     func(t *testing.T, point wire.OutPoint) bool
+	superseded    func(t *testing.T, transferID int64) bool
+	abandoned     func(t *testing.T, transferID int64) bool
+	passiveProofs func(t *testing.T) int
+}
+
+// buildRivalryWorld builds a rivalryWorld: two confirmed assets at
+// distinct anchors (the transfer's input and a passive holding it
+// re-anchors), a third as a second input when secondInput is set, the
+// transfer applied and confirmed against them — or, when unconfirmed
+// is set, only applied, its anchor never having confirmed and the
+// passive re-anchor never having landed — and, when plantRival is
+// set, a superseded rival spending the same inputs with its own
+// anchor still unconfirmed.
+func buildRivalryWorld(t *testing.T, plantRival, secondInput,
+	unconfirmed bool) *rivalryWorld {
+
+	db := NewTestDB(t)
+	_, assetsStore := newAssetStoreFromDB(db.BaseDB)
+	ctx := context.Background()
+
+	executor := NewTransactionExecutor(
+		db, func(tx *sql.Tx) *sqlc.Queries {
+			return db.WithTx(tx)
+		},
+	)
+
+	randScriptKey := func() asset.ScriptKey {
+		return asset.NewScriptKeyBip86(keychain.KeyDescriptor{
+			PubKey: test.RandPubKey(t),
+			KeyLocator: keychain.KeyLocator{
+				Family: test.RandInt[keychain.KeyFamily](),
+				Index:  uint32(test.RandInt[int32]()),
+			},
+		})
+	}
+	targetScriptKey := randScriptKey()
+	secondScriptKey := randScriptKey()
+
+	assetGen := newAssetGenerator(t, 3, 2)
+	descs := []assetDesc{{
+		assetGen:    assetGen.assetGens[0],
+		anchorPoint: assetGen.anchorPoints[0],
+		scriptKey:   &targetScriptKey,
+		amt:         16,
+	}, {
+		assetGen:    assetGen.assetGens[1],
+		anchorPoint: assetGen.anchorPoints[1],
+		amt:         5,
+	}}
+	if secondInput {
+		descs = append(descs, assetDesc{
+			assetGen:    assetGen.assetGens[2],
+			anchorPoint: assetGen.anchorPoints[2],
+			scriptKey:   &secondScriptKey,
+			amt:         7,
+		})
+	}
+	assetGen.genAssets(t, assetsStore, descs)
+
+	allAssets, err := assetsStore.FetchAllAssets(ctx, true, false, nil)
+	require.NoError(t, err)
+	require.Len(t, allAssets, len(descs))
+
+	var inputAsset, secondAsset, passiveAsset *asset.ChainAsset
+	for _, dbAsset := range allAssets {
+		switch {
+		case dbAsset.ScriptKey.PubKey.IsEqual(targetScriptKey.PubKey):
+			inputAsset = dbAsset
+
+		case dbAsset.ScriptKey.PubKey.IsEqual(secondScriptKey.PubKey):
+			secondAsset = dbAsset
+
+		default:
+			passiveAsset = dbAsset
+		}
+	}
+	require.NotNil(t, inputAsset)
+	require.NotNil(t, passiveAsset)
+	require.Equal(t, secondInput, secondAsset != nil)
+
+	inputPoint := wire.OutPoint{
+		Hash: assetGen.anchorTxs[0].TxHash(),
+	}
+	oldPassive := wire.OutPoint{
+		Hash: assetGen.anchorTxs[1].TxHash(),
+	}
+	var secondPoint wire.OutPoint
+	if secondInput {
+		secondPoint = wire.OutPoint{
+			Hash: assetGen.anchorTxs[2].TxHash(),
+		}
+	}
+
+	dbIDFor := func(chainAsset *asset.ChainAsset) int64 {
+		var id int64
+		err := db.DB.QueryRowContext(
+			ctx, "SELECT assets.asset_id FROM assets "+
+				"JOIN script_keys ON "+
+				"assets.script_key_id = "+
+				"script_keys.script_key_id "+
+				"WHERE script_keys.tweaked_script_key "+
+				"= $1",
+			chainAsset.ScriptKey.PubKey.
+				SerializeCompressed(),
+		).Scan(&id)
+		require.NoError(t, err)
+
+		return id
+	}
+	inputDBID := dbIDFor(inputAsset)
+	passiveDBID := dbIDFor(passiveAsset)
+	var secondDBID int64
+	if secondInput {
+		secondDBID = dbIDFor(secondAsset)
+	}
+
+	inputProof := randProof(t, inputAsset.Asset)
+	inputFile, err := proof.NewFile(proof.V0, *inputProof)
+	require.NoError(t, err)
+	var inputFileBuf bytes.Buffer
+	require.NoError(t, inputFile.Encode(&inputFileBuf))
+	require.NoError(t, db.UpsertAssetProofByID(
+		ctx, ProofUpdateByID{
+			AssetID:   inputDBID,
+			ProofFile: inputFileBuf.Bytes(),
+		},
+	))
+
+	// The transfer: its inputs, one full-value output of the first.
+	newAnchorTx := wire.NewMsgTx(2)
+	newAnchorTx.AddTxIn(&wire.TxIn{PreviousOutPoint: inputPoint})
+	if secondInput {
+		newAnchorTx.AddTxIn(&wire.TxIn{PreviousOutPoint: secondPoint})
+	}
+	newAnchorTx.AddTxOut(&wire.TxOut{
+		PkScript: bytes.Repeat([]byte{0x01}, 34),
+		Value:    1000,
+	})
+	anchorTxHash := newAnchorTx.TxHash()
+
+	prevIDFor := func(chainAsset *asset.ChainAsset,
+		point wire.OutPoint) asset.PrevID {
+
+		return asset.PrevID{
+			OutPoint: point,
+			ID:       chainAsset.ID(),
+			ScriptKey: asset.ToSerialized(
+				chainAsset.ScriptKey.PubKey,
+			),
+		}
+	}
+	inputPrevID := prevIDFor(inputAsset, inputPoint)
+
+	transferInputs := []tapfreighter.TransferInput{{
+		PrevID: inputPrevID,
+		Amount: inputAsset.Amount,
+	}}
+	if secondInput {
+		transferInputs = append(
+			transferInputs, tapfreighter.TransferInput{
+				PrevID: prevIDFor(secondAsset, secondPoint),
+				Amount: secondAsset.Amount,
+			},
+		)
+	}
+
+	newScriptKey := asset.NewScriptKeyBip86(keychain.KeyDescriptor{
+		PubKey: test.RandPubKey(t),
+		KeyLocator: keychain.KeyLocator{
+			Index:  uint32(rand.Int31()),
+			Family: keychain.KeyFamily(rand.Int31()),
+		},
+	})
+
+	receiverAsset := inputAsset.Copy()
+	receiverAsset.ScriptKey = newScriptKey
+	receiverAsset.PrevWitnesses = []asset.Witness{{
+		PrevID:    &inputPrevID,
+		TxWitness: [][]byte{{0x01}},
+	}}
+	receiverProof := randProof(t, receiverAsset)
+	receiverProofBytes, err := receiverProof.Bytes()
+	require.NoError(t, err)
+
+	parcel := &tapfreighter.OutboundParcel{
+		AnchorTx:           newAnchorTx,
+		AnchorTxHeightHint: 1450,
+		TransferTime:       time.Now(),
+		ChainFees:          100,
+		Inputs:             transferInputs,
+		Outputs: []tapfreighter.TransferOutput{{
+			Anchor: tapfreighter.Anchor{
+				Value: 1000,
+				OutPoint: wire.OutPoint{
+					Hash: anchorTxHash,
+				},
+				InternalKey: keychain.KeyDescriptor{
+					PubKey: test.RandPubKey(t),
+					KeyLocator: keychain.KeyLocator{
+						Family: keychain.KeyFamily(
+							rand.Int31(),
+						),
+						Index: uint32(
+							test.RandInt[int32](),
+						),
+					},
+				},
+				TaprootAssetRoot: bytes.Repeat(
+					[]byte{0x1}, 32,
+				),
+				MerkleRoot: bytes.Repeat(
+					[]byte{0x1}, 32,
+				),
+				PkScript: bytes.Repeat(
+					[]byte{0x01}, 34,
+				),
+			},
+			ScriptKey:      newScriptKey,
+			ScriptKeyLocal: true,
+			Amount:         inputAsset.Amount,
+			WitnessData: []asset.Witness{{
+				PrevID:    &inputPrevID,
+				TxWitness: [][]byte{{0x01}, {0x02}},
+			}},
+			SplitCommitmentRoot: mssmt.NewComputedNode(
+				[32]byte{0x10}, 100,
+			),
+			ProofSuffix: receiverProofBytes,
+			Position:    0,
+		}},
+	}
+
+	leaseOwner := fn.ToArray[[32]byte](test.RandBytes(32))
+	leaseExpiry := time.Now().Add(time.Hour)
+
+	err = executor.ExecTx(
+		ctx, WriteTxOption(), func(q *sqlc.Queries) error {
+			return assetsStore.ApplyPendingParcel(
+				ctx, q, parcel, leaseOwner, leaseExpiry,
+			)
+		},
+	)
+	require.NoError(t, err)
+
+	// Confirm, so the inputs are marked spent — the state a buried
+	// foreign spend later abandons. An unconfirmed world stops at
+	// the pending write.
+	blockHash, header, merkle := blockContextFor(t, newAnchorTx, 1)
+	if !unconfirmed {
+		err = executor.ExecTx(
+			ctx, WriteTxOption(), func(q *sqlc.Queries) error {
+				conf, burns, err := assetsStore.
+					RebuildAnchorConfirm(
+						ctx, q, newAnchorTx, blockHash,
+						600, 0, header, merkle, "",
+					)
+				if err != nil {
+					return err
+				}
+
+				_, err = assetsStore.ApplyAnchorTxConfirm(
+					ctx, q, conf, burns,
+				)
+
+				return err
+			},
+		)
+		require.NoError(t, err)
+	}
+
+	// The passive holding: model the confirmed re-anchor by extending
+	// its file with a proof anchored in the transfer's transaction and
+	// recording the passive reference. Unconfirmed, the re-anchor
+	// never landed and the file stays at its prior anchor.
+	proof1 := randProof(t, passiveAsset.Asset)
+	proof1.AnchorTx = *assetGen.anchorTxs[1]
+	passiveProofs := []proof.Proof{*proof1}
+	if !unconfirmed {
+		proof2 := randProof(t, passiveAsset.Asset)
+		proof2.AnchorTx = *newAnchorTx
+		passiveProofs = append(passiveProofs, *proof2)
+	}
+	passiveFile, err := proof.NewFile(proof.V0, passiveProofs...)
+	require.NoError(t, err)
+	var passiveBuf bytes.Buffer
+	require.NoError(t, passiveFile.Encode(&passiveBuf))
+	require.NoError(t, db.UpsertAssetProofByID(
+		ctx, ProofUpdateByID{
+			AssetID:   passiveDBID,
+			ProofFile: passiveBuf.Bytes(),
+		},
+	))
+
+	_, err = db.DB.ExecContext(
+		ctx, "INSERT INTO passive_assets "+
+			"(transfer_id, asset_id, new_anchor_utxo, "+
+			"script_key, asset_version) "+
+			"SELECT transfers.id, $1, "+
+			"assets.anchor_utxo_id, "+
+			"script_keys.tweaked_script_key, 0 "+
+			"FROM assets "+
+			"JOIN script_keys ON assets.script_key_id = "+
+			"script_keys.script_key_id, "+
+			"asset_transfers transfers "+
+			"WHERE assets.asset_id = $1 "+
+			"AND transfers.anchor_txn_id IN "+
+			"(SELECT txn_id FROM chain_txns "+
+			"WHERE txid = $2)",
+		passiveDBID, anchorTxHash[:],
+	)
+	require.NoError(t, err)
+
+	var transferID int64
+	err = db.DB.QueryRowContext(
+		ctx, "SELECT id FROM asset_transfers "+
+			"WHERE anchor_txn_id = (SELECT txn_id FROM chain_txns "+
+			"WHERE txid = $1)", anchorTxHash[:],
+	).Scan(&transferID)
+	require.NoError(t, err)
+
+	w := &rivalryWorld{
+		inputPoint:  inputPoint,
+		secondPoint: secondPoint,
+		oldPassive:  oldPassive,
+		inputDBID:   inputDBID,
+		secondDBID:  secondDBID,
+		passiveDBID: passiveDBID,
+		transferID:  transferID,
+
+		abandon: func(t *testing.T, foreclosures ...*wire.MsgTx) {
+			err := executor.ExecTx(
+				ctx, WriteTxOption(),
+				func(q *sqlc.Queries) error {
+					return assetsStore.
+						ApplyTransferAbandonment(
+							ctx, q, anchorTxHash,
+							foreclosures,
+						)
+				},
+			)
+			require.NoError(t, err)
+		},
+		unconfirm: func(t *testing.T) {
+			err := executor.ExecTx(
+				ctx, WriteTxOption(),
+				func(q *sqlc.Queries) error {
+					return assetsStore.
+						ApplyAnchorTxUnconfirm(
+							ctx, q, anchorTxHash,
+						)
+				},
+			)
+			require.NoError(t, err)
+		},
+		assetSpent: func(t *testing.T, dbID int64) bool {
+			var spent bool
+			err := db.DB.QueryRowContext(
+				ctx, "SELECT spent FROM assets "+
+					"WHERE asset_id = $1", dbID,
+			).Scan(&spent)
+			require.NoError(t, err)
+
+			return spent
+		},
+		leaseHeld: func(t *testing.T, point wire.OutPoint) bool {
+			pointBytes, err := encodeOutpoint(point)
+			require.NoError(t, err)
+
+			var held bool
+			err = db.DB.QueryRowContext(
+				ctx, "SELECT lease_owner IS NOT NULL "+
+					"FROM managed_utxos "+
+					"WHERE outpoint = $1", pointBytes,
+			).Scan(&held)
+			require.NoError(t, err)
+
+			return held
+		},
+		superseded: func(t *testing.T, transferID int64) bool {
+			var superseded bool
+			err := db.DB.QueryRowContext(
+				ctx, "SELECT superseded FROM "+
+					"asset_transfers WHERE id = $1",
+				transferID,
+			).Scan(&superseded)
+			require.NoError(t, err)
+
+			return superseded
+		},
+		abandoned: func(t *testing.T, transferID int64) bool {
+			var abandoned bool
+			err := db.DB.QueryRowContext(
+				ctx, "SELECT abandoned FROM "+
+					"asset_transfers WHERE id = $1",
+				transferID,
+			).Scan(&abandoned)
+			require.NoError(t, err)
+
+			return abandoned
+		},
+		passiveProofs: func(t *testing.T) int {
+			blob, err := db.AssetProofBlobByAssetID(
+				ctx, passiveDBID,
+			)
+			require.NoError(t, err)
+			file := &proof.File{}
+			require.NoError(t, file.Decode(bytes.NewReader(blob)))
+
+			return file.NumProofs()
+		},
+	}
+
+	if !plantRival {
+		return w
+	}
+
+	// A superseded rival spending the same inputs, its own anchor
+	// still unconfirmed: the revival candidate.
+	rivalTx := wire.NewMsgTx(2)
+	rivalTx.AddTxIn(&wire.TxIn{PreviousOutPoint: inputPoint})
+	if secondInput {
+		rivalTx.AddTxIn(&wire.TxIn{PreviousOutPoint: secondPoint})
+	}
+	rivalTx.AddTxOut(&wire.TxOut{
+		PkScript: bytes.Repeat([]byte{0x02}, 34),
+		Value:    900,
+	})
+	rivalBytes, err := fn.Serialize(rivalTx)
+	require.NoError(t, err)
+	rivalHash := rivalTx.TxHash()
+	_, err = db.UpsertChainTx(ctx, sqlc.UpsertChainTxParams{
+		Txid:  rivalHash[:],
+		RawTx: rivalBytes,
+	})
+	require.NoError(t, err)
+
+	_, err = db.DB.ExecContext(
+		ctx, "INSERT INTO asset_transfers "+
+			"(height_hint, anchor_txn_id, transfer_time_unix, "+
+			"superseded) "+
+			"SELECT 1, txn_id, CURRENT_TIMESTAMP, TRUE "+
+			"FROM chain_txns WHERE txid = $1", rivalHash[:],
+	)
+	require.NoError(t, err)
+	err = db.DB.QueryRowContext(
+		ctx, "SELECT id FROM asset_transfers ORDER BY id DESC LIMIT 1",
+	).Scan(&w.rivalID)
+	require.NoError(t, err)
+
+	insertRivalInput := func(chainAsset *asset.ChainAsset,
+		point wire.OutPoint) {
+
+		pointBytes, err := encodeOutpoint(point)
+		require.NoError(t, err)
+
+		assetIDBytes := chainAsset.ID()
+		err = db.InsertAssetTransferInput(
+			ctx, sqlc.InsertAssetTransferInputParams{
+				TransferID:  w.rivalID,
+				AnchorPoint: pointBytes,
+				AssetID:     assetIDBytes[:],
+				ScriptKey: chainAsset.ScriptKey.PubKey.
+					SerializeCompressed(),
+				Amount: int64(chainAsset.Amount),
+			},
+		)
+		require.NoError(t, err)
+	}
+	insertRivalInput(inputAsset, inputPoint)
+	if secondInput {
+		insertRivalInput(secondAsset, secondPoint)
+	}
+
+	// The rival confirms: the confirmation application over its
+	// (output-less) transfer state, the way the chain deciding for
+	// it after a re-organization would be applied.
+	w.confirmRival = func(t *testing.T) {
+		conf := &tapfreighter.AssetConfirmEvent{
+			AnchorTXID:  rivalHash,
+			BlockHash:   chainhash.Hash{0x77},
+			BlockHeight: 601,
+		}
+		err := executor.ExecTx(
+			ctx, WriteTxOption(), func(q *sqlc.Queries) error {
+				_, err := assetsStore.ApplyAnchorTxConfirm(
+					ctx, q, conf, nil,
+				)
+
+				return err
+			},
+		)
+		require.NoError(t, err)
+	}
+
+	return w
+}
+
+// TestPorterAbandonmentForeclosure pins what compensation owes the
+// foreclosing transaction's input set. The watcher derives Abandoned
+// from any buried foreign spend — for tapchannel anchorings the
+// forecloser is routinely a genuine third party — but the reversal
+// queries can only see local transfers. An input the forecloser
+// consumed is gone: un-spending it fabricates balance the chain
+// assigned to someone else, a rival needing it can never confirm, and
+// a passive holding restored to it is no longer ours. Inputs the
+// forecloser did not touch reverse exactly as before, except that the
+// lease is retained while a revived rival is still in flight to spend
+// the input.
+func TestPorterAbandonmentForeclosure(t *testing.T) {
+	t.Parallel()
+
+	// The chain gave the transfer's input and the passive's prior
+	// anchor to the foreclosing transaction: nothing it consumed is
+	// restored. The input stays spent and leased, the rival needing
+	// it stays superseded, and the passive — its history truncated
+	// to the outpoint the forecloser took — is marked spent.
+	t.Run("foreclosed", func(t *testing.T) {
+		t.Parallel()
+
+		w := buildRivalryWorld(t, true, false, false)
+
+		foreclosure := wire.NewMsgTx(2)
+		foreclosure.AddTxIn(&wire.TxIn{
+			PreviousOutPoint: w.inputPoint,
+		})
+		foreclosure.AddTxIn(&wire.TxIn{
+			PreviousOutPoint: w.oldPassive,
+		})
+		foreclosure.AddTxOut(&wire.TxOut{
+			PkScript: bytes.Repeat([]byte{0x03}, 34),
+			Value:    800,
+		})
+		w.abandon(t, foreclosure)
+
+		require.True(
+			t, w.assetSpent(t, w.inputDBID),
+			"foreclosed input restored: balance now counts an "+
+				"asset a third party took",
+		)
+		require.True(t, w.leaseHeld(t, w.inputPoint))
+		require.True(
+			t, w.superseded(t, w.rivalID),
+			"revived a rival whose input the forecloser "+
+				"consumed; it can never confirm",
+		)
+		require.Equal(t, 1, w.passiveProofs(t))
+		require.True(
+			t, w.assetSpent(t, w.passiveDBID),
+			"passive restored to a foreclosed outpoint left "+
+				"unspent: balance counts a holding a third "+
+				"party took",
+		)
+	})
+
+	// The transfer never confirmed: a foreign spend of its inputs
+	// was buried while its own anchor sat in the mempool. Nothing
+	// ever marked its inputs spent, so the compensation has to
+	// assert the chain's verdict rather than assume it was recorded:
+	// the consumed input, and the passive holding still sitting at
+	// the consumed outpoint, are marked spent.
+	t.Run("foreclosed before confirmation", func(t *testing.T) {
+		t.Parallel()
+
+		w := buildRivalryWorld(t, false, false, true)
+		require.False(t, w.assetSpent(t, w.inputDBID))
+		require.False(t, w.assetSpent(t, w.passiveDBID))
+
+		foreclosure := wire.NewMsgTx(2)
+		foreclosure.AddTxIn(&wire.TxIn{
+			PreviousOutPoint: w.inputPoint,
+		})
+		foreclosure.AddTxIn(&wire.TxIn{
+			PreviousOutPoint: w.oldPassive,
+		})
+		foreclosure.AddTxOut(&wire.TxOut{
+			PkScript: bytes.Repeat([]byte{0x03}, 34),
+			Value:    800,
+		})
+		w.abandon(t, foreclosure)
+
+		require.True(
+			t, w.assetSpent(t, w.inputDBID),
+			"input the forecloser consumed left unspent: the "+
+				"transfer never confirmed, so nothing else "+
+				"marked it",
+		)
+		require.True(t, w.leaseHeld(t, w.inputPoint))
+		require.Equal(t, 1, w.passiveProofs(t))
+		require.True(
+			t, w.assetSpent(t, w.passiveDBID),
+			"passive holding at a foreclosed outpoint left "+
+				"unspent: no re-anchor was applied, so there "+
+				"was nothing to truncate",
+		)
+	})
+
+	// The forecloser consumed one of two inputs the rival shares
+	// with the transfer. The other input reverses as usual, but the
+	// rival is not revived through it: one of its inputs is gone, so
+	// its anchor can never confirm. Its flags stay as they are — it
+	// is left superseded, not marked abandoned, since that flag
+	// records a transfer's own compensation — and, with no live
+	// claimant, the restored input's lease is released.
+	t.Run("foreclosed shared input", func(t *testing.T) {
+		t.Parallel()
+
+		w := buildRivalryWorld(t, true, true, false)
+
+		foreclosure := wire.NewMsgTx(2)
+		foreclosure.AddTxIn(&wire.TxIn{
+			PreviousOutPoint: w.inputPoint,
+		})
+		foreclosure.AddTxOut(&wire.TxOut{
+			PkScript: bytes.Repeat([]byte{0x03}, 34),
+			Value:    800,
+		})
+		w.abandon(t, foreclosure)
+
+		require.True(t, w.assetSpent(t, w.inputDBID))
+		require.True(t, w.leaseHeld(t, w.inputPoint))
+		require.False(t, w.assetSpent(t, w.secondDBID))
+		require.True(
+			t, w.superseded(t, w.rivalID),
+			"revived a rival through an untouched input while "+
+				"the forecloser consumed another of its inputs",
+		)
+		require.False(t, w.abandoned(t, w.rivalID))
+		require.False(
+			t, w.leaseHeld(t, w.secondPoint),
+			"input left leased with no live claimant",
+		)
+	})
+
+	// The trigger set was taken by two transactions: one consumed
+	// the first input, another the second. The abandonment carries a
+	// single cause, but compensation receives every foreign spend
+	// the chain decided for, so neither input is restored and the
+	// rival sharing them stays superseded. Reversing the second
+	// input off the single cause would count an asset a third party
+	// took.
+	t.Run("two foreclosers", func(t *testing.T) {
+		t.Parallel()
+
+		w := buildRivalryWorld(t, true, true, false)
+
+		first := wire.NewMsgTx(2)
+		first.AddTxIn(&wire.TxIn{PreviousOutPoint: w.inputPoint})
+		first.AddTxOut(&wire.TxOut{
+			PkScript: bytes.Repeat([]byte{0x03}, 34),
+			Value:    800,
+		})
+		second := wire.NewMsgTx(2)
+		second.AddTxIn(&wire.TxIn{PreviousOutPoint: w.secondPoint})
+		second.AddTxOut(&wire.TxOut{
+			PkScript: bytes.Repeat([]byte{0x04}, 34),
+			Value:    700,
+		})
+		w.abandon(t, first, second)
+
+		require.True(t, w.assetSpent(t, w.inputDBID))
+		require.True(
+			t, w.assetSpent(t, w.secondDBID),
+			"input a second forecloser consumed restored: balance "+
+				"now counts an asset a third party took",
+		)
+		require.True(t, w.leaseHeld(t, w.inputPoint))
+		require.True(t, w.leaseHeld(t, w.secondPoint))
+		require.True(
+			t, w.superseded(t, w.rivalID),
+			"revived a rival whose every input a forecloser "+
+				"consumed",
+		)
+		require.False(t, w.abandoned(t, w.rivalID))
+	})
+
+	// A foreclosure that consumed none of the transfer's inputs
+	// (or no known foreclosure at all) reverses everything: every
+	// input un-spent, every lease released, passive restored as
+	// ours.
+	t.Run("untouched", func(t *testing.T) {
+		t.Parallel()
+
+		w := buildRivalryWorld(t, false, true, false)
+
+		foreclosure := wire.NewMsgTx(2)
+		foreclosure.AddTxIn(&wire.TxIn{
+			PreviousOutPoint: test.RandOp(t),
+		})
+		w.abandon(t, foreclosure)
+
+		require.False(t, w.assetSpent(t, w.inputDBID))
+		require.False(t, w.assetSpent(t, w.secondDBID))
+		require.False(t, w.leaseHeld(t, w.inputPoint))
+		require.False(t, w.leaseHeld(t, w.secondPoint))
+		require.Equal(t, 1, w.passiveProofs(t))
+		require.False(t, w.assetSpent(t, w.passiveDBID))
+	})
+
+	// A revived rival is still in flight to spend the restored
+	// inputs: every lease must outlive the abandonment, or a new
+	// send can select an input from under the rival's replacement.
+	// The rival shares both inputs, and revival is a per-transfer
+	// flag flipped once — at whichever input is processed first —
+	// so the lease decision must not be read off that step.
+	t.Run("rival revived", func(t *testing.T) {
+		t.Parallel()
+
+		w := buildRivalryWorld(t, true, true, false)
+
+		w.abandon(t)
+
+		require.False(t, w.assetSpent(t, w.inputDBID))
+		require.False(t, w.assetSpent(t, w.secondDBID))
+		require.False(t, w.superseded(t, w.rivalID))
+		require.True(
+			t, w.leaseHeld(t, w.inputPoint),
+			"input unleased while the revived rival's anchor "+
+				"is still in flight",
+		)
+		require.True(
+			t, w.leaseHeld(t, w.secondPoint),
+			"second input unleased while the revived rival's "+
+				"anchor is still in flight: the rival was "+
+				"revived at the first input, not this one",
+		)
+	})
+}
+
+// TestPorterSupersessionFollowsConfirmation pins the superseded flag
+// to the chain's current decision between rivals. Supersession is
+// entered when a rival confirms and only unconfirmed rivals are
+// marked, so two transitions would otherwise leave the flag stale: a
+// loser that confirms after the winner is re-organized out must lift
+// its own flag, or it is skipped at startup and never completes; and
+// a winner whose confirmation is withdrawn while the loser has since
+// confirmed must enter supersession, or it is resumed at startup and
+// rebroadcasts an anchor that can never confirm.
+func TestPorterSupersessionFollowsConfirmation(t *testing.T) {
+	t.Parallel()
+
+	// The transfer's confirmation is re-organized out and the rival
+	// it had superseded confirms instead: the rival becomes the live
+	// form, the transfer the superseded one.
+	t.Run("loser confirms after re-org", func(t *testing.T) {
+		t.Parallel()
+
+		w := buildRivalryWorld(t, true, false, false)
+
+		w.unconfirm(t)
+		require.False(
+			t, w.superseded(t, w.transferID),
+			"transfer superseded by an unconfirmed rival",
+		)
+
+		w.confirmRival(t)
+		require.False(
+			t, w.superseded(t, w.rivalID),
+			"confirmed transfer left superseded: it is skipped "+
+				"at startup and never completes",
+		)
+		require.True(t, w.superseded(t, w.transferID))
+		require.False(t, w.abandoned(t, w.transferID))
+	})
+
+	// The rival confirms while the transfer's own confirmation still
+	// stands; when that confirmation is then withdrawn, the transfer
+	// is a rivalry loser and must not be resumed as pending.
+	t.Run("confirmation withdrawn under a confirmed rival",
+		func(t *testing.T) {
+			t.Parallel()
+
+			w := buildRivalryWorld(t, true, false, false)
+
+			w.confirmRival(t)
+			require.False(t, w.superseded(t, w.rivalID))
+			require.False(t, w.superseded(t, w.transferID))
+
+			w.unconfirm(t)
+			require.True(
+				t, w.superseded(t, w.transferID),
+				"unconfirmed transfer left live under a "+
+					"confirmed rival: it is resumed at "+
+					"startup and rebroadcasts a doomed "+
+					"anchor",
+			)
+			require.False(t, w.superseded(t, w.rivalID))
+			require.False(t, w.abandoned(t, w.transferID))
+		})
+}
+
+// TestPorterPassiveFollowsIdentity pins that the confirm and
+// abandonment bodies find their transaction in a passive holding's
+// file by identity, not by its position at the tip. Two transfers in
+// one burial window carry the same holding: T1 re-anchors it, T2
+// spends T1's change and re-anchors it again, then T1's confirmation
+// re-runs at burial. Keyed on the tip, that re-run would append T1's
+// proof after T2's and drag the holding back to an output T2 already
+// spent; abandoning T1 after T2 would likewise skip a file whose tip
+// is T2's, leaving the holding on a chain where T1 never happened.
+func TestPorterPassiveFollowsIdentity(t *testing.T) {
+	t.Parallel()
+
+	db := NewTestDB(t)
+	_, assetsStore := newAssetStoreFromDB(db.BaseDB)
+	ctx := context.Background()
+
+	executor := NewTransactionExecutor(
+		db, func(tx *sql.Tx) *sqlc.Queries {
+			return db.WithTx(tx)
+		},
+	)
+
+	newKey := func() asset.ScriptKey {
+		return asset.NewScriptKeyBip86(keychain.KeyDescriptor{
+			PubKey: test.RandPubKey(t),
+			KeyLocator: keychain.KeyLocator{
+				Family: test.RandInt[keychain.KeyFamily](),
+				Index:  uint32(test.RandInt[int32]()),
+			},
+		})
+	}
+
+	// The active asset and the passive holding share one anchor
+	// output.
+	activeKey, passiveKey := newKey(), newKey()
+	assetGen := newAssetGenerator(t, 2, 1)
+	anchorPoint := assetGen.anchorPoints[0]
+	assetGen.genAssets(t, assetsStore, []assetDesc{{
+		assetGen:    assetGen.assetGens[0],
+		anchorPoint: anchorPoint,
+		scriptKey:   &activeKey,
+		amt:         16,
+	}, {
+		assetGen:    assetGen.assetGens[1],
+		anchorPoint: anchorPoint,
+		scriptKey:   &passiveKey,
+		amt:         5,
+	}})
+
+	allAssets, err := assetsStore.FetchAllAssets(ctx, true, false, nil)
+	require.NoError(t, err)
+	require.Len(t, allAssets, 2)
+
+	byKey := func(key asset.ScriptKey) *asset.ChainAsset {
+		for _, a := range allAssets {
+			if a.ScriptKey.PubKey.IsEqual(key.PubKey) {
+				return a
+			}
+		}
+		t.Fatalf("asset not found")
+
+		return nil
+	}
+	active, passive := byKey(activeKey), byKey(passiveKey)
+
+	dbIDFor := func(key asset.ScriptKey) int64 {
+		var id int64
+		err := db.DB.QueryRowContext(
+			ctx, "SELECT assets.asset_id FROM assets "+
+				"JOIN script_keys ON assets.script_key_id = "+
+				"script_keys.script_key_id "+
+				"WHERE script_keys.tweaked_script_key = $1",
+			key.PubKey.SerializeCompressed(),
+		).Scan(&id)
+		require.NoError(t, err)
+
+		return id
+	}
+	activeDBID, passiveDBID := dbIDFor(activeKey), dbIDFor(passiveKey)
+
+	// Each holding's file: one proof at the shared anchor.
+	storeFile := func(dbID int64, a *asset.Asset) {
+		p := randProof(t, a)
+		p.AnchorTx = *assetGen.anchorTxs[0]
+		p.InclusionProof.OutputIndex = anchorPoint.Index
+		file, err := proof.NewFile(proof.V0, *p)
+		require.NoError(t, err)
+		var buf bytes.Buffer
+		require.NoError(t, file.Encode(&buf))
+		require.NoError(t, db.UpsertAssetProofByID(
+			ctx, ProofUpdateByID{
+				AssetID:   dbID,
+				ProofFile: buf.Bytes(),
+			},
+		))
+	}
+	storeFile(activeDBID, active.Asset)
+	storeFile(passiveDBID, passive.Asset)
+
+	prevIDFor := func(point wire.OutPoint,
+		key asset.ScriptKey) asset.PrevID {
+
+		return asset.PrevID{
+			OutPoint:  point,
+			ID:        active.ID(),
+			ScriptKey: asset.ToSerialized(key.PubKey),
+		}
+	}
+	passivePrevID := func(point wire.OutPoint) asset.PrevID {
+		return asset.PrevID{
+			OutPoint:  point,
+			ID:        passive.ID(),
+			ScriptKey: asset.ToSerialized(passiveKey.PubKey),
+		}
+	}
+
+	// A transfer spends the active holding at prevPoint, sending
+	// some to a receiver at output 0 and the change to output 1,
+	// where the passive holding rides along. The pending write and
+	// the passive reference are recorded as the porter records
+	// them.
+	type transfer struct {
+		tx        *wire.MsgTx
+		txid      chainhash.Hash
+		changeKey asset.ScriptKey
+		changeAmt uint64
+	}
+	makeTransfer := func(prevPoint wire.OutPoint, prevKey asset.ScriptKey,
+		prevAmt uint64, tag byte) transfer {
+
+		anchorTx := wire.NewMsgTx(2)
+		anchorTx.AddTxIn(&wire.TxIn{PreviousOutPoint: prevPoint})
+		anchorTx.AddTxOut(&wire.TxOut{
+			PkScript: bytes.Repeat([]byte{tag}, 34),
+			Value:    1000,
+		})
+		anchorTx.AddTxOut(&wire.TxOut{
+			PkScript: bytes.Repeat([]byte{tag + 1}, 34),
+			Value:    1000,
+		})
+		txid := anchorTx.TxHash()
+
+		inputPrevID := prevIDFor(prevPoint, prevKey)
+		const sendAmt = 3
+		receiverKey, changeKey := newKey(), newKey()
+		makeOutput := func(index uint32, key asset.ScriptKey,
+			amt uint64) tapfreighter.TransferOutput {
+
+			outAsset := active.Copy()
+			outAsset.ScriptKey = key
+			outAsset.Amount = amt
+			outAsset.PrevWitnesses = []asset.Witness{{
+				PrevID:    &inputPrevID,
+				TxWitness: [][]byte{{0x01}},
+			}}
+			suffix := randProof(t, outAsset)
+			suffixBytes, err := suffix.Bytes()
+			require.NoError(t, err)
+
+			return tapfreighter.TransferOutput{
+				Anchor: tapfreighter.Anchor{
+					Value: 1000,
+					OutPoint: wire.OutPoint{
+						Hash:  txid,
+						Index: index,
+					},
+					InternalKey: keychain.KeyDescriptor{
+						PubKey: test.RandPubKey(t),
+					},
+					TaprootAssetRoot: bytes.Repeat(
+						[]byte{0x1}, 32,
+					),
+					MerkleRoot: bytes.Repeat(
+						[]byte{0x1}, 32,
+					),
+					PkScript: anchorTx.TxOut[index].
+						PkScript,
+				},
+				ScriptKey:      key,
+				ScriptKeyLocal: true,
+				Amount:         amt,
+				WitnessData: []asset.Witness{{
+					PrevID:    &asset.PrevID{},
+					TxWitness: [][]byte{{0x01}, {0x02}},
+				}},
+				SplitCommitmentRoot: mssmt.NewComputedNode(
+					[32]byte{0x10}, 100,
+				),
+				ProofSuffix: suffixBytes,
+				Position:    uint64(index),
+			}
+		}
+		parcel := &tapfreighter.OutboundParcel{
+			AnchorTx:           anchorTx,
+			AnchorTxHeightHint: 1450,
+			TransferTime:       time.Now(),
+			ChainFees:          100,
+			Inputs: []tapfreighter.TransferInput{{
+				PrevID: inputPrevID,
+				Amount: prevAmt,
+			}},
+			Outputs: []tapfreighter.TransferOutput{
+				makeOutput(0, receiverKey, sendAmt),
+				makeOutput(1, changeKey, prevAmt-sendAmt),
+			},
+		}
+
+		leaseOwner := fn.ToArray[[32]byte](test.RandBytes(32))
+		err := executor.ExecTx(
+			ctx, WriteTxOption(), func(q *sqlc.Queries) error {
+				return assetsStore.ApplyPendingParcel(
+					ctx, q, parcel, leaseOwner,
+					time.Now().Add(time.Hour),
+				)
+			},
+		)
+		require.NoError(t, err)
+
+		// The passive reference: the holding moves from prevPoint
+		// to the change output, its suffix descending from its
+		// proof there.
+		var transferID int64
+		err = db.DB.QueryRowContext(
+			ctx, "SELECT id FROM asset_transfers "+
+				"WHERE anchor_txn_id = (SELECT txn_id "+
+				"FROM chain_txns WHERE txid = $1)", txid[:],
+		).Scan(&transferID)
+		require.NoError(t, err)
+
+		changePoint, err := encodeOutpoint(wire.OutPoint{
+			Hash:  txid,
+			Index: 1,
+		})
+		require.NoError(t, err)
+		changeUtxo, err := db.FetchManagedUTXO(
+			ctx, sqlc.FetchManagedUTXOParams{Outpoint: changePoint},
+		)
+		require.NoError(t, err)
+
+		passiveFrom := passivePrevID(prevPoint)
+		passiveOut := passive.Copy()
+		passiveOut.PrevWitnesses = []asset.Witness{{
+			PrevID:    &passiveFrom,
+			TxWitness: [][]byte{{0x03}},
+		}}
+		suffix := randProof(t, passiveOut)
+		suffix.InclusionProof.OutputIndex = 1
+		suffixBytes, err := suffix.Bytes()
+		require.NoError(t, err)
+		var (
+			witnessBuf bytes.Buffer
+			scratch    [8]byte
+		)
+		require.NoError(t, asset.WitnessEncoder(
+			&witnessBuf, &passiveOut.PrevWitnesses, &scratch,
+		))
+		prevPointBytes, err := encodeOutpoint(prevPoint)
+		require.NoError(t, err)
+		passiveID := passive.ID()
+		require.NoError(t, db.InsertPassiveAsset(
+			ctx, sqlc.InsertPassiveAssetParams{
+				TransferID:      transferID,
+				NewAnchorUtxo:   changeUtxo.UtxoID,
+				NewWitnessStack: witnessBuf.Bytes(),
+				NewProof:        suffixBytes,
+				PrevOutpoint:    prevPointBytes,
+				ScriptKey: passiveKey.PubKey.
+					SerializeCompressed(),
+				AssetGenesisID: passiveID[:],
+				AssetVersion:   0,
+			},
+		))
+
+		return transfer{
+			tx:        anchorTx,
+			txid:      txid,
+			changeKey: changeKey,
+			changeAmt: prevAmt - sendAmt,
+		}
+	}
+
+	rebuildAndApply := func(tx *wire.MsgTx, nonce uint32) {
+		blockHash, header, merkle := blockContextFor(t, tx, nonce)
+		err := executor.ExecTx(
+			ctx, WriteTxOption(), func(q *sqlc.Queries) error {
+				conf, burns, err := assetsStore.
+					RebuildAnchorConfirm(
+						ctx, q, tx, blockHash,
+						600+nonce, 0, header, merkle,
+						"",
+					)
+				if err != nil {
+					return err
+				}
+
+				_, err = assetsStore.ApplyAnchorTxConfirm(
+					ctx, q, conf, burns,
+				)
+
+				return err
+			},
+		)
+		require.NoError(t, err)
+	}
+	abandon := func(txid chainhash.Hash) {
+		err := executor.ExecTx(
+			ctx, WriteTxOption(), func(q *sqlc.Queries) error {
+				_, err := assetsStore.ApplyTransferAbandonment(
+					ctx, q, txid, nil,
+				)
+
+				return err
+			},
+		)
+		require.NoError(t, err)
+	}
+
+	passiveFile := func() *proof.File {
+		blob, err := db.AssetProofBlobByAssetID(ctx, passiveDBID)
+		require.NoError(t, err)
+		file := &proof.File{}
+		require.NoError(t, file.Decode(bytes.NewReader(blob)))
+
+		return file
+	}
+	passiveAnchor := func() wire.OutPoint {
+		var pointBytes []byte
+		err := db.DB.QueryRowContext(
+			ctx, "SELECT utxos.outpoint FROM assets "+
+				"JOIN managed_utxos utxos "+
+				"ON assets.anchor_utxo_id = utxos.utxo_id "+
+				"WHERE assets.asset_id = $1", passiveDBID,
+		).Scan(&pointBytes)
+		require.NoError(t, err)
+
+		var point wire.OutPoint
+		require.NoError(t, readOutPoint(
+			bytes.NewReader(pointBytes), 0, 0, &point,
+		))
+
+		return point
+	}
+	passiveSpent := func() bool {
+		var spent bool
+		err := db.DB.QueryRowContext(
+			ctx, "SELECT spent FROM assets WHERE asset_id = $1",
+			passiveDBID,
+		).Scan(&spent)
+		require.NoError(t, err)
+
+		return spent
+	}
+	tipTxid := func(file *proof.File) chainhash.Hash {
+		tip, err := file.LastProof()
+		require.NoError(t, err)
+
+		return tip.AnchorTx.TxHash()
+	}
+
+	// T1 confirms: the holding follows it to T1's change output.
+	t1 := makeTransfer(anchorPoint, activeKey, active.Amount, 0x10)
+	t1Change := wire.OutPoint{Hash: t1.txid, Index: 1}
+	rebuildAndApply(t1.tx, 1)
+
+	file := passiveFile()
+	require.Equal(t, 2, file.NumProofs())
+	require.Equal(t, t1.txid, tipTxid(file))
+	require.Equal(t, t1Change, passiveAnchor())
+
+	// T2 spends T1's change and confirms: the holding follows again.
+	t2 := makeTransfer(t1Change, t1.changeKey, t1.changeAmt, 0x20)
+	t2Change := wire.OutPoint{Hash: t2.txid, Index: 1}
+	rebuildAndApply(t2.tx, 2)
+
+	file = passiveFile()
+	require.Equal(t, 3, file.NumProofs())
+	require.Equal(t, t2.txid, tipTxid(file))
+	require.Equal(t, t2Change, passiveAnchor())
+
+	// T1 buries and its confirmation re-runs. Its proof is refreshed
+	// where it sits; the holding stays where T2 put it.
+	rebuildAndApply(t1.tx, 1)
+
+	file = passiveFile()
+	require.Equal(t, 3, file.NumProofs(), "T1's proof appended again")
+	middle, err := file.ProofAt(1)
+	require.NoError(t, err)
+	require.Equal(t, t1.txid, middle.AnchorTx.TxHash())
+	require.Equal(t, t2.txid, tipTxid(file))
+	require.Equal(
+		t, t2Change, passiveAnchor(),
+		"holding dragged back to an output T2 already spent",
+	)
+	require.False(t, passiveSpent())
+
+	// The chain discards T1. The cascade abandons the parent first:
+	// T1's compensation rolls the holding back from T1's own proof,
+	// taking T2's with it, and T2's then finds nothing of its own.
+	abandon(t1.txid)
+
+	file = passiveFile()
+	require.Equal(t, 1, file.NumProofs())
+	require.Equal(t, anchorPoint, passiveAnchor())
+	require.False(t, passiveSpent())
+
+	abandon(t2.txid)
+
+	file = passiveFile()
+	require.Equal(t, 1, file.NumProofs())
+	require.Equal(t, anchorPoint, passiveAnchor())
+	require.False(t, passiveSpent())
 }

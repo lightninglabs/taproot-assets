@@ -123,12 +123,13 @@ func (a *AssetStore) ApplyReceiveUnconfirm(ctx context.Context,
 // ApplyReceiveAbandonment compensates an abandoned receive: the chain
 // decided against the sender's anchor transaction with act-level
 // finality, so the received assets never materialized on the
-// surviving chain. The anchored asset rows (witnesses, proofs, the
-// assets themselves) are deleted, the address events shed their
-// completion and return to the given status, and the chain
-// transaction is unconfirmed. If the logical send is re-attempted in
-// a new form, the sender's courier delivers fresh proofs, which
-// arrive as a fresh receive with its own anchoring.
+// surviving chain. The anchored asset rows (any successor's passive
+// references to them, witnesses, proofs, the assets themselves) are
+// deleted, the address events shed their completion and return to
+// the given status, and the chain transaction is unconfirmed. If the
+// logical send is re-attempted in a new form, the sender's courier
+// delivers fresh proofs, which arrive as a fresh receive with its own
+// anchoring. Returns the locators of the proofs it deleted.
 //
 // The reset status is the caller's choice; note that the events'
 // recorded outpoints reference a transaction the chain has discarded,
@@ -167,9 +168,35 @@ func (a *AssetStore) ApplyReceiveAbandonment(ctx context.Context,
 			"references: %w", err)
 	}
 
-	for _, assetID := range assetIDs {
-		if err := q.DeleteAssetWitnesses(ctx, assetID); err != nil {
-			return fmt.Errorf("unable to delete witnesses: %w",
+	deleted := make([]proof.Locator, 0, len(rows))
+	for _, row := range rows {
+		loc, err := anchoredAssetLocator(row)
+		if err != nil {
+			return nil, err
+		}
+
+		// A successor transfer may already have staked this row as
+		// a passive holding: passive references are written before
+		// broadcast, so one can exist against an asset this
+		// transaction materialized. That reference must go before
+		// the row it points at (passive_assets.asset_id is NOT
+		// NULL with no ON DELETE), and with the same finality —
+		// the successor re-anchors a holding that, on the
+		// surviving chain, was never created.
+		_, err = q.DeletePassiveAssetsByAssetID(ctx, row.AssetID)
+		if err != nil {
+			return nil, fmt.Errorf("unable to delete passive "+
+				"asset references: %w", err)
+		}
+
+		err = q.DeleteAssetWitnesses(ctx, row.AssetID)
+		if err != nil {
+			return nil, fmt.Errorf("unable to delete "+
+				"witnesses: %w", err)
+		}
+		err = q.DeleteAssetProofByAssetID(ctx, row.AssetID)
+		if err != nil {
+			return nil, fmt.Errorf("unable to delete proof: %w",
 				err)
 		}
 		if err := q.DeleteAssetProofByAssetID(ctx, assetID); err != nil {

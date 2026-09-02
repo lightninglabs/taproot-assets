@@ -352,6 +352,10 @@ type ActiveAssetsStore interface {
 	SupersedeConflictingTransfers(ctx context.Context,
 		arg sqlc.SupersedeConflictingTransfersParams) (int64, error)
 
+	// UnsupersedeTransfer lifts the given (just confirmed) transfer's
+	// own superseded flag, unless it is abandoned.
+	UnsupersedeTransfer(ctx context.Context, transferID int64) error
+
 	// QuerySupersededTransferIDs returns the IDs of all transfers that
 	// have been marked as superseded.
 	QuerySupersededTransferIDs(ctx context.Context) ([]int64, error)
@@ -3627,12 +3631,16 @@ func (a *AssetStore) reAnchorPassiveAssets(ctx context.Context,
 			return fmt.Errorf("failed to parse script key: %w", err)
 		}
 
-		var proofFile proof.Blob
+		var (
+			proofFile proof.Blob
+			fileTip   *wire.OutPoint
+		)
 		for _, f := range proofFiles[assetID] {
 			// Check if this proof is for the script key of the
 			// passive asset.
 			if f.Locator.ScriptKey == *scriptKey {
 				proofFile = f.Blob
+				fileTip = f.Locator.OutPoint
 
 				break
 			}
@@ -3643,6 +3651,33 @@ func (a *AssetStore) reAnchorPassiveAssets(ctx context.Context,
 		if len(proofFile) == 0 {
 			return fmt.Errorf("failed to find proof file for " +
 				"passive asset")
+		}
+
+		// The file's locator names the outpoint its tip anchors at.
+		// If that is not this transfer's new anchor, a successor
+		// transfer has carried the holding on since this transfer's
+		// proof was written: the refreshed file is stored, and the
+		// holding stays where the successor put it.
+		var newAnchor wire.OutPoint
+		err = readOutPoint(
+			bytes.NewReader(passiveAsset.Outpoint), 0, 0,
+			&newAnchor,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to decode passive anchor: %w",
+				err)
+		}
+		if fileTip != nil && *fileTip != newAnchor {
+			err = q.UpsertAssetProofByID(ctx, ProofUpdateByID{
+				AssetID:   passiveAsset.AssetID,
+				ProofFile: proofFile,
+			})
+			if err != nil {
+				return fmt.Errorf("unable to update passive "+
+					"asset proof file: %w", err)
+			}
+
+			continue
 		}
 
 		// Delete the old set of witnesses, and re-insert new ones.

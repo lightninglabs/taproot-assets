@@ -325,6 +325,16 @@ SET spent = TRUE
 WHERE asset_id = (SELECT asset_id FROM target_asset)
 RETURNING assets.asset_id;
 
+-- name: SetAssetSpentByID :exec
+-- Marks one asset row spent by its primary key. Used by abandonment
+-- compensation for a passive holding whose restored anchor outpoint
+-- the foreclosing transaction consumed: the holding's provenance is
+-- intact but the outpoint belongs to someone else, so it must not
+-- count toward balances or coin selection.
+UPDATE assets
+SET spent = TRUE
+WHERE asset_id = @asset_id;
+
 -- name: QueryAssetBalancesByAsset :many
 SELECT
     genesis_info_view.asset_id, SUM(amount) balance,
@@ -1256,17 +1266,20 @@ ORDER BY precommits.id ASC;
 
 -- name: SetAssetUnspent :one
 -- The inverse of SetAssetSpent, applied when the transfer that spent
--- the asset is abandoned: the asset's anchor input was never
--- consumed on the surviving chain.
+-- the asset is abandoned and nothing else consumed its anchor input
+-- on the surviving chain.
 --
--- Unless some other transfer legitimately consumed it. Two local
--- transfers may spend one input — the sweeper's fee bump composes a
--- replacement form against the same outpoint — and only the losing
--- form is abandoned. Un-spending then contradicts the winner's
--- confirmed spend and inflates the balance, so the same
--- surviving-claimant test UnsupersedeSafeTransfers applies is applied
--- here. The abandoned transfer's own confirmation is withdrawn before
--- this runs, so it cannot answer for itself.
+-- Two claimants can contradict that premise. A rival local transfer
+-- may have confirmed against the same outpoint — the sweeper's fee
+-- bump composes a replacement form — and only the losing form is
+-- abandoned; the surviving-claimant test below guards that case, the
+-- same test UnsupersedeSafeTransfers applies. Or the foreclosing
+-- transaction itself consumed the outpoint (a third party, routine
+-- for tapchannel triggers): that transaction is not a local transfer
+-- and is invisible here, so the caller must not invoke this query
+-- for inputs the foreclosure consumed. The abandoned transfer's own
+-- confirmation is withdrawn before this runs, so it cannot answer
+-- for itself.
 WITH target_asset(asset_id) AS (
     SELECT assets.asset_id
     FROM assets

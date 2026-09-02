@@ -1,6 +1,7 @@
 package tapfreighter
 
 import (
+	"bytes"
 	"context"
 	"testing"
 	"time"
@@ -32,9 +33,9 @@ type recordingPorterLog struct {
 	unconfirms  int
 	abandonment int
 
-	lastTxid        chainhash.Hash
-	lastNote        string
-	lastForeclosure *wire.MsgTx
+	lastTxid         chainhash.Hash
+	lastNote         string
+	lastForeclosures []*wire.MsgTx
 
 	notified []proof.Blob
 }
@@ -64,10 +65,12 @@ func (l *recordingPorterLog) ApplyAnchorTxUnconfirm(_ context.Context,
 }
 
 func (l *recordingPorterLog) ApplyTransferAbandonment(_ context.Context,
-	_ *sqlc.Queries, anchorTxid chainhash.Hash) error {
+	_ *sqlc.Queries, anchorTxid chainhash.Hash,
+	foreclosures []*wire.MsgTx) error {
 
 	l.abandonment++
 	l.lastTxid = anchorTxid
+	l.lastForeclosures = foreclosures
 
 	return nil
 }
@@ -187,11 +190,117 @@ func TestPorterSiteActGating(t *testing.T) {
 	require.Equal(t, payload, tx.effects[0].Payload)
 
 	// Abandonment compensates locally; the burn events never went
-	// out, so nothing further is emitted or retracted.
+	// out, so nothing further is emitted or retracted. Without a
+	// cause there is no foreclosing transaction to hand down.
 	anchoring.Phase = tapreorg.Abandoned{}
 	require.NoError(t, site.OnAbandoned(ctx, tx, anchoring))
 	require.Equal(t, 1, log.abandonment)
 	require.Len(t, tx.effects, 1)
+	require.Empty(t, log.lastForeclosures)
+
+	// A foreign burial names the transaction the chain decided for;
+	// the compensation receives it so it can leave that
+	// transaction's inputs alone.
+	foreignTx := wire.NewMsgTx(2)
+	foreignTx.AddTxIn(wire.NewTxIn(&wire.OutPoint{Index: 7}, nil, nil))
+	foreignTx.AddTxOut(wire.NewTxOut(500, []byte{0x51, 0xff}))
+	foreignWitness, err := tapreorg.NewWitness(
+		foreignTx, chainhash.Hash{0xdd}, 701, 2,
+	)
+	require.NoError(t, err)
+
+	anchoring.Phase = tapreorg.Abandoned{
+		Cause: tapreorg.ForeignBurial{
+			Spend: tapreorg.ForeignSpend{W: foreignWitness},
+		},
+	}
+	require.NoError(t, site.OnAbandoned(ctx, tx, anchoring))
+	require.Equal(t, 2, log.abandonment)
+	require.Len(t, log.lastForeclosures, 1)
+	require.Equal(
+		t, foreignTx.TxHash(), log.lastForeclosures[0].TxHash(),
+	)
+}
+
+// TestPorterForeclosingTxs pins how the porter site bounds compensation
+// on abandonment: the transactions handed down are the cause's witness
+// and every other foreign candidate on the dominant chain, once each,
+// with off-chain and satisfying candidates left out. A trigger set
+// taken by several transactions must be compensated against all of
+// them, or the inputs the cause did not consume are restored as if the
+// node still held them.
+func TestPorterForeclosingTxs(t *testing.T) {
+	t.Parallel()
+
+	newTx := func(index uint32) *wire.MsgTx {
+		tx := wire.NewMsgTx(2)
+		tx.AddTxIn(wire.NewTxIn(&wire.OutPoint{Index: index}, nil, nil))
+		tx.AddTxOut(wire.NewTxOut(500, []byte{0x51, byte(index)}))
+
+		return tx
+	}
+	newWitness := func(tx *wire.MsgTx, height uint32) tapreorg.Witness {
+		w, err := tapreorg.NewWitness(
+			tx, chainhash.Hash{byte(height)}, height, 1,
+		)
+		require.NoError(t, err)
+
+		return w
+	}
+	txids := func(txs []*wire.MsgTx) []chainhash.Hash {
+		hashes := make([]chainhash.Hash, len(txs))
+		for i, tx := range txs {
+			hashes[i] = tx.TxHash()
+		}
+
+		return hashes
+	}
+
+	ours, first, second, gone := newTx(1), newTx(2), newTx(3), newTx(4)
+	oursW, firstW := newWitness(ours, 700), newWitness(first, 701)
+	anchoring := &tapreorg.Anchoring{
+		Spends: []tapreorg.CandidateSpend{{
+			Verdict: tapreorg.VerdictSatisfies,
+			W:       oursW,
+			OnChain: true,
+		}, {
+			Verdict: tapreorg.VerdictForeign,
+			W:       firstW,
+			OnChain: true,
+		}, {
+			Verdict: tapreorg.VerdictForeign,
+			W:       newWitness(second, 702),
+			OnChain: true,
+		}, {
+			Verdict: tapreorg.VerdictForeign,
+			W:       newWitness(gone, 703),
+			OnChain: false,
+		}},
+	}
+
+	// Not abandoned: nothing to hand down.
+	anchoring.Phase = tapreorg.Buried{W: oursW}
+	require.Nil(t, foreclosingTxs(anchoring))
+
+	// The cause leads and the other on-chain foreign spend follows;
+	// the cause is not repeated for also being among the candidates,
+	// and the candidate the chain discarded is left out.
+	anchoring.Phase = tapreorg.Abandoned{
+		Cause: tapreorg.ForeignBurial{
+			Spend: tapreorg.ForeignSpend{W: firstW},
+		},
+	}
+	require.Equal(
+		t, []chainhash.Hash{first.TxHash(), second.TxHash()},
+		txids(foreclosingTxs(anchoring)),
+	)
+
+	// Without a cause the candidates alone bound the reversal.
+	anchoring.Phase = tapreorg.Abandoned{}
+	require.Equal(
+		t, []chainhash.Hash{first.TxHash(), second.TxHash()},
+		txids(foreclosingTxs(anchoring)),
+	)
 }
 
 // TestPorterBlobRoundTrip asserts that every porter blob survives the
@@ -392,4 +501,91 @@ func TestPorterSiteEvaluateCandidate(t *testing.T) {
 			require.Equal(t, tc.want, verdict)
 		})
 	}
+}
+
+// TestParcelTriggerScripts pins where a trigger's script comes from.
+// The virtual packets' anchor information is used where the packet
+// carries it; a packet that omits it — nothing before registration
+// requires it of a packet built outside this node — falls back to the
+// input's proof file, so no registration carries an empty script for
+// the notifier's spend subscription to refuse on every sensing pass.
+func TestParcelTriggerScripts(t *testing.T) {
+	t.Parallel()
+
+	// The input's proof file anchors it at output 1 of its anchor
+	// transaction, which carries the script the fallback recovers.
+	proofScript := append(
+		[]byte{0x51, 0x20}, bytes.Repeat([]byte{0xaa}, 32)...,
+	)
+	inputAnchorTx := wire.NewMsgTx(2)
+	inputAnchorTx.AddTxIn(wire.NewTxIn(&wire.OutPoint{}, nil, nil))
+	inputAnchorTx.AddTxOut(&wire.TxOut{Value: 1_000})
+	inputAnchorTx.AddTxOut(&wire.TxOut{
+		Value:    1_000,
+		PkScript: proofScript,
+	})
+	inputProof := proof.RandProof(
+		t, asset.RandGenesis(t, asset.Normal), test.RandPubKey(t),
+		wire.MsgBlock{Transactions: []*wire.MsgTx{inputAnchorTx}},
+		0, 1,
+	)
+	file, err := proof.NewFile(proof.V0, inputProof)
+	require.NoError(t, err)
+	var fileBuf bytes.Buffer
+	require.NoError(t, file.Encode(&fileBuf))
+
+	inputOutPoint := inputProof.OutPoint()
+	prevID := asset.PrevID{
+		OutPoint: inputOutPoint,
+		ID:       inputProof.Asset.ID(),
+		ScriptKey: asset.ToSerialized(
+			inputProof.Asset.ScriptKey.PubKey,
+		),
+	}
+	porter := NewChainPorter(&ChainPorterConfig{
+		ProofReader: &stubProofExporter{blob: fileBuf.Bytes()},
+	})
+	parcel := &OutboundParcel{
+		AnchorTxHeightHint: 100,
+		Inputs: []TransferInput{{
+			PrevID: prevID,
+			Amount: 1,
+		}},
+	}
+	packetScript := append(
+		[]byte{0x51, 0x20}, bytes.Repeat([]byte{0xbb}, 32)...,
+	)
+	ctx := context.Background()
+
+	// The packet's script is used where the packet carries one.
+	points, err := porter.parcelTriggerPoints(
+		ctx, parcel, map[wire.OutPoint][]byte{
+			inputOutPoint: packetScript,
+		},
+	)
+	require.NoError(t, err)
+	require.Len(t, points, 1)
+	require.Equal(t, inputOutPoint, points[0].OutPoint)
+	require.Equal(t, packetScript, points[0].PkScript)
+
+	// An omitted script is recovered from the input's proof.
+	points, err = porter.parcelTriggerPoints(
+		ctx, parcel, map[wire.OutPoint][]byte{inputOutPoint: nil},
+	)
+	require.NoError(t, err)
+	require.Len(t, points, 1)
+	require.Equal(t, proofScript, points[0].PkScript)
+
+	// A proof that anchors the input elsewhere cannot supply it.
+	elsewhere := *parcel
+	elsewhere.Inputs = []TransferInput{{
+		PrevID: asset.PrevID{
+			OutPoint:  test.RandOp(t),
+			ID:        prevID.ID,
+			ScriptKey: prevID.ScriptKey,
+		},
+		Amount: 1,
+	}}
+	_, err = porter.parcelTriggerPoints(ctx, &elsewhere, nil)
+	require.ErrorContains(t, err, "anchors at")
 }

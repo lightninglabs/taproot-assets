@@ -138,6 +138,7 @@ type AssetTransfer struct {
 	Label                 sql.NullString
 	SkipAnchorTxBroadcast bool
 	Superseded            bool
+	Abandoned             bool
 }
 
 type AssetTransferInput struct {

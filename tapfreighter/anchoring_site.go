@@ -2,6 +2,7 @@ package tapfreighter
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -54,8 +55,12 @@ type AnchoringLog interface {
 		anchorTxid chainhash.Hash) error
 
 	// ApplyTransferAbandonment compensates an act-level loss.
+	// foreclosures are the transactions the chain decided for over
+	// the transfer's inputs; an input any of them consumed is not
+	// restored.
 	ApplyTransferAbandonment(ctx context.Context, q *sqlc.Queries,
-		anchorTxid chainhash.Hash) error
+		anchorTxid chainhash.Hash,
+		foreclosures []*wire.MsgTx) error
 
 	// RebuildAnchorConfirm reconstructs the confirmation event from
 	// stored state plus the witness's block context, without
@@ -258,6 +263,53 @@ func (s *porterSite) OnBuried(ctx context.Context, tx tapreorg.RegistryTx,
 	})
 }
 
+// foreclosingTxs collects the transactions the chain decided for over
+// an abandoned anchoring's trigger set: the cause's witness (the
+// buried foreign spend, or the witness whose burial foreclosed a
+// depended-upon parent) and every other foreign candidate still on
+// the dominant chain, each once. The phase carries a single cause,
+// but a trigger set spanning several outpoints can be taken by
+// several transactions — a counterparty claiming two swept HTLC
+// outputs separately — and an input any of them consumed is gone
+// from the node's control, not restorable. Nil when the phase carries
+// no such transaction.
+func foreclosingTxs(anchoring *tapreorg.Anchoring) []*wire.MsgTx {
+	abandoned, ok := anchoring.Phase.(tapreorg.Abandoned)
+	if !ok {
+		return nil
+	}
+
+	var (
+		txs  []*wire.MsgTx
+		seen = make(map[chainhash.Hash]struct{})
+	)
+	add := func(tx *wire.MsgTx) {
+		txid := tx.TxHash()
+		if _, dup := seen[txid]; dup {
+			return
+		}
+		seen[txid] = struct{}{}
+		txs = append(txs, tx)
+	}
+
+	switch cause := abandoned.Cause.(type) {
+	case tapreorg.ForeignBurial:
+		add(cause.Spend.W.Tx())
+
+	case tapreorg.Foreclosed:
+		add(cause.W.Tx())
+	}
+
+	for _, spend := range anchoring.Spends {
+		if !spend.OnChain || spend.Verdict != tapreorg.VerdictForeign {
+			continue
+		}
+		add(spend.W.Tx())
+	}
+
+	return txs
+}
+
 // OnAbandoned compensates: the chain decided against the transfer's
 // anchor with act-level finality.
 func (s *porterSite) OnAbandoned(ctx context.Context,
@@ -269,7 +321,7 @@ func (s *porterSite) OnAbandoned(ctx context.Context,
 	}
 
 	return s.porter.cfg.AnchoringLog.ApplyTransferAbandonment(
-		ctx, tx.Queries(), blob.AnchorTxid,
+		ctx, tx.Queries(), blob.AnchorTxid, foreclosingTxs(anchoring),
 	)
 }
 
@@ -340,6 +392,10 @@ func (p *ChainPorter) DispatchBurnSupplyEvents(ctx context.Context,
 	return p.sendBurnSupplyCommitEvents(ctx, burns)
 }
 
+// ErrNoParcelAnchoring is returned when the site's per-txid identity
+// index has no anchoring for a transfer's anchor transaction.
+var ErrNoParcelAnchoring = errors.New("no anchoring for anchor tx")
+
 // findAnchoring resolves the porter anchoring for the given anchor
 // transaction via the site's per-txid identity index.
 func (p *ChainPorter) findAnchoring(ctx context.Context,
@@ -352,7 +408,7 @@ func (p *ChainPorter) findAnchoring(ctx context.Context,
 		return nil, fmt.Errorf("unable to look up anchoring: %w", err)
 	}
 	if anchoring == nil {
-		return nil, fmt.Errorf("no anchoring found for anchor tx %v",
+		return nil, fmt.Errorf("%w: %v", ErrNoParcelAnchoring,
 			anchorTxid)
 	}
 
@@ -370,7 +426,8 @@ func (p *ChainPorter) registerParcelAnchoring(ctx context.Context,
 	// The trigger set is the transfer's asset-bearing input anchor
 	// outpoints: any admissible form of this transfer must spend
 	// all of them (the whole-set rule), and any other spender
-	// forecloses it.
+	// forecloses it. The virtual packets carry each input's anchor
+	// script where the packet was built by this node.
 	triggerScripts := make(map[wire.OutPoint][]byte)
 	for _, vPkt := range pkg.VirtualPackets {
 		for _, vIn := range vPkt.Inputs {
@@ -379,20 +436,9 @@ func (p *ChainPorter) registerParcelAnchoring(ctx context.Context,
 		}
 	}
 
-	points := make([]tapreorg.TriggerOutPoint, 0, len(parcel.Inputs))
-	seen := make(map[wire.OutPoint]struct{}, len(parcel.Inputs))
-	for idx := range parcel.Inputs {
-		op := parcel.Inputs[idx].OutPoint
-		if _, ok := seen[op]; ok {
-			continue
-		}
-		seen[op] = struct{}{}
-
-		points = append(points, tapreorg.TriggerOutPoint{
-			OutPoint:   op,
-			PkScript:   triggerScripts[op],
-			HeightHint: parcel.AnchorTxHeightHint,
-		})
+	points, err := p.parcelTriggerPoints(ctx, parcel, triggerScripts)
+	if err != nil {
+		return 0, err
 	}
 	triggers, err := tapreorg.NewTriggerSet(points)
 	if err != nil {
@@ -428,6 +474,117 @@ func (p *ChainPorter) registerParcelAnchoring(ctx context.Context,
 	)
 }
 
+// parcelTriggerPoints derives a parcel's trigger points: its
+// asset-bearing input anchor outpoints, each carrying the script the
+// watcher's spend subscription needs. The script is taken from the
+// given map where the caller has one, and otherwise recovered from
+// the input's own proof file, whose tip anchors the input. A packet
+// built outside this node may omit the anchor script — nothing before
+// registration requires it, and the transaction is valid without it —
+// and a trigger registered with an empty script would be refused by
+// the notifier on every sensing pass, leaving the anchoring blind.
+func (p *ChainPorter) parcelTriggerPoints(ctx context.Context,
+	parcel *OutboundParcel,
+	scripts map[wire.OutPoint][]byte) ([]tapreorg.TriggerOutPoint, error) {
+
+	points := make([]tapreorg.TriggerOutPoint, 0, len(parcel.Inputs))
+	seen := make(map[wire.OutPoint]struct{}, len(parcel.Inputs))
+	for idx := range parcel.Inputs {
+		op := parcel.Inputs[idx].OutPoint
+		if _, ok := seen[op]; ok {
+			continue
+		}
+		seen[op] = struct{}{}
+
+		pkScript := scripts[op]
+		if len(pkScript) == 0 {
+			var err error
+			pkScript, err = p.inputAnchorScript(
+				ctx, parcel.Inputs[idx].PrevID,
+			)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		points = append(points, tapreorg.TriggerOutPoint{
+			OutPoint:   op,
+			PkScript:   pkScript,
+			HeightHint: parcel.AnchorTxHeightHint,
+		})
+	}
+
+	return points, nil
+}
+
+// inputAnchorScript recovers the anchor output script of a transfer
+// input from its proof file.
+func (p *ChainPorter) inputAnchorScript(ctx context.Context,
+	input asset.PrevID) ([]byte, error) {
+
+	op := input.OutPoint
+	file, err := p.fetchInputProof(ctx, input)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch input proof for %v: "+
+			"%w", op, err)
+	}
+	last, err := file.LastProof()
+	if err != nil {
+		return nil, fmt.Errorf("unable to read input proof for %v: "+
+			"%w", op, err)
+	}
+	if last.OutPoint() != op {
+		return nil, fmt.Errorf("input proof for %v anchors at %v", op,
+			last.OutPoint())
+	}
+	if op.Index >= uint32(len(last.AnchorTx.TxOut)) {
+		return nil, fmt.Errorf("input outpoint %v exceeds anchor "+
+			"outputs", op)
+	}
+
+	return last.AnchorTx.TxOut[op.Index].PkScript, nil
+}
+
+// registerResumedParcelAnchoring adopts a resumed parcel that has no
+// anchoring: one written before the anchoring watcher existed and
+// carried across the upgrade. The pending transfer state is already
+// durable, so the registration stakes nothing (a nil phase-1 body);
+// the trigger scripts, which the original registration read from the
+// in-memory virtual packets, are recovered from the inputs' proof
+// files.
+//
+// The registration blob carries an empty burn note: the note is not
+// recoverable from durable transfer state, so burn supply events
+// rebuilt for an adopted parcel lose the user's description.
+func (p *ChainPorter) registerResumedParcelAnchoring(ctx context.Context,
+	pkg *sendPackage) (tapreorg.AnchoringID, error) {
+
+	parcel := pkg.OutboundPkg
+
+	points, err := p.parcelTriggerPoints(ctx, parcel, nil)
+	if err != nil {
+		return 0, err
+	}
+	triggers, err := tapreorg.NewTriggerSet(points)
+	if err != nil {
+		return 0, fmt.Errorf("unable to build trigger set: %w", err)
+	}
+
+	anchorTxid := parcel.AnchorTx.TxHash()
+	blob := encodePorterBlob(porterBlob{
+		AnchorTxid: anchorTxid,
+	})
+
+	return p.cfg.AnchoringWatcher.Register(ctx, tapreorg.RegistrationSpec{
+		Site:      PorterSiteID,
+		Triggers:  triggers,
+		MatchData: blob,
+		Payload:   blob,
+		MatchKey:  anchorTxid.CloneBytes(),
+		Threshold: p.cfg.AnchoringThreshold,
+	}, nil)
+}
+
 // anchoringOutcome is what waiting on an anchoring resolves to.
 type anchoringOutcome struct {
 	// witness is set for a positive outcome (witnessed or buried,
@@ -452,10 +609,30 @@ func (p *ChainPorter) waitForAnchoringOutcome(ctx context.Context,
 	// Resolve the anchoring ID (cheap after the first pass).
 	if pkg.AnchoringID == 0 {
 		anchoring, err := p.findAnchoring(ctx, anchorTxid)
-		if err != nil {
+		switch {
+		// A parcel written before the anchoring watcher existed
+		// resumes at broadcast without an anchoring. Adopt it
+		// now, so the transfer confirms through the watcher like
+		// any other instead of failing terminally on every
+		// restart with its inputs leased.
+		case errors.Is(err, ErrNoParcelAnchoring):
+			id, err := p.registerResumedParcelAnchoring(ctx, pkg)
+			if err != nil {
+				return nil, fmt.Errorf("unable to adopt "+
+					"resumed parcel: %w", err)
+			}
+
+			log.Infof("Adopted resumed parcel without an "+
+				"anchoring (anchor_txid=%v, anchoring_id=%d)",
+				anchorTxid, id)
+			pkg.AnchoringID = id
+
+		case err != nil:
 			return nil, err
+
+		default:
+			pkg.AnchoringID = anchoring.ID
 		}
-		pkg.AnchoringID = anchoring.ID
 	}
 
 	nudge := p.waiters.Channel(pkg.AnchoringID)

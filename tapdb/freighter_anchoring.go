@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -240,6 +241,17 @@ func (a *AssetStore) applyAnchorTxConfirm(ctx context.Context,
 		}
 	}
 
+	// This transfer may itself carry the superseded flag, as the
+	// loser of an earlier race whose winner the chain has since
+	// discarded. Its confirmation is the chain deciding for it:
+	// lift the flag, or the transfer is skipped at startup and
+	// never completes.
+	err = q.UnsupersedeTransfer(ctx, assetTransfer.ID)
+	if err != nil {
+		return nil, fmt.Errorf("unable to lift superseded flag: %w",
+			err)
+	}
+
 	// Now is the time to fetch our outputs and create new assets
 	// for them.
 	outputs, err := q.FetchTransferOutputs(ctx, assetTransfer.ID)
@@ -458,11 +470,29 @@ func (a *AssetStore) applyAnchorTxConfirm(ctx context.Context,
 // transfer's anchor transaction: the soft, potency-tier downgrade for
 // a witness lost with no successor. Nothing else is reversed — the
 // materialized state stands until the chain decides against the
-// transfer with act-level finality.
+// transfer with act-level finality — except that the transfer
+// re-enters supersession if a confirmed rival claims one of its
+// inputs, so it is not resumed as pending.
 func (a *AssetStore) ApplyAnchorTxUnconfirm(ctx context.Context,
 	q *sqlc.Queries, anchorTxid chainhash.Hash) error {
 
-	return q.UnconfirmChainAnchorTx(ctx, anchorTxid[:])
+	if err := q.UnconfirmChainAnchorTx(ctx, anchorTxid[:]); err != nil {
+		return fmt.Errorf("unable to unconfirm anchor tx: %w", err)
+	}
+
+	// An unconfirmed transfer is a pending one, resumed at startup
+	// — unless a confirmed rival claims one of its inputs, in which
+	// case it is a rivalry loser whose anchor can never confirm.
+	// The rival's confirmation could not have superseded this
+	// transfer, which was confirmed at the time, so supersession is
+	// entered here instead; a later re-confirmation lifts it again.
+	err := q.SupersedeIfConflictingConfirmed(ctx, anchorTxid[:])
+	if err != nil {
+		return fmt.Errorf("unable to supersede transfer under a "+
+			"confirmed rival: %w", err)
+	}
+
+	return nil
 }
 
 // ApplyTransferAbandonment compensates an abandoned transfer: the
@@ -475,11 +505,26 @@ func (a *AssetStore) ApplyAnchorTxUnconfirm(ctx context.Context,
 // burns deleted, and the transfer itself marked superseded so it is
 // never resumed.
 //
+// foreclosures are the transactions the chain decided for: the buried
+// foreign spend that abandoned this transfer (or the witness whose
+// burial foreclosed a depended-upon parent), together with every
+// other foreign spend of the transfer's inputs still on the dominant
+// chain. The union of their input sets bounds the reversal — an
+// outpoint any of them consumed is gone from the node's control, not
+// restorable. Un-spending such an input would fabricate balance the
+// chain assigned to someone else (routine for tapchannel anchorings,
+// whose trigger outpoints a counterparty can spend via HTLC paths,
+// and in as many transactions as it likes), and a rival transfer
+// needing it could never confirm. No foreclosures reverses everything
+// not claimed by a surviving local transfer, which is the only
+// information available without a cause.
+//
 // The body is convergent: it reverses whatever a (possibly partial
 // or absent) confirmation application left, and re-running it is
 // harmless.
 func (a *AssetStore) ApplyTransferAbandonment(ctx context.Context,
-	q *sqlc.Queries, anchorTxid chainhash.Hash) error {
+	q *sqlc.Queries, anchorTxid chainhash.Hash,
+	foreclosures []*wire.MsgTx) error {
 
 	assetTransfers, err := q.QueryAssetTransfers(ctx, TransferQuery{
 		AnchorTxHash: anchorTxid[:],
@@ -491,6 +536,13 @@ func (a *AssetStore) ApplyTransferAbandonment(ctx context.Context,
 		return nil
 	}
 	assetTransfer := assetTransfers[0]
+
+	foreclosedPoints := make(map[wire.OutPoint]struct{})
+	for _, foreclosure := range foreclosures {
+		for _, txIn := range foreclosure.TxIn {
+			foreclosedPoints[txIn.PreviousOutPoint] = struct{}{}
+		}
+	}
 
 	// Delete whatever outputs a confirmation application
 	// materialized.
@@ -547,6 +599,20 @@ func (a *AssetStore) ApplyTransferAbandonment(ctx context.Context,
 				"proof references: %w", err)
 		}
 
+		// A successor transfer may already have staked this row as
+		// a passive holding: passive references are written before
+		// broadcast, so one can exist against an output this
+		// transfer materialized while it was still confirmed. That
+		// reference must go too, for the same reason as the custody
+		// one above and with the same finality — the successor
+		// re-anchors a holding that, on the surviving chain, was
+		// never created.
+		_, err = q.DeletePassiveAssetsByAssetID(ctx, assetID)
+		if err != nil {
+			return fmt.Errorf("unable to delete passive asset "+
+				"references: %w", err)
+		}
+
 		if err := q.DeleteAssetWitnesses(ctx, assetID); err != nil {
 			return fmt.Errorf("unable to delete asset "+
 				"witnesses: %w", err)
@@ -561,10 +627,13 @@ func (a *AssetStore) ApplyTransferAbandonment(ctx context.Context,
 		}
 	}
 
-	// Restore passive assets: the re-anchor appended one proof to
-	// each passive's file and moved it to the new anchor. Truncating
-	// that suffix recovers the pre-transfer state exactly.
-	err = a.restorePassiveAssets(ctx, q, assetTransfer.ID, anchorTxid)
+	// Restore passive assets: the re-anchor appended a proof to each
+	// passive's file and moved it to the new anchor. Truncating the
+	// file from that proof recovers the pre-transfer state exactly,
+	// along with anything a successor transfer built on it.
+	err = a.restorePassiveAssets(
+		ctx, q, assetTransfer.ID, anchorTxid, foreclosedPoints,
+	)
 	if err != nil {
 		return fmt.Errorf("unable to restore passive assets: %w",
 			err)
@@ -579,45 +648,115 @@ func (a *AssetStore) ApplyTransferAbandonment(ctx context.Context,
 		return fmt.Errorf("unable to unconfirm anchor tx: %w", err)
 	}
 
-	// Un-spend the inputs and revive conflicting transfers where no
-	// confirmed transfer still claims the input.
+	// Un-spend the inputs the forecloser left alone, then revive the
+	// rivals sharing them where safe.
 	inputs, err := q.FetchTransferInputs(ctx, assetTransfer.ID)
 	if err != nil {
 		return fmt.Errorf("unable to fetch transfer inputs: %w", err)
 	}
+	restored := make([]bool, len(inputs))
+	revivePoints := make([][]byte, 0, len(inputs))
 	for idx := range inputs {
-		_, err := q.SetAssetUnspent(ctx, sqlc.SetAssetUnspentParams{
-			ScriptKey:   inputs[idx].ScriptKey,
-			GenAssetID:  inputs[idx].AssetID,
-			AnchorPoint: inputs[idx].AnchorPoint,
-		})
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("unable to un-spend asset: %w", err)
+		var inputPoint wire.OutPoint
+		err := readOutPoint(
+			bytes.NewReader(inputs[idx].AnchorPoint), 0, 0,
+			&inputPoint,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to decode input anchor "+
+				"point: %w", err)
 		}
 
-		// Release the lease the pending write took on the input,
-		// so the coins are selectable again without waiting for
-		// expiry.
+		// An input the foreclosing transaction consumed is not
+		// restorable: the chain gave it to that transaction, so
+		// no rival needing the outpoint can ever confirm and
+		// there is nothing here for coin selection to reclaim.
+		// The asset is marked spent outright rather than left as
+		// found: only a confirmation marks inputs spent, and a
+		// transfer abandoned before it ever confirmed still owes
+		// the chain's verdict on the input.
+		if _, gone := foreclosedPoints[inputPoint]; gone {
+			_, err := q.SetAssetSpent(
+				ctx, sqlc.SetAssetSpentParams{
+					ScriptKey:   inputs[idx].ScriptKey,
+					GenAssetID:  inputs[idx].AssetID,
+					AnchorPoint: inputs[idx].AnchorPoint,
+				},
+			)
+			if err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return nil, fmt.Errorf("unable to mark "+
+					"foreclosed input spent: %w", err)
+			}
+
+			log.Infof("Input %v of abandoned transfer_id=%d "+
+				"was consumed by the foreclosing "+
+				"transaction; marked spent",
+				inputPoint, assetTransfer.ID)
+
+			continue
+		}
+
+		_, unspendErr := q.SetAssetUnspent(
+			ctx, sqlc.SetAssetUnspentParams{
+				ScriptKey:   inputs[idx].ScriptKey,
+				GenAssetID:  inputs[idx].AssetID,
+				AnchorPoint: inputs[idx].AnchorPoint,
+			},
+		)
+		if unspendErr != nil && !errors.Is(unspendErr, sql.ErrNoRows) {
+			return fmt.Errorf("unable to un-spend asset: %w",
+				unspendErr)
+		}
+		restored[idx] = unspendErr == nil
+		revivePoints = append(revivePoints, inputs[idx].AnchorPoint)
+	}
+
+	numRevived, err := reviveSafeRivals(
+		ctx, q, assetTransfer.ID, revivePoints, foreclosedPoints,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to revive conflicting transfers: "+
+			"%w", err)
+	}
+	if numRevived > 0 {
+		log.Infof("Revived %d transfer(s) superseded by abandoned "+
+			"transfer_id=%d", numRevived, assetTransfer.ID)
+	}
+
+	// Release the leases the pending write took on the restored
+	// inputs, so the coins are selectable again without waiting for
+	// expiry. An un-restored input still answers to a surviving
+	// claimant and keeps its lease. A restored input is released
+	// only when no live transfer other than this one still claims
+	// it: a revived rival's replacement is in flight to spend every
+	// input the rival shares with this transfer, and the lease on
+	// each must outlive the abandonment or a new send can select
+	// the input from under it. Revival is a per-transfer flag, so
+	// this is asked of the claimants per input rather than inferred
+	// from which input's revive step happened to flip the rival.
+	for idx := range inputs {
+		if !restored[idx] {
+			continue
+		}
+
+		numLive, err := q.CountLiveTransfersSpendingPoint(
+			ctx, sqlc.CountLiveTransfersSpendingPointParams{
+				AnchorPoint:         inputs[idx].AnchorPoint,
+				AbandonedTransferID: assetTransfer.ID,
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("unable to count live claimants "+
+				"of input: %w", err)
+		}
+		if numLive > 0 {
+			continue
+		}
+
 		err = q.DeleteUTXOLease(ctx, inputs[idx].AnchorPoint)
 		if err != nil {
 			return fmt.Errorf("unable to release input "+
 				"lease: %w", err)
-		}
-
-		numRevived, err := q.UnsupersedeSafeTransfers(
-			ctx, sqlc.UnsupersedeSafeTransfersParams{
-				AbandonedTransferID: assetTransfer.ID,
-				AnchorPoint:         inputs[idx].AnchorPoint,
-			},
-		)
-		if err != nil {
-			return fmt.Errorf("unable to revive conflicting "+
-				"transfers: %w", err)
-		}
-		if numRevived > 0 {
-			log.Infof("Revived %d transfer(s) superseded by "+
-				"abandoned transfer_id=%d", numRevived,
-				assetTransfer.ID)
 		}
 	}
 
@@ -640,14 +779,123 @@ func (a *AssetStore) ApplyTransferAbandonment(ctx context.Context,
 	return nil
 }
 
+// reviveSafeRivals is the inverse of the supersession a confirmation
+// applies, run when the confirming transfer is abandoned: the
+// superseded rivals sharing one of the given anchor points with the
+// abandoned transfer become live again where safe. A rival is revived
+// only if no confirmed transfer conflicts with it on any of its
+// inputs and none of its inputs was consumed by the foreclosing
+// transaction. Both conditions range over the rival's whole input
+// set, not just the input it shares with the abandoned transfer: a
+// rival failing either can never confirm, and reviving it would
+// resume a parcel that rebroadcasts a doomed anchor. Such a rival
+// keeps its flags as they are — if it holds materialized state, its
+// own anchoring's abandonment is what compensates it.
+//
+// Only rivalry losers are candidates. A transfer marked abandoned was
+// compensated by its own abandonment and is never revived.
+func reviveSafeRivals(ctx context.Context, q *sqlc.Queries,
+	abandonedID int64, anchorPoints [][]byte,
+	foreclosedPoints map[wire.OutPoint]struct{}) (int, error) {
+
+	candidates := make(map[int64]struct{})
+	for _, anchorPoint := range anchorPoints {
+		rivals, err := q.SupersededTransfersSpendingPoint(
+			ctx, sqlc.SupersededTransfersSpendingPointParams{
+				AnchorPoint:         anchorPoint,
+				AbandonedTransferID: abandonedID,
+			},
+		)
+		if err != nil {
+			return 0, fmt.Errorf("unable to query superseded "+
+				"rivals: %w", err)
+		}
+		for _, id := range rivals {
+			candidates[id] = struct{}{}
+		}
+	}
+
+	ids := make([]int64, 0, len(candidates))
+	for id := range candidates {
+		ids = append(ids, id)
+	}
+	slices.Sort(ids)
+
+	numRevived := 0
+	for _, id := range ids {
+		foreclosed, err := transferSpendsAny(
+			ctx, q, id, foreclosedPoints,
+		)
+		if err != nil {
+			return 0, err
+		}
+		if foreclosed {
+			log.Infof("Leaving transfer_id=%d superseded: one of "+
+				"its inputs was consumed by the foreclosing "+
+				"transaction", id)
+
+			continue
+		}
+
+		revived, err := q.UnsupersedeSafeTransfer(ctx, id)
+		if err != nil {
+			return 0, fmt.Errorf("unable to revive "+
+				"transfer_id=%d: %w", id, err)
+		}
+		if revived > 0 {
+			numRevived++
+		}
+	}
+
+	return numRevived, nil
+}
+
+// transferSpendsAny reports whether one of the transfer's inputs is
+// among the given outpoints.
+func transferSpendsAny(ctx context.Context, q *sqlc.Queries,
+	transferID int64, points map[wire.OutPoint]struct{}) (bool, error) {
+
+	if len(points) == 0 {
+		return false, nil
+	}
+
+	inputs, err := q.FetchTransferInputs(ctx, transferID)
+	if err != nil {
+		return false, fmt.Errorf("unable to fetch transfer inputs: "+
+			"%w", err)
+	}
+	for idx := range inputs {
+		var point wire.OutPoint
+		err := readOutPoint(
+			bytes.NewReader(inputs[idx].AnchorPoint), 0, 0, &point,
+		)
+		if err != nil {
+			return false, fmt.Errorf("unable to decode input "+
+				"anchor point: %w", err)
+		}
+		if _, ok := points[point]; ok {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
 // restorePassiveAssets undoes reAnchorPassiveAssets for an abandoned
 // transfer: for each passive asset whose proof file ends in a proof
 // anchored by the abandoned transaction, the file is truncated by one
 // proof and the asset's witnesses, spend-template fields and anchor
 // UTXO are restored from the now-final proof.
+//
+// A passive restored to an anchor outpoint the foreclosing
+// transaction consumed is additionally marked spent: the restored
+// provenance is true — the asset last verifiably sat at that
+// outpoint — but the outpoint itself has been taken by a transaction
+// that is not ours, so the holding is no longer in the node's
+// control and must not count toward balances or coin selection.
 func (a *AssetStore) restorePassiveAssets(ctx context.Context,
-	q *sqlc.Queries, transferID int64,
-	anchorTxid chainhash.Hash) error {
+	q *sqlc.Queries, transferID int64, anchorTxid chainhash.Hash,
+	foreclosedPoints map[wire.OutPoint]struct{}) error {
 
 	passiveAssets, err := q.QueryPassiveAssets(ctx, transferID)
 	if err != nil {
@@ -674,130 +922,172 @@ func (a *AssetStore) restorePassiveAssets(ctx context.Context,
 				"file: %w", err)
 		}
 
-		numProofs := file.NumProofs()
-		if numProofs < 2 {
-			continue
-		}
-
-		lastProof, err := file.ProofAt(uint32(numProofs - 1))
-		if err != nil {
-			return fmt.Errorf("unable to read last proof: %w",
-				err)
-		}
-
-		// Only a file whose tip was contributed by the abandoned
-		// transaction is rolled back; anything else means the
-		// re-anchor never applied (or was already reversed).
-		if lastProof.AnchorTx.TxHash() != anchorTxid {
-			continue
-		}
-
-		prevProof, err := file.ProofAt(uint32(numProofs - 2))
-		if err != nil {
-			return fmt.Errorf("unable to read prior proof: %w",
-				err)
-		}
-
-		// Rebuild the truncated file.
-		kept := make([]proof.Proof, 0, numProofs-1)
-		for i := 0; i < numProofs-1; i++ {
-			p, err := file.ProofAt(uint32(i))
-			if err != nil {
-				return fmt.Errorf("unable to read proof "+
-					"%d: %w", i, err)
-			}
-			kept = append(kept, *p)
-		}
-		truncated, err := proof.NewFile(file.Version, kept...)
-		if err != nil {
-			return fmt.Errorf("unable to build truncated "+
-				"file: %w", err)
-		}
-		var truncatedBuf bytes.Buffer
-		if err := truncated.Encode(&truncatedBuf); err != nil {
-			return fmt.Errorf("unable to encode truncated "+
-				"file: %w", err)
-		}
-
-		// The pre-transfer anchor UTXO row still exists (the
-		// abandoned transaction never consumed it on the
-		// surviving chain).
-		oldOutpoint, err := encodeOutpoint(prevProof.OutPoint())
-		if err != nil {
-			return fmt.Errorf("unable to encode prior "+
-				"outpoint: %w", err)
-		}
-		oldUtxo, err := q.FetchManagedUTXO(
-			ctx, sqlc.FetchManagedUTXOParams{
-				Outpoint: oldOutpoint,
-			},
-		)
-		if err != nil {
-			return fmt.Errorf("unable to fetch prior anchor "+
-				"UTXO: %w", err)
-		}
-
-		// Restore the spend-template fields the re-anchor reset.
-		var (
-			splitRootHash  []byte
-			splitRootValue sql.NullInt64
-		)
-		if prevProof.Asset.SplitCommitmentRoot != nil {
-			rootHash := prevProof.Asset.SplitCommitmentRoot.
-				NodeHash()
-			splitRootHash = rootHash[:]
-			splitRootValue = sqlInt64(
-				int64(prevProof.Asset.SplitCommitmentRoot.
-					NodeSum()),
-			)
-		}
-		err = q.RestoreAssetSpendTemplate(
-			ctx, sqlc.RestoreAssetSpendTemplateParams{
-				AssetID:      passiveAsset.AssetID,
-				AnchorUtxoID: sqlInt64(oldUtxo.UtxoID),
-				//nolint:lll
-				SplitCommitmentRootHash:  splitRootHash,
-				SplitCommitmentRootValue: splitRootValue,
-				LockTime: sqlInt32(
-					prevProof.Asset.LockTime,
-				),
-				RelativeLockTime: sqlInt32(
-					prevProof.Asset.RelativeLockTime,
-				),
-			},
-		)
-		if err != nil {
-			return fmt.Errorf("unable to restore passive "+
-				"asset: %w", err)
-		}
-
-		// Restore the pre-transfer witnesses.
-		err = q.DeleteAssetWitnesses(ctx, passiveAsset.AssetID)
-		if err != nil {
-			return fmt.Errorf("unable to delete witnesses: %w",
-				err)
-		}
-		err = a.insertAssetWitnesses(
-			ctx, q, passiveAsset.AssetID,
-			prevProof.Asset.PrevWitnesses,
-		)
-		if err != nil {
-			return fmt.Errorf("unable to restore witnesses: %w",
-				err)
-		}
-
-		// And the truncated proof file.
-		err = q.UpsertAssetProofByID(ctx, ProofUpdateByID{
-			AssetID:   passiveAsset.AssetID,
-			ProofFile: truncatedBuf.Bytes(),
+		// The file is rolled back from this transaction's own
+		// proof, wherever it sits: a successor transfer may have
+		// carried the holding on since, and everything it built
+		// descends from a transaction the chain discarded. A file
+		// this transaction never extended has nothing to roll
+		// back — the re-anchor never applied, or was already
+		// reversed.
+		_, idx, err := file.LocateProof(func(p *proof.Proof) bool {
+			return p.AnchorTx.TxHash() == anchorTxid
 		})
+		switch {
+		case errors.Is(err, proof.ErrProofNotFound):
+			// Nothing of this transaction in the file.
+
+		case err != nil:
+			return fmt.Errorf("unable to locate passive proof: "+
+				"%w", err)
+
+		// A passive holding's history precedes the transfer that
+		// carried it; a file beginning with this transaction has
+		// no prior state to restore.
+		case idx == 0:
+			continue
+
+		default:
+			file, err = a.rollBackPassiveFile(
+				ctx, q, passiveAsset.AssetID, file, idx,
+			)
+			if err != nil {
+				return err
+			}
+		}
+
+		// Whether the holding is still ours turns on where it now
+		// sits: the outpoint its file's tip anchors at, restored
+		// or not. One the foreclosing transaction consumed belongs
+		// to someone else — the provenance is true up to it, the
+		// outpoint itself is gone — so the holding counts toward
+		// neither balances nor coin selection. This holds whether
+		// or not the transfer ever re-anchored the holding.
+		tip, err := file.LastProof()
 		if err != nil {
-			return fmt.Errorf("unable to store truncated "+
-				"proof: %w", err)
+			return fmt.Errorf("unable to read passive tip: %w", err)
+		}
+		if _, gone := foreclosedPoints[tip.OutPoint()]; gone {
+			err := q.SetAssetSpentByID(ctx, passiveAsset.AssetID)
+			if err != nil {
+				return fmt.Errorf("unable to mark foreclosed "+
+					"passive spent: %w", err)
+			}
+
+			log.Infof("Passive asset %d sits at foreclosed "+
+				"outpoint %v; marked spent",
+				passiveAsset.AssetID, tip.OutPoint())
 		}
 	}
 
 	return nil
+}
+
+// rollBackPassiveFile truncates a passive holding's proof file from
+// the given index and restores the asset row to the state the
+// preceding proof attests: its anchor, the spend-template fields the
+// re-anchor reset, and its witnesses. The truncated file is returned.
+func (a *AssetStore) rollBackPassiveFile(ctx context.Context,
+	q *sqlc.Queries, assetID int64, file *proof.File,
+	idx uint32) (*proof.File, error) {
+
+	prevProof, err := file.ProofAt(idx - 1)
+	if err != nil {
+		return nil, fmt.Errorf("unable to read prior proof: %w", err)
+	}
+
+	// Rebuild the truncated file.
+	kept := make([]proof.Proof, 0, idx)
+	for i := uint32(0); i < idx; i++ {
+		p, err := file.ProofAt(i)
+		if err != nil {
+			return nil, fmt.Errorf("unable to read proof %d: %w",
+				i, err)
+		}
+		kept = append(kept, *p)
+	}
+	truncated, err := proof.NewFile(file.Version, kept...)
+	if err != nil {
+		return nil, fmt.Errorf("unable to build truncated file: %w",
+			err)
+	}
+	var truncatedBuf bytes.Buffer
+	if err := truncated.Encode(&truncatedBuf); err != nil {
+		return nil, fmt.Errorf("unable to encode truncated file: %w",
+			err)
+	}
+
+	// The prior anchor UTXO row still exists locally: nothing deletes
+	// it, whether or not the outpoint survived on chain. The caller
+	// decides from the outpoint whether the restored holding is
+	// still ours.
+	oldOutpoint, err := encodeOutpoint(prevProof.OutPoint())
+	if err != nil {
+		return nil, fmt.Errorf("unable to encode prior outpoint: %w",
+			err)
+	}
+	oldUtxo, err := q.FetchManagedUTXO(
+		ctx, sqlc.FetchManagedUTXOParams{
+			Outpoint: oldOutpoint,
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch prior anchor UTXO: "+
+			"%w", err)
+	}
+
+	// Restore the spend-template fields the re-anchor reset.
+	var (
+		splitRootHash  []byte
+		splitRootValue sql.NullInt64
+	)
+	if prevProof.Asset.SplitCommitmentRoot != nil {
+		rootHash := prevProof.Asset.SplitCommitmentRoot.NodeHash()
+		splitRootHash = rootHash[:]
+		splitRootValue = sqlInt64(
+			int64(prevProof.Asset.SplitCommitmentRoot.NodeSum()),
+		)
+	}
+	err = q.RestoreAssetSpendTemplate(
+		ctx, sqlc.RestoreAssetSpendTemplateParams{
+			AssetID:                  assetID,
+			AnchorUtxoID:             sqlInt64(oldUtxo.UtxoID),
+			SplitCommitmentRootHash:  splitRootHash,
+			SplitCommitmentRootValue: splitRootValue,
+			LockTime: sqlInt32(
+				prevProof.Asset.LockTime,
+			),
+			RelativeLockTime: sqlInt32(
+				prevProof.Asset.RelativeLockTime,
+			),
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to restore passive asset: %w",
+			err)
+	}
+
+	// Restore the pre-transfer witnesses.
+	if err := q.DeleteAssetWitnesses(ctx, assetID); err != nil {
+		return nil, fmt.Errorf("unable to delete witnesses: %w", err)
+	}
+	err = a.insertAssetWitnesses(
+		ctx, q, assetID, prevProof.Asset.PrevWitnesses,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to restore witnesses: %w", err)
+	}
+
+	// And the truncated proof file.
+	err = q.UpsertAssetProofByID(ctx, ProofUpdateByID{
+		AssetID:   assetID,
+		ProofFile: truncatedBuf.Bytes(),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("unable to store truncated proof: %w",
+			err)
+	}
+
+	return truncated, nil
 }
 
 // RebuildAnchorConfirm reconstructs a transfer's confirmation event
@@ -809,10 +1099,12 @@ func (a *AssetStore) restorePassiveAssets(ctx context.Context,
 // block context when the same anchor transaction re-confirms
 // elsewhere.
 //
-// Zero-value swept inputs are not persisted before confirmation, so
-// their sweep marking is absent from rebuilt events; this matches the
-// existing crash-resume behavior. The burn note is supplied by the
-// caller (the porter site carries it in its anchoring payload).
+// Zero-value swept inputs are not persisted before confirmation, but
+// their set is derivable — an anchor-transaction input with a
+// managed-UTXO row that is not one of the transfer's asset inputs —
+// so rebuilt events carry it and the confirmation application marks
+// the sweeps. The burn note is supplied by the caller (the porter
+// site carries it in its anchoring payload).
 func (a *AssetStore) RebuildAnchorConfirm(ctx context.Context,
 	q *sqlc.Queries, anchorTx *wire.MsgTx, blockHash chainhash.Hash,
 	blockHeight, txIndex uint32, header wire.BlockHeader,
@@ -891,6 +1183,56 @@ func (a *AssetStore) rebuildAnchorConfirm(ctx context.Context,
 			ID:        assetID,
 			ScriptKey: scriptKey,
 		})
+	}
+
+	// Rebuild the zero-value sweep set. The live confirmation event
+	// carries the funding step's selection out of porter memory; the
+	// rebuilt event must derive the same set, or the confirmation
+	// application never marks the swept anchors and coin selection
+	// can fund a later transfer with an outpoint this transaction
+	// already spent, once the sweep lease expires. The set is
+	// recoverable from stored state: a zero-value sweep is an
+	// anchor-transaction input that carries a managed-UTXO row but
+	// is not one of the transfer's asset inputs (wallet-funded fee
+	// inputs have no managed row). Only the outpoint is rebuilt —
+	// it is all the confirmation application consumes; the remaining
+	// fields serve funding-time signing.
+	inputAnchors := make(map[wire.OutPoint]struct{}, len(inputPrevIDs))
+	for _, prevID := range inputPrevIDs {
+		inputAnchors[prevID.OutPoint] = struct{}{}
+	}
+
+	var zeroValueInputs []*tapfreighter.ZeroValueInput
+	for _, txIn := range anchorTx.TxIn {
+		op := txIn.PreviousOutPoint
+		if _, ok := inputAnchors[op]; ok {
+			continue
+		}
+
+		outpointBytes, err := encodeOutpoint(op)
+		if err != nil {
+			return nil, nil, fmt.Errorf("unable to encode "+
+				"anchor input outpoint: %w", err)
+		}
+
+		_, err = q.FetchManagedUTXO(ctx, UtxoQuery{
+			Outpoint: outpointBytes,
+		})
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			continue
+
+		case err != nil:
+			return nil, nil, fmt.Errorf("unable to look up "+
+				"managed UTXO for anchor input %v: %w", op,
+				err)
+		}
+
+		zeroValueInputs = append(
+			zeroValueInputs, &tapfreighter.ZeroValueInput{
+				OutPoint: op,
+			},
+		)
 	}
 
 	// fetchInputFile loads an input's full proof file from the
@@ -1087,25 +1429,56 @@ func (a *AssetStore) rebuildAnchorConfirm(ctx context.Context,
 				"passive proof file: %w", err)
 		}
 
-		// A rebuild after a partial application may see the file
-		// already extended by this very transaction's suffix; the
-		// append then replaces rather than duplicates.
-		alreadyExtended := false
-		if numProofs := file.NumProofs(); numProofs > 0 {
-			last, err := file.ProofAt(uint32(numProofs - 1))
+		// This transaction's proof is located by identity, not by
+		// its position at the tip. A rebuild after a partial
+		// application, or a redelivery, finds it at the tip and
+		// replaces it there. A successor transfer may since have
+		// carried the holding on, leaving the proof below the tip:
+		// it is refreshed in place, and the file's locator names
+		// the tip the holding now anchors at, so the application
+		// leaves the holding where the successor put it. A file
+		// without it is extended, which is well-formed only onto
+		// the outpoint this transaction spends: any other tip is a
+		// state some other transfer's compensation has yet to
+		// reverse, and extending it would break the file's chain.
+		_, idx, err := file.LocateProof(func(p *proof.Proof) bool {
+			return p.AnchorTx.TxHash() == anchorTxid
+		})
+		switch {
+		case err == nil:
+			err := file.ReplaceProofAt(idx, *suffix)
 			if err != nil {
-				return nil, nil, err
-			}
-			alreadyExtended = last.AnchorTx.TxHash() == anchorTxid
-		}
-		if alreadyExtended {
-			if err := file.ReplaceLastProof(*suffix); err != nil {
 				return nil, nil, fmt.Errorf("unable to "+
-					"replace proof: %w", err)
+					"replace passive proof: %w", err)
 			}
-		} else if err := file.AppendProof(*suffix); err != nil {
-			return nil, nil, fmt.Errorf("unable to append "+
+
+		case errors.Is(err, proof.ErrProofNotFound):
+			tip, err := file.LastProof()
+			if err != nil {
+				return nil, nil, fmt.Errorf("unable to read "+
+					"passive tip: %w", err)
+			}
+			tipPoint := tip.OutPoint()
+			if !proof.TxSpendsPrevOut(anchorTx, &tipPoint) {
+				return nil, nil, fmt.Errorf("passive asset "+
+					"%d anchors at %v, which %v does not "+
+					"spend", passiveAsset.AssetID,
+					tipPoint, anchorTxid)
+			}
+			if err := file.AppendProof(*suffix); err != nil {
+				return nil, nil, fmt.Errorf("unable to "+
+					"append passive proof: %w", err)
+			}
+
+		default:
+			return nil, nil, fmt.Errorf("unable to locate "+
 				"passive proof: %w", err)
+		}
+
+		tip, err := file.LastProof()
+		if err != nil {
+			return nil, nil, fmt.Errorf("unable to read passive "+
+				"tip: %w", err)
 		}
 
 		var blob bytes.Buffer
@@ -1128,9 +1501,7 @@ func (a *AssetStore) rebuildAnchorConfirm(ctx context.Context,
 				Locator: proof.Locator{
 					AssetID:   &genesisID,
 					ScriptKey: *scriptKey,
-					OutPoint: fn.Ptr(
-						suffix.OutPoint(),
-					),
+					OutPoint:  fn.Ptr(tip.OutPoint()),
 				},
 				Blob: blob.Bytes(),
 			},
@@ -1144,6 +1515,7 @@ func (a *AssetStore) rebuildAnchorConfirm(ctx context.Context,
 		TxIndex:                int32(txIndex),
 		FinalProofs:            finalProofs,
 		PassiveAssetProofFiles: passiveFiles,
+		ZeroValueInputs:        zeroValueInputs,
 	}
 
 	return conf, burns, nil
