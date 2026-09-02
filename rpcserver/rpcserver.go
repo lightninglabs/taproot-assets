@@ -7381,6 +7381,14 @@ func (r *RPCServer) AssetLeaves(ctx context.Context,
 			"universe id: %w", err)
 	}
 
+	// A leaf lookup targets a single universe, so the proof type must be
+	// specified. An unspecified proof type resolves to a universe that does
+	// not exist, which would return an empty result instead of an error.
+	if universeID.ProofType == universe.ProofTypeUnspecified {
+		return nil, status.Errorf(codes.InvalidArgument, "proof type "+
+			"must be specified")
+	}
+
 	if err = validatePage(req.Offset, req.Limit); err != nil {
 		return nil, fmt.Errorf("invalid page "+
 			"(offset=%d, limit=%d): %w", req.Offset, req.Limit,
