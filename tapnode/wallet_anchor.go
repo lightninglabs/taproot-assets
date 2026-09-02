@@ -78,3 +78,20 @@ type CustomAnchorLeaser interface {
 	// must not release leases owned by another batch or subsystem.
 	ReleaseInput(context.Context, CustomAnchorLeaseID, wire.OutPoint) error
 }
+
+// CustomAnchorBatchLeaser is an optional optimized extension that snapshots
+// wallet ownership once for a complete custom-anchor input set. Implementations
+// must return successfully leased wallet inputs in request order, including a
+// partial result when a later lease fails. A lease owned by another subsystem
+// must be rejected before any requested input is mutated.
+type CustomAnchorBatchLeaser interface {
+	// LeaseInputs leases every wallet-owned input in ops and ignores inputs
+	// controlled by external signers.
+	LeaseInputs(context.Context, CustomAnchorLeaseID,
+		[]wire.OutPoint) ([]wire.OutPoint, error)
+
+	// ReleaseInputs releases only leases owned by leaseID and attempts every
+	// requested outpoint before returning any joined errors.
+	ReleaseInputs(context.Context, CustomAnchorLeaseID,
+		[]wire.OutPoint) error
+}

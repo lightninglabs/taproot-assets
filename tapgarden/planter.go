@@ -546,9 +546,34 @@ func acquireCustomAnchorLeases(ctx context.Context, wallet tapnode.WalletAnchor,
 	if packet == nil || packet.UnsignedTx == nil {
 		return nil, fmt.Errorf("custom anchor PSBT is missing a transaction")
 	}
+	ops := make([]wire.OutPoint, 0, len(packet.UnsignedTx.TxIn))
+	for _, txIn := range packet.UnsignedTx.TxIn {
+		ops = append(ops, txIn.PreviousOutPoint)
+	}
+
+	return leaseCustomAnchorOutpoints(
+		ctx, wallet, leaseID, ops, previouslyLocked,
+	)
+}
+
+// leaseCustomAnchorOutpoints leases the requested wallet-owned outpoints. The
+// optimized wallet extension snapshots ownership once; older implementations
+// retain the compatible per-input behavior.
+func leaseCustomAnchorOutpoints(ctx context.Context,
+	wallet tapnode.WalletAnchor, leaseID tapnode.CustomAnchorLeaseID,
+	ops, previouslyLocked []wire.OutPoint) ([]wire.OutPoint, error) {
+
 	leaser, ok := wallet.(tapnode.CustomAnchorLeaser)
 	if !ok {
 		return nil, fmt.Errorf("wallet does not support custom anchor leases")
+	}
+
+	seen := make(map[wire.OutPoint]struct{}, len(ops))
+	for _, op := range ops {
+		if _, ok := seen[op]; ok {
+			return nil, fmt.Errorf("custom anchor PSBT repeats input %v", op)
+		}
+		seen[op] = struct{}{}
 	}
 
 	previous := make(map[wire.OutPoint]struct{}, len(previouslyLocked))
@@ -556,20 +581,54 @@ func acquireCustomAnchorLeases(ctx context.Context, wallet tapnode.WalletAnchor,
 		previous[op] = struct{}{}
 	}
 
-	locked := make([]wire.OutPoint, 0, len(packet.UnsignedTx.TxIn))
-	newlyLocked := make([]wire.OutPoint, 0, len(packet.UnsignedTx.TxIn))
-	seen := make(map[wire.OutPoint]struct{}, len(packet.UnsignedTx.TxIn))
-	for _, txIn := range packet.UnsignedTx.TxIn {
-		op := txIn.PreviousOutPoint
-		if _, ok := seen[op]; ok {
+	if batchLeaser, ok := wallet.(tapnode.CustomAnchorBatchLeaser); ok {
+		locked, err := batchLeaser.LeaseInputs(ctx, leaseID, ops)
+		newlyLocked := newlyAcquiredLeases(locked, previouslyLocked)
+		if err != nil {
+			releaseErr := rollbackCustomAnchorOutpoints(
+				ctx, wallet, leaseID, newlyLocked,
+			)
+			return nil, errors.Join(err, releaseErr)
+		}
+
+		lockedSet := make(map[wire.OutPoint]struct{}, len(locked))
+		for _, op := range locked {
+			if _, requested := seen[op]; !requested {
+				releaseErr := rollbackCustomAnchorOutpoints(
+					ctx, wallet, leaseID, newlyLocked,
+				)
+				return nil, errors.Join(fmt.Errorf(
+					"wallet returned unrequested custom anchor lease %v", op,
+				), releaseErr)
+			}
+			if _, duplicate := lockedSet[op]; duplicate {
+				releaseErr := rollbackCustomAnchorOutpoints(
+					ctx, wallet, leaseID, newlyLocked,
+				)
+				return nil, errors.Join(fmt.Errorf(
+					"wallet returned duplicate custom anchor lease %v", op,
+				), releaseErr)
+			}
+			lockedSet[op] = struct{}{}
+		}
+		for _, op := range previouslyLocked {
+			if _, renewed := lockedSet[op]; renewed {
+				continue
+			}
 			releaseErr := rollbackCustomAnchorOutpoints(
 				ctx, wallet, leaseID, newlyLocked,
 			)
 			return nil, errors.Join(fmt.Errorf(
-				"custom anchor PSBT repeats input %v", op,
+				"unable to renew custom anchor input lease %v", op,
 			), releaseErr)
 		}
-		seen[op] = struct{}{}
+
+		return locked, nil
+	}
+
+	locked := make([]wire.OutPoint, 0, len(ops))
+	newlyLocked := make([]wire.OutPoint, 0, len(ops))
+	for _, op := range ops {
 		owned, err := leaser.LeaseInput(ctx, leaseID, op)
 		if err != nil {
 			releaseErr := rollbackCustomAnchorOutpoints(
@@ -658,9 +717,16 @@ func releaseCustomAnchorOutpoints(ctx context.Context,
 	wallet tapnode.WalletAnchor, leaseID tapnode.CustomAnchorLeaseID,
 	ops []wire.OutPoint) error {
 
+	if len(ops) == 0 {
+		return nil
+	}
+
 	leaser, ok := wallet.(tapnode.CustomAnchorLeaser)
 	if !ok {
 		return fmt.Errorf("wallet does not support custom anchor leases")
+	}
+	if batchLeaser, ok := wallet.(tapnode.CustomAnchorBatchLeaser); ok {
+		return batchLeaser.ReleaseInputs(ctx, leaseID, ops)
 	}
 
 	var releaseErr error
@@ -720,8 +786,7 @@ func renewCustomAnchorLeasesWithMarkerUpdate(ctx context.Context,
 	if funded == nil {
 		return nil
 	}
-	leaser, ok := wallet.(tapnode.CustomAnchorLeaser)
-	if !ok {
+	if _, ok := wallet.(tapnode.CustomAnchorLeaser); !ok {
 		return fmt.Errorf("wallet does not support custom anchor leases")
 	}
 
@@ -748,18 +813,15 @@ func renewCustomAnchorLeasesWithMarkerUpdate(ctx context.Context,
 	} else if markerState == customAnchorLeaseMarkerCurrent {
 		lockedUTXOs = markerOps
 	}
-	for _, op := range lockedUTXOs {
-		owned, err := leaser.LeaseInput(ctx, leaseID, op)
-		if err != nil {
-			return fmt.Errorf("unable to renew custom anchor input %v: %w",
-				op, err)
-		}
-		if !owned {
-			return fmt.Errorf(
-				"custom anchor input %v is no longer "+
-					"available to the backing wallet", op,
-			)
-		}
+	locked, err := leaseCustomAnchorOutpoints(
+		ctx, wallet, leaseID, lockedUTXOs, lockedUTXOs,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to renew custom anchor inputs: %w", err)
+	}
+	if len(locked) != len(lockedUTXOs) {
+		return fmt.Errorf("renewed %d of %d custom anchor input leases",
+			len(locked), len(lockedUTXOs))
 	}
 
 	return nil

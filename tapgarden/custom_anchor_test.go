@@ -47,6 +47,38 @@ type blockingCustomAnchorWallet struct {
 	releaseCtxErr chan error
 }
 
+type batchCustomAnchorWallet struct {
+	*tapnodemock.WalletAnchor
+
+	leaseInputCalls int
+	batchLeaseCalls int
+	batchLocked     []wire.OutPoint
+	batchLeaseErr   error
+	batchReleases   [][]wire.OutPoint
+}
+
+func (w *batchCustomAnchorWallet) LeaseInput(context.Context,
+	tapnode.CustomAnchorLeaseID, wire.OutPoint) (bool, error) {
+
+	w.leaseInputCalls++
+	return false, nil
+}
+
+func (w *batchCustomAnchorWallet) LeaseInputs(context.Context,
+	tapnode.CustomAnchorLeaseID,
+	[]wire.OutPoint) ([]wire.OutPoint, error) {
+
+	w.batchLeaseCalls++
+	return fn.CopySlice(w.batchLocked), w.batchLeaseErr
+}
+
+func (w *batchCustomAnchorWallet) ReleaseInputs(_ context.Context,
+	_ tapnode.CustomAnchorLeaseID, ops []wire.OutPoint) error {
+
+	w.batchReleases = append(w.batchReleases, fn.CopySlice(ops))
+	return nil
+}
+
 func (w *blockingCustomAnchorWallet) LeaseInput(ctx context.Context,
 	leaseID tapnode.CustomAnchorLeaseID, op wire.OutPoint) (bool, error) {
 
@@ -250,6 +282,71 @@ func TestCustomAnchorLeasesAreBatchScoped(t *testing.T) {
 		},
 	))
 	require.Equal(t, leaseIDA, wallet.leases[inputX])
+}
+
+func TestCustomAnchorBatchLeasePath(t *testing.T) {
+	packet := testCustomAnchorPacket(t)
+	first := packet.UnsignedTx.TxIn[0].PreviousOutPoint
+	for idx := uint32(1); idx < 1000; idx++ {
+		op := first
+		op.Index += idx
+		packet.UnsignedTx.AddTxIn(&wire.TxIn{PreviousOutPoint: op})
+		packet.Inputs = append(packet.Inputs, packet.Inputs[0])
+	}
+
+	wallet := &batchCustomAnchorWallet{
+		WalletAnchor: tapnodemock.NewWalletAnchor(),
+		batchLocked:  []wire.OutPoint{first},
+	}
+	var leaseID tapnode.CustomAnchorLeaseID
+	locked, err := acquireCustomAnchorLeases(
+		t.Context(), wallet, leaseID, packet, nil,
+	)
+	require.NoError(t, err)
+	require.Equal(t, []wire.OutPoint{first}, locked)
+	require.Equal(t, 1, wallet.batchLeaseCalls)
+	require.Zero(t, wallet.leaseInputCalls)
+}
+
+func TestCustomAnchorBatchLeaseDuplicatePreflight(t *testing.T) {
+	packet := testCustomAnchorPacket(t)
+	packet.UnsignedTx.AddTxIn(&wire.TxIn{
+		PreviousOutPoint: packet.UnsignedTx.TxIn[0].PreviousOutPoint,
+	})
+	packet.Inputs = append(packet.Inputs, packet.Inputs[0])
+	wallet := &batchCustomAnchorWallet{
+		WalletAnchor: tapnodemock.NewWalletAnchor(),
+	}
+
+	_, err := acquireCustomAnchorLeases(
+		t.Context(), wallet, tapnode.CustomAnchorLeaseID{}, packet, nil,
+	)
+	require.ErrorContains(t, err, "repeats input")
+	require.Zero(t, wallet.batchLeaseCalls)
+	require.Zero(t, wallet.leaseInputCalls)
+}
+
+func TestCustomAnchorBatchLeaseRollback(t *testing.T) {
+	packet := testCustomAnchorPacket(t)
+	current := packet.UnsignedTx.TxIn[0].PreviousOutPoint
+	newInput := current
+	newInput.Index++
+	packet.UnsignedTx.AddTxIn(&wire.TxIn{PreviousOutPoint: newInput})
+	packet.Inputs = append(packet.Inputs, packet.Inputs[0])
+	wallet := &batchCustomAnchorWallet{
+		WalletAnchor:  tapnodemock.NewWalletAnchor(),
+		batchLocked:   []wire.OutPoint{current, newInput},
+		batchLeaseErr: errors.New("injected batch lease failure"),
+	}
+
+	_, err := acquireCustomAnchorLeases(
+		t.Context(), wallet, tapnode.CustomAnchorLeaseID{}, packet,
+		[]wire.OutPoint{current},
+	)
+	require.ErrorContains(t, err, "injected batch lease failure")
+	require.Equal(t, 1, wallet.batchLeaseCalls)
+	require.Zero(t, wallet.leaseInputCalls)
+	require.Equal(t, [][]wire.OutPoint{{newInput}}, wallet.batchReleases)
 }
 
 // TestCustomAnchorLeaseRollbackUsesLiveContext proves that an acquisition
