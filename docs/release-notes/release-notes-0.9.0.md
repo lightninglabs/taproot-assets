@@ -134,6 +134,16 @@
   anchorings with it yet, so no existing flow changes behaviour in
   this release.
 
+- [`tapd` now keeps an encrypted asset wallet backup
+  file](https://github.com/lightninglabs/taproot-assets/pull/2277)
+  (`assets.backup`, see [backup-file.md](../backup-file.md)) on disk that is updated
+  whenever the wallet state changes, in the same spirit as lnd's
+  `channel.backup`. The file holds a compact backup of every confirmed,
+  unspent asset and is encrypted with a key derived from the connected lnd
+  wallet. `ImportAssetsFromBackup` accepts the encrypted file directly, so a
+  fresh `tapd` connected to an lnd restored from the same seed can recover
+  its assets with `tapcli assets backup import`.
+
 ## RPC Additions
 
 * [PR#2266](https://github.com/lightninglabs/taproot-assets/pull/2266)
@@ -194,6 +204,11 @@
 ## tapcli Updates
 
 ## Config Changes
+
+- The new [`--backup.filepath`
+  flag](https://github.com/lightninglabs/taproot-assets/pull/2277) sets the
+  location of the encrypted asset wallet backup file (default: `assets.backup` in the network data
+  directory) and `--backup.disable` turns the file off.
 
 - The new `--universe.no-delta-sync` flag forces the federation syncer
   to always use full enumeration sync, serving as a kill switch for
