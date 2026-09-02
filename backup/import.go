@@ -75,6 +75,11 @@ type ImportConfig struct {
 	// ProofVerifier provides the verification context for imported
 	// proofs.
 	ProofVerifier proof.VerifierCtx
+
+	// KeyDeriver derives the backup encryption key from the lnd wallet.
+	// It is only needed to import encrypted backups such as the file
+	// written by the Updater. If nil, encrypted backups are rejected.
+	KeyDeriver KeyDeriver
 }
 
 // extractGroupKeys extracts group public keys from genesis proofs
@@ -160,6 +165,26 @@ func ImportBackup(ctx context.Context, backupBlob []byte,
 
 	log.Infof("Importing assets from backup (%d bytes)",
 		len(backupBlob))
+
+	// The on-disk backup file is encrypted with a key derived from the
+	// lnd wallet. Plaintext exports are accepted as before.
+	if IsEncryptedBackup(backupBlob) {
+		if cfg.KeyDeriver == nil {
+			return 0, 0, ErrNoKeyDeriver
+		}
+
+		encrypter, err := NewKeyRingEncrypter(ctx, cfg.KeyDeriver)
+		if err != nil {
+			return 0, 0, err
+		}
+
+		backupBlob, err = DecryptBackup(encrypter, backupBlob)
+		if err != nil {
+			return 0, 0, err
+		}
+
+		log.Infof("Decrypted backup (%d bytes)", len(backupBlob))
+	}
 
 	// Decode and verify the backup.
 	walletBackup, err := DecodeWalletBackup(backupBlob)
