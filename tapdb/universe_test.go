@@ -263,6 +263,65 @@ type leafWithKey struct {
 	universe.Leaf
 }
 
+// TestMultiverseUpsertProofLeafBatchNewLeaves tests that a batch upsert only
+// reports back the leaves that were actually new to the multiverse. Callers
+// use that to avoid counting a re-registration of a leaf we already hold as a
+// new proof in the universe stats.
+func TestMultiverseUpsertProofLeafBatchNewLeaves(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	multiverse, _ := newTestMultiverse(t)
+
+	const numItems = 5
+	items := make([]*universe.Item, numItems)
+	for idx := range items {
+		items[idx] = genRandomAsset(t)
+	}
+
+	// The first insertion is entirely new, so we expect all items back.
+	newItems, err := multiverse.UpsertProofLeafBatch(ctx, items)
+	require.NoError(t, err)
+	require.Equal(t, items, newItems)
+
+	// Inserting the exact same batch again is a no-op upsert, so nothing
+	// should be reported as new.
+	newItems, err = multiverse.UpsertProofLeafBatch(ctx, items)
+	require.NoError(t, err)
+	require.Empty(t, newItems)
+
+	// A mixed batch should only report the items we didn't hold yet.
+	freshItems := []*universe.Item{genRandomAsset(t), genRandomAsset(t)}
+	mixedBatch := append(items[:2:2], freshItems...)
+	newItems, err = multiverse.UpsertProofLeafBatch(ctx, mixedBatch)
+	require.NoError(t, err)
+	require.Equal(t, freshItems, newItems)
+
+	// Replacing the proof of a leaf we already hold (which is what happens
+	// when the anchor transaction is re-organized out of the chain) is an
+	// update of that leaf, not a new one.
+	updatedItem := *items[0]
+	updatedLeaf := randMintingLeaf(
+		t, items[0].Leaf.Genesis, items[0].ID.GroupKey,
+	)
+	updatedItem.Leaf = &updatedLeaf
+
+	newItems, err = multiverse.UpsertProofLeafBatch(
+		ctx, []*universe.Item{&updatedItem},
+	)
+	require.NoError(t, err)
+	require.Empty(t, newItems)
+
+	// A leaf that shows up twice within the same batch is only new the
+	// first time round.
+	dupItem := genRandomAsset(t)
+	newItems, err = multiverse.UpsertProofLeafBatch(
+		ctx, []*universe.Item{dupItem, dupItem},
+	)
+	require.NoError(t, err)
+	require.Equal(t, []*universe.Item{dupItem}, newItems)
+}
+
 // TestUniverseIssuanceProofs tests that we're able to insert issuance proofs
 // for a given asset ID, and then retrieve them all with proper inclusion
 // proofs.
@@ -1041,7 +1100,7 @@ func TestMultiverseRootSum(t *testing.T) {
 					prevID.OutPoint.Hash = [32]byte{1}
 				}
 
-				_, err := multiverse.UpsertProofLeaf(
+				_, _, err := multiverse.UpsertProofLeaf(
 					ctx, id, targetKey, &leaf, nil,
 				)
 				require.NoError(t, err)
@@ -1051,7 +1110,7 @@ func TestMultiverseRootSum(t *testing.T) {
 				if tc.doubleUp {
 					targetKey = randLeafKey(t)
 
-					_, err := multiverse.UpsertProofLeaf(
+					_, _, err := multiverse.UpsertProofLeaf(
 						ctx, id, targetKey, &leaf, nil,
 					)
 					require.NoError(t, err)
@@ -1139,7 +1198,7 @@ func TestDeleteLastUniverseCleansMultiverseRoot(t *testing.T) {
 	leaf.Amt = 100
 
 	targetKey := randLeafKey(t)
-	_, err := multiverse.UpsertProofLeaf(
+	_, _, err := multiverse.UpsertProofLeaf(
 		ctx, id, targetKey, &leaf, nil,
 	)
 	require.NoError(t, err)
@@ -1573,9 +1632,9 @@ func TestDeleteProofLeaf(t *testing.T) {
 	key2 := randLeafKey(t)
 	leaf2 := randMintingLeaf(t, assetGen, id.GroupKey)
 
-	_, err := multiverse.UpsertProofLeaf(ctx, id, key1, &leaf1, nil)
+	_, _, err := multiverse.UpsertProofLeaf(ctx, id, key1, &leaf1, nil)
 	require.NoError(t, err)
-	_, err = multiverse.UpsertProofLeaf(ctx, id, key2, &leaf2, nil)
+	_, _, err = multiverse.UpsertProofLeaf(ctx, id, key2, &leaf2, nil)
 	require.NoError(t, err)
 
 	// Verify both leaves exist.
@@ -1672,11 +1731,11 @@ func TestDeleteProofLeafMultiUniverse(t *testing.T) {
 	key2 := randLeafKey(t)
 	leaf2 := randMintingLeaf(t, assetGen2, id2.GroupKey)
 
-	_, err := multiverse.UpsertProofLeaf(
+	_, _, err := multiverse.UpsertProofLeaf(
 		ctx, id1, key1, &leaf1, nil,
 	)
 	require.NoError(t, err)
-	_, err = multiverse.UpsertProofLeaf(
+	_, _, err = multiverse.UpsertProofLeaf(
 		ctx, id2, key2, &leaf2, nil,
 	)
 	require.NoError(t, err)
@@ -1753,11 +1812,11 @@ func TestDeleteProofLeafBothProofTypes(t *testing.T) {
 		t, assetGen, transferID.GroupKey,
 	)
 
-	_, err := multiverse.UpsertProofLeaf(
+	_, _, err := multiverse.UpsertProofLeaf(
 		ctx, issuanceID, key, &issuanceLeaf, nil,
 	)
 	require.NoError(t, err)
-	_, err = multiverse.UpsertProofLeaf(
+	_, _, err = multiverse.UpsertProofLeaf(
 		ctx, transferID, key, &transferLeaf, nil,
 	)
 	require.NoError(t, err)
@@ -1841,7 +1900,7 @@ func TestProofCacheInvalidatesOnSiblingInsert(t *testing.T) {
 	// back through the multiverse store.
 	keyA := randLeafKey(t)
 	leafA := randMintingLeaf(t, assetGen, id.GroupKey)
-	_, err := multiverse.UpsertProofLeaf(ctx, id, keyA, &leafA, nil)
+	_, _, err := multiverse.UpsertProofLeaf(ctx, id, keyA, &leafA, nil)
 	require.NoError(t, err)
 
 	primed, err := multiverse.FetchProofLeaf(ctx, id, keyA)
@@ -1861,7 +1920,7 @@ func TestProofCacheInvalidatesOnSiblingInsert(t *testing.T) {
 	// must change, since every leaf contributes its sum to the root.
 	keyB := randLeafKey(t)
 	leafB := randMintingLeaf(t, assetGen, id.GroupKey)
-	_, err = multiverse.UpsertProofLeaf(ctx, id, keyB, &leafB, nil)
+	_, _, err = multiverse.UpsertProofLeaf(ctx, id, keyB, &leafB, nil)
 	require.NoError(t, err)
 
 	rootAfterB, _, err := baseUniverse.RootNode(ctx)
@@ -1948,11 +2007,11 @@ func TestUpsertProofLeafBatchMultiverseRoot(t *testing.T) {
 		})
 	}
 
-	err := batchStore.UpsertProofLeafBatch(ctx, items)
+	_, err := batchStore.UpsertProofLeafBatch(ctx, items)
 	require.NoError(t, err)
 
 	for _, item := range items {
-		_, err := serialStore.UpsertProofLeaf(
+		_, _, err := serialStore.UpsertProofLeaf(
 			ctx, item.ID, item.Key, item.Leaf, item.MetaReveal,
 		)
 		require.NoError(t, err)

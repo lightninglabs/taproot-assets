@@ -89,7 +89,7 @@ func seedUniverse(t *testing.T, mv *tapdb.MultiverseStore,
 			),
 		}
 
-		_, err = mv.UpsertProofLeaf(ctx, id, key, leaf, nil)
+		_, _, err = mv.UpsertProofLeaf(ctx, id, key, leaf, nil)
 		require.NoError(t, err)
 	}
 }

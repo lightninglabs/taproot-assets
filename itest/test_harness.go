@@ -328,7 +328,7 @@ func setupHarnesses(t *testing.T, ht *harnessTest,
 			rpcAccts.Accounts,
 		)
 		require.NoError(t, err)
-		alice = lndHarness.NewNodeRemoteSigner(
+		alice = lndHarness.NewNodeWatchOnly(
 			"WatchOnly", []string{
 				"--remotesigner.enable",
 				fmt.Sprintf(

@@ -139,6 +139,73 @@ func (u *uniStatsHarness) addEvents(numAssets int) {
 	}
 }
 
+// TestUniverseStatsProofCount tests that the total proof count reported by the
+// universe stats tracks the number of leaves we hold, not the number of times
+// a leaf was registered with us. Peers re-pushing a leaf we already have is a
+// no-op upsert, and used to still write a NEW_PROOF event each time.
+func TestUniverseStatsProofCount(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db := NewTestDB(t)
+	testClock := clock.NewTestClock(time.Now())
+	statsDB, _ := newUniverseStatsWithDB(db.BaseDB, testClock)
+	multiverse, _ := newTestMultiverseWithDb(t, db.BaseDB)
+
+	const (
+		numLeaves = 10
+		numRounds = 5
+	)
+
+	items := make([]*universe.Item, numLeaves)
+	for idx := range items {
+		items[idx] = genRandomAsset(t)
+	}
+
+	// We register the same set of leaves over and over, logging an event
+	// for each leaf that was actually new, the same way the universe
+	// archive does.
+	for i := 0; i < numRounds; i++ {
+		newItems, err := multiverse.UpsertProofLeafBatch(ctx, items)
+		require.NoError(t, err)
+
+		// Only the very first round should produce new leaves.
+		if i == 0 {
+			require.Len(t, newItems, numLeaves)
+		} else {
+			require.Empty(t, newItems)
+		}
+
+		ids := fn.Map(
+			newItems, func(i *universe.Item) universe.Identifier {
+				return i.ID
+			},
+		)
+		if len(ids) == 0 {
+			continue
+		}
+
+		require.NoError(t, statsDB.LogNewProofEvents(ctx, ids...))
+	}
+
+	// The stats should report the number of leaves we hold, not the number
+	// of registration attempts.
+	stats, err := statsDB.AggregateSyncStats(ctx)
+	require.NoError(t, err)
+	require.EqualValues(t, numLeaves, stats.NumTotalProofs)
+
+	// The count is derived from the leaves, so it would report the right
+	// number even if we logged an event per attempt. Assert on the event
+	// rows directly as well, since the table is what grows without bound.
+	var events int
+	err = db.BaseDB.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM universe_events
+		WHERE event_type = 'NEW_PROOF'
+	`).Scan(&events)
+	require.NoError(t, err)
+	require.Equal(t, numLeaves, events)
+}
+
 // TestUniverseStatsEvents tests that we're able to properly insert, and also
 // fetch information related to universe sync related events.
 func TestUniverseStatsEvents(t *testing.T) {
@@ -164,12 +231,14 @@ func TestUniverseStatsEvents(t *testing.T) {
 		}
 	}
 
-	// Before we insert anything into the DB, we should have all zeroes for
-	// the main events.
+	// Before we log any events we should have all zeroes for the event
+	// driven stats. The proof count is not one of those: it reports the
+	// leaves the harness inserted above, whether or not anything was
+	// logged for them.
 	sh.assertUniverseStatsEqual(t, universe.AggregateStats{
 		NumTotalAssets: numTranches,
 		NumTotalGroups: numGroups,
-		NumTotalProofs: 0,
+		NumTotalProofs: numTranches,
 		NumTotalSyncs:  0,
 	})
 
@@ -183,8 +252,8 @@ func TestUniverseStatsEvents(t *testing.T) {
 		testClock.SetTime(testClock.Now().Add(24 * time.Hour))
 	}
 
-	// We'll now query for the set of aggregate Universe stats. It should
-	// show 3 assets, and one new proof for each of those assets.
+	// We'll now query for the set of aggregate Universe stats. The proof
+	// count is unmoved by the logging, as it counts leaves held.
 	sh.assertUniverseStatsEqual(t, universe.AggregateStats{
 		NumTotalAssets: numTranches,
 		NumTotalGroups: numGroups,

@@ -80,7 +80,7 @@ func insertUniverseLeafOnly(ctx context.Context,
 	)
 	err := multiverse.db.ExecTx(
 		ctx, &writeTx, func(store BaseMultiverseStore) error {
-			uniProof, _, _, err := universeUpsertProofLeaf(
+			uniProof, _, err := universeUpsertProofLeaf(
 				ctx, store, item.ID.String(),
 				item.ID.ProofType, item.ID.GroupKey, item.Key,
 				item.Leaf, item.MetaReveal, lfn.None[uint32](),
@@ -684,7 +684,7 @@ func TestUpsertProofLeafSameUniverseConcurrent(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 
-			receipts[i], errs[i] = multiverse.UpsertProofLeaf(
+			receipts[i], _, errs[i] = multiverse.UpsertProofLeaf(
 				ctx, items[i].ID, items[i].Key,
 				items[i].Leaf, items[i].MetaReveal,
 			)
@@ -869,7 +869,7 @@ func TestFetchProofLeafUnderConcurrentInserts(t *testing.T) {
 	items := genUniverseItems(t, numLeaves)
 	id := items[0].ID
 
-	_, err := multiverse.UpsertProofLeaf(
+	_, _, err := multiverse.UpsertProofLeaf(
 		ctx, items[0].ID, items[0].Key, items[0].Leaf,
 		items[0].MetaReveal,
 	)
@@ -883,7 +883,7 @@ func TestFetchProofLeafUnderConcurrentInserts(t *testing.T) {
 		defer close(writerDone)
 
 		for _, item := range items[1:] {
-			_, err := multiverse.UpsertProofLeaf(
+			_, _, err := multiverse.UpsertProofLeaf(
 				ctx, item.ID, item.Key, item.Leaf,
 				item.MetaReveal,
 			)
@@ -972,7 +972,7 @@ func TestUpsertProofLeafConcurrentDelete(t *testing.T) {
 	id := items[0].ID
 
 	// Seed the universe so the deletion has something to delete.
-	_, err := multiverse.UpsertProofLeaf(
+	_, _, err := multiverse.UpsertProofLeaf(
 		ctx, items[0].ID, items[0].Key, items[0].Leaf,
 		items[0].MetaReveal,
 	)
@@ -989,7 +989,7 @@ func TestUpsertProofLeafConcurrentDelete(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 
-			receipts[i], errs[i] = multiverse.UpsertProofLeaf(
+			receipts[i], _, errs[i] = multiverse.UpsertProofLeaf(
 				ctx, items[i].ID, items[i].Key,
 				items[i].Leaf, items[i].MetaReveal,
 			)
@@ -1276,7 +1276,7 @@ func TestUpsertProofLeafFlushFailure(t *testing.T) {
 
 	// Insert a first leaf and fetch it, so the proof cache holds an
 	// entry that the failing insert below must evict.
-	_, err = multiverse.UpsertProofLeaf(
+	_, _, err = multiverse.UpsertProofLeaf(
 		ctx, items[0].ID, items[0].Key, items[0].Leaf,
 		items[0].MetaReveal,
 	)
@@ -1309,7 +1309,7 @@ func TestUpsertProofLeafFlushFailure(t *testing.T) {
 	// report the typed partial-commit error, as the universe leaf
 	// committed while the multiverse update did not.
 	failDB.failing.Store(true)
-	_, err = multiverse.UpsertProofLeaf(
+	_, _, err = multiverse.UpsertProofLeaf(
 		ctx, items[1].ID, items[1].Key, items[1].Leaf,
 		items[1].MetaReveal,
 	)
@@ -1446,7 +1446,7 @@ func TestUpsertProofLeafSuperseded(t *testing.T) {
 	}
 	hookDB.beforeFlush.Store(&hook)
 
-	receipt, err := multiverse.UpsertProofLeaf(
+	receipt, _, err := multiverse.UpsertProofLeaf(
 		ctx, items[0].ID, items[0].Key, items[0].Leaf,
 		items[0].MetaReveal,
 	)
@@ -1490,7 +1490,7 @@ func TestUpsertProofLeafSupersededRebuildFailure(t *testing.T) {
 	}
 	hookDB.beforeFlush.Store(&hook)
 
-	_, err := multiverse.UpsertProofLeaf(
+	_, _, err := multiverse.UpsertProofLeaf(
 		ctx, items[0].ID, items[0].Key, items[0].Leaf,
 		items[0].MetaReveal,
 	)
@@ -1530,7 +1530,7 @@ func TestUpsertProofLeafSupersededStaleCache(t *testing.T) {
 
 	// Store and fetch the first version of the leaf, so a receipt
 	// predating everything below exists to poison the cache with.
-	_, err := multiverse.UpsertProofLeaf(
+	_, _, err := multiverse.UpsertProofLeaf(
 		ctx, items[0].ID, items[0].Key, items[0].Leaf,
 		items[0].MetaReveal,
 	)
@@ -1556,7 +1556,7 @@ func TestUpsertProofLeafSupersededStaleCache(t *testing.T) {
 	}
 	hookDB.beforeFlush.Store(&hook)
 
-	receipt, err := multiverse.UpsertProofLeaf(
+	receipt, _, err := multiverse.UpsertProofLeaf(
 		ctx, items[1].ID, items[1].Key, items[1].Leaf,
 		items[1].MetaReveal,
 	)
@@ -1623,7 +1623,7 @@ func TestUpsertProofLeafDeletedInGap(t *testing.T) {
 	}
 	hookDB.beforeFlush.Store(&hook)
 
-	_, err := multiverse.UpsertProofLeaf(
+	_, _, err := multiverse.UpsertProofLeaf(
 		ctx, items[0].ID, items[0].Key, items[0].Leaf,
 		items[0].MetaReveal,
 	)
@@ -1914,7 +1914,7 @@ func TestUpsertProofLeafFlushRecovery(t *testing.T) {
 	// Every flush fails, as under a database outage.
 	hookDB.failFrom.Store(1)
 
-	_, err := multiverse.UpsertProofLeaf(
+	_, _, err := multiverse.UpsertProofLeaf(
 		ctx, item.ID, item.Key, item.Leaf, item.MetaReveal,
 	)
 	require.ErrorIs(t, err, universe.ErrMultiversePending)

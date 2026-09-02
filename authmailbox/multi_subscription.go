@@ -7,9 +7,45 @@ import (
 	"sync"
 
 	"github.com/lightninglabs/taproot-assets/asset"
-	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/keychain"
 )
+
+const (
+	// maxMsgQueueSize is the maximum number of received message bundles
+	// buffered across all mailbox subscriptions. Once full, producers block
+	// until the custodian consumes a bundle. This bounds memory without
+	// discarding mailbox deliveries.
+	//
+	// This is a bundle count rather than a count of the individual mailbox
+	// messages contained in those bundles.
+	maxMsgQueueSize = 1010
+)
+
+// boundedMessageQueue is the backpressure boundary between mailbox receive
+// streams and their single consumer. Its channel is deliberately private so
+// producers and consumers can only obtain directionally typed views of it.
+type boundedMessageQueue struct {
+	messages chan *ReceivedMessages
+}
+
+// newBoundedMessageQueue creates the fixed-capacity mailbox message queue.
+// Keeping the capacity out of the constructor's arguments prevents production
+// callers from accidentally constructing an unbounded or zero-sized queue.
+func newBoundedMessageQueue() *boundedMessageQueue {
+	return &boundedMessageQueue{
+		messages: make(chan *ReceivedMessages, maxMsgQueueSize),
+	}
+}
+
+// ChanIn returns the send-only producer side of the queue.
+func (q *boundedMessageQueue) ChanIn() chan<- *ReceivedMessages {
+	return q.messages
+}
+
+// ChanOut returns the receive-only consumer side of the queue.
+func (q *boundedMessageQueue) ChanOut() <-chan *ReceivedMessages {
+	return q.messages
+}
 
 // clientSubscriptions holds the subscriptions and cancel functions for a
 // specific mailbox client.
@@ -39,24 +75,21 @@ type MultiSubscription struct {
 	// clients holds the active mailbox clients, keyed by their server URL.
 	clients map[url.URL]*clientSubscriptions
 
-	// msgQueue is the concurrent queue that holds received messages from
-	// all subscriptions across all clients. This allows for a unified
-	// message channel that can be used to receive messages from any
-	// subscribed account, regardless of which mailbox server it belongs to.
-	msgQueue *lfn.ConcurrentQueue[*ReceivedMessages]
+	// msgQueue is the bounded queue that holds received messages from all
+	// subscriptions across all clients. This allows for a unified message
+	// channel that can be used to receive messages from any subscribed
+	// account, regardless of which mailbox server it belongs to.
+	msgQueue *boundedMessageQueue
 
 	sync.RWMutex
 }
 
 // NewMultiSubscription creates a new MultiSubscription instance.
 func NewMultiSubscription(baseClientConfig ClientConfig) *MultiSubscription {
-	queue := lfn.NewConcurrentQueue[*ReceivedMessages](lfn.DefaultQueueSize)
-	queue.Start()
-
 	return &MultiSubscription{
 		baseClientConfig: baseClientConfig,
 		clients:          make(map[url.URL]*clientSubscriptions),
-		msgQueue:         queue,
+		msgQueue:         newBoundedMessageQueue(),
 	}
 }
 
@@ -152,8 +185,6 @@ func (m *MultiSubscription) RemoveMessages(ctx context.Context,
 // Stop stops all active subscriptions and mailbox clients. It cancels all
 // active subscription contexts and waits for all clients to stop gracefully.
 func (m *MultiSubscription) Stop() error {
-	defer m.msgQueue.Stop()
-
 	log.Info("Stopping all mailbox clients and subscriptions...")
 
 	m.RLock()

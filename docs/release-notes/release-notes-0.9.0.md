@@ -92,6 +92,34 @@
   concurrent batch snapshot can never observe state that disk does
   not yet hold.
 
+* [PR#2255](https://github.com/lightninglabs/taproot-assets/pull/2255)
+  fixes a bug in which registering a proof leaf the universe already
+  held was still logged as a new proof, so `num_total_proofs` in the
+  universe stats counted insert attempts rather than proofs held, and
+  the `universe_events` table grew with sync traffic rather than with
+  universe size.
+
+  Database migration 67 redefines the `universe_stats` view to derive
+  the proof count from the universe leaves actually held instead of
+  from the event log, so a database that already accumulated duplicate
+  events reports the correct figure from the upgrade onwards. No event
+  rows are deleted, as the per-day statistics still read them. Note
+  that the count can now decrease when a proof leaf is deleted, which
+  it previously did not.
+
+  This also changes the meaning of `new_proof_events` in `QueryEvents`,
+  which is fed by the event rows: it now counts leaves newly acquired
+  per day rather than registration attempts per day, so on a
+  long-running node the series steps down. The per-day `sync_events`
+  series is unchanged and still reflects sync traffic volume.
+
+* [PR#2267](https://github.com/lightninglabs/taproot-assets/pull/2267)
+  rejects a negative `expiry` when adding a Taproot Asset channel
+  invoice. A negative expiry previously skipped the default and was
+  passed through to lnd, which treated it as unset and applied its own
+  86400 second default instead of returning an error. Fixes
+  [#2261](https://github.com/lightninglabs/taproot-assets/issues/2261).
+
 # New Features
 
 ## Functional Enhancements
@@ -221,3 +249,5 @@
 ## Tooling and Documentation
 
 # Contributors (Alphabetical Order)
+
+* Vandit Singh

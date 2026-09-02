@@ -205,7 +205,7 @@ func (d *DbHandler) AddUniProofLeaf(t *testing.T, testAsset *asset.Asset,
 		Amt:      testAsset.Amount,
 	}
 
-	uniProof, err := d.MultiverseStore.UpsertProofLeaf(
+	uniProof, _, err := d.MultiverseStore.UpsertProofLeaf(
 		ctx, uniId, leafKey, &leaf, nil,
 	)
 	require.NoError(t, err)

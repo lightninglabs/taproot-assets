@@ -8,9 +8,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/mssmt/arith"
 	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -474,11 +476,21 @@ func (a *AssetBalance) Decode(r io.Reader) error {
 }
 
 // Sum returns the sum of the amounts of all the asset Balances in the list.
+// If the sum would overflow a uint64, it saturates at the maximum uint64
+// value instead of wrapping around.
 func Sum(balances []*AssetBalance) uint64 {
 	var sum uint64
 	for _, balance := range balances {
-		sum += balance.Amount.Val
+		newSum := sum + balance.Amount.Val
+		if newSum < sum {
+			// The sum overflowed, saturate at the maximum uint64
+			// value.
+			return math.MaxUint64
+		}
+
+		sum = newSum
 	}
+
 	return sum
 }
 
@@ -604,6 +616,7 @@ func dAssetBalanceList(r io.Reader, val interface{}, buf *[8]byte,
 		}
 
 		outputs := make([]*AssetBalance, numBalances)
+		var totalAmount uint64
 		for i := uint64(0); i < numBalances; i++ {
 			var outputBytes []byte
 			err := asset.InlineVarBytesDecoder(
@@ -617,6 +630,16 @@ func dAssetBalanceList(r io.Reader, val interface{}, buf *[8]byte,
 			if err != nil {
 				return err
 			}
+
+			// Reject the record if the cumulative sum of the
+			// balance amounts would overflow a uint64. A wrapping
+			// balance list must never decode as valid.
+			err = arith.CheckAdd(totalAmount, outputs[i].Amount.Val)
+			if err != nil {
+				return fmt.Errorf("%w: balance amounts sum "+
+					"overflows uint64", ErrListInvalid)
+			}
+			totalAmount += outputs[i].Amount.Val
 		}
 		*typ = outputs
 		return nil

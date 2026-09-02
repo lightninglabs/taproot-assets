@@ -641,9 +641,13 @@ type MultiverseArchive interface {
 	// outstanding; the archive repairs the gap in the background, or
 	// at the next startup. On success the returned proof composes:
 	// its multiverse inclusion proof commits to its universe root.
+	//
+	// The returned boolean reports whether the upsert created a new
+	// universe leaf, as opposed to replacing the proof of one we already
+	// held. It is set in the pending case too, as the leaf is committed.
 	UpsertProofLeaf(ctx context.Context, id Identifier, key LeafKey,
 		leaf *Leaf,
-		metaReveal *proof.MetaReveal) (*Proof, error)
+		metaReveal *proof.MetaReveal) (*Proof, bool, error)
 
 	// UpsertProofLeafBatch upserts a proof leaf batch within the multiverse
 	// tree and the universe tree that corresponds to the given key(s).
@@ -653,7 +657,12 @@ type MultiverseArchive interface {
 	// durably stored while their multiverse updates are still
 	// outstanding, to be repaired in the background or at the next
 	// startup.
-	UpsertProofLeafBatch(ctx context.Context, items []*Item) error
+	//
+	// The returned slice holds the subset of items that resulted in a new
+	// universe leaf; items the universe already held are left out. It is
+	// populated in the pending case too, as the leaves are committed.
+	UpsertProofLeafBatch(ctx context.Context,
+		items []*Item) ([]*Item, error)
 
 	// FetchProofLeaf returns a proof leaf for the target key. If the key
 	// doesn't have a script key specified, then all the proof leafs for the

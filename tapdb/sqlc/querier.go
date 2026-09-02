@@ -322,6 +322,7 @@ type Querier interface {
 	// TODO(roasbeef): use the universe id instead for the grouping? so namespace
 	// root, simplifies queries
 	QueryUniverseAssetStats(ctx context.Context, arg QueryUniverseAssetStatsParams) ([]QueryUniverseAssetStatsRow, error)
+	QueryUniverseLeafID(ctx context.Context, arg QueryUniverseLeafIDParams) (int64, error)
 	QueryUniverseLeaves(ctx context.Context, arg QueryUniverseLeavesParams) ([]QueryUniverseLeavesRow, error)
 	QueryUniverseServers(ctx context.Context, arg QueryUniverseServersParams) ([]UniverseServer, error)
 	QueryUniverseStats(ctx context.Context) (QueryUniverseStatsRow, error)
