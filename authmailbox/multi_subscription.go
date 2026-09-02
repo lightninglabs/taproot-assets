@@ -7,8 +7,18 @@ import (
 	"sync"
 
 	"github.com/lightninglabs/taproot-assets/asset"
-	lfn "github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightningnetwork/lnd/keychain"
+)
+
+const (
+	// maxMsgQueueOverflow is the maximum number of received message
+	// bundles allowed to accumulate in the shared message queue before
+	// the oldest bundles are dropped. This is a memory-safety bound, not
+	// a delivery guarantee: it protects the daemon against a mailbox
+	// server that delivers messages faster than the consumer drains
+	// them.
+	maxMsgQueueOverflow = 1000
 )
 
 // clientSubscriptions holds the subscriptions and cancel functions for a
@@ -43,14 +53,16 @@ type MultiSubscription struct {
 	// all subscriptions across all clients. This allows for a unified
 	// message channel that can be used to receive messages from any
 	// subscribed account, regardless of which mailbox server it belongs to.
-	msgQueue *lfn.ConcurrentQueue[*ReceivedMessages]
+	msgQueue *fn.ConcurrentQueue[*ReceivedMessages]
 
 	sync.RWMutex
 }
 
 // NewMultiSubscription creates a new MultiSubscription instance.
 func NewMultiSubscription(baseClientConfig ClientConfig) *MultiSubscription {
-	queue := lfn.NewConcurrentQueue[*ReceivedMessages](lfn.DefaultQueueSize)
+	queue := fn.NewConcurrentQueue[*ReceivedMessages](
+		fn.DefaultQueueSize, fn.WithMaxOverflow(maxMsgQueueOverflow),
+	)
 	queue.Start()
 
 	return &MultiSubscription{
