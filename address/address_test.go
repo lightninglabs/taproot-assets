@@ -722,3 +722,52 @@ func TestAddressUnknownOddType(t *testing.T) {
 		},
 	)
 }
+
+// TestDecodeAddressAnyNet checks that DecodeAddressAnyNet decodes an address
+// using the network taken from its own prefix, without the caller passing the
+// network. This is what tapcli's `assets send` relies on so that it accepts an
+// address for whichever network the daemon runs on, regardless of the global
+// --network flag (which defaults to testnet). See issue #2272.
+func TestDecodeAddressAnyNet(t *testing.T) {
+	t.Parallel()
+
+	nets := []*ChainParams{
+		&MainNetTap, &TestNet3Tap, &TestNet4Tap,
+		&RegressionNetTap, &SigNetTap,
+	}
+	for _, net := range nets {
+		net := net
+		t.Run(net.TapHRP, func(t *testing.T) {
+			t.Parallel()
+
+			original, encoded, err := randEncodedAddress(
+				t, net, false, false, asset.Normal,
+			)
+			require.NoError(t, err)
+
+			decoded, err := DecodeAddressAnyNet(encoded)
+			require.NoError(t, err)
+			require.Equal(
+				t, net.TapHRP, decoded.ChainParams.TapHRP,
+			)
+			assertAddressEqual(t, original, decoded)
+		})
+	}
+
+	// A bech32m string whose prefix is not a known Taproot Asset HRP is
+	// rejected, rather than silently decoded against the wrong network.
+	t.Run("unknown hrp", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := DecodeAddressAnyNet("bc1qxyz")
+		require.ErrorIs(t, err, ErrUnsupportedHRP)
+	})
+
+	// A string that is not bech32m at all is rejected too.
+	t.Run("not bech32m", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := DecodeAddressAnyNet("not-an-address")
+		require.ErrorIs(t, err, ErrInvalidBech32m)
+	})
+}
