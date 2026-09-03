@@ -182,68 +182,70 @@ func executeSalePolicyHistory(policy *AssetSalePolicy,
 	return result
 }
 
+func checkAssetSalePolicyLinearizability(rt *rapid.T) {
+	assetMaxAmount := rapid.Uint64Range(1, 10_000).Draw(
+		rt, "asset_max_amount",
+	)
+	policy, maxAmount, err := newPorcupineSalePolicy(assetMaxAmount)
+	if err != nil {
+		rt.Fatalf("unable to calculate policy maximum: %v", err)
+	}
+
+	numClients := rapid.IntRange(2, 5).Draw(rt, "num_clients")
+	clients := make([][]salePolicyInput, numClients)
+	for clientID := range clients {
+		numOperationsLabel := fmt.Sprintf(
+			"client_%d_num_operations", clientID,
+		)
+		numOperations := rapid.IntRange(1, 3).Draw(
+			rt, numOperationsLabel,
+		)
+		clients[clientID] = make([]salePolicyInput, numOperations)
+
+		for operationID := range clients[clientID] {
+			label := fmt.Sprintf(
+				"client_%d_operation_%d", clientID, operationID,
+			)
+			input := salePolicyInput{
+				htlcID: rapid.Uint64Range(
+					0, uint64(numClients),
+				).Draw(rt, label+"_htlc_id"),
+				amount: lnwire.MilliSatoshi(
+					rapid.Uint64Range(
+						1, uint64(maxAmount),
+					).Draw(rt, label+"_amount"),
+				),
+			}
+			clients[clientID][operationID] = input
+		}
+	}
+
+	history := executeSalePolicyHistory(policy, clients)
+	result := porcupine.CheckOperationsTimeout(
+		newSalePolicyModel(maxAmount), history, 5*time.Second,
+	)
+	if result != porcupine.Ok {
+		rt.Fatalf(
+			"history is not linearizable: result=%v, clients=%v",
+			result, clients,
+		)
+	}
+}
+
 // TestAssetSalePolicyLinearizability verifies that concurrently checked HTLCs
 // cannot collectively exceed the quote's maximum amount. Rapid generates the
 // quote limit and per-client operation sequences, while Porcupine validates
-// the outputs observed from the real policy.
+// the outputs observed from the real policy. Ten batches yield 1,000 generated
+// histories with Rapid's default configuration in both normal and race tests.
 func TestAssetSalePolicyLinearizability(t *testing.T) {
 	t.Parallel()
 
-	rapid.Check(t, func(rt *rapid.T) {
-		assetMaxAmount := rapid.Uint64Range(1, 10_000).Draw(
-			rt, "asset_max_amount",
-		)
-		policy, maxAmount, err := newPorcupineSalePolicy(
-			assetMaxAmount,
-		)
-		if err != nil {
-			rt.Fatalf("unable to calculate policy maximum: %v", err)
-		}
-
-		numClients := rapid.IntRange(2, 5).Draw(rt, "num_clients")
-		clients := make([][]salePolicyInput, numClients)
-		for clientID := range clients {
-			numOperationsLabel := fmt.Sprintf(
-				"client_%d_num_operations", clientID,
-			)
-			numOperations := rapid.IntRange(1, 3).Draw(
-				rt, numOperationsLabel,
-			)
-			clients[clientID] = make(
-				[]salePolicyInput, numOperations,
-			)
-
-			for operationID := range clients[clientID] {
-				label := fmt.Sprintf(
-					"client_%d_operation_%d", clientID,
-					operationID,
-				)
-				input := salePolicyInput{
-					htlcID: rapid.Uint64Range(
-						0, uint64(numClients),
-					).Draw(rt, label+"_htlc_id"),
-					amount: lnwire.MilliSatoshi(
-						rapid.Uint64Range(
-							1, uint64(maxAmount),
-						).Draw(rt, label+"_amount"),
-					),
-				}
-				clients[clientID][operationID] = input
-			}
-		}
-
-		history := executeSalePolicyHistory(policy, clients)
-		result := porcupine.CheckOperationsTimeout(
-			newSalePolicyModel(maxAmount), history, 5*time.Second,
-		)
-		if result != porcupine.Ok {
-			rt.Fatalf(
-				"history is not linearizable: result=%v, "+
-					"clients=%v",
-				result, clients,
-			)
-		}
-	})
+	const rapidBatches = 10
+	for batch := range rapidBatches {
+		name := fmt.Sprintf("batch_%02d", batch)
+		check := rapid.MakeCheck(checkAssetSalePolicyLinearizability)
+		t.Run(name, check)
+	}
 }
 
 // TestAssetSalePolicyModelRejectsOverAllocation is a negative control for the
