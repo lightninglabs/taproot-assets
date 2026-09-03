@@ -920,9 +920,11 @@ func genServerConfig(ctx context.Context, cfg *Config,
 			ProofArchive:  proofArchive,
 			KeyLookup:     tapdbAddrBook,
 			ProofNotifier: assetStore,
-			MintNotifier:  assetMinter,
-			KeyDeriver:    lndServices.WalletKit,
-			Swapper:       backup.NewFile(cfg.Backup.FilePath),
+			EventNotifiers: []backup.EventNotifier{
+				assetMinter, chainPorter,
+			},
+			KeyDeriver: lndServices.WalletKit,
+			Swapper:    backup.NewFile(cfg.Backup.FilePath),
 		})
 		if err != nil {
 			return nil, fmt.Errorf("unable to create backup "+

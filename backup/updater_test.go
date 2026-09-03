@@ -133,8 +133,8 @@ func (m *mockNotifier) notify(t *testing.T) {
 	receiver.NewItemCreated.ChanIn() <- proof.Blob("irrelevant")
 }
 
-// mockMintNotifier is a MintNotifier that hands out the registered receiver
-// so tests can push mint events.
+// mockMintNotifier is an EventNotifier that hands out the registered receiver
+// so tests can push events.
 type mockMintNotifier struct {
 	mu          sync.Mutex
 	receiver    *fn.EventReceiver[fn.Event]
@@ -310,6 +310,7 @@ type updaterHarness struct {
 	archive  *proof.MockProofArchive
 	notifier *mockNotifier
 	minter   *mockMintNotifier
+	porter   *mockMintNotifier
 	swapper  *mockSwapper
 	deriver  *mockKeyDeriver
 	lookup   *mockKeyLookup
@@ -322,6 +323,7 @@ func newUpdaterHarness(t *testing.T) *updaterHarness {
 		archive:  proof.NewMockProofArchive(),
 		notifier: &mockNotifier{},
 		minter:   &mockMintNotifier{},
+		porter:   &mockMintNotifier{},
 		swapper:  newMockSwapper(),
 		deriver:  newMockKeyDeriver(t),
 		lookup:   &mockKeyLookup{},
@@ -340,7 +342,9 @@ func (h *updaterHarness) config() *UpdaterConfig {
 		ProofArchive:  h.archive,
 		KeyLookup:     h.lookup,
 		ProofNotifier: h.notifier,
-		MintNotifier:  h.minter,
+		EventNotifiers: []EventNotifier{
+			h.minter, h.porter,
+		},
 		KeyDeriver:    h.deriver,
 		Swapper:       h.swapper,
 		Debounce:      testDebounce,
@@ -555,8 +559,11 @@ func TestUpdaterAddAndRemove(t *testing.T) {
 	h.source.add(a3.ChainAsset)
 	h.minter.notify(t)
 	assertEntries(t, h.waitWrite(), a1, a2, a3)
+
+	// Full value send without change: no proof is imported locally, only
+	// the send state machine reports it.
 	h.source.remove(a3.ChainAsset)
-	h.minter.notify(t)
+	h.porter.notify(t)
 	assertEntries(t, h.waitWrite(), a1, a2)
 
 	// Spend a1: the leaf leaves the unspent set.
@@ -812,31 +819,32 @@ func TestUpdaterStartFailures(t *testing.T) {
 
 		require.Error(t, h.updater.Start())
 		require.Nil(t, h.updater.receiver)
-		require.Nil(t, h.updater.mintReceiver)
+		require.Empty(t, h.updater.eventReceivers)
 		require.NoError(t, h.updater.Stop())
 	})
 
-	t.Run("mint subscribe fails", func(t *testing.T) {
+	t.Run("event subscribe fails", func(t *testing.T) {
 		h := newUpdaterHarness(t)
-		h.minter.registerErr = errors.New("no mint events")
+		h.porter.registerErr = errors.New("no send events")
 
-		require.ErrorContains(t, h.updater.Start(), "no mint events")
+		require.ErrorContains(t, h.updater.Start(), "no send events")
 
-		// The proof subscription that did succeed is rolled back.
+		// The subscriptions that did succeed are rolled back.
 		require.True(t, h.notifier.removed)
+		require.True(t, h.minter.removed)
 		require.Nil(t, h.updater.receiver)
-		require.Nil(t, h.updater.mintReceiver)
+		require.Empty(t, h.updater.eventReceivers)
 		require.NoError(t, h.updater.Stop())
 	})
 }
 
-// TestUpdaterWithoutMintNotifier asserts the mint notifier is optional.
-func TestUpdaterWithoutMintNotifier(t *testing.T) {
+// TestUpdaterWithoutEventNotifiers asserts the event notifiers are optional.
+func TestUpdaterWithoutEventNotifiers(t *testing.T) {
 	t.Parallel()
 
 	h := newUpdaterHarness(t)
 	cfg := h.config()
-	cfg.MintNotifier = nil
+	cfg.EventNotifiers = nil
 	u, err := NewUpdater(cfg)
 	require.NoError(t, err)
 	h.updater = u
@@ -940,6 +948,7 @@ func TestUpdaterSyncAndStop(t *testing.T) {
 
 	require.True(t, h.notifier.removed)
 	require.True(t, h.minter.removed)
+	require.True(t, h.porter.removed)
 	require.ErrorIs(t, h.updater.Sync(context.Background()),
 		ErrUpdaterNotActive)
 

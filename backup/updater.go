@@ -55,12 +55,14 @@ type AssetFetcher func(ctx context.Context) ([]*asset.ChainAsset, error)
 // replaced asset proof in the local asset store is published on it.
 type ProofNotifier = fn.EventPublisher[proof.Blob, []*proof.Locator]
 
-// MintNotifier is the event publisher the Updater subscribes to in order to
-// learn about minted assets. Minting stores the proof file before it writes
-// the confirmed asset, so the proof notification alone would race the
-// database write. Mint events are published after every batch state change,
-// including the final one after the database write.
-type MintNotifier = fn.EventPublisher[fn.Event, bool]
+// EventNotifier is a generic event publisher the Updater subscribes to in
+// addition to the proof notifier. Two wallet changes leave no trace in the
+// proof notifications: a mint stores its proof file before it writes the
+// confirmed asset, so the proof notification alone would race the database
+// write, and a full value send without change or tombstone output creates no
+// local proof at all. The planter and the chain porter publish state change
+// events for both, after the database write.
+type EventNotifier = fn.EventPublisher[fn.Event, bool]
 
 // UpdaterConfig holds the dependencies of the Updater.
 type UpdaterConfig struct {
@@ -77,8 +79,10 @@ type UpdaterConfig struct {
 	// state changes.
 	ProofNotifier ProofNotifier
 
-	// MintNotifier publishes minting batch state changes. Optional.
-	MintNotifier MintNotifier
+	// EventNotifiers publish state changes of the subsystems that modify
+	// the wallet without necessarily importing a proof: the planter (mints)
+	// and the chain porter (sends). Optional.
+	EventNotifiers []EventNotifier
 
 	// KeyDeriver derives the backup encryption key from the lnd wallet.
 	KeyDeriver KeyDeriver
@@ -167,8 +171,8 @@ type Updater struct {
 
 	encrypter lnencrypt.EncrypterDecrypter
 
-	receiver     *fn.EventReceiver[proof.Blob]
-	mintReceiver *fn.EventReceiver[fn.Event]
+	receiver       *fn.EventReceiver[proof.Blob]
+	eventReceivers []*fn.EventReceiver[fn.Event]
 
 	// entries is the in-memory backup state. It is only accessed from
 	// Start (before the main loop runs) and from the main loop itself.
@@ -274,20 +278,23 @@ func (u *Updater) Start() error {
 			return
 		}
 
-		if u.cfg.MintNotifier != nil {
-			u.mintReceiver = fn.NewEventReceiver[fn.Event](
+		for _, notifier := range u.cfg.EventNotifiers {
+			eventReceiver := fn.NewEventReceiver[fn.Event](
 				fn.DefaultQueueSize,
 			)
-			err = u.cfg.MintNotifier.RegisterSubscriber(
-				u.mintReceiver, false, false,
+			err = notifier.RegisterSubscriber(
+				eventReceiver, false, false,
 			)
 			if err != nil {
+				eventReceiver.Stop()
 				u.unsubscribe()
-				u.mintReceiver = nil
 				startErr = fmt.Errorf("unable to subscribe to "+
-					"mint events: %w", err)
+					"wallet events: %w", err)
 				return
 			}
+			u.eventReceivers = append(
+				u.eventReceivers, eventReceiver,
+			)
 		}
 
 		u.isActive.Store(true)
@@ -338,13 +345,15 @@ func (u *Updater) unsubscribe() {
 		u.receiver = nil
 	}
 
-	if u.mintReceiver != nil {
-		err := u.cfg.MintNotifier.RemoveSubscriber(u.mintReceiver)
+	// The receivers were registered in config order, so they pair up
+	// with the notifiers by index.
+	for idx, eventReceiver := range u.eventReceivers {
+		err := u.cfg.EventNotifiers[idx].RemoveSubscriber(eventReceiver)
 		if err != nil {
-			log.Warnf("Unable to remove mint subscriber: %v", err)
+			log.Warnf("Unable to remove event subscriber: %v", err)
 		}
-		u.mintReceiver = nil
 	}
+	u.eventReceivers = nil
 }
 
 // Sync forces an immediate reconcile and blocks until the file has been
@@ -428,11 +437,28 @@ func (u *Updater) mainLoop() {
 		}
 	}
 
-	// A nil channel blocks forever, which is what we want when there is
-	// no mint notifier.
-	var mintEvents <-chan fn.Event
-	if u.mintReceiver != nil {
-		mintEvents = u.mintReceiver.NewItemCreated.ChanOut()
+	// Fan all generic event receivers into one channel so the loop below
+	// can select on a fixed set of cases.
+	events := make(chan struct{}, 1)
+	for _, eventReceiver := range u.eventReceivers {
+		u.wg.Add(1)
+		go func(in <-chan fn.Event) {
+			defer u.wg.Done()
+
+			for {
+				select {
+				case <-in:
+					select {
+					case events <- struct{}{}:
+					case <-u.quit:
+						return
+					}
+
+				case <-u.quit:
+					return
+				}
+			}
+		}(eventReceiver.NewItemCreated.ChanOut())
 	}
 
 	for {
@@ -440,7 +466,7 @@ func (u *Updater) mainLoop() {
 		case <-u.receiver.NewItemCreated.ChanOut():
 			onChange()
 
-		case <-mintEvents:
+		case <-events:
 			onChange()
 
 		case <-timerCh:

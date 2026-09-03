@@ -338,11 +338,13 @@ import --backup_file=assets.backup` works unchanged.
 ### Update mechanism
 
 The updater holds the current set of backup entries in memory, keyed by
-`(asset ID, script key, anchor outpoint)`, and subscribes to two event
+`(asset ID, script key, anchor outpoint)`, and subscribes to three event
 sources: the proof import notifications of the asset store (asset received,
-transfer confirmed, sweep, re-org re-import) and the minting batch state
-events of the planter (mint confirmed). Notifications only mark the state as
-changed, the actual content is always read from the database.
+transfer confirmed with local outputs, sweep, re-org re-import), the minting
+batch state events of the planter (mint confirmed) and the send state events
+of the chain porter (a full value send without change or tombstone output
+imports no local proof). Notifications only mark the state as changed, the
+actual content is always read from the database.
 
 On each notification, after a short debounce (1s) so a single confirmation with
 many outputs causes one rewrite:
