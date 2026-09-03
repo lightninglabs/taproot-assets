@@ -125,9 +125,11 @@ func expectEntries(amounts ...uint64) func(*backup.WalletBackup) error {
 //  3. Alice cannot import Bob's file (different wallet key).
 //  4. Bob's tapd is stopped and a fresh tapd on Bob's lnd imports the file,
 //     recovering the leaf.
+//  5. Only Bob's database is wiped, the proofs directory and the file stay.
+//     The restarted tapd imports the file and recovers the leaf again.
 func testBackupFileUpdates(t *harnessTest) {
 	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout*2)
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout*6)
 	defer cancel()
 
 	aliceLnd, err := t.newLndClient(t.tapd.cfg.LndNode)
@@ -223,9 +225,6 @@ func testBackupFileUpdates(t *harnessTest) {
 	require.NoError(t.t, bobTapd.stop(!*noDelete))
 
 	bobTapd2 := setupTapdHarness(t.t, t, bobLnd, t.universeServer)
-	defer func() {
-		require.NoError(t.t, bobTapd2.stop(!*noDelete))
-	}()
 
 	bobAssets, err := bobTapd2.ListAssets(ctxt, &taprpc.ListAssetRequest{})
 	require.NoError(t.t, err)
@@ -256,6 +255,55 @@ func testBackupFileUpdates(t *harnessTest) {
 	// leaf.
 	waitForBackupFile(t, bobTapd2, bobLndClient, expectEntries(300))
 
+	// === Stage 5: Wipe only the database ===
+	// A common way to "reset" tapd is to delete tapd.db and keep the rest
+	// of the data directory, including the proof files and the backup
+	// file itself. The import must still recover the leaf: proof files
+	// on disk are not the wallet. With the postgres backend every harness
+	// gets its own database, so reusing the data directory alone produces
+	// the same state: fresh database, old proofs directory.
+	require.NoError(t.t, bobTapd2.stop(false))
+
+	dataDir := filepath.Dir(backupFilePath(bobTapd2))
+	dbFiles, err := filepath.Glob(filepath.Join(dataDir, "tapd.db*"))
+	require.NoError(t.t, err)
+	if *dbbackend == "sqlite" {
+		require.NotEmpty(t.t, dbFiles)
+	}
+	for _, f := range dbFiles {
+		require.NoError(t.t, os.Remove(f))
+	}
+	require.FileExists(t.t, backupFilePath(bobTapd2))
+	require.DirExists(t.t, filepath.Join(dataDir, "proofs"))
+
+	bobTapd3 := setupTapdHarness(
+		t.t, t, bobLnd, t.universeServer,
+		WithBaseDir(bobTapd2.cfg.BaseDir),
+	)
+	defer func() {
+		require.NoError(t.t, bobTapd3.stop(!*noDelete))
+	}()
+
+	bobAssets, err = bobTapd3.ListAssets(ctxt, &taprpc.ListAssetRequest{})
+	require.NoError(t.t, err)
+	require.Empty(t.t, bobAssets.Assets)
+
+	// The file on disk was retained across the restart and is what we
+	// import from.
+	bobRaw, _ = waitForBackupFile(
+		t, bobTapd3, bobLndClient, expectEntries(300),
+	)
+	importResp, err = bobTapd3.ImportAssetsFromBackup(
+		ctxt, &wrpc.ImportAssetsFromBackupRequest{Backup: bobRaw},
+	)
+	require.NoError(t.t, err)
+	require.Equal(t.t, uint32(1), importResp.NumImported)
+	require.Equal(t.t, uint32(0), importResp.NumSkipped)
+
+	bobAssets, err = bobTapd3.ListAssets(ctxt, &taprpc.ListAssetRequest{})
+	require.NoError(t.t, err)
+	require.Len(t.t, bobAssets.Assets, 1)
+
 	// The restored leaf is spendable: send it back to Alice.
 	aliceAddr, err := t.tapd.NewAddr(ctxt, &taprpc.NewAddrRequest{
 		AssetId:      minted.AssetGenesis.AssetId,
@@ -265,13 +313,13 @@ func testBackupFileUpdates(t *harnessTest) {
 	require.NoError(t.t, err)
 	AssertAddrCreated(t.t, t.tapd, minted, aliceAddr)
 
-	sendResp, _ = sendAssetsToAddr(t, bobTapd2, aliceAddr)
+	sendResp, _ = sendAssetsToAddr(t, bobTapd3, aliceAddr)
 	ConfirmAndAssertOutboundTransfer(
-		t.t, t.lndHarness.Miner(), bobTapd2, sendResp,
+		t.t, t.lndHarness.Miner(), bobTapd3, sendResp,
 		minted.AssetGenesis.AssetId, []uint64{0, 300}, 0, 1,
 	)
 	AssertNonInteractiveRecvComplete(t.t, t.tapd, 1)
 
-	waitForBackupFile(t, bobTapd2, bobLndClient, expectEntries())
+	waitForBackupFile(t, bobTapd3, bobLndClient, expectEntries())
 	waitForBackupFile(t, t.tapd, aliceLnd, expectEntries(700, 300))
 }

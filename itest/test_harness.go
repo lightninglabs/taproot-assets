@@ -431,6 +431,10 @@ type tapdHarnessParams struct {
 	// sweepOrphanUtxos indicates whether orphan UTXO sweeping should be
 	// enabled (overriding the test default of disabled).
 	sweepOrphanUtxos bool
+
+	// baseDir, if set, is the tapd data directory to use instead of a
+	// fresh temporary one. This restarts a tapd on existing data.
+	baseDir string
 }
 
 // Option is a tapd harness option.
@@ -482,6 +486,14 @@ func WithSweepOrphanUtxos() Option {
 	}
 }
 
+// WithBaseDir makes the tapd harness reuse the given data directory instead
+// of creating a fresh one, so a node can be restarted on existing data.
+func WithBaseDir(dir string) Option {
+	return func(th *tapdHarnessParams) {
+		th.baseDir = dir
+	}
+}
+
 // setupTapdHarness creates a new tapd that connects to the given lnd node
 // and to the given universe server.
 func setupTapdHarness(t *testing.T, ht *harnessTest,
@@ -523,6 +535,7 @@ func setupTapdHarness(t *testing.T, ht *harnessTest,
 	tapdCfg := tapdConfig{
 		NetParams: harnessNetParams,
 		LndNode:   node,
+		BaseDir:   params.baseDir,
 	}
 	tapdHarness, err := newTapdHarness(t, ht, tapdCfg, harnessOpts)
 	require.NoError(t, err)
