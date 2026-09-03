@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/lightninglabs/lndclient"
+	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/backup"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	wrpc "github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
@@ -93,6 +94,10 @@ func expectEntries(amounts ...uint64) func(*backup.WalletBackup) error {
 
 		remaining := append([]uint64{}, amounts...)
 		for _, ab := range wb.Assets {
+			if ab.Asset == nil {
+				return fmt.Errorf("entry without asset")
+			}
+
 			found := false
 			for i, amt := range remaining {
 				if ab.Asset != nil && ab.Asset.Amount == amt {
@@ -121,7 +126,9 @@ func expectEntries(amounts ...uint64) func(*backup.WalletBackup) error {
 // Flow:
 //  1. Alice mints an asset, her backup file contains the minted leaf.
 //  2. Alice sends part of it to Bob. Alice's file swaps the minted leaf for
-//     the change leaf, Bob's file gains the received leaf.
+//     the change leaf, Bob's file gains the received leaf. Alice also mints
+//     a grouped asset and sends it to a V2 address of Bob, whose script key
+//     is a unique Pedersen key: tweaked, yet spent like a BIP-86 key.
 //  3. Alice cannot import Bob's file (different wallet key).
 //  4. Bob's tapd is stopped and a fresh tapd on Bob's lnd imports the file,
 //     recovering the leaf.
@@ -206,11 +213,58 @@ func testBackupFileUpdates(t *harnessTest) {
 		aliceBackup.Assets[0].AnchorOutpoint)
 
 	// Bob's file holds the received leaf.
-	bobRaw, bobBackup := waitForBackupFile(
+	_, bobBackup := waitForBackupFile(
 		t, bobTapd, bobLndClient, expectEntries(300),
 	)
 	bobID := bobBackup.Assets[0].Asset.ID()
 	require.Equal(t.t, minted.AssetGenesis.AssetId, bobID[:])
+
+	// A grouped asset received on a V2 address lands on a unique Pedersen
+	// script key. Its entry must record that type, otherwise a restore
+	// files it as an external script path key and hides it.
+	grouped := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner(), t.tapd,
+		[]*mintrpc.MintAssetRequest{CopyRequest(issuableAssets[0])},
+	)[0]
+	groupAddr, err := bobTapd.NewAddr(ctxt, &taprpc.NewAddrRequest{
+		AddressVersion: taprpc.AddrVersion_ADDR_VERSION_V2,
+		GroupKey:       grouped.AssetGroup.TweakedGroupKey,
+	})
+	require.NoError(t.t, err)
+
+	sendResp, err = t.tapd.SendAsset(ctxt, &taprpc.SendAssetRequest{
+		AddressesWithAmounts: []*taprpc.AddressWithAmount{{
+			TapAddr: groupAddr.Encoded,
+			Amount:  grouped.Amount,
+		}},
+	})
+	require.NoError(t.t, err)
+	AssertAssetOutboundTransferWithOutputs(
+		t.t, t.lndHarness.Miner(), t.tapd, sendResp.Transfer,
+		[][]byte{grouped.AssetGenesis.AssetId},
+		[]uint64{grouped.Amount}, 1, 2, 1, true,
+	)
+	AssertNonInteractiveRecvComplete(t.t, bobTapd, 2)
+
+	bobRaw, bobBackup := waitForBackupFile(
+		t, bobTapd, bobLndClient, expectEntries(300, grouped.Amount),
+	)
+	for _, ab := range bobBackup.Assets {
+		require.NotNil(t.t, ab.ScriptKeyInfo)
+		if ab.Asset.Amount == grouped.Amount {
+			require.Equal(t.t, asset.ScriptKeyUniquePedersen,
+				ab.ScriptKeyInfo.Type)
+			require.NotEmpty(t.t, ab.ScriptKeyInfo.Tweak)
+		} else {
+			require.Equal(t.t, asset.ScriptKeyBip86,
+				ab.ScriptKeyInfo.Type)
+		}
+	}
+
+	// Both leaves are visible with the default listing filter.
+	bobAssets, err := bobTapd.ListAssets(ctxt, &taprpc.ListAssetRequest{})
+	require.NoError(t.t, err)
+	require.Len(t.t, bobAssets.Assets, 2)
 
 	// === Stage 3: Wrong key ===
 	// Alice's wallet key cannot decrypt Bob's file.
@@ -226,7 +280,7 @@ func testBackupFileUpdates(t *harnessTest) {
 
 	bobTapd2 := setupTapdHarness(t.t, t, bobLnd, t.universeServer)
 
-	bobAssets, err := bobTapd2.ListAssets(ctxt, &taprpc.ListAssetRequest{})
+	bobAssets, err = bobTapd2.ListAssets(ctxt, &taprpc.ListAssetRequest{})
 	require.NoError(t.t, err)
 	require.Empty(t.t, bobAssets.Assets)
 
@@ -234,15 +288,12 @@ func testBackupFileUpdates(t *harnessTest) {
 		ctxt, &wrpc.ImportAssetsFromBackupRequest{Backup: bobRaw},
 	)
 	require.NoError(t.t, err)
-	require.Equal(t.t, uint32(1), importResp.NumImported)
+	require.Equal(t.t, uint32(2), importResp.NumImported)
 	require.Equal(t.t, uint32(0), importResp.NumSkipped)
 
-	bobAssets, err = bobTapd2.ListAssets(ctxt, &taprpc.ListAssetRequest{})
-	require.NoError(t.t, err)
-	require.Len(t.t, bobAssets.Assets, 1)
-	require.Equal(t.t, uint64(300), bobAssets.Assets[0].Amount)
-	require.Equal(t.t, minted.AssetGenesis.AssetId,
-		bobAssets.Assets[0].AssetGenesis.AssetId)
+	// Both leaves are back, visible with the default filter, and the
+	// balances see them too. This is what a restore is for.
+	assertRestoredLeaves(t, bobTapd2, minted, grouped)
 
 	// Importing again is a no-op.
 	importResp, err = bobTapd2.ImportAssetsFromBackup(
@@ -252,8 +303,10 @@ func testBackupFileUpdates(t *harnessTest) {
 	require.Equal(t.t, uint32(0), importResp.NumImported)
 
 	// The restored node's own backup file catches up with the imported
-	// leaf.
-	waitForBackupFile(t, bobTapd2, bobLndClient, expectEntries(300))
+	// leaves.
+	waitForBackupFile(
+		t, bobTapd2, bobLndClient, expectEntries(300, grouped.Amount),
+	)
 
 	// === Stage 5: Wipe only the database ===
 	// A common way to "reset" tapd is to delete tapd.db and keep the rest
@@ -291,18 +344,16 @@ func testBackupFileUpdates(t *harnessTest) {
 	// The file on disk was retained across the restart and is what we
 	// import from.
 	bobRaw, _ = waitForBackupFile(
-		t, bobTapd3, bobLndClient, expectEntries(300),
+		t, bobTapd3, bobLndClient, expectEntries(300, grouped.Amount),
 	)
 	importResp, err = bobTapd3.ImportAssetsFromBackup(
 		ctxt, &wrpc.ImportAssetsFromBackupRequest{Backup: bobRaw},
 	)
 	require.NoError(t.t, err)
-	require.Equal(t.t, uint32(1), importResp.NumImported)
+	require.Equal(t.t, uint32(2), importResp.NumImported)
 	require.Equal(t.t, uint32(0), importResp.NumSkipped)
 
-	bobAssets, err = bobTapd3.ListAssets(ctxt, &taprpc.ListAssetRequest{})
-	require.NoError(t.t, err)
-	require.Len(t.t, bobAssets.Assets, 1)
+	assertRestoredLeaves(t, bobTapd3, minted, grouped)
 
 	// The restored leaf is spendable: send it back to Alice.
 	aliceAddr, err := t.tapd.NewAddr(ctxt, &taprpc.NewAddrRequest{
@@ -320,6 +371,76 @@ func testBackupFileUpdates(t *harnessTest) {
 	)
 	AssertNonInteractiveRecvComplete(t.t, t.tapd, 1)
 
-	waitForBackupFile(t, bobTapd3, bobLndClient, expectEntries())
+	waitForBackupFile(
+		t, bobTapd3, bobLndClient, expectEntries(grouped.Amount),
+	)
 	waitForBackupFile(t, t.tapd, aliceLnd, expectEntries(700, 300))
+
+	// The restored Pedersen leaf is spendable as well: send it back to a
+	// V2 address of Alice.
+	aliceGroupAddr, err := t.tapd.NewAddr(ctxt, &taprpc.NewAddrRequest{
+		AddressVersion: taprpc.AddrVersion_ADDR_VERSION_V2,
+		GroupKey:       grouped.AssetGroup.TweakedGroupKey,
+	})
+	require.NoError(t.t, err)
+
+	sendResp, err = bobTapd3.SendAsset(ctxt, &taprpc.SendAssetRequest{
+		AddressesWithAmounts: []*taprpc.AddressWithAmount{{
+			TapAddr: aliceGroupAddr.Encoded,
+			Amount:  grouped.Amount,
+		}},
+	})
+	require.NoError(t.t, err)
+	AssertAssetOutboundTransferWithOutputs(
+		t.t, t.lndHarness.Miner(), bobTapd3, sendResp.Transfer,
+		[][]byte{grouped.AssetGenesis.AssetId},
+		[]uint64{grouped.Amount}, 1, 2, 1, true,
+	)
+	AssertNonInteractiveRecvComplete(t.t, t.tapd, 2)
+
+	waitForBackupFile(t, bobTapd3, bobLndClient, expectEntries())
+	waitForBackupFile(
+		t, t.tapd, aliceLnd, expectEntries(700, 300, grouped.Amount),
+	)
+}
+
+// assertRestoredLeaves asserts that a restored node lists both the BIP-86
+// leaf of the minted asset and the unique Pedersen leaf of the grouped asset
+// with the default filters, in ListAssets and in ListBalances.
+func assertRestoredLeaves(t *harnessTest, tapd *tapdHarness,
+	minted, grouped *taprpc.Asset) {
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	assets, err := tapd.ListAssets(ctxt, &taprpc.ListAssetRequest{})
+	require.NoError(t.t, err)
+	require.Len(t.t, assets.Assets, 2)
+
+	amounts := make(map[string]uint64)
+	types := make(map[string]taprpc.ScriptKeyType)
+	for _, a := range assets.Assets {
+		id := fmt.Sprintf("%x", a.AssetGenesis.AssetId)
+		amounts[id] = a.Amount
+		types[id] = a.ScriptKeyType
+	}
+	mintedID := fmt.Sprintf("%x", minted.AssetGenesis.AssetId)
+	groupedID := fmt.Sprintf("%x", grouped.AssetGenesis.AssetId)
+	require.Equal(t.t, uint64(300), amounts[mintedID])
+	require.Equal(t.t, grouped.Amount, amounts[groupedID])
+	require.Equal(t.t, taprpc.ScriptKeyType_SCRIPT_KEY_BIP86,
+		types[mintedID])
+	require.Equal(t.t, taprpc.ScriptKeyType_SCRIPT_KEY_UNIQUE_PEDERSEN,
+		types[groupedID])
+
+	balances, err := tapd.ListBalances(ctxt, &taprpc.ListBalancesRequest{
+		GroupBy: &taprpc.ListBalancesRequest_AssetId{AssetId: true},
+	})
+	require.NoError(t.t, err)
+	require.Len(t.t, balances.AssetBalances, 2)
+	require.Equal(t.t, uint64(300),
+		balances.AssetBalances[mintedID].Balance)
+	require.Equal(t.t, grouped.Amount,
+		balances.AssetBalances[groupedID].Balance)
 }
