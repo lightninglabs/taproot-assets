@@ -132,6 +132,17 @@
 
 ## Functional Updates
 
+- [PR#2278](https://github.com/lightninglabs/taproot-assets/pull/2278)
+  derives the initial (height zero) commitment of an asset channel from
+  the negotiated local and remote channel configs (dust limit, CSV
+  delay), which makes it consistent with the commitment that is
+  re-derived on an immediate force close. A new aux channel feature bit,
+  `negotiated-chan-cfg`, is advertised as optional. When a peer doesn't
+  signal it, the previous derivation from zeroed configs is used so that
+  channels can still be opened with older versions. The next release
+  will make the feature required, at which point peers that don't signal
+  it are rejected.
+
 - [PR#2202](https://github.com/lightninglabs/taproot-assets/pull/2202)
   adds cursor-based delta sync to the universe federation. Each server
   exposes its insertion-ordered leaf journal via the new `SyncDelta`
