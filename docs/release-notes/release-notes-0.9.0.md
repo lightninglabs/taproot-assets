@@ -213,6 +213,10 @@
   repeated unbounded before reporting insufficient funds, so that a coin
   the paged listing may have missed can't be mistaken for missing funds.
 
+* [PR#2273](https://github.com/lightninglabs/taproot-assets/pull/2273)
+  pre-decodes transfer block heights before sorting universe transfer leaves,
+  avoiding repeated proof decoding during sort comparisons.
+
 ## Deprecations
 
 # Technical and Architectural Updates
