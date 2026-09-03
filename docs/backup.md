@@ -98,6 +98,7 @@ Types 7 and 9 are odd, so a v1-only decoder will safely skip them.
 | 2 | Index | Key index (`uint32`) |
 | 3 | RawPubKey | Pre-tweak internal public key (33 bytes) |
 | 4 | Tweak | Tweak bytes; absent means BIP-86 |
+| 5 | Type | Script key type (`uint8`) as known by the exporting wallet; optional. Without it the importer classifies the key from its material (BIP-86 and unique Pedersen keys by re-derivation, other tweaked keys as external script path) |
 
 ### KeyDescriptorBackup TLV
 

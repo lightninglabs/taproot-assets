@@ -89,6 +89,45 @@ type ImportConfig struct {
 	WalletProofs proof.Exporter
 }
 
+// scriptKeyTypeForImport returns the type a restored script key is registered
+// with. A type recorded by the exporting wallet wins. Backups that predate the
+// type field are classified from the key material: BIP-0086 and unique
+// Pedersen keys are recognised by re-deriving them, which matters because a
+// Pedersen key carries a tweak yet must stay visible and spendable like a
+// BIP-0086 key. Any other tweaked key is an external script path key.
+func scriptKeyTypeForImport(sk asset.ScriptKey,
+	assetID asset.ID) asset.ScriptKeyType {
+
+	tweaked := sk.TweakedScriptKey
+	if tweaked == nil || sk.PubKey == nil {
+		return asset.ScriptKeyUnknown
+	}
+	if tweaked.Type != asset.ScriptKeyUnknown {
+		return tweaked.Type
+	}
+
+	if tweaked.RawKey.PubKey != nil {
+		bip86 := asset.NewScriptKeyBip86(tweaked.RawKey)
+		if bip86.PubKey.IsEqual(sk.PubKey) {
+			return asset.ScriptKeyBip86
+		}
+
+		pedersen, err := asset.DeriveUniqueScriptKey(
+			*tweaked.RawKey.PubKey, assetID,
+			asset.ScriptKeyDerivationUniquePedersen,
+		)
+		if err == nil && pedersen.PubKey.IsEqual(sk.PubKey) {
+			return asset.ScriptKeyUniquePedersen
+		}
+	}
+
+	if len(tweaked.Tweak) > 0 {
+		return asset.ScriptKeyScriptPathExternal
+	}
+
+	return asset.ScriptKeyBip86
+}
+
 // assetExists reports whether the wallet database already holds a proof for
 // the given locator.
 func assetExists(ctx context.Context, cfg *ImportConfig,
@@ -480,14 +519,14 @@ func ImportBackup(ctx context.Context, backupBlob []byte,
 				TweakedScriptKey: &asset.TweakedScriptKey{
 					RawKey: skInfo.RawKey,
 					Tweak:  skInfo.Tweak,
+					Type:   skInfo.Type,
 				},
 			}
 
-			scriptKeyType := asset.ScriptKeyBip86
-			if len(skInfo.Tweak) > 0 {
-				scriptKeyType =
-					asset.ScriptKeyScriptPathExternal
-			}
+			scriptKeyType := scriptKeyTypeForImport(
+				scriptKey, assetID,
+			)
+			scriptKey.TweakedScriptKey.Type = scriptKeyType
 
 			err = cfg.KeyRegistrar.InsertScriptKey(
 				ctx, scriptKey, scriptKeyType,

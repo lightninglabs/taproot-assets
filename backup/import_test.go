@@ -1,13 +1,118 @@
 package backup
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"testing"
 
+	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
 )
+
+// TestScriptKeyTypeForImport asserts how restored script keys are classified.
+// The important case is a unique Pedersen key from a V2 address receive: it
+// carries a tweak, so a tweak based guess would file it as an external script
+// path key and hide the asset from default listings and coin selection.
+func TestScriptKeyTypeForImport(t *testing.T) {
+	t.Parallel()
+
+	assetID := asset.ID{1, 2, 3}
+	rawKey := keychain.KeyDescriptor{
+		PubKey:     test.RandPubKey(t),
+		KeyLocator: keychain.KeyLocator{Family: 212, Index: 3},
+	}
+	untyped := func(sk asset.ScriptKey) asset.ScriptKey {
+		sk.TweakedScriptKey.Type = asset.ScriptKeyUnknown
+		return sk
+	}
+
+	t.Run("declared type wins", func(t *testing.T) {
+		sk := asset.NewScriptKeyBip86(rawKey)
+		sk.TweakedScriptKey.Type = asset.ScriptKeyScriptPathChannel
+		require.Equal(t, asset.ScriptKeyScriptPathChannel,
+			scriptKeyTypeForImport(sk, assetID))
+	})
+
+	t.Run("bip86 derived", func(t *testing.T) {
+		sk := untyped(asset.NewScriptKeyBip86(rawKey))
+		require.Equal(t, asset.ScriptKeyBip86,
+			scriptKeyTypeForImport(sk, assetID))
+	})
+
+	t.Run("unique pedersen derived", func(t *testing.T) {
+		sk, err := asset.DeriveUniqueScriptKey(
+			*rawKey.PubKey, assetID,
+			asset.ScriptKeyDerivationUniquePedersen,
+		)
+		require.NoError(t, err)
+		require.NotEmpty(t, sk.TweakedScriptKey.Tweak)
+		sk.TweakedScriptKey.RawKey = rawKey
+
+		require.Equal(t, asset.ScriptKeyUniquePedersen,
+			scriptKeyTypeForImport(untyped(sk), assetID))
+
+		// A different asset ID does not derive the same key, so it
+		// falls through to the tweaked classification.
+		require.Equal(t, asset.ScriptKeyScriptPathExternal,
+			scriptKeyTypeForImport(untyped(sk), asset.ID{9}))
+	})
+
+	t.Run("other tweak is external script path", func(t *testing.T) {
+		sk := asset.ScriptKey{
+			PubKey: test.RandPubKey(t),
+			TweakedScriptKey: &asset.TweakedScriptKey{
+				RawKey: rawKey,
+				Tweak:  []byte("some tapscript root"),
+			},
+		}
+		require.Equal(t, asset.ScriptKeyScriptPathExternal,
+			scriptKeyTypeForImport(sk, assetID))
+	})
+
+	t.Run("no raw key and no tweak", func(t *testing.T) {
+		sk := asset.ScriptKey{
+			PubKey:           test.RandPubKey(t),
+			TweakedScriptKey: &asset.TweakedScriptKey{},
+		}
+		require.Equal(t, asset.ScriptKeyBip86,
+			scriptKeyTypeForImport(sk, assetID))
+	})
+
+	t.Run("missing material", func(t *testing.T) {
+		require.Equal(t, asset.ScriptKeyUnknown,
+			scriptKeyTypeForImport(asset.ScriptKey{}, assetID))
+	})
+}
+
+// TestScriptKeyBackupTypeEncoding asserts the type round trips and that a
+// backup written without it decodes to an unknown type.
+func TestScriptKeyBackupTypeEncoding(t *testing.T) {
+	t.Parallel()
+
+	sk := newTestScriptKeyBackup(t)
+	sk.Type = asset.ScriptKeyUniquePedersen
+
+	var buf bytes.Buffer
+	require.NoError(t, sk.Encode(&buf))
+
+	var decoded ScriptKeyBackup
+	require.NoError(t, decoded.Decode(&buf))
+	require.Equal(t, asset.ScriptKeyUniquePedersen, decoded.Type)
+
+	// Without a type nothing is written for it and it reads back as
+	// unknown, which the import then classifies from the key material.
+	sk.Type = asset.ScriptKeyUnknown
+	buf.Reset()
+	require.NoError(t, sk.Encode(&buf))
+
+	var legacy ScriptKeyBackup
+	require.NoError(t, legacy.Decode(&buf))
+	require.Equal(t, asset.ScriptKeyUnknown, legacy.Type)
+}
 
 // staticExporter is a proof.Exporter that answers every lookup the same way.
 type staticExporter struct {

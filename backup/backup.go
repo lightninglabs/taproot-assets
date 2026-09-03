@@ -100,6 +100,14 @@ type ScriptKeyBackup struct {
 	// Tweak is the tweak applied to derive the final script key.
 	// If nil, a BIP-0086 tweak is assumed.
 	Tweak []byte
+
+	// Type is the script key type as known by the exporting wallet. It
+	// decides how the wallet treats the key after a restore, for example
+	// whether the asset shows up in default listings and coin selection.
+	// A tweaked key alone does not reveal the type: unique Pedersen keys
+	// carry a tweak too but are spent like BIP-0086 keys. Unknown if the
+	// backup predates this field.
+	Type asset.ScriptKeyType
 }
 
 // KeyDescriptorBackup contains the key derivation info for an internal key.
@@ -153,10 +161,12 @@ func createAssetBackup(ctx context.Context,
 
 	// Extract script key info if available.
 	if chainAsset.ScriptKey.TweakedScriptKey != nil {
+		assetID := chainAsset.ID()
 		backup.ScriptKeyInfo = &ScriptKeyBackup{
 			PubKey: chainAsset.ScriptKey.PubKey,
 			RawKey: chainAsset.ScriptKey.TweakedScriptKey.RawKey,
 			Tweak:  chainAsset.ScriptKey.TweakedScriptKey.Tweak,
+			Type:   chainAsset.ScriptKey.DetermineType(&assetID),
 		}
 	}
 

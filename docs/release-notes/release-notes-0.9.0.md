@@ -25,7 +25,10 @@
   backup](https://github.com/lightninglabs/taproot-assets/pull/2277) into a
   node whose database was wiped but whose proofs directory survived no longer
   skips every asset as already present. The existence check now consults the
-  wallet database only.
+  wallet database only. Backups also record the script key type, so assets
+  received on V2 addresses (unique Pedersen script keys) stay visible and
+  spendable after a restore instead of being filed as external script path
+  keys.
 
 * [PR#2190](https://github.com/lightninglabs/taproot-assets/pull/2190)
   fixes a bug that could cause minted assets to commit to the wrong
