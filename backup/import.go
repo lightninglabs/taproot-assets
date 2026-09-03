@@ -80,6 +80,36 @@ type ImportConfig struct {
 	// It is only needed to import encrypted backups such as the file
 	// written by the Updater. If nil, encrypted backups are rejected.
 	KeyDeriver KeyDeriver
+
+	// WalletProofs is the database backed proof store that decides
+	// whether an asset is already part of the wallet. It must not fall
+	// back to proof files on disk: a node whose database was wiped but
+	// whose proofs directory survived would otherwise skip every asset.
+	// If nil, ProofArchive is used.
+	WalletProofs proof.Exporter
+}
+
+// assetExists reports whether the wallet database already holds a proof for
+// the given locator.
+func assetExists(ctx context.Context, cfg *ImportConfig,
+	locator proof.Locator) (bool, error) {
+
+	var store proof.Exporter = cfg.ProofArchive
+	if cfg.WalletProofs != nil {
+		store = cfg.WalletProofs
+	}
+
+	_, err := store.FetchProof(ctx, locator)
+	switch {
+	case err == nil:
+		return true, nil
+
+	case errors.Is(err, proof.ErrProofNotFound):
+		return false, nil
+
+	default:
+		return false, err
+	}
 }
 
 // extractGroupKeys extracts group public keys from genesis proofs
@@ -318,16 +348,16 @@ func ImportBackup(ctx context.Context, backupBlob []byte,
 			OutPoint:  &assetBackup.AnchorOutpoint,
 		}
 
-		_, err := cfg.ProofArchive.FetchProof(ctx, locator)
-		if err == nil {
-			log.Debugf("Asset %d already exists, "+
-				"skipping", i)
-			continue
-		}
-		if !errors.Is(err, proof.ErrProofNotFound) {
+		exists, err := assetExists(ctx, cfg, locator)
+		if err != nil {
 			return numImported, numSkipped,
 				fmt.Errorf("error checking existing "+
 					"asset %d: %w", i, err)
+		}
+		if exists {
+			log.Debugf("Asset %d already exists, "+
+				"skipping", i)
+			continue
 		}
 
 		// For v2+ backups, rehydrate the stripped proof by

@@ -2,10 +2,72 @@ package backup
 
 import (
 	"context"
+	"errors"
 	"testing"
 
+	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/stretchr/testify/require"
 )
+
+// staticExporter is a proof.Exporter that answers every lookup the same way.
+type staticExporter struct {
+	err error
+}
+
+func (s *staticExporter) FetchProof(context.Context,
+	proof.Locator) (proof.Blob, error) {
+
+	if s.err != nil {
+		return nil, s.err
+	}
+
+	return proof.Blob("found"), nil
+}
+
+// TestAssetExists asserts that the existence check consults the wallet
+// database store when one is configured, and only falls back to the full
+// archive without it. A proof file left on disk must not make an asset look
+// like it is already part of a wiped wallet.
+func TestAssetExists(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	found := &staticExporter{}
+	missing := &staticExporter{err: proof.ErrProofNotFound}
+	broken := &staticExporter{err: errors.New("db locked")}
+
+	t.Run("wallet store wins over archive", func(t *testing.T) {
+		exists, err := assetExists(ctx, &ImportConfig{
+			ProofArchive: proof.NewMockProofArchive(),
+			WalletProofs: missing,
+		}, proof.Locator{})
+		require.NoError(t, err)
+		require.False(t, exists)
+
+		exists, err = assetExists(ctx, &ImportConfig{
+			ProofArchive: proof.NewMockProofArchive(),
+			WalletProofs: found,
+		}, proof.Locator{})
+		require.NoError(t, err)
+		require.True(t, exists)
+	})
+
+	t.Run("archive fallback", func(t *testing.T) {
+		exists, err := assetExists(ctx, &ImportConfig{
+			ProofArchive: proof.NewMockProofArchive(),
+		}, proof.Locator{})
+		require.NoError(t, err)
+		require.False(t, exists)
+	})
+
+	t.Run("store error is fatal", func(t *testing.T) {
+		_, err := assetExists(ctx, &ImportConfig{
+			ProofArchive: proof.NewMockProofArchive(),
+			WalletProofs: broken,
+		}, proof.Locator{})
+		require.ErrorContains(t, err, "db locked")
+	})
+}
 
 // TestImportBackupEncrypted covers the decryption gate at the start of
 // ImportBackup. The config deliberately carries only a key deriver: any path
