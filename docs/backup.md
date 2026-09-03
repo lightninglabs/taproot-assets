@@ -298,6 +298,8 @@ sequenceDiagram
 
 In addition to the on-demand export RPC, `tapd` keeps an encrypted compact (v2)
 backup of the wallet on disk and updates it whenever the wallet state changes.
+The operator guide for the file is [backup-file.md](backup-file.md), this
+section covers the mechanics.
 This mirrors lnd's `channel.backup` file: the goal is that a copy of the file
 plus the lnd seed is enough to recover every asset the wallet held at the time
 the copy was taken.
