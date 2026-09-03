@@ -56,3 +56,25 @@ func TestFeatureBits(t *testing.T) {
 
 	require.Error(t, err)
 }
+
+// TestNegotiatedChanCfgFeature asserts that we advertise the negotiated channel
+// config feature as optional. Flipping it to required is a deliberate,
+// separate step, as it rejects every peer that doesn't signal the feature.
+func TestNegotiatedChanCfgFeature(t *testing.T) {
+	local := LocalFeatures()
+
+	require.True(t, local.HasFeature(NegotiatedChanCfgOptional))
+	require.False(t, local.RequiresFeature(NegotiatedChanCfgOptional))
+
+	// A peer that doesn't know the feature at all must still pass our
+	// required bits check while the feature is optional.
+	peer := lnwire.NewRawFeatureVector(NoOpHTLCsOptional, STXOOptional)
+	require.NoError(t, checkRequiredBits(getLocalFeatureVec(), peer))
+
+	// Once we require it, such a peer is rejected at init.
+	required := lnwire.NewRawFeatureVector(NegotiatedChanCfgRequired)
+	require.Error(t, checkRequiredBits(required, peer))
+
+	peer.Set(NegotiatedChanCfgOptional)
+	require.NoError(t, checkRequiredBits(required, peer))
+}
