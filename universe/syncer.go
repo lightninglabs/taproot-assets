@@ -571,18 +571,26 @@ func (s *SimpleSyncer) syncRoot(ctx context.Context, remoteRoot Root,
 			leaf        *Item
 			blockHeight uint32
 		}
-		leavesWithHeight := make([]leafWithHeight, 0, len(transferLeaves))
+		leavesWithHeight := make(
+			[]leafWithHeight, 0, len(transferLeaves),
+		)
 		for _, item := range transferLeaves {
 			var blockHeight uint32
 			record := proof.BlockHeightRecord(&blockHeight)
-			_ = proof.SparseDecode(bytes.NewReader(item.Leaf.RawProof), record)
-			leavesWithHeight = append(leavesWithHeight, leafWithHeight{
-				leaf:        item,
-				blockHeight: blockHeight,
-			})
+			_ = proof.SparseDecode(
+				bytes.NewReader(item.Leaf.RawProof),
+				record,
+			)
+			leavesWithHeight = append(
+				leavesWithHeight, leafWithHeight{
+					leaf:        item,
+					blockHeight: blockHeight,
+				},
+			)
 		}
 		sort.Slice(leavesWithHeight, func(i, j int) bool {
-			return leavesWithHeight[i].blockHeight < leavesWithHeight[j].blockHeight
+			return leavesWithHeight[i].blockHeight <
+				leavesWithHeight[j].blockHeight
 		})
 		for i, item := range leavesWithHeight {
 			transferLeaves[i] = item.leaf
