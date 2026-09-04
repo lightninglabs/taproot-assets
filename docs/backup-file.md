@@ -56,8 +56,9 @@ If the configured directory does not exist it is created on the first write.
 The path has to name a file, `tapd` refuses to start if it points at a
 directory.
 
-The file is written on startup, after every wallet change, and once more on
-shutdown. Writes are atomic: a new version is written next to the file and then
+The file is written on startup and after every wallet change, and checked
+once more on shutdown so a change that had not been written yet still lands
+on disk. Writes are atomic: a new version is written next to the file and then
 renamed over it, so a copy taken at any moment is either the previous or the
 new complete version, never a partial one.
 
@@ -78,8 +79,11 @@ The file changes whenever assets are minted, received or sent. Copy it to a
 second location whenever it changes, for example with a file watcher or a
 periodic sync job. An older copy is safe to restore from, it simply does not
 contain outputs received after it was taken, and outputs it lists that have
-since been spent are skipped on import. Outputs spent while `tapd` was not
-running are removed from the file on the next start.
+since been spent are skipped on import. A spend that `tapd` recorded but did
+not get to write to the file, for example because it was shut down right after
+the spend confirmed, is removed from the file on the next start. A spend
+`tapd` never saw, made by another wallet on the same seed, stays in the file
+and is skipped on import.
 
 To check that a copy can be read, import it into the node that wrote it. This
 is a no-op and reports zero imported assets if the file is readable and up to
