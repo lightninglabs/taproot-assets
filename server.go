@@ -201,6 +201,15 @@ func (s *Server) initialize(interceptorChain *rpcperms.InterceptorChain) error {
 		return fmt.Errorf("unable to start re-org watcher: %w", err)
 	}
 
+	// The anchoring watcher is nil when disabled by configuration;
+	// the registry's read surfaces stay up regardless.
+	if s.cfg.AnchoringWatcher != nil {
+		if err := s.cfg.AnchoringWatcher.Start(); err != nil {
+			return fmt.Errorf("unable to start anchoring "+
+				"watcher: %w", err)
+		}
+	}
+
 	if err := s.cfg.ChainPorter.Start(); err != nil {
 		return fmt.Errorf("unable to start chain porter: %w", err)
 	}
@@ -471,6 +480,10 @@ func (s *Server) RunUntilShutdown(mainErrChan <-chan error) error {
 		// Provide Prometheus collectors with access to the asset
 		// minter.
 		s.cfg.Prometheus.AssetMinter = s.cfg.AssetMinter
+
+		// Provide Prometheus collectors with access to the re-org
+		// watcher's anchoring registry.
+		s.cfg.Prometheus.AnchoringRegistry = s.cfg.AnchoringRegistry
 
 		s.cfg.Prometheus.CacheStats = func(hits map[string]int64,
 			misses map[string]int64) {
@@ -834,6 +847,12 @@ func (s *Server) Stop() error {
 
 	if err := s.cfg.ReOrgWatcher.Stop(); err != nil {
 		return err
+	}
+
+	if s.cfg.AnchoringWatcher != nil {
+		if err := s.cfg.AnchoringWatcher.Stop(); err != nil {
+			return err
+		}
 	}
 
 	if err := s.cfg.ChainPorter.Stop(); err != nil {

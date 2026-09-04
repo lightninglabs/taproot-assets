@@ -18,6 +18,18 @@ const (
 	// STXOOptional is a feature bit that declares the STXO proofs as an
 	// optional feature.
 	STXOOptional lnwire.FeatureBit = 3
+
+	// NegotiatedChanCfgRequired is a feature bit that declares as required
+	// that the initial (height zero) commitment of an asset channel is
+	// derived from the negotiated local and remote channel configs (dust
+	// limit, CSV delay). Peers without this feature derive it from zeroed
+	// configs instead.
+	NegotiatedChanCfgRequired lnwire.FeatureBit = 4
+
+	// NegotiatedChanCfgOptional is a feature bit that declares as optional
+	// that the initial commitment of an asset channel is derived from the
+	// negotiated local and remote channel configs.
+	NegotiatedChanCfgOptional lnwire.FeatureBit = 5
 )
 
 // featureNames keeps track of the string description of known features.
@@ -26,6 +38,9 @@ var featureNames = map[lnwire.FeatureBit]string{
 	NoOpHTLCsOptional: "noop-htlcs",
 	STXORequired:      "stxo-proofs",
 	STXOOptional:      "stxo-proofs",
+
+	NegotiatedChanCfgRequired: "negotiated-chan-cfg",
+	NegotiatedChanCfgOptional: "negotiated-chan-cfg",
 }
 
 // ourFeatures returns a slice containing all of the locally supported features.
@@ -35,7 +50,13 @@ func ourFeatures() []lnwire.FeatureBit {
 	return []lnwire.FeatureBit{
 		NoOpHTLCsOptional,
 		STXOOptional,
+		NegotiatedChanCfgOptional,
 	}
+}
+
+// LocalFeatures returns the feature vector that we advertise to our peers.
+func LocalFeatures() lnwire.FeatureVector {
+	return *lnwire.NewFeatureVector(getLocalFeatureVec(), featureNames)
 }
 
 // getLocalFeatureVec returns the feature vector of the currently supported

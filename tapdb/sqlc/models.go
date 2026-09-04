@@ -386,6 +386,75 @@ type ProofType struct {
 	ProofType string
 }
 
+type ReorgAnchoring struct {
+	ID                int64
+	SiteID            string
+	Threshold         int32
+	MatchVersion      int16
+	MatchData         []byte
+	PayloadVersion    int16
+	PayloadData       []byte
+	CreatedHeight     int32
+	PhaseCode         int16
+	PhaseEvidence     []byte
+	DeliveredCode     int16
+	DeliveredEvidence []byte
+	WitnessTxid       []byte
+	Stuck             bool
+	DeliveryAttempts  int32
+	LastDeliveryError sql.NullString
+	NextDeliveryAt    int64
+	TerminalAt        sql.NullInt64
+}
+
+type ReorgCandidateSpend struct {
+	ID             int64
+	AnchoringID    int64
+	SpenderTxid    []byte
+	RawTx          []byte
+	Verdict        sql.NullInt16
+	OnChain        bool
+	BlockHash      []byte
+	BlockHeight    sql.NullInt32
+	TxIndex        sql.NullInt32
+	ActCertified   bool
+	BlockHeader    []byte
+	MerkleProof    []byte
+	SpentOutpoints []byte
+}
+
+type ReorgDependency struct {
+	ID                      int64
+	ChildID                 int64
+	ParentID                int64
+	ParentWitnessTxid       []byte
+	ForeclosingEvidence     []byte
+	ForeclosingOnChain      bool
+	ForeclosingActCertified bool
+}
+
+type ReorgOutbox struct {
+	ID             int64
+	AnchoringID    sql.NullInt64
+	EffectKind     string
+	PayloadVersion int16
+	PayloadData    []byte
+	CreatedAt      int64
+	Attempts       int32
+	LastError      sql.NullString
+	NextAttemptAt  int64
+	DispatchedAt   sql.NullInt64
+}
+
+type ReorgTriggerOutpoint struct {
+	ID            int64
+	AnchoringID   int64
+	OutpointTxid  []byte
+	OutpointIndex int32
+	PkScript      []byte
+	HeightHint    int32
+}
+
 type RfqPolicy struct {
 	ID                    int64
 	PolicyType            string

@@ -48,6 +48,10 @@ var (
 			Entity: "assets",
 			Action: "read",
 		}},
+		"/taprpc.TaprootAssets/ListAnchorings": {{
+			Entity: "assets",
+			Action: "read",
+		}},
 		"/taprpc.TaprootAssets/QueryAddrs": {{
 			Entity: "addresses",
 			Action: "read",

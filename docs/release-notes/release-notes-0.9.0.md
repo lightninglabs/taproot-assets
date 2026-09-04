@@ -129,13 +129,46 @@
   including a prepare/finalize signing boundary, durable restart recovery,
   and wallet-input lease management.
 
+* [PR#2266](https://github.com/lightninglabs/taproot-assets/pull/2266)
+  adds the 'watcher': a daemon-wide service that records each
+  act of staking local state on a chain outcome as a durable
+  "anchoring", senses the chain into per-anchoring evidence, derives
+  phases from that evidence, and converges the owning subsystem
+  through handlers that run atomically with the registry advance. It
+  runs alongside the existing re-org watcher; no subsystem registers
+  anchorings with it yet, so no existing flow changes behaviour in
+  this release.
+
 ## RPC Additions
+
+* [PR#2266](https://github.com/lightninglabs/taproot-assets/pull/2266)
+  adds a `ListAnchorings` RPC (with REST binding) exposing the
+  anchoring watcher's registry: each anchoring's site, sensed and
+  delivered phase (stable names that round-trip through the phase
+  filter, with evidence renderings in companion detail fields),
+  burial threshold, current witness, delivery bookkeeping including
+  the last delivery error and terminal timestamp, filterable by
+  site, phase and stuckness, and paged (100 anchorings per page by
+  default, 1000 at most). A new Prometheus collector exports live
+  anchorings by site and phase, plus stuck and lagging deliveries
+  counted over live and terminal anchorings alike.
 
 ## tapcli Additions
 
 # Improvements
 
 ## Functional Updates
+
+- [PR#2278](https://github.com/lightninglabs/taproot-assets/pull/2278)
+  derives the initial (height zero) commitment of an asset channel from
+  the negotiated local and remote channel configs (dust limit, CSV
+  delay), which makes it consistent with the commitment that is
+  re-derived on an immediate force close. A new aux channel feature bit,
+  `negotiated-chan-cfg`, is advertised as optional. When a peer doesn't
+  signal it, the previous derivation from zeroed configs is used so that
+  channels can still be opened with older versions. The next release
+  will make the feature required, at which point peers that don't signal
+  it are rejected.
 
 - [PR#2202](https://github.com/lightninglabs/taproot-assets/pull/2202)
   adds cursor-based delta sync to the universe federation. Each server
@@ -175,6 +208,12 @@
   federation syncer will rely on cursor-based delta sync against a
   server before forcing a full enumeration sync as an audit (default:
   24h).
+
+- The new `--disable-anchoring-watcher` flag disables the anchoring
+  watcher service, serving as a kill switch while no subsystem yet
+  registers anchorings with it. The registry's read surfaces (the
+  `ListAnchorings` RPC and the Prometheus collector) stay available
+  with the watcher disabled.
 
 ## Code Health
 

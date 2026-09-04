@@ -17,6 +17,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb"
 	"github.com/lightninglabs/taproot-assets/tapnode"
+	"github.com/lightninglabs/taproot-assets/tapreorg"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -97,6 +98,35 @@ func (l *LndRpcChainBridge) RegisterConfirmationsNtfn(ctx context.Context,
 		Confirmed: confChan,
 		Cancel:    cancel,
 	}, errChan, nil
+}
+
+// RegisterSpendNtfn registers an intent to be notified once the given
+// outpoint is spent by a confirmed transaction. Only confirmed spends
+// are reported. If reOrgChan is non-nil, the subscription stays open
+// after the first spend event and re-notifies with a fresh spend
+// detail if a (same or different) spending transaction confirms after
+// a re-org; a send on reOrgChan signals that the previously reported
+// spend was re-organized out of the chain. The subscription is torn
+// down by cancelling the passed context.
+func (l *LndRpcChainBridge) RegisterSpendNtfn(ctx context.Context,
+	outpoint *wire.OutPoint, pkScript []byte, heightHint uint32,
+	reOrgChan chan struct{}) (chan *chainntnfs.SpendDetail, chan error,
+	error) {
+
+	var opts []lndclient.NotifierOption
+	if reOrgChan != nil {
+		opts = append(opts, lndclient.WithReOrgChan(reOrgChan))
+	}
+
+	spendChan, errChan, err := l.lnd.ChainNotifier.RegisterSpendNtfn(
+		ctx, outpoint, pkScript, int32(heightHint), opts...,
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to register for spend: "+
+			"%w", err)
+	}
+
+	return spendChan, errChan, nil
 }
 
 // RegisterBlockEpochNtfn registers an intent to be notified of each new block
@@ -593,6 +623,10 @@ func (l *LndRpcChainBridge) GenProofChainLookup(
 // tapnode.ChainBridge interface.
 var _ tapnode.ChainBridge = (*LndRpcChainBridge)(nil)
 var _ tapnode.DefinitivePublisher = (*LndRpcChainBridge)(nil)
+
+// A compile-time assertion that the chain bridge satisfies the chain
+// sensing contract the re-org watcher pins in its own package.
+var _ tapreorg.ChainNotifier = (*LndRpcChainBridge)(nil)
 
 // ProofChainLookup is an implementation of the asset.ChainLookup interface
 // that uses a proof file to look up block height information of previous inputs

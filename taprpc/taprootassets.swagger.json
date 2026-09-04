@@ -170,6 +170,68 @@
         ]
       }
     },
+    "/v1/taproot-assets/anchorings": {
+      "get": {
+        "summary": "tapcli: `anchorings`\nListAnchorings lists the re-org watcher's speculative anchorings:\neverything the daemon has staked on chain outcomes, the phase the\nchain has assigned to each stake, and the delivery state of the\nowning subsystem.",
+        "operationId": "TaprootAssets_ListAnchorings",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/taprpcListAnchoringsResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "site",
+            "description": "Only return anchorings registered by this site, when set.",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "phase",
+            "description": "Only return anchorings whose sensed phase has exactly this\nname, when set: one of unwitnessed, witnessed, conflicted,\nburied, abandoned, withdrawn. Any other value is an error.",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "stuck_only",
+            "description": "Only return anchorings whose delivery is flagged stuck.",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "name": "limit",
+            "description": "The maximum number of anchorings to return; at most 1000 per\npage. Zero requests the default page size of 100.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "offset",
+            "description": "The number of matching anchorings to skip, for paging.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          }
+        ],
+        "tags": [
+          "TaprootAssets"
+        ]
+      }
+    },
     "/v1/taproot-assets/assets": {
       "get": {
         "summary": "tapcli: `assets list`\nListAssets lists the set of assets owned by the target daemon.",
@@ -1709,6 +1771,74 @@
         }
       }
     },
+    "taprpcAnchoring": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "int64",
+          "description": "The registry-assigned identifier."
+        },
+        "site": {
+          "type": "string",
+          "description": "The owning site."
+        },
+        "phase": {
+          "type": "string",
+          "description": "The sensed phase: the registry's derived truth. One of\nunwitnessed, witnessed, conflicted, buried, abandoned,\nwithdrawn — the same vocabulary the request's phase filter\ntakes, so a listed value filters verbatim."
+        },
+        "delivered_phase": {
+          "type": "string",
+          "description": "The phase the owning site last durably acknowledged, in the\nsame vocabulary as phase. The site is converged when this\nequals the sensed phase."
+        },
+        "threshold": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The confirmation depth at which this anchoring is\nact-confirmed."
+        },
+        "created_height": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The best height at registration time."
+        },
+        "stuck": {
+          "type": "boolean",
+          "description": "Whether delivery has failed repeatedly; retries continue\nregardless."
+        },
+        "delivery_attempts": {
+          "type": "integer",
+          "format": "int64",
+          "description": "Failed delivery attempts since the last successful delivery."
+        },
+        "witness_txid": {
+          "type": "string",
+          "format": "byte",
+          "description": "The current witness transaction, when witnessed or buried."
+        },
+        "num_candidates": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The number of candidate spends observed for the trigger set."
+        },
+        "phase_detail": {
+          "type": "string",
+          "description": "The sensed phase with its evidence summarized, human-readable."
+        },
+        "delivered_phase_detail": {
+          "type": "string",
+          "description": "The delivered phase with its evidence summarized."
+        },
+        "last_delivery_error": {
+          "type": "string",
+          "description": "The error text of the most recent failed delivery attempt;\nempty after a successful delivery."
+        },
+        "terminal_at": {
+          "type": "string",
+          "format": "int64",
+          "description": "The unix time the terminal phase was delivered; zero while\nlive."
+        }
+      }
+    },
     "taprpcAsset": {
       "type": "object",
       "properties": {
@@ -2524,6 +2654,19 @@
           "type": "integer",
           "format": "int32",
           "description": "The precise index of the key being identified."
+        }
+      }
+    },
+    "taprpcListAnchoringsResponse": {
+      "type": "object",
+      "properties": {
+        "anchorings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/taprpcAnchoring"
+          },
+          "description": "The matching anchorings."
         }
       }
     },

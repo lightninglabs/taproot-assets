@@ -34,6 +34,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightninglabs/taproot-assets/vm"
+	"github.com/lightningnetwork/lnd/channeldb"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -635,6 +636,63 @@ func (p *pendingAssetFunding) addInputProofChunk(
 	}
 
 	return lfn.Ok(lfn.Some(*finalProof))
+}
+
+// ErrNegotiatedChanCfgRequired is returned when we require our peer to derive
+// the initial commitment from the negotiated channel configs but the peer
+// doesn't signal support for it.
+var ErrNegotiatedChanCfgRequired = errors.New("peer does not support " +
+	"deriving the initial commitment from the negotiated channel configs")
+
+// useNegotiatedChanCfg decides whether the initial commitment of a channel with
+// a peer is derived from the negotiated local and remote channel configs. Both
+// parties must derive the very same commitment, so if the peer doesn't signal
+// the feature we fall back to the zeroed configs that older versions used. If
+// we require the feature, a peer that lacks it is rejected.
+func useNegotiatedChanCfg(local, peer lnwire.FeatureVector) (bool, error) {
+	if peer.HasFeature(tapfeatures.NegotiatedChanCfgOptional) {
+		return true, nil
+	}
+
+	if local.RequiresFeature(tapfeatures.NegotiatedChanCfgOptional) {
+		return false, ErrNegotiatedChanCfgRequired
+	}
+
+	return false, nil
+}
+
+// applyNegotiatedChanCfg makes sure the channel configs in the given aux
+// channel state match what our peer uses to derive the initial commitment.
+// Older peers derive it from zeroed channel configs, so if the peer doesn't
+// signal the feature we zero them as well to arrive at the very same commitment
+// transaction. If we require the feature, such a peer is rejected.
+func (f *FundingController) applyNegotiatedChanCfg(peerPub btcec.PublicKey,
+	openChan *lnwallet.AuxChanState) error {
+
+	peerKey := peerPub.SerializeCompressed()
+	peerFeatures := f.cfg.AuxChanNegotiator.GetPeerFeatures(
+		route.Vertex(peerKey),
+	)
+
+	useCfg, err := useNegotiatedChanCfg(
+		tapfeatures.LocalFeatures(), peerFeatures,
+	)
+	if err != nil {
+		return err
+	}
+
+	if useCfg {
+		return nil
+	}
+
+	log.Infof("Peer %x doesn't signal %v, deriving initial commitment "+
+		"from zeroed channel configs", peerKey,
+		tapfeatures.NegotiatedChanCfgOptional)
+
+	openChan.LocalChanCfg = channeldb.ChannelConfig{}
+	openChan.RemoteChanCfg = channeldb.ChannelConfig{}
+
+	return nil
 }
 
 // newCommitBlobAndLeaves creates a new commitment blob that'll be stored in
@@ -2365,6 +2423,17 @@ func (f *FundingController) chanFunder() {
 					ctxc, fundingFlow.peerPub, pid, fErr,
 				)
 				req.errChan <- fErr
+				continue
+			}
+
+			err = f.applyNegotiatedChanCfg(
+				fundingFlow.peerPub, &req.openChan,
+			)
+			if err != nil {
+				f.cfg.ErrReporter.ReportError(
+					ctxc, fundingFlow.peerPub, pid, err,
+				)
+				req.errChan <- err
 				continue
 			}
 

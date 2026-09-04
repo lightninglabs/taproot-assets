@@ -62,9 +62,9 @@ func (a *anchorTxNotification) firstRegistration() *proofRegistration {
 	return a.proofsRegistrations[0]
 }
 
-// Config houses all the items that the watcher needs to carry out its
+// LegacyConfig houses all the items that the watcher needs to carry out its
 // duties.
-type Config struct {
+type LegacyConfig struct {
 	// ChainBridge is the main interface for interacting with the chain
 	// backend.
 	ChainBridge tapnode.ChainBridge
@@ -95,14 +95,14 @@ type Config struct {
 	ErrChan chan<- error
 }
 
-// Watcher is responsible for watching initially confirmed transactions
+// LegacyWatcher is responsible for watching initially confirmed transactions
 // until they reach a safe confirmation depth. If a re-org happens, it will
 // update the proof and store it in the proof archive.
-type Watcher struct {
+type LegacyWatcher struct {
 	startOnce sync.Once
 	stopOnce  sync.Once
 
-	cfg *Config
+	cfg *LegacyConfig
 
 	bestHeight atomic.Int32
 
@@ -118,9 +118,10 @@ type Watcher struct {
 	*fn.ContextGuard
 }
 
-// NewWatcher creates a new re-org watcher based on the passed config.
-func NewWatcher(cfg *Config) *Watcher {
-	return &Watcher{
+// NewLegacyWatcher creates a new legacy re-org watcher based on the
+// passed config.
+func NewLegacyWatcher(cfg *LegacyConfig) *LegacyWatcher {
+	return &LegacyWatcher{
 		cfg:            cfg,
 		incomingProofs: make(chan *proofRegistration),
 		incomingConfs:  make(chan *chainntnfs.TxConfirmation),
@@ -133,7 +134,7 @@ func NewWatcher(cfg *Config) *Watcher {
 }
 
 // Start attempts to start a new re-org watcher.
-func (w *Watcher) Start() error {
+func (w *LegacyWatcher) Start() error {
 	var startErr error
 	w.startOnce.Do(func() {
 		log.Info("Starting re-org watcher")
@@ -203,7 +204,7 @@ func (w *Watcher) Start() error {
 }
 
 // Stop signals for a re-org watcher to gracefully exit.
-func (w *Watcher) Stop() error {
+func (w *LegacyWatcher) Stop() error {
 	var stopErr error
 	w.stopOnce.Do(func() {
 		log.Info("Stopping re-org watcher")
@@ -217,7 +218,7 @@ func (w *Watcher) Stop() error {
 
 // waitForConf waits for the anchor transaction of the given proofs to reach a
 // safe confirmation depth.
-func (w *Watcher) waitForConf(ctx context.Context, txHash chainhash.Hash,
+func (w *LegacyWatcher) waitForConf(ctx context.Context, txHash chainhash.Hash,
 	newProofs *proofRegistration) error {
 
 	// Do we already have a confirmation watcher for this transaction? Then
@@ -322,7 +323,7 @@ func (w *Watcher) waitForConf(ctx context.Context, txHash chainhash.Hash,
 
 // updateProofs updates the given proofs with the new block and merkle proof and
 // then informs the caller about the update.
-func (w *Watcher) updateProofs(proofNtfn *anchorTxNotification,
+func (w *LegacyWatcher) updateProofs(proofNtfn *anchorTxNotification,
 	conf *chainntnfs.TxConfirmation) error {
 
 	// All proofs in the registration should have the same anchor tx, so we
@@ -358,7 +359,7 @@ func (w *Watcher) updateProofs(proofNtfn *anchorTxNotification,
 
 // watchTransactions processes new proofs given to the watcher and watches their
 // anchor transactions until they reach a safe confirmation depth.
-func (w *Watcher) watchTransactions() {
+func (w *LegacyWatcher) watchTransactions() {
 	defer w.Wg.Done()
 
 	runCtx, cancel := w.WithCtxQuitNoTimeout()
@@ -498,7 +499,7 @@ func (w *Watcher) watchTransactions() {
 
 // WatchProofs adds new proofs to the re-org watcher for their anchor
 // transaction to be watched until it reaches a safe confirmation depth.
-func (w *Watcher) WatchProofs(newProofs []*proof.Proof,
+func (w *LegacyWatcher) WatchProofs(newProofs []*proof.Proof,
 	onProofUpdate proof.UpdateCallback) error {
 
 	if len(newProofs) == 0 {
@@ -542,7 +543,7 @@ func (w *Watcher) WatchProofs(newProofs []*proof.Proof,
 
 // MaybeWatch inspects the given proof file for any proofs that are not
 // yet buried sufficiently deep and adds them to the re-org watcher.
-func (w *Watcher) MaybeWatch(file *proof.File,
+func (w *LegacyWatcher) MaybeWatch(file *proof.File,
 	onProofUpdate proof.UpdateCallback) error {
 
 	// We walk backward through the file and start watching all proofs that
@@ -578,14 +579,14 @@ func (w *Watcher) MaybeWatch(file *proof.File,
 
 // ShouldWatch returns true if the proof is for a block that is not yet
 // sufficiently deep to be considered safe.
-func (w *Watcher) ShouldWatch(p *proof.Proof) bool {
+func (w *LegacyWatcher) ShouldWatch(p *proof.Proof) bool {
 	return (w.bestHeight.Load() - int32(p.BlockHeight)) < w.cfg.SafeDepth
 }
 
 // DefaultUpdateCallback is the default implementation for the update callback
 // that is called when a proof is updated. This implementation will replace the
 // old proof in the proof archiver (multi-archive) with the new one.
-func (w *Watcher) DefaultUpdateCallback() proof.UpdateCallback {
+func (w *LegacyWatcher) DefaultUpdateCallback() proof.UpdateCallback {
 	return func(proofs []*proof.Proof) error {
 		// Let's not be interrupted by a shutdown.
 		ctxt, cancel := w.CtxBlocking()
@@ -646,7 +647,7 @@ func (w *Watcher) DefaultUpdateCallback() proof.UpdateCallback {
 }
 
 // reportErr reports an error to the main server.
-func (w *Watcher) reportErr(err error) {
+func (w *LegacyWatcher) reportErr(err error) {
 	select {
 	case w.cfg.ErrChan <- err:
 	case <-w.Quit:
