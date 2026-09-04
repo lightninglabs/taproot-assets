@@ -120,6 +120,13 @@
   86400 second default instead of returning an error. Fixes
   [#2261](https://github.com/lightninglabs/taproot-assets/issues/2261).
 
+* [PR#2275](https://github.com/lightninglabs/taproot-assets/pull/2275)
+  makes `tapcli assets send` accept an address for whichever network the
+  daemon runs on, instead of decoding it against the global `--network`
+  flag (which defaults to testnet) and rejecting a mainnet address with a
+  network mismatch. Fixes
+  [#2272](https://github.com/lightninglabs/taproot-assets/issues/2272).
+
 # New Features
 
 ## Functional Enhancements
