@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 )
 
 const (
@@ -41,28 +42,29 @@ type Swapper interface {
 // are written to a temporary sibling file first, synced, and then renamed
 // over the main file so a crash can never leave a half written backup.
 type File struct {
-	fileName     string
-	tempFileName string
+	fileName string
 }
 
 // NewFile creates a new File swapper for the given path.
 func NewFile(fileName string) *File {
-	var tempFileName string
-	if fileName != "" {
-		tempFileName = filepath.Join(
-			filepath.Dir(fileName), DefaultTempBackupFileName,
-		)
-	}
-
-	return &File{
-		fileName:     fileName,
-		tempFileName: tempFileName,
-	}
+	return &File{fileName: fileName}
 }
 
 // Path returns the path of the main backup file.
 func (f *File) Path() string {
 	return f.fileName
+}
+
+// target returns the path the backup is actually written to. A symlink at the
+// configured path is followed, so the operator's link to another volume is
+// kept and the file behind it is replaced.
+func (f *File) target() string {
+	resolved, err := filepath.EvalSymlinks(f.fileName)
+	if err != nil {
+		return f.fileName
+	}
+
+	return resolved
 }
 
 // UpdateAndSwap writes the packed backup to a temporary file, syncs it and
@@ -75,51 +77,59 @@ func (f *File) UpdateAndSwap(packed []byte) error {
 		return fmt.Errorf("refusing to write empty backup file")
 	}
 
+	target := f.target()
+	tempFileName := filepath.Join(
+		filepath.Dir(target), DefaultTempBackupFileName,
+	)
+
 	// A custom path may point into a directory that does not exist yet.
-	dir := filepath.Dir(f.fileName)
+	dir := filepath.Dir(target)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("unable to create backup directory: %w", err)
 	}
 
 	// A stale temp file from a crashed previous attempt is discarded.
-	if _, err := os.Stat(f.tempFileName); err == nil {
+	if _, err := os.Stat(tempFileName); err == nil {
 		log.Infof("Found stale temp backup file %v, removing",
-			f.tempFileName)
+			tempFileName)
 
-		if err := os.Remove(f.tempFileName); err != nil {
+		if err := os.Remove(tempFileName); err != nil {
 			return fmt.Errorf("unable to remove stale temp "+
 				"backup file: %w", err)
 		}
 	}
 
-	if err := f.writeTemp(packed); err != nil {
-		_ = os.Remove(f.tempFileName)
+	if err := writeTemp(tempFileName, packed); err != nil {
+		_ = os.Remove(tempFileName)
 		return err
 	}
 
-	log.Debugf("Swapping backup file %v -> %v", f.tempFileName,
-		f.fileName)
+	log.Debugf("Swapping backup file %v -> %v", tempFileName, target)
 
-	if err := os.Rename(f.tempFileName, f.fileName); err != nil {
-		_ = os.Remove(f.tempFileName)
+	if err := os.Rename(tempFileName, target); err != nil {
+		_ = os.Remove(tempFileName)
 		return fmt.Errorf("unable to rename temp backup file: %w",
 			err)
 	}
 
 	// Sync the containing directory so the rename itself is durable. Not
 	// every platform or file system supports this, and the data itself is
-	// already synced, so a failure here is not fatal.
-	if err := syncDir(dir); err != nil {
-		log.Warnf("Unable to sync backup directory %v: %v", dir, err)
+	// already synced, so a failure here is not fatal. Windows cannot open
+	// directories for syncing at all, so skip it there.
+	if runtime.GOOS != "windows" {
+		if err := syncDir(dir); err != nil {
+			log.Warnf("Unable to sync backup directory %v: %v",
+				dir, err)
+		}
 	}
 
 	return nil
 }
 
 // writeTemp creates the temp file, writes the payload, syncs and closes it.
-func (f *File) writeTemp(packed []byte) error {
+func writeTemp(tempFileName string, packed []byte) error {
 	tempFile, err := os.OpenFile(
-		f.tempFileName, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600,
+		tempFileName, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to create temp backup file: %w",

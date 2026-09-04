@@ -141,3 +141,32 @@ func TestFileExtractUnreadable(t *testing.T) {
 	require.Error(t, err)
 	require.NotErrorIs(t, err, ErrNoBackupFile)
 }
+
+// TestFileSymlinkFollowed asserts that a symlink at the backup path is
+// followed, so the operator's link stays and the file behind it is replaced.
+func TestFileSymlinkFollowed(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	real := filepath.Join(dir, "volume", DefaultBackupFileName)
+	require.NoError(t, os.MkdirAll(filepath.Dir(real), 0o700))
+	require.NoError(t, os.WriteFile(real, []byte("old"), 0o600))
+
+	link := filepath.Join(dir, DefaultBackupFileName)
+	require.NoError(t, os.Symlink(real, link))
+
+	f := NewFile(link)
+	require.NoError(t, f.UpdateAndSwap([]byte("new")))
+
+	info, err := os.Lstat(link)
+	require.NoError(t, err)
+	require.NotZero(t, info.Mode()&os.ModeSymlink, "link was replaced")
+
+	got, err := os.ReadFile(real)
+	require.NoError(t, err)
+	require.Equal(t, []byte("new"), got)
+
+	got, err = f.Extract()
+	require.NoError(t, err)
+	require.Equal(t, []byte("new"), got)
+}
