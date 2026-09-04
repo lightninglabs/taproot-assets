@@ -22,8 +22,9 @@ The file does **not** cover:
 
 - The `lnd` wallet. The seed still has to be backed up separately, all asset
   keys are derived from it.
-- Lightning channels carrying assets. Those are covered by `lnd`'s
-  `channel.backup` and the channel funding state in the `tapd` database.
+- Lightning channels carrying assets. Leaves that fund asset channels are
+  left out of the file, they are covered by `lnd`'s `channel.backup` and the
+  channel funding state in the `tapd` database.
 - Unconfirmed receives and sends. An output enters the file once its anchor
   transaction confirms.
 - Addresses, universe and federation state, minting batches that have not
@@ -52,6 +53,8 @@ backup.disable=false
 ```
 
 If the configured directory does not exist it is created on the first write.
+The path has to name a file, `tapd` refuses to start if it points at a
+directory.
 
 The file is written on startup, after every wallet change, and once more on
 shutdown. Writes are atomic: a new version is written next to the file and then
@@ -75,7 +78,8 @@ The file changes whenever assets are minted, received or sent. Copy it to a
 second location whenever it changes, for example with a file watcher or a
 periodic sync job. An older copy is safe to restore from, it simply does not
 contain outputs received after it was taken, and outputs it lists that have
-since been spent are skipped on import.
+since been spent are skipped on import. Outputs spent while `tapd` was not
+running are removed from the file on the next start.
 
 To check that a copy can be read, import it into the node that wrote it. This
 is a no-op and reports zero imported assets if the file is readable and up to

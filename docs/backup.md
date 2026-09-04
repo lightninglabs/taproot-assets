@@ -352,22 +352,43 @@ many outputs causes one rewrite:
 1. The confirmed, unspent asset set is fetched from the database. Leased
    leaves are included since they are still owned until their spend confirms.
    Unconfirmed leaves are skipped and enter the file once they confirm.
+   Leaves that fund asset channels are excluded, they belong to lnd's channel
+   state and `channel.backup` and cannot be used by a tapd restored on its
+   own.
 2. Leaves that disappeared from the set were spent and are dropped. Leaves
    that appeared, or whose anchor block changed, get a fresh compact entry
    built from their proof.
-3. The existing file is read and decrypted. Entries on disk that the database
-   does not know about are retained, entries known to the database replace
-   their disk copy, spent leaves are removed.
+3. The existing file is read and decrypted. Entries known to the database
+   replace their disk copy and spent leaves are removed. Entries found only
+   on disk are checked against the database: a leaf the database knows as
+   spent, which happens when the spend confirmed while tapd was down, is
+   dropped. A leaf the database does not know at all is retained, it may
+   come from a file the operator placed at the path.
 4. The result is encoded, encrypted, written to a temporary sibling file,
    synced, and renamed over the main file so a crash can never leave a half
    written backup.
 
-The same reconcile runs synchronously on startup (so the file reflects the
-database after a restart or a manual import) and on shutdown. Failures to
-build an entry, for example because a proof is temporarily unavailable, are
-retried every 30 seconds. An existing file that cannot be decrypted with the
-wallet key is a startup error, since it most likely belongs to a different
-seed and overwriting it could destroy the only copy.
+The same reconcile runs right after startup (so the file reflects the
+database after a restart or a manual import) and once more on shutdown.
+Startup itself only derives the key and checks that an existing file can be
+read. Failures to build an entry, for example because a proof is temporarily
+unavailable, are retried every 30 seconds, and a change arriving during that
+wait is handled after the normal debounce. An existing file that cannot be
+decrypted with the wallet key is a startup error, since it most likely
+belongs to a different seed and overwriting it could destroy the only copy.
+A plaintext export placed at the path is adopted and re-written encrypted,
+except an optimistic (v3) export, which carries no proof data and is refused.
+
+### Cost
+
+Every reconcile fetches the full unspent asset set with witnesses from the
+database, the same query the export RPC runs, and rewrites the whole file:
+read, decrypt, decode, encode, encrypt, write. Proof fetching and stripping
+only happens for leaves that are new or re-anchored. The in-memory entry set
+holds one compact entry per leaf, 2 to 10 KB each, for the lifetime of the
+process. The file grows with the length of the provenance chains, since each
+entry carries a stripped proof chain. The debounce of one second keeps a
+confirmation with many outputs to a single rewrite.
 
 ### Restore
 
