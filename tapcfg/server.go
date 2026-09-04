@@ -885,9 +885,15 @@ func genServerConfig(ctx context.Context, cfg *Config,
 			return nil, fmt.Errorf("unable to register porter "+
 				"delivery listener: %w", err)
 		}
+		// The burn handler is local — it rebuilds the burn records
+		// from stored state and hands them to the supply-commit
+		// event system — and scales with its payload, so it runs
+		// unbounded; the commit push reaches remote universe
+		// servers and keeps the default deadline.
 		err = anchoringWatcher.RegisterEffectHandler(
 			tapfreighter.BurnSupplyEventsEffectKind,
 			chainPorter.DispatchBurnSupplyEvents,
+			tapreorg.WithDispatchTimeout(0),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to register burn "+
@@ -914,9 +920,21 @@ func genServerConfig(ctx context.Context, cfg *Config,
 			return nil, fmt.Errorf("unable to register mint "+
 				"delivery listener: %w", err)
 		}
+		// The mint-publish handler's own work is local — one
+		// universe leaf per minted asset — and scales with its
+		// payload: a large batch cannot finish inside the default
+		// deadline and would fail forever at the capped backoff, so
+		// it runs unbounded. Its wait is bounded by the federation
+		// envoy instead: the envoy answers each upsert from its
+		// serial loop, which puts a deadline on every push it makes
+		// to a remote member and drops a member that misses one for
+		// the rest of the batch, so a member that accepts a stream
+		// and never answers costs this effect one deadline per
+		// chunk rather than the outbox until restart.
 		err = anchoringWatcher.RegisterEffectHandler(
 			tapgarden.MintPublishEffectKind,
 			assetMinter.DispatchMintPublish,
+			tapreorg.WithDispatchTimeout(0),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to register mint "+
