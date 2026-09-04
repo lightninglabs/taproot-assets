@@ -2,7 +2,8 @@
 
 This document describes the wallet backup system for Taproot Assets (`tapd`),
 covering the binary format, the stripping/rehydration mechanism for compact
-backups, stale-backup detection, and the RPC interface.
+backups, stale-backup detection, the RPC interface and the encrypted backup
+file that `tapd` keeps up to date on disk.
 
 ## Overview
 
@@ -97,6 +98,7 @@ Types 7 and 9 are odd, so a v1-only decoder will safely skip them.
 | 2 | Index | Key index (`uint32`) |
 | 3 | RawPubKey | Pre-tweak internal public key (33 bytes) |
 | 4 | Tweak | Tweak bytes; absent means BIP-86 |
+| 5 | Type | Script key type (`uint8`) as known by the exporting wallet; optional. Without it the importer classifies the key from its material (BIP-86 and unique Pedersen keys by re-derivation, other tweaked keys as external script path) |
 
 ### KeyDescriptorBackup TLV
 
@@ -290,6 +292,115 @@ sequenceDiagram
   immediately after its registration. For very large wallets (tens of
   thousands of assets) the dispatch loop itself adds latency, and early
   goroutines' timeouts may expire before later registrations complete.
+
+---
+
+## Backup File
+
+In addition to the on-demand export RPC, `tapd` keeps an encrypted compact (v2)
+backup of the wallet on disk and updates it whenever the wallet state changes.
+The operator guide for the file is [backup-file.md](backup-file.md), this
+section covers the mechanics.
+This mirrors lnd's `channel.backup` file: the goal is that a copy of the file
+plus the lnd seed is enough to recover every asset the wallet held at the time
+the copy was taken.
+
+### Location and configuration
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `backup.filepath` | `<datadir>/<network>/assets.backup` | Location of the backup file |
+| `backup.disable` | `false` | Turn the on-disk backup file off |
+
+The export and import RPCs work regardless of these settings.
+
+### Encryption
+
+The file is encrypted with XChaCha20-Poly1305. The key is derived from the
+lnd wallet the same way lnd derives the key for `channel.backup`: the public
+key at key family `KeyFamilyBaseEncryption` (8), index 0 is hashed with
+SHA-256. Any `tapd` connected to an lnd with the same seed can decrypt the
+file. Nothing else can, so the file may be copied to untrusted storage.
+
+The encrypted container is:
+
+```
+"TAPENC" (6 bytes) | version (uint32 BE, currently 1) | nonce (24 bytes) | ciphertext
+```
+
+The plaintext inside is a regular v2 backup as produced by
+`ExportAssetWalletBackup` in `COMPACT` mode, including its checksum.
+
+`ImportAssetsFromBackup` accepts both plaintext exports and encrypted files.
+The container header decides which path is taken, so `tapcli assets backup
+import --backup_file=assets.backup` works unchanged.
+
+### Update mechanism
+
+The updater holds the current set of backup entries in memory, keyed by
+`(asset ID, script key, anchor outpoint)`, and subscribes to three event
+sources: the proof import notifications of the asset store (asset received,
+transfer confirmed with local outputs, sweep, re-org re-import), the minting
+batch state events of the planter (mint confirmed) and the send state events
+of the chain porter (a full value send without change or tombstone output
+imports no local proof). Notifications only mark the state as changed, the
+actual content is always read from the database.
+
+On each notification, after a short debounce (1s) so a single confirmation with
+many outputs causes one rewrite:
+
+1. The confirmed, unspent asset set is fetched from the database. Leased
+   leaves are included since they are still owned until their spend confirms.
+   Unconfirmed leaves are skipped and enter the file once they confirm.
+   Leaves that fund asset channels are excluded, they belong to lnd's channel
+   state and `channel.backup` and cannot be used by a tapd restored on its
+   own.
+2. Leaves that disappeared from the set were spent and are dropped. Leaves
+   that appeared, or whose anchor block changed, get a fresh compact entry
+   built from their proof.
+3. The existing file is read and decrypted. Entries known to the database
+   replace their disk copy and spent leaves are removed. Entries found only
+   on disk are checked against the database: a leaf the database knows as
+   spent, which happens when the spend confirmed while tapd was down, is
+   dropped. A leaf the database does not know at all is retained, it may
+   come from a file the operator placed at the path.
+4. The result is encoded, encrypted, written to a temporary sibling file,
+   synced, and renamed over the main file so a crash can never leave a half
+   written backup.
+
+The same reconcile runs right after startup (so the file reflects the
+database after a restart or a manual import) and once more on shutdown.
+Startup itself only derives the key and checks that an existing file can be
+read. Failures to build an entry, for example because a proof is temporarily
+unavailable, are retried every 30 seconds, and a change arriving during that
+wait is handled after the normal debounce. An existing file that cannot be
+decrypted with the wallet key is a startup error, since it most likely
+belongs to a different seed and overwriting it could destroy the only copy.
+A plaintext export placed at the path is adopted and re-written encrypted,
+except an optimistic (v3) export, which carries no proof data and is refused.
+
+### Cost
+
+Every reconcile fetches the full unspent asset set with witnesses from the
+database, the same query the export RPC runs, and rewrites the whole file:
+read, decrypt, decode, encode, encrypt, write. Proof fetching and stripping
+only happens for leaves that are new or re-anchored. The in-memory entry set
+holds one compact entry per leaf, 2 to 10 KB each, for the lifetime of the
+process. The file grows with the length of the provenance chains, since each
+entry carries a stripped proof chain. The debounce of one second keeps a
+confirmation with many outputs to a single rewrite.
+
+### Restore
+
+Point a fresh `tapd`, connected to an lnd restored from the same seed, at the
+file:
+
+```
+tapcli assets backup import --backup_file=/path/to/assets.backup
+```
+
+Import is idempotent and skips leaves whose anchor outpoint has been spent, so
+a copy of the file that is somewhat out of date is safe to import.
 
 ---
 

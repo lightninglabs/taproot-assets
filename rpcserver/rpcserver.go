@@ -12636,6 +12636,8 @@ func (r *RPCServer) ImportAssetsFromBackup(ctx context.Context,
 		ProofArchive:  r.cfg.ProofArchive,
 		KeyRegistrar:  r.cfg.TapAddrBook,
 		ProofVerifier: r.ProofVerifierCtx(ctx),
+		KeyDeriver:    r.cfg.Lnd.WalletKit,
+		WalletProofs:  r.cfg.AssetStore,
 	}
 
 	numImported, numSkipped, err := backup.ImportBackup(

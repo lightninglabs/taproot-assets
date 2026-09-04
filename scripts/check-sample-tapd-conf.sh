@@ -55,7 +55,7 @@ OPTIONS_NO_CONF="help lnddir configfile version end"
 # set, but there aren't any returned defaults by tapd --help. Defaults have to
 # be included in sample-tapd.conf but no further checks are performed.
 OPTIONS_NO_TAPD_DEFAULT_VALUE_CHECK="tapddir configfile tlscertpath tlskeypath \
-    lnd.macaroonpath sqlite.dbfile" 
+    lnd.macaroonpath sqlite.dbfile backup.filepath"
 
 
 # EXITCODE is returned at the end after all checks are performed and set to 1 

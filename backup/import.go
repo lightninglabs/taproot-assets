@@ -75,6 +75,107 @@ type ImportConfig struct {
 	// ProofVerifier provides the verification context for imported
 	// proofs.
 	ProofVerifier proof.VerifierCtx
+
+	// KeyDeriver derives the backup encryption key from the lnd wallet.
+	// It is only needed to import encrypted backups such as the file
+	// written by the Updater. If nil, encrypted backups are rejected.
+	KeyDeriver KeyDeriver
+
+	// WalletProofs is the database backed proof store that decides
+	// whether an asset is already part of the wallet. It must not fall
+	// back to proof files on disk: a node whose database was wiped but
+	// whose proofs directory survived would otherwise skip every asset.
+	// If nil, ProofArchive is used.
+	WalletProofs proof.Exporter
+}
+
+// keyMaterialComplete reports whether the key info of an entry carries the
+// public keys the import needs to register it.
+func keyMaterialComplete(ab *AssetBackup) bool {
+	if info := ab.AnchorInternalKeyInfo; info != nil && info.PubKey == nil {
+		return false
+	}
+
+	if info := ab.ScriptKeyInfo; info != nil {
+		if info.PubKey == nil || info.RawKey.PubKey == nil {
+			return false
+		}
+	}
+
+	return true
+}
+
+// scriptKeyTypeForImport returns the type a restored script key is registered
+// with. A type recorded by the exporting wallet wins. Backups that predate the
+// type field are classified from the key material: tombstones by the NUMS
+// key, burns from the first witness, BIP-0086 and unique Pedersen keys by
+// re-deriving them. The Pedersen case matters because such a key carries a
+// tweak yet must stay visible and spendable like a BIP-0086 key. Any other
+// tweaked key is an external script path key.
+func scriptKeyTypeForImport(sk asset.ScriptKey,
+	a *asset.Asset) asset.ScriptKeyType {
+
+	tweaked := sk.TweakedScriptKey
+	if tweaked == nil || sk.PubKey == nil || a == nil {
+		return asset.ScriptKeyUnknown
+	}
+	if tweaked.Type != asset.ScriptKeyUnknown {
+		return tweaked.Type
+	}
+
+	if sk.PubKey.IsEqual(asset.NUMSPubKey) {
+		return asset.ScriptKeyTombstone
+	}
+
+	if len(a.PrevWitnesses) > 0 &&
+		asset.IsBurnKey(sk.PubKey, a.PrevWitnesses[0]) {
+
+		return asset.ScriptKeyBurn
+	}
+
+	if tweaked.RawKey.PubKey != nil {
+		bip86 := asset.NewScriptKeyBip86(tweaked.RawKey)
+		if bip86.PubKey.IsEqual(sk.PubKey) {
+			return asset.ScriptKeyBip86
+		}
+
+		pedersen, err := asset.DeriveUniqueScriptKey(
+			*tweaked.RawKey.PubKey, a.ID(),
+			asset.ScriptKeyDerivationUniquePedersen,
+		)
+		if err == nil && pedersen.PubKey.IsEqual(sk.PubKey) {
+			return asset.ScriptKeyUniquePedersen
+		}
+	}
+
+	if len(tweaked.Tweak) > 0 {
+		return asset.ScriptKeyScriptPathExternal
+	}
+
+	return asset.ScriptKeyBip86
+}
+
+// assetExists reports whether the wallet database already holds a proof for
+// the given locator.
+func assetExists(ctx context.Context, cfg *ImportConfig,
+	locator proof.Locator) (bool, error) {
+
+	var store proof.Exporter = cfg.ProofArchive
+	if cfg.WalletProofs != nil {
+		store = cfg.WalletProofs
+	}
+
+	_, err := store.FetchProof(ctx, locator)
+	switch {
+	case err == nil:
+		return true, nil
+
+	case errors.Is(err, proof.ErrProofNotFound):
+		return false, nil
+
+	default:
+		return false, err
+	}
 }
 
 // extractGroupKeys extracts group public keys from genesis proofs
@@ -160,6 +261,26 @@ func ImportBackup(ctx context.Context, backupBlob []byte,
 
 	log.Infof("Importing assets from backup (%d bytes)",
 		len(backupBlob))
+
+	// The on-disk backup file is encrypted with a key derived from the
+	// lnd wallet. Plaintext exports are accepted as before.
+	if IsEncryptedBackup(backupBlob) {
+		if cfg.KeyDeriver == nil {
+			return 0, 0, ErrNoKeyDeriver
+		}
+
+		encrypter, err := NewKeyRingEncrypter(ctx, cfg.KeyDeriver)
+		if err != nil {
+			return 0, 0, err
+		}
+
+		backupBlob, err = DecryptBackup(encrypter, backupBlob)
+		if err != nil {
+			return 0, 0, err
+		}
+
+		log.Infof("Decrypted backup (%d bytes)", len(backupBlob))
+	}
 
 	// Decode and verify the backup.
 	walletBackup, err := DecodeWalletBackup(backupBlob)
@@ -293,16 +414,16 @@ func ImportBackup(ctx context.Context, backupBlob []byte,
 			OutPoint:  &assetBackup.AnchorOutpoint,
 		}
 
-		_, err := cfg.ProofArchive.FetchProof(ctx, locator)
-		if err == nil {
-			log.Debugf("Asset %d already exists, "+
-				"skipping", i)
-			continue
-		}
-		if !errors.Is(err, proof.ErrProofNotFound) {
+		exists, err := assetExists(ctx, cfg, locator)
+		if err != nil {
 			return numImported, numSkipped,
 				fmt.Errorf("error checking existing "+
 					"asset %d: %w", i, err)
+		}
+		if exists {
+			log.Debugf("Asset %d already exists, "+
+				"skipping", i)
+			continue
 		}
 
 		// For v2+ backups, rehydrate the stripped proof by
@@ -394,6 +515,16 @@ func ImportBackup(ctx context.Context, backupBlob []byte,
 		// Key registration errors are fatal since they
 		// indicate DB/infrastructure problems.
 
+		// Entries without the public keys they claim to describe
+		// cannot be registered and would not be spendable, so they
+		// count as data errors rather than crash the import.
+		if !keyMaterialComplete(assetBackup) {
+			log.Warnf("Skipping asset %d (id=%x): incomplete "+
+				"key material", i, assetID[:])
+			numSkipped++
+			continue
+		}
+
 		// Register the anchor internal key so LND can sign
 		// for the anchor output when spending.
 		if assetBackup.AnchorInternalKeyInfo != nil {
@@ -425,14 +556,14 @@ func ImportBackup(ctx context.Context, backupBlob []byte,
 				TweakedScriptKey: &asset.TweakedScriptKey{
 					RawKey: skInfo.RawKey,
 					Tweak:  skInfo.Tweak,
+					Type:   skInfo.Type,
 				},
 			}
 
-			scriptKeyType := asset.ScriptKeyBip86
-			if len(skInfo.Tweak) > 0 {
-				scriptKeyType =
-					asset.ScriptKeyScriptPathExternal
-			}
+			scriptKeyType := scriptKeyTypeForImport(
+				scriptKey, assetBackup.Asset,
+			)
+			scriptKey.TweakedScriptKey.Type = scriptKeyType
 
 			err = cfg.KeyRegistrar.InsertScriptKey(
 				ctx, scriptKey, scriptKeyType,
