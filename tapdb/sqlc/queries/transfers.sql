@@ -504,6 +504,10 @@ SELECT assets.asset_id,
        script_keys.tweaked_script_key,
        utxos.outpoint
 FROM assets
+JOIN genesis_assets
+  ON assets.genesis_id = genesis_assets.gen_asset_id
+JOIN script_keys
+  ON assets.script_key_id = script_keys.script_key_id
 JOIN managed_utxos utxos
   ON assets.anchor_utxo_id = utxos.utxo_id
 WHERE substr(utxos.outpoint, 1, 32) = @txid

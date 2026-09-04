@@ -3,11 +3,13 @@ package tapcustody
 import (
 	"bytes"
 	"context"
+	"io"
 	"testing"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapreorg"
@@ -494,6 +496,190 @@ func TestReceiveTriggerPointsAnchorInputsOnly(t *testing.T) {
 	require.Equal(t, 1, spec.Triggers.Len())
 	require.NotNil(t, spec.SeedCandidate)
 	require.True(t, spec.Phase1OnAttach)
+}
+
+// phasedRegistrar answers every lookup with an anchoring in a fixed
+// phase, standing in for a watcher that has already decided.
+type phasedRegistrar struct {
+	tapreorg.Registrar
+	phase tapreorg.Phase
+}
+
+func (r *phasedRegistrar) LookupByMatchKey(_ context.Context,
+	site tapreorg.SiteID, matchKey []byte) (*tapreorg.Anchoring, error) {
+
+	return &tapreorg.Anchoring{
+		ID:       1,
+		Site:     site,
+		MatchKey: matchKey,
+		Phase:    r.phase,
+	}, nil
+}
+
+// TestRefuseAbandonedReceive pins the source-side guard against
+// re-importing a compensated receive: a file whose tip anchor
+// transaction the receive site has abandoned is refused with
+// ErrAnchoringAbandoned, while an unwatched, unknown or live receive
+// passes.
+func TestRefuseAbandonedReceive(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	fundingOp := wire.OutPoint{Hash: chainhash.Hash{0x33}, Index: 0}
+	anchorTx := wire.NewMsgTx(2)
+	anchorTx.AddTxIn(wire.NewTxIn(&fundingOp, nil, nil))
+	anchorTx.AddTxOut(wire.NewTxOut(1_000, []byte{0x51, 0xcc}))
+	file := singleProofGenesisFile(t, anchorTx)
+
+	// No watcher: nothing to consult.
+	require.NoError(t, RefuseAbandonedReceive(ctx, nil, file))
+
+	// A watcher that has never seen the transaction.
+	registrar := tapreorg.NewMockRegistrar()
+	require.NoError(t, RefuseAbandonedReceive(ctx, registrar, file))
+
+	// A live anchoring for it.
+	c := &Custodian{cfg: &Config{
+		AnchoringWatcher:   registrar,
+		AnchoringThreshold: 6,
+	}}
+	require.NoError(t, c.RegisterReceiveAnchoring(ctx, file, nil))
+	require.NoError(t, RefuseAbandonedReceive(ctx, registrar, file))
+
+	// An abandoned one.
+	abandoned := &phasedRegistrar{
+		Registrar: registrar,
+		phase:     tapreorg.Abandoned{},
+	}
+	err := RefuseAbandonedReceive(ctx, abandoned, file)
+	require.ErrorIs(t, err, ErrAnchoringAbandoned)
+}
+
+// TestCustodianRefusesAbandonedImport drives the guard through the
+// custodian's archive assertion, the path a proof re-delivered by the
+// local universe takes: the proof of an abandoned receive is refused
+// and the archive stays without it, while the same proof imports once
+// the anchoring is live.
+func TestCustodianRefusesAbandonedImport(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	fundingOp := wire.OutPoint{Hash: chainhash.Hash{0x44}, Index: 0}
+	anchorTx := wire.NewMsgTx(2)
+	anchorTx.AddTxIn(wire.NewTxIn(&fundingOp, nil, nil))
+	anchorTx.AddTxOut(wire.NewTxOut(1_000, []byte{0x51, 0xdd}))
+	file := singleProofGenesisFile(t, anchorTx)
+	tip, err := file.LastProof()
+	require.NoError(t, err)
+
+	var blob bytes.Buffer
+	require.NoError(t, file.Encode(&blob))
+	annotated := &proof.AnnotatedProof{
+		Locator: proof.Locator{
+			AssetID:   fn.Ptr(tip.Asset.ID()),
+			ScriptKey: *tip.Asset.ScriptKey.PubKey,
+			OutPoint:  fn.Ptr(tip.OutPoint()),
+		},
+		Blob: blob.Bytes(),
+	}
+
+	archive, err := proof.NewFileArchiver(t.TempDir())
+	require.NoError(t, err)
+	mock := tapreorg.NewMockRegistrar()
+	mock.RunPhase1(&tapreorg.MockRegistryTx{})
+	registrar := &phasedRegistrar{
+		Registrar: mock,
+		phase:     tapreorg.Abandoned{},
+	}
+	c := NewCustodian(&Config{
+		ProofArchive:     archive,
+		AnchoringWatcher: registrar,
+		AnchoringLog:     &archiveStakingLog{archive: archive},
+		ProofVerifier:    stubVerifier{},
+	})
+
+	err = c.assertProofInLocalArchive(annotated)
+	require.ErrorIs(t, err, ErrAnchoringAbandoned)
+	has, err := archive.HasProof(ctx, annotated.Locator)
+	require.NoError(t, err)
+	require.False(t, has)
+
+	// Once the watcher holds the receive as live, the stake imports
+	// the proof in the registration's phase-1 write.
+	registrar.phase = tapreorg.Witnessed{}
+	require.NoError(t, c.assertProofInLocalArchive(annotated))
+	has, err = archive.HasProof(ctx, annotated.Locator)
+	require.NoError(t, err)
+	require.True(t, has)
+}
+
+// stubVerifier accepts any decodable file, answering with its tip:
+// the receive site's tests build synthetic proofs no chain can
+// verify.
+type stubVerifier struct{}
+
+func (stubVerifier) Verify(_ context.Context, r io.Reader,
+	_ proof.VerifierCtx, _ ...proof.VerifyOption) (*proof.AssetSnapshot,
+	error) {
+
+	f := &proof.File{}
+	if err := f.Decode(r); err != nil {
+		return nil, err
+	}
+	tip, err := f.LastProof()
+	if err != nil {
+		return nil, err
+	}
+
+	return &proof.AssetSnapshot{
+		Asset:           &tip.Asset,
+		OutPoint:        tip.OutPoint(),
+		OutputIndex:     tip.InclusionProof.OutputIndex,
+		AnchorBlockHash: tip.BlockHeader.BlockHash(),
+		AnchorTx:        &tip.AnchorTx,
+	}, nil
+}
+
+// archiveStakingLog stakes received proofs into a proof archive,
+// standing in for the asset store's transaction-scoped import.
+type archiveStakingLog struct {
+	ReceiveAnchoringLog
+
+	archive proof.Archiver
+}
+
+func (l *archiveStakingLog) StakeReceivedProofs(ctx context.Context,
+	_ tapreorg.RegistryTx,
+	proofs ...proof.VerifiedAnnotatedProof) ([]proof.Blob, error) {
+
+	var imported []proof.Blob
+	for _, verified := range proofs {
+		p := verified.AnnotatedProof()
+		has, err := l.archive.HasProof(ctx, p.Locator)
+		if err != nil {
+			return nil, err
+		}
+		if has {
+			continue
+		}
+		err = l.archive.ImportProofs(
+			ctx, proof.VerifierCtx{}, false, p,
+		)
+		if err != nil {
+			return nil, err
+		}
+		imported = append(imported, p.Blob)
+	}
+
+	return imported, nil
+}
+
+func (l *archiveStakingLog) NotifyProofs(_ ...proof.Blob) {}
+
+func (l *archiveStakingLog) HasReceivedProof(ctx context.Context,
+	locator proof.Locator) (bool, error) {
+
+	return l.archive.HasProof(ctx, locator)
 }
 
 // TestReceiveSiteEvaluateCandidate pins the receive site's verdict:

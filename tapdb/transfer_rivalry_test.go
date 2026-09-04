@@ -109,21 +109,6 @@ func (f *contractFixture) transferSuperseded(t require.TestingT,
 	return superseded
 }
 
-// transferAbandoned reports a transfer's abandoned flag.
-func (f *contractFixture) transferAbandoned(t require.TestingT,
-	transferID int64) bool {
-
-	var abandoned bool
-	err := f.db.DB.QueryRowContext(
-		context.Background(),
-		"SELECT abandoned FROM asset_transfers WHERE id = $1",
-		transferID,
-	).Scan(&abandoned)
-	require.NoError(t, err)
-
-	return abandoned
-}
-
 // assetSpent reports an asset row's spent flag.
 func (f *contractFixture) assetSpent(t require.TestingT, dbID int64) bool {
 	var spent bool

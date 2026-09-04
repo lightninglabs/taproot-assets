@@ -991,6 +991,31 @@ func genServerConfig(ctx context.Context, cfg *Config,
 			return nil, fmt.Errorf("unable to register commit "+
 				"nudge handler: %w", err)
 		}
+
+		// The sites rewrite and delete database proofs inside
+		// their delivery transactions; the flat-file mirror is
+		// brought back into lockstep afterwards, through the
+		// outbox.
+		mirrorSyncCfg := proof.MirrorSyncCfg{
+			Source: assetStore,
+			Mirror: proofFileStore,
+		}
+		err = anchoringWatcher.RegisterEffectHandler(
+			proof.MirrorSyncEffectKind,
+			func(ctx context.Context,
+				_ fn.Option[tapreorg.AnchoringID],
+				payload tapreorg.VersionedBlob) error {
+
+				return proof.DispatchMirrorSync(
+					ctx, mirrorSyncCfg, payload.Version,
+					payload.Data,
+				)
+			},
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to register mirror "+
+				"sync handler: %w", err)
+		}
 	}
 
 	auxFundingController := tapchannel.NewFundingController(

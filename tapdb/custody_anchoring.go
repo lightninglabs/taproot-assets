@@ -7,8 +7,10 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
+	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapcustody"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
@@ -22,17 +24,51 @@ import (
 // materialized: asset rows anchored in the sender's transaction,
 // the address events completed against it, and the stored proof
 // files themselves.
+//
+// The bodies report the locators of the proofs they rewrote or
+// deleted, so the site can enqueue the file mirror's catch-up: the
+// database proof is what these bodies converge, and the flat-file
+// copy follows through the outbox once the transaction commits.
+
+// anchoredAssetLocator builds the proof locator of an anchored asset
+// row: the proof's genesis asset ID, script key and anchor outpoint.
+func anchoredAssetLocator(
+	row sqlc.AnchoredAssetsByAnchorTxPrefixRow) (proof.Locator, error) {
+
+	scriptKey, err := btcec.ParsePubKey(row.TweakedScriptKey)
+	if err != nil {
+		return proof.Locator{}, fmt.Errorf("unable to parse script "+
+			"key: %w", err)
+	}
+
+	var op wire.OutPoint
+	err = readOutPoint(bytes.NewReader(row.Outpoint), 0, 0, &op)
+	if err != nil {
+		return proof.Locator{}, fmt.Errorf("unable to decode anchor "+
+			"outpoint: %w", err)
+	}
+
+	var assetID asset.ID
+	copy(assetID[:], row.GenesisAssetID)
+
+	return proof.Locator{
+		AssetID:   &assetID,
+		ScriptKey: *scriptKey,
+		OutPoint:  &op,
+	}, nil
+}
 
 // ApplyReceiveReconfirm converges received state to a (re)confirmed
 // anchor: the chain transaction's recorded confirmation refreshes,
 // and every anchored asset's stored proof file has its tip proof
 // re-stamped with the witness's block context. Convergent — safe for
 // re-delivered signals and same-transaction re-confirmations in new
-// blocks alike.
+// blocks alike. Returns the locators of the proofs it re-stamped.
 func (a *AssetStore) ApplyReceiveReconfirm(ctx context.Context,
 	q *sqlc.Queries, anchorTxid chainhash.Hash,
 	blockHash chainhash.Hash, blockHeight, txIndex uint32,
-	header wire.BlockHeader, merkle proof.TxMerkleProof) error {
+	header wire.BlockHeader,
+	merkle proof.TxMerkleProof) ([]proof.Locator, error) {
 
 	err := q.ConfirmChainAnchorTx(ctx, AnchorTxConf{
 		Txid:        anchorTxid[:],
@@ -41,16 +77,18 @@ func (a *AssetStore) ApplyReceiveReconfirm(ctx context.Context,
 		TxIndex:     sqlInt32(txIndex),
 	})
 	if err != nil {
-		return fmt.Errorf("unable to confirm anchor tx: %w", err)
+		return nil, fmt.Errorf("unable to confirm anchor tx: %w", err)
 	}
 
-	assetIDs, err := q.AssetIDsByAnchorTxPrefix(ctx, anchorTxid[:])
+	rows, err := q.AnchoredAssetsByAnchorTxPrefix(ctx, anchorTxid[:])
 	if err != nil {
-		return fmt.Errorf("unable to find anchored assets: %w", err)
+		return nil, fmt.Errorf("unable to find anchored assets: %w",
+			err)
 	}
 
-	for _, assetID := range assetIDs {
-		blob, err := q.AssetProofBlobByAssetID(ctx, assetID)
+	var restamped []proof.Locator
+	for _, row := range rows {
+		blob, err := q.AssetProofBlobByAssetID(ctx, row.AssetID)
 		switch {
 		case errors.Is(err, sql.ErrNoRows):
 			// The asset's proof file is not yet materialized.
@@ -62,14 +100,14 @@ func (a *AssetStore) ApplyReceiveReconfirm(ctx context.Context,
 			continue
 
 		case err != nil:
-			return fmt.Errorf("unable to fetch proof for "+
-				"asset %d: %w", assetID, err)
+			return nil, fmt.Errorf("unable to fetch proof for "+
+				"asset %d: %w", row.AssetID, err)
 		}
 
 		file := &proof.File{}
 		if err := file.Decode(bytes.NewReader(blob)); err != nil {
-			return fmt.Errorf("unable to decode proof file: %w",
-				err)
+			return nil, fmt.Errorf("unable to decode proof "+
+				"file: %w", err)
 		}
 
 		numProofs := file.NumProofs()
@@ -78,7 +116,8 @@ func (a *AssetStore) ApplyReceiveReconfirm(ctx context.Context,
 		}
 		tip, err := file.ProofAt(uint32(numProofs - 1))
 		if err != nil {
-			return fmt.Errorf("unable to read tip proof: %w", err)
+			return nil, fmt.Errorf("unable to read tip proof: %w",
+				err)
 		}
 		if tip.AnchorTx.TxHash() != anchorTxid {
 			continue
@@ -88,27 +127,33 @@ func (a *AssetStore) ApplyReceiveReconfirm(ctx context.Context,
 		tip.BlockHeight = blockHeight
 		tip.TxMerkleProof = merkle
 		if err := file.ReplaceLastProof(*tip); err != nil {
-			return fmt.Errorf("unable to replace tip proof: %w",
-				err)
+			return nil, fmt.Errorf("unable to replace tip "+
+				"proof: %w", err)
 		}
 
 		var buf bytes.Buffer
 		if err := file.Encode(&buf); err != nil {
-			return fmt.Errorf("unable to encode proof file: %w",
-				err)
+			return nil, fmt.Errorf("unable to encode proof "+
+				"file: %w", err)
 		}
 
 		err = q.UpsertAssetProofByID(ctx, ProofUpdateByID{
-			AssetID:   assetID,
+			AssetID:   row.AssetID,
 			ProofFile: buf.Bytes(),
 		})
 		if err != nil {
-			return fmt.Errorf("unable to store patched proof: "+
-				"%w", err)
+			return nil, fmt.Errorf("unable to store patched "+
+				"proof: %w", err)
 		}
+
+		loc, err := anchoredAssetLocator(row)
+		if err != nil {
+			return nil, err
+		}
+		restamped = append(restamped, loc)
 	}
 
-	return nil
+	return restamped, nil
 }
 
 // ApplyReceiveUnconfirm withdraws the anchor transaction's recorded
@@ -137,11 +182,12 @@ func (a *AssetStore) ApplyReceiveUnconfirm(ctx context.Context,
 // failed receive until a replacement arrives.
 func (a *AssetStore) ApplyReceiveAbandonment(ctx context.Context,
 	q *sqlc.Queries, anchorTxid chainhash.Hash,
-	resetStatus int16) error {
+	resetStatus int16) ([]proof.Locator, error) {
 
-	assetIDs, err := q.AssetIDsByAnchorTxPrefix(ctx, anchorTxid[:])
+	rows, err := q.AnchoredAssetsByAnchorTxPrefix(ctx, anchorTxid[:])
 	if err != nil {
-		return fmt.Errorf("unable to find anchored assets: %w", err)
+		return nil, fmt.Errorf("unable to find anchored assets: %w",
+			err)
 	}
 
 	// The address events must shed their asset/proof references
@@ -155,7 +201,8 @@ func (a *AssetStore) ApplyReceiveAbandonment(ctx context.Context,
 		},
 	)
 	if err != nil {
-		return fmt.Errorf("unable to reset address events: %w", err)
+		return nil, fmt.Errorf("unable to reset address events: %w",
+			err)
 	}
 	if numReset > 0 {
 		log.Infof("Reset %d address event(s) for abandoned anchor "+
@@ -164,8 +211,8 @@ func (a *AssetStore) ApplyReceiveAbandonment(ctx context.Context,
 
 	_, err = q.DeleteAddrEventProofsByAnchorTx(ctx, anchorTxid[:])
 	if err != nil {
-		return fmt.Errorf("unable to delete address event proof "+
-			"references: %w", err)
+		return nil, fmt.Errorf("unable to delete address event "+
+			"proof references: %w", err)
 	}
 
 	deleted := make([]proof.Locator, 0, len(rows))
@@ -199,19 +246,20 @@ func (a *AssetStore) ApplyReceiveAbandonment(ctx context.Context,
 			return nil, fmt.Errorf("unable to delete proof: %w",
 				err)
 		}
-		if err := q.DeleteAssetProofByAssetID(ctx, assetID); err != nil {
-			return fmt.Errorf("unable to delete proof: %w", err)
+		if err := q.DeleteAssetByID(ctx, row.AssetID); err != nil {
+			return nil, fmt.Errorf("unable to delete asset: %w",
+				err)
 		}
-		if err := q.DeleteAssetByID(ctx, assetID); err != nil {
-			return fmt.Errorf("unable to delete asset: %w", err)
-		}
+
+		deleted = append(deleted, loc)
 	}
 
 	if err := q.UnconfirmChainAnchorTx(ctx, anchorTxid[:]); err != nil {
-		return fmt.Errorf("unable to unconfirm anchor tx: %w", err)
+		return nil, fmt.Errorf("unable to unconfirm anchor tx: %w",
+			err)
 	}
 
-	return nil
+	return deleted, nil
 }
 
 // A compile-time assertion that the asset store provides the receive

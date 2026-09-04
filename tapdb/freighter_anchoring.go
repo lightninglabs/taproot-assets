@@ -522,16 +522,17 @@ func (a *AssetStore) ApplyAnchorTxUnconfirm(ctx context.Context,
 // harmless.
 func (a *AssetStore) ApplyTransferAbandonment(ctx context.Context,
 	q *sqlc.Queries, anchorTxid chainhash.Hash,
-	foreclosure *wire.MsgTx) error {
+	foreclosure *wire.MsgTx) ([]proof.Locator, error) {
 
 	assetTransfers, err := q.QueryAssetTransfers(ctx, TransferQuery{
 		AnchorTxHash: anchorTxid[:],
 	})
 	if err != nil {
-		return fmt.Errorf("unable to query asset transfers: %w", err)
+		return nil, fmt.Errorf("unable to query asset transfers: %w",
+			err)
 	}
 	if len(assetTransfers) == 0 {
-		return nil
+		return nil, nil
 	}
 	assetTransfer := assetTransfers[0]
 
@@ -543,12 +544,14 @@ func (a *AssetStore) ApplyTransferAbandonment(ctx context.Context,
 	}
 
 	// Delete whatever outputs a confirmation application
-	// materialized.
+	// materialized, reporting their proof locators so the file
+	// mirror can shed the same proofs once this transaction commits.
 	outputs, err := q.FetchTransferOutputs(ctx, assetTransfer.ID)
 	if err != nil {
-		return fmt.Errorf("unable to fetch transfer outputs: %w",
-			err)
+		return nil, fmt.Errorf("unable to fetch transfer outputs: "+
+			"%w", err)
 	}
+	var deleted []proof.Locator
 	for idx := range outputs {
 		out := outputs[idx]
 		if len(out.ProofSuffix) == 0 {
@@ -564,7 +567,7 @@ func (a *AssetStore) ApplyTransferAbandonment(ctx context.Context,
 			proof.AssetLeafRecord(&outProofAsset),
 		)
 		if err != nil {
-			return fmt.Errorf("unable to sparse decode "+
+			return nil, fmt.Errorf("unable to sparse decode "+
 				"proof: %w", err)
 		}
 		outAssetID := outProofAsset.ID()
@@ -581,9 +584,31 @@ func (a *AssetStore) ApplyTransferAbandonment(ctx context.Context,
 			continue
 
 		case err != nil:
-			return fmt.Errorf("unable to look up materialized "+
-				"output: %w", err)
+			return nil, fmt.Errorf("unable to look up "+
+				"materialized output: %w", err)
 		}
+
+		scriptKey, err := btcec.ParsePubKey(
+			out.ScriptKey.TweakedScriptKey,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to parse output "+
+				"script key: %w", err)
+		}
+		var anchorPoint wire.OutPoint
+		err = readOutPoint(
+			bytes.NewReader(out.AnchorOutpoint), 0, 0,
+			&anchorPoint,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to decode output "+
+				"anchor point: %w", err)
+		}
+		deleted = append(deleted, proof.Locator{
+			AssetID:   &outAssetID,
+			ScriptKey: *scriptKey,
+			OutPoint:  &anchorPoint,
+		})
 
 		// A self-send stakes this row from the receive side too,
 		// which holds a custody reference to it. The reference
@@ -593,8 +618,8 @@ func (a *AssetStore) ApplyTransferAbandonment(ctx context.Context,
 			ctx, sqlInt64(assetID),
 		)
 		if err != nil {
-			return fmt.Errorf("unable to delete address event "+
-				"proof references: %w", err)
+			return nil, fmt.Errorf("unable to delete address "+
+				"event proof references: %w", err)
 		}
 
 		// A successor transfer may already have staked this row as
@@ -607,21 +632,22 @@ func (a *AssetStore) ApplyTransferAbandonment(ctx context.Context,
 		// never created.
 		_, err = q.DeletePassiveAssetsByAssetID(ctx, assetID)
 		if err != nil {
-			return fmt.Errorf("unable to delete passive asset "+
-				"references: %w", err)
+			return nil, fmt.Errorf("unable to delete passive "+
+				"asset references: %w", err)
 		}
 
 		if err := q.DeleteAssetWitnesses(ctx, assetID); err != nil {
-			return fmt.Errorf("unable to delete asset "+
+			return nil, fmt.Errorf("unable to delete asset "+
 				"witnesses: %w", err)
 		}
 		err = q.DeleteAssetProofByAssetID(ctx, assetID)
 		if err != nil {
-			return fmt.Errorf("unable to delete asset proof: "+
+			return nil, fmt.Errorf("unable to delete asset proof: "+
 				"%w", err)
 		}
 		if err := q.DeleteAssetByID(ctx, assetID); err != nil {
-			return fmt.Errorf("unable to delete asset: %w", err)
+			return nil, fmt.Errorf("unable to delete asset: %w",
+				err)
 		}
 	}
 
@@ -632,7 +658,7 @@ func (a *AssetStore) ApplyTransferAbandonment(ctx context.Context,
 		ctx, q, assetTransfer.ID, anchorTxid, foreclosedPoints,
 	)
 	if err != nil {
-		return fmt.Errorf("unable to restore passive assets: %w",
+		return nil, fmt.Errorf("unable to restore passive assets: %w",
 			err)
 	}
 
@@ -642,14 +668,15 @@ func (a *AssetStore) ApplyTransferAbandonment(ctx context.Context,
 	// leaving this transfer's own stale confirmation in place would
 	// answer that question with itself.
 	if err := q.UnconfirmChainAnchorTx(ctx, anchorTxid[:]); err != nil {
-		return fmt.Errorf("unable to unconfirm anchor tx: %w", err)
+		return nil, fmt.Errorf("unable to unconfirm anchor tx: %w", err)
 	}
 
 	// Un-spend the inputs the forecloser left alone, then revive the
 	// rivals sharing them where safe.
 	inputs, err := q.FetchTransferInputs(ctx, assetTransfer.ID)
 	if err != nil {
-		return fmt.Errorf("unable to fetch transfer inputs: %w", err)
+		return nil, fmt.Errorf("unable to fetch transfer inputs: %w",
+			err)
 	}
 	restored := make([]bool, len(inputs))
 	revivePoints := make([][]byte, 0, len(inputs))
@@ -660,7 +687,7 @@ func (a *AssetStore) ApplyTransferAbandonment(ctx context.Context,
 			&inputPoint,
 		)
 		if err != nil {
-			return fmt.Errorf("unable to decode input anchor "+
+			return nil, fmt.Errorf("unable to decode input anchor "+
 				"point: %w", err)
 		}
 
@@ -686,7 +713,7 @@ func (a *AssetStore) ApplyTransferAbandonment(ctx context.Context,
 			},
 		)
 		if unspendErr != nil && !errors.Is(unspendErr, sql.ErrNoRows) {
-			return fmt.Errorf("unable to un-spend asset: %w",
+			return nil, fmt.Errorf("unable to un-spend asset: %w",
 				unspendErr)
 		}
 		restored[idx] = unspendErr == nil
@@ -697,8 +724,8 @@ func (a *AssetStore) ApplyTransferAbandonment(ctx context.Context,
 		ctx, q, assetTransfer.ID, revivePoints, foreclosedPoints,
 	)
 	if err != nil {
-		return fmt.Errorf("unable to revive conflicting transfers: "+
-			"%w", err)
+		return nil, fmt.Errorf("unable to revive conflicting "+
+			"transfers: %w", err)
 	}
 	if numRevived > 0 {
 		log.Infof("Revived %d transfer(s) superseded by abandoned "+
@@ -728,8 +755,8 @@ func (a *AssetStore) ApplyTransferAbandonment(ctx context.Context,
 			},
 		)
 		if err != nil {
-			return fmt.Errorf("unable to count live claimants "+
-				"of input: %w", err)
+			return nil, fmt.Errorf("unable to count live "+
+				"claimants of input: %w", err)
 		}
 		if numLive > 0 {
 			continue
@@ -737,28 +764,28 @@ func (a *AssetStore) ApplyTransferAbandonment(ctx context.Context,
 
 		err = q.DeleteUTXOLease(ctx, inputs[idx].AnchorPoint)
 		if err != nil {
-			return fmt.Errorf("unable to release input "+
+			return nil, fmt.Errorf("unable to release input "+
 				"lease: %w", err)
 		}
 	}
 
 	if err := q.UnsweepManagedUTXOsByTxid(ctx, anchorTxid[:]); err != nil {
-		return fmt.Errorf("unable to unsweep UTXOs: %w", err)
+		return nil, fmt.Errorf("unable to unsweep UTXOs: %w", err)
 	}
 	err = q.DeleteBurnsByTransferID(ctx, assetTransfer.ID)
 	if err != nil {
-		return fmt.Errorf("unable to delete burns: %w", err)
+		return nil, fmt.Errorf("unable to delete burns: %w", err)
 	}
 
 	// The abandoned transfer is permanently dead: it must not be
 	// resumed, and it must not count as pending.
 	err = q.MarkTransferSuperseded(ctx, assetTransfer.ID)
 	if err != nil {
-		return fmt.Errorf("unable to mark transfer superseded: %w",
-			err)
+		return nil, fmt.Errorf("unable to mark transfer "+
+			"superseded: %w", err)
 	}
 
-	return nil
+	return deleted, nil
 }
 
 // reviveSafeRivals is the inverse of the supersession a confirmation

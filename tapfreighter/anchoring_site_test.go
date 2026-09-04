@@ -37,6 +37,28 @@ type recordingPorterLog struct {
 	lastForeclosure *wire.MsgTx
 
 	notified []proof.Blob
+	// locators is what the proof-touching bodies report as written
+	// or deleted, and so what the site must hand to the mirror: the
+	// rebuilt confirmation carries one local output proof per
+	// locator, and the abandonment reports them all deleted.
+	locators []proof.Locator
+}
+
+// confirmEvent builds a confirmation event whose final proofs carry
+// the log's locators, one local output per locator.
+func (l *recordingPorterLog) confirmEvent() *AssetConfirmEvent {
+	finalProofs := make(
+		map[OutputIdentifier]*proof.AnnotatedProof, len(l.locators),
+	)
+	for idx := range l.locators {
+		var key OutputIdentifier
+		key[0] = byte(idx + 1)
+		finalProofs[key] = &proof.AnnotatedProof{
+			Locator: l.locators[idx],
+		}
+	}
+
+	return &AssetConfirmEvent{FinalProofs: finalProofs}
 }
 
 func (l *recordingPorterLog) ApplyPendingParcel(_ context.Context,
@@ -46,12 +68,18 @@ func (l *recordingPorterLog) ApplyPendingParcel(_ context.Context,
 }
 
 func (l *recordingPorterLog) ApplyAnchorTxConfirm(_ context.Context,
-	_ *sqlc.Queries, _ *AssetConfirmEvent,
+	_ *sqlc.Queries, conf *AssetConfirmEvent,
 	_ []*AssetBurn) ([]OutputIdentifier, error) {
 
 	l.confirms++
 
-	return nil, nil
+	// Every rebuilt local output's proof was stored.
+	keys := make([]OutputIdentifier, 0, len(conf.FinalProofs))
+	for key := range conf.FinalProofs {
+		keys = append(keys, key)
+	}
+
+	return keys, nil
 }
 
 func (l *recordingPorterLog) ApplyAnchorTxUnconfirm(_ context.Context,
@@ -65,13 +93,13 @@ func (l *recordingPorterLog) ApplyAnchorTxUnconfirm(_ context.Context,
 
 func (l *recordingPorterLog) ApplyTransferAbandonment(_ context.Context,
 	_ *sqlc.Queries, anchorTxid chainhash.Hash,
-	foreclosure *wire.MsgTx) error {
+	foreclosure *wire.MsgTx) ([]proof.Locator, error) {
 
 	l.abandonment++
 	l.lastTxid = anchorTxid
 	l.lastForeclosure = foreclosure
 
-	return nil
+	return l.locators, nil
 }
 
 func (l *recordingPorterLog) RebuildAnchorConfirm(_ context.Context,
@@ -82,7 +110,7 @@ func (l *recordingPorterLog) RebuildAnchorConfirm(_ context.Context,
 	l.lastTxid = anchorTx.TxHash()
 	l.lastNote = burnNote
 
-	return &AssetConfirmEvent{}, nil, nil
+	return l.confirmEvent(), nil, nil
 }
 
 func (l *recordingPorterLog) RebuildConfirmEvent(_ context.Context,
@@ -114,11 +142,78 @@ func (r *recordingRegistryTx) EnqueueEffect(_ context.Context,
 	return nil
 }
 
+// mirrorLocator builds a locator the recording logs report as rewritten
+// or deleted, and so the locator the site must hand to the mirror.
+func mirrorLocator(t *testing.T, anchorTxid chainhash.Hash) proof.Locator {
+	t.Helper()
+
+	var assetID asset.ID
+	assetID[0] = 0xaa
+
+	return proof.Locator{
+		AssetID:   &assetID,
+		ScriptKey: *test.RandPubKey(t),
+		OutPoint:  &wire.OutPoint{Hash: anchorTxid, Index: 0},
+	}
+}
+
+// actGated filters the mirror-sync housekeeping out of the recorded
+// effects, leaving the act-gated emissions.
+func actGated(effects []tapreorg.OutboxEffect) []tapreorg.OutboxEffect {
+	var out []tapreorg.OutboxEffect
+	for _, effect := range effects {
+		if effect.Kind != proof.MirrorSyncEffectKind {
+			out = append(out, effect)
+		}
+	}
+
+	return out
+}
+
+// requireMirrorSyncs asserts the recorded mirror-sync effects, in
+// order: each is tied to the anchoring, carries the given op, and
+// names exactly the given locator.
+func requireMirrorSyncs(t *testing.T, effects []tapreorg.OutboxEffect,
+	id tapreorg.AnchoringID, loc proof.Locator,
+	ops ...proof.MirrorSyncOp) {
+
+	t.Helper()
+
+	var syncs []proof.MirrorSyncPayload
+	for _, effect := range effects {
+		if effect.Kind != proof.MirrorSyncEffectKind {
+			continue
+		}
+		require.Equal(t, id, effect.Anchoring.UnwrapOr(0))
+
+		payload, err := proof.DecodeMirrorSyncPayload(
+			effect.Payload.Version, effect.Payload.Data,
+		)
+		require.NoError(t, err)
+		syncs = append(syncs, payload)
+	}
+
+	require.Len(t, syncs, len(ops))
+	for i, op := range ops {
+		require.Equal(t, op, syncs[i].Op, "sync %d", i)
+		require.Len(t, syncs[i].Locators, 1, "sync %d", i)
+
+		got := syncs[i].Locators[0]
+		require.Equal(t, loc.AssetID, got.AssetID, "sync %d", i)
+		require.Equal(
+			t, loc.ScriptKey.SerializeCompressed(),
+			got.ScriptKey.SerializeCompressed(), "sync %d", i,
+		)
+		require.Equal(t, loc.OutPoint, got.OutPoint, "sync %d", i)
+	}
+}
+
 // TestPorterSiteActGating pins the porter site's act-gating contract:
 // the burn supply-commit events — irrevocable assertions to a receiver
 // that re-checks nothing — are enqueued by the burial handler and only
 // there. Every other handler converges local state without enqueueing
-// anything.
+// anything act-gated; the confirmations and the abandonment enqueue
+// only the file mirror's catch-up for the proofs they touched.
 func TestPorterSiteActGating(t *testing.T) {
 	t.Parallel()
 
@@ -150,51 +245,67 @@ func TestPorterSiteActGating(t *testing.T) {
 		}},
 	}
 
-	log := &recordingPorterLog{}
+	loc := mirrorLocator(t, blob.AnchorTxid)
+	log := &recordingPorterLog{locators: []proof.Locator{loc}}
 	site := &porterSite{porter: NewChainPorter(&ChainPorterConfig{
 		AnchoringLog: log,
 	})}
 	ctx := context.Background()
 
-	// Witnessing converges the confirmation; nothing is emitted.
+	// Witnessing converges the confirmation; nothing act-gated is
+	// emitted, only the mirror's catch-up for the local output's
+	// stored proof.
 	tx := &recordingRegistryTx{}
 	anchoring.Phase = tapreorg.Witnessed{W: witness}
 	require.NoError(t, site.OnWitnessed(ctx, tx, anchoring))
 	require.Equal(t, 1, log.confirms)
 	require.Equal(t, blob.AnchorTxid, log.lastTxid)
 	require.Equal(t, blob.Note, log.lastNote)
-	require.Empty(t, tx.effects)
+	require.Empty(t, actGated(tx.effects))
+	requireMirrorSyncs(
+		t, tx.effects, anchoring.ID, loc, proof.MirrorSyncRewrite,
+	)
 
-	// The soft downgrades emit nothing either.
+	// The soft downgrades emit nothing at all.
 	anchoring.Phase = tapreorg.Unwitnessed{}
 	require.NoError(t, site.OnUnwitnessed(ctx, tx, anchoring))
 	require.Equal(t, 1, log.unconfirms)
-	require.Empty(t, tx.effects)
+	require.Len(t, tx.effects, 1)
 
 	anchoring.Phase = tapreorg.Conflicted{}
 	require.NoError(t, site.OnConflicted(ctx, tx, anchoring))
 	require.Equal(t, 2, log.unconfirms)
-	require.Empty(t, tx.effects)
+	require.Len(t, tx.effects, 1)
 
 	// Burial re-runs the convergent confirmation (covering
-	// coalesced deliveries) and enqueues exactly the burn effect.
+	// coalesced deliveries) and enqueues exactly the burn effect,
+	// beside the confirmation's mirror catch-up.
 	anchoring.Phase = tapreorg.Buried{W: witness}
 	require.NoError(t, site.OnBuried(ctx, tx, anchoring))
 	require.Equal(t, 2, log.confirms)
-	require.Len(t, tx.effects, 1)
-	require.Equal(t, BurnSupplyEventsEffectKind, tx.effects[0].Kind)
-	require.Equal(
-		t, anchoring.ID, tx.effects[0].Anchoring.UnwrapOr(0),
+	burns := actGated(tx.effects)
+	require.Len(t, burns, 1)
+	require.Equal(t, BurnSupplyEventsEffectKind, burns[0].Kind)
+	require.Equal(t, anchoring.ID, burns[0].Anchoring.UnwrapOr(0))
+	require.Equal(t, payload, burns[0].Payload)
+	requireMirrorSyncs(
+		t, tx.effects, anchoring.ID, loc,
+		proof.MirrorSyncRewrite, proof.MirrorSyncRewrite,
 	)
-	require.Equal(t, payload, tx.effects[0].Payload)
 
 	// Abandonment compensates locally; the burn events never went
-	// out, so nothing further is emitted or retracted. Without a
-	// cause there is no foreclosing transaction to hand down.
+	// out, so nothing further act-gated is emitted or retracted,
+	// and the mirror sheds the deleted proof. Without a cause there
+	// is no foreclosing transaction to hand down.
 	anchoring.Phase = tapreorg.Abandoned{}
 	require.NoError(t, site.OnAbandoned(ctx, tx, anchoring))
 	require.Equal(t, 1, log.abandonment)
-	require.Len(t, tx.effects, 1)
+	require.Len(t, actGated(tx.effects), 1)
+	requireMirrorSyncs(
+		t, tx.effects, anchoring.ID, loc,
+		proof.MirrorSyncRewrite, proof.MirrorSyncRewrite,
+		proof.MirrorSyncDelete,
+	)
 	require.Nil(t, log.lastForeclosure)
 
 	// A foreign burial names the transaction the chain decided for;

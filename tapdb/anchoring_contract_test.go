@@ -705,11 +705,12 @@ func TestPorterCompensationContract(t *testing.T) {
 			return f.executor.ExecTx(
 				ctx, WriteTxOption(),
 				func(q *sqlc.Queries) error {
-					return f.assetsStore.
+					_, err := f.assetsStore.
 						ApplyTransferAbandonment(
 							ctx, q, w.anchorTxid,
 							w.foreclosure,
 						)
+					return err
 				},
 			)
 		}
@@ -717,11 +718,12 @@ func TestPorterCompensationContract(t *testing.T) {
 			return f.executor.ExecTx(
 				ctx, WriteTxOption(),
 				func(q *sqlc.Queries) error {
-					return f.assetsStore.
+					_, err := f.assetsStore.
 						ApplyReceiveAbandonment(
 							ctx, q, w.anchorTxid,
 							detected,
 						)
+					return err
 				},
 			)
 		}
@@ -811,11 +813,12 @@ func TestAnchoringCompensationContract(t *testing.T) {
 			return f.executor.ExecTx(
 				ctx, WriteTxOption(),
 				func(q *sqlc.Queries) error {
-					return f.assetsStore.
+					_, err := f.assetsStore.
 						ApplyReceiveAbandonment(
 							ctx, q, w.anchorTxid,
 							detected,
 						)
+					return err
 				},
 			)
 		}
@@ -877,11 +880,12 @@ func TestMintCompensationContract(t *testing.T) {
 			return f.executor.ExecTx(
 				ctx, WriteTxOption(),
 				func(q *sqlc.Queries) error {
-					return f.assetsStore.
+					_, err := f.assetsStore.
 						ApplyMintAbandonment(
 							ctx, q, w.anchorTxid,
 							rawBatchKey,
 						)
+					return err
 				},
 			)
 		}

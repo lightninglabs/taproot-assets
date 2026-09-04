@@ -374,9 +374,10 @@ func TestPorterAnchoringPersistence(t *testing.T) {
 	abandon := func() error {
 		return executor.ExecTx(
 			ctx, WriteTxOption(), func(q *sqlc.Queries) error {
-				return assetsStore.ApplyTransferAbandonment(
+				_, err := assetsStore.ApplyTransferAbandonment(
 					ctx, q, anchorTxHash, nil,
 				)
+				return err
 			},
 		)
 	}
@@ -959,9 +960,10 @@ func TestPorterAnchoringApplySharedAnchorOutput(t *testing.T) {
 	// Abandonment compensates both leaves.
 	err = executor.ExecTx(
 		ctx, WriteTxOption(), func(q *sqlc.Queries) error {
-			return assetsStore.ApplyTransferAbandonment(
+			_, err := assetsStore.ApplyTransferAbandonment(
 				ctx, q, anchorTxHash, nil,
 			)
+			return err
 		},
 	)
 	require.NoError(t, err)
@@ -1219,9 +1221,10 @@ func TestPorterAnchoringZeroValueSweep(t *testing.T) {
 	// unspent and must be offered again.
 	err = executor.ExecTx(
 		ctx, WriteTxOption(), func(q *sqlc.Queries) error {
-			return assetsStore.ApplyTransferAbandonment(
+			_, err := assetsStore.ApplyTransferAbandonment(
 				ctx, q, anchorTxHash, nil,
 			)
+			return err
 		},
 	)
 	require.NoError(t, err)
@@ -1570,11 +1573,12 @@ func buildRivalryWorld(t *testing.T, plantRival,
 			err := executor.ExecTx(
 				ctx, WriteTxOption(),
 				func(q *sqlc.Queries) error {
-					return assetsStore.
+					_, err := assetsStore.
 						ApplyTransferAbandonment(
 							ctx, q, anchorTxHash,
 							foreclosure,
 						)
+					return err
 				},
 			)
 			require.NoError(t, err)

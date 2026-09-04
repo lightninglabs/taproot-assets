@@ -35,12 +35,18 @@ type mintCall struct {
 // enough to pin act gating but cannot see a stale block context.
 type ladderMintLog struct {
 	calls []mintCall
+
+	// locators is what the proof-touching bodies report as
+	// rewritten or deleted, and so what the site must hand to the
+	// mirror.
+	locators []proof.Locator
 }
 
 func (l *ladderMintLog) ApplyReceiveReconfirm(_ context.Context,
 	_ *sqlc.Queries, anchorTxid chainhash.Hash,
 	blockHash chainhash.Hash, blockHeight, txIndex uint32,
-	header wire.BlockHeader, _ proof.TxMerkleProof) error {
+	header wire.BlockHeader,
+	_ proof.TxMerkleProof) ([]proof.Locator, error) {
 
 	l.calls = append(l.calls, mintCall{
 		kind:        "reconfirm",
@@ -51,7 +57,7 @@ func (l *ladderMintLog) ApplyReceiveReconfirm(_ context.Context,
 		header:      header,
 	})
 
-	return nil
+	return l.locators, nil
 }
 
 func (l *ladderMintLog) ApplyReceiveUnconfirm(_ context.Context,
@@ -66,14 +72,15 @@ func (l *ladderMintLog) ApplyReceiveUnconfirm(_ context.Context,
 }
 
 func (l *ladderMintLog) ApplyMintAbandonment(_ context.Context,
-	_ *sqlc.Queries, genesisTxid chainhash.Hash, _ []byte) error {
+	_ *sqlc.Queries, genesisTxid chainhash.Hash,
+	_ []byte) ([]proof.Locator, error) {
 
 	l.calls = append(l.calls, mintCall{
 		kind: "abandon",
 		txid: genesisTxid,
 	})
 
-	return nil
+	return l.locators, nil
 }
 
 func (l *ladderMintLog) kinds() []string {
@@ -136,7 +143,8 @@ func TestMintSiteReorgLadder(t *testing.T) {
 	witnessB, candidateB := mintWitnessAt(t, genesisTx, 11, 706, 5)
 	require.NotEqual(t, witnessA.BlockHash(), witnessB.BlockHash())
 
-	log := &ladderMintLog{}
+	loc := mirrorLocator(t, blob.GenesisTxid)
+	log := &ladderMintLog{locators: []proof.Locator{loc}}
 	site := &mintSite{planter: NewChainPlanter(PlanterConfig{
 		GardenKit: GardenKit{MintAnchoringLog: log},
 	})}
@@ -154,18 +162,18 @@ func TestMintSiteReorgLadder(t *testing.T) {
 	// Genesis confirms in block A. Nothing is published: the batch is
 	// locally confirmed but five blocks short of the act threshold.
 	require.NoError(t, site.OnWitnessed(ctx, tx, anchoring))
-	require.Empty(t, tx.effects, "published at the potency tier")
+	require.Empty(t, actGated(tx.effects), "published at the potency tier")
 
 	// Block A is re-organized away.
 	anchoring.Phase = tapreorg.Unwitnessed{}
 	require.NoError(t, site.OnUnwitnessed(ctx, tx, anchoring))
-	require.Empty(t, tx.effects)
+	require.Empty(t, actGated(tx.effects))
 
 	// Genesis re-confirms in block B, at a new height and index.
 	anchoring.Spends = []tapreorg.CandidateSpend{candidateB}
 	anchoring.Phase = tapreorg.Witnessed{W: witnessB}
 	require.NoError(t, site.OnWitnessed(ctx, tx, anchoring))
-	require.Empty(t, tx.effects)
+	require.Empty(t, actGated(tx.effects))
 
 	// Block B is buried. Now, and only now, the batch's issuance is
 	// published — carrying block B.
@@ -177,8 +185,18 @@ func TestMintSiteReorgLadder(t *testing.T) {
 			"reconfirm", "unconfirm", "reconfirm", "reconfirm",
 		}, log.kinds(),
 	)
-	require.Len(t, tx.effects, 1)
-	require.Equal(t, MintPublishEffectKind, tx.effects[0].Kind)
+	published := actGated(tx.effects)
+	require.Len(t, published, 1)
+	require.Equal(t, MintPublishEffectKind, published[0].Kind)
+
+	// Each confirmation re-stamped the stored proof, and each
+	// re-stamp is followed by the mirror's catch-up for it, so the
+	// file tree ends up carrying block B too.
+	requireMirrorSyncs(
+		t, tx.effects, anchoring.ID, loc,
+		proof.MirrorSyncRewrite, proof.MirrorSyncRewrite,
+		proof.MirrorSyncRewrite,
+	)
 
 	// Freshness: the pre-re-org confirmation carried A; everything
 	// after it carried B. The burial confirmation in particular must

@@ -223,17 +223,21 @@ func TestCrossSiteReorgLadderContract(t *testing.T) {
 		detected := int16(address.StatusTransactionDetected)
 		porterAbandon := func() error {
 			return apply(func(q *sqlc.Queries) error {
-				return f.assetsStore.ApplyTransferAbandonment(
-					ctx, q, w.anchorTxid, w.foreclosure,
-				)
+				_, err := f.assetsStore.
+					ApplyTransferAbandonment(
+						ctx, q, w.anchorTxid,
+						w.foreclosure,
+					)
+				return err
 			})
 		}
 		receiveAbandon := func() error {
 			return apply(func(q *sqlc.Queries) error {
-				return f.assetsStore.ApplyReceiveAbandonment(
-					ctx, q, w.anchorTxid,
-					int16(address.StatusTransactionDetected),
-				)
+				_, err := f.assetsStore.
+					ApplyReceiveAbandonment(
+						ctx, q, w.anchorTxid, detected,
+					)
+				return err
 			})
 		}
 
@@ -294,7 +298,7 @@ func TestCrossSiteReorgLadderContract(t *testing.T) {
 				)
 				require.NoError(rt, apply(
 					func(q *sqlc.Queries) error {
-						return f.assetsStore.
+						_, err := f.assetsStore.
 							ApplyReceiveReconfirm(
 								ctx, q,
 								w.anchorTxid,
@@ -302,6 +306,7 @@ func TestCrossSiteReorgLadderContract(t *testing.T) {
 								rung.height, 0,
 								header, merkle,
 							)
+						return err
 					},
 				), where)
 
@@ -500,9 +505,11 @@ func TestPorterAbandonmentSuccessorPassive(t *testing.T) {
 
 		err := f.executor.ExecTx(
 			ctx, WriteTxOption(), func(q *sqlc.Queries) error {
-				return f.assetsStore.ApplyTransferAbandonment(
-					ctx, q, w.anchorTxid, nil,
-				)
+				_, err := f.assetsStore.
+					ApplyTransferAbandonment(
+						ctx, q, w.anchorTxid, nil,
+					)
+				return err
 			},
 		)
 		require.NoError(
@@ -536,12 +543,13 @@ func TestReceiveReorgLadderContract(t *testing.T) {
 			return f.executor.ExecTx(
 				ctx, WriteTxOption(),
 				func(q *sqlc.Queries) error {
-					return f.assetsStore.
+					_, err := f.assetsStore.
 						ApplyReceiveReconfirm(
 							ctx, q, w.anchorTxid,
 							hash, height, 0,
 							header, merkle,
 						)
+					return err
 				},
 			)
 		}
@@ -561,11 +569,12 @@ func TestReceiveReorgLadderContract(t *testing.T) {
 			return f.executor.ExecTx(
 				ctx, WriteTxOption(),
 				func(q *sqlc.Queries) error {
-					return f.assetsStore.
+					_, err := f.assetsStore.
 						ApplyReceiveAbandonment(
 							ctx, q, w.anchorTxid,
 							detected,
 						)
+					return err
 				},
 			)
 		}
