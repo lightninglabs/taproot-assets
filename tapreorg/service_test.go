@@ -470,6 +470,7 @@ func (h *harness) newWatcher() *tapreorg.Watcher {
 		MaxDeliveryBackoff:     40 * time.Millisecond,
 		StuckAfterAttempts:     2,
 		ScanInterval:           20 * time.Millisecond,
+		DispatchTimeout:        100 * time.Millisecond,
 		ErrChan:                h.errChan,
 	})
 	require.NoError(h.t, w.RegisterSite(h.site))
@@ -2380,6 +2381,73 @@ func TestWatcherCallbackPanicsContained(t *testing.T) {
 	effectPanic.Store(false)
 	require.Eventually(t, func() bool {
 		return boomDispatched.Load() == 1
+	}, settleTimeout, settleTick)
+	require.NoError(t, h.escalation())
+}
+
+// TestWatcherEffectDispatchDeadline pins the dispatch deadline: all
+// effects share one serial dispatcher, so a dispatch attempt that
+// never returns — a remote push against a connection that stays open
+// without answering — must be cut off at the deadline and fail into
+// the ordinary backoff bookkeeping, leaving the effects behind it
+// dispatchable.
+func TestWatcherEffectDispatchDeadline(t *testing.T) {
+	t.Parallel()
+
+	h := newHarness(t)
+	ctx := context.Background()
+
+	// A handler that returns only when its context is cancelled:
+	// the shape of a hung remote call.
+	var hangAttempts atomic.Int32
+	require.NoError(t, h.watcher.RegisterEffectHandler(
+		"hang",
+		func(ctx context.Context, _ fn.Option[tapreorg.AnchoringID],
+			_ tapreorg.VersionedBlob) error {
+
+			<-ctx.Done()
+			hangAttempts.Add(1)
+
+			return ctx.Err()
+		},
+	))
+
+	h.start()
+
+	// Enqueue a hanging effect with a well-behaved effect behind it
+	// in dispatch order.
+	op := wire.OutPoint{Hash: chainhash.Hash{0xee}, Index: 0}
+	id := h.register(2, nil, op)
+	require.NoError(t, h.watcher.Withdraw(
+		ctx, id,
+		func(ctx context.Context, tx tapreorg.RegistryTx) error {
+			err := tx.EnqueueEffect(ctx, tapreorg.OutboxEffect{
+				Kind:      "hang",
+				Anchoring: fn.Some(id),
+				Payload:   tapreorg.VersionedBlob{Version: 1},
+			})
+			if err != nil {
+				return err
+			}
+
+			return tx.EnqueueEffect(ctx, tapreorg.OutboxEffect{
+				Kind:      "test",
+				Anchoring: fn.Some(id),
+				Payload:   tapreorg.VersionedBlob{Version: 1},
+			})
+		},
+	))
+
+	// The deadline converts the hang into failed attempts that back
+	// off and retry rather than parking the dispatcher.
+	require.Eventually(t, func() bool {
+		return hangAttempts.Load() >= 2
+	}, settleTimeout, settleTick)
+
+	// The effect queued behind the hanging one still dispatches
+	// (registration's own phase-1 effect is the first of the two).
+	require.Eventually(t, func() bool {
+		return h.effects.Load() == 2
 	}, settleTimeout, settleTick)
 	require.NoError(t, h.escalation())
 }

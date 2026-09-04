@@ -44,6 +44,13 @@ const (
 	// daemon's default --reorgsafedepth.
 	DefaultActThreshold = 6
 
+	// DefaultDispatchTimeout is the default deadline on a single
+	// outbox effect dispatch attempt. All effects share one serial
+	// dispatcher, so an attempt that never returned would block
+	// every effect behind it; the deadline converts a hang into an
+	// ordinary failure that backs off and retries.
+	DefaultDispatchTimeout = time.Minute
+
 	// outboxBatchSize bounds how many effects one dispatch pass
 	// claims.
 	outboxBatchSize = 32
@@ -58,6 +65,34 @@ const (
 // any, is passed along.
 type EffectHandler func(ctx context.Context,
 	anchoring fn.Option[AnchoringID], payload VersionedBlob) error
+
+// effectHandler is a registered effect handler with its dispatch
+// policy.
+type effectHandler struct {
+	handler EffectHandler
+
+	// timeout bounds one dispatch attempt of this handler when
+	// set, zero meaning unbounded. Unset defers to the watcher's
+	// configured DispatchTimeout.
+	timeout fn.Option[time.Duration]
+}
+
+// EffectHandlerOption configures a handler's registration.
+type EffectHandlerOption func(*effectHandler)
+
+// WithDispatchTimeout bounds a single dispatch attempt of the handler
+// with its own deadline instead of the watcher's configured default.
+// Zero leaves the attempt unbounded: a handler whose work is entirely
+// local and grows with its payload — a large minted batch's universe
+// publication — would otherwise fail every attempt at the capped
+// backoff, forever. Only a handler that reaches no remote party
+// should run unbounded, since the deadline is what keeps a hung
+// remote call from parking the serial dispatcher.
+func WithDispatchTimeout(timeout time.Duration) EffectHandlerOption {
+	return func(h *effectHandler) {
+		h.timeout = fn.Some(timeout)
+	}
+}
 
 // WatcherConfig houses the watcher's dependencies and policy knobs.
 type WatcherConfig struct {
@@ -76,6 +111,11 @@ type WatcherConfig struct {
 	// ScanInterval is the cadence of the delivery and outbox
 	// reconciliation scans.
 	ScanInterval time.Duration
+
+	// DispatchTimeout bounds a single outbox effect dispatch
+	// attempt. On expiry the attempt fails into the ordinary
+	// backoff bookkeeping rather than blocking the dispatcher.
+	DispatchTimeout time.Duration
 
 	// DefaultThreshold is the act-confirmation depth given to
 	// registrations that leave RegistrationSpec.Threshold zero. It
@@ -113,6 +153,9 @@ func (c *WatcherConfig) fillDefaults() {
 	if c.ScanInterval == 0 {
 		c.ScanInterval = DefaultScanInterval
 	}
+	if c.DispatchTimeout == 0 {
+		c.DispatchTimeout = DefaultDispatchTimeout
+	}
 	if c.DefaultThreshold == 0 {
 		c.DefaultThreshold = DefaultActThreshold
 	}
@@ -141,7 +184,7 @@ type Watcher struct {
 	cfg *WatcherConfig
 
 	sites          map[SiteID]Site
-	effectHandlers map[EffectKind]EffectHandler
+	effectHandlers map[EffectKind]effectHandler
 	listeners      []DeliveryListener
 
 	bestHeight atomic.Uint32
@@ -168,7 +211,7 @@ func NewWatcher(cfg *WatcherConfig) *Watcher {
 	return &Watcher{
 		cfg:            cfg,
 		sites:          make(map[SiteID]Site),
-		effectHandlers: make(map[EffectKind]EffectHandler),
+		effectHandlers: make(map[EffectKind]effectHandler),
 		events:         make(chan any),
 		deliveryKick:   make(chan struct{}, 1),
 		outboxKick:     make(chan struct{}, 1),
@@ -221,10 +264,11 @@ func (w *Watcher) RegisterDeliveryListener(
 }
 
 // RegisterEffectHandler installs the dispatch handler for one effect
-// kind. All handlers are registered before Start; late registration
-// is refused, as with RegisterSite.
+// kind, under the watcher's dispatch policy unless the options say
+// otherwise. All handlers are registered before Start; late
+// registration is refused, as with RegisterSite.
 func (w *Watcher) RegisterEffectHandler(kind EffectKind,
-	handler EffectHandler) error {
+	handler EffectHandler, opts ...EffectHandlerOption) error {
 
 	if w.started.Load() {
 		return fmt.Errorf("effect handler %v registered after Start",
@@ -234,7 +278,12 @@ func (w *Watcher) RegisterEffectHandler(kind EffectKind,
 		return fmt.Errorf("effect handler %v already registered",
 			kind)
 	}
-	w.effectHandlers[kind] = handler
+
+	entry := effectHandler{handler: handler}
+	for _, opt := range opts {
+		opt(&entry)
+	}
+	w.effectHandlers[kind] = entry
 
 	return nil
 }
@@ -2363,19 +2412,33 @@ func (w *Watcher) dispatchOne(ctx context.Context,
 	effect *StoredEffect) bool {
 
 	var dispatchErr error
-	handler, ok := w.effectHandlers[effect.Effect.Kind]
+	entry, ok := w.effectHandlers[effect.Effect.Kind]
 	if !ok {
 		dispatchErr = fmt.Errorf("no handler for effect kind %v",
 			effect.Effect.Kind)
 	} else {
 		// A panicking handler fails this one dispatch, entering
-		// the ordinary backoff-and-retry bookkeeping.
+		// the ordinary backoff-and-retry bookkeeping. The
+		// deadline does the same for a handler that would not
+		// return: effects share one serial dispatcher, so a
+		// single hung remote call — the push handlers reach
+		// universe servers — would otherwise block every effect
+		// behind it for as long as the connection stays open. A
+		// handler registered with its own timeout overrides the
+		// configured default; one registered unbounded runs to
+		// completion.
+		attemptCtx, cancel := ctx, func() {}
+		timeout := entry.timeout.UnwrapOr(w.cfg.DispatchTimeout)
+		if timeout > 0 {
+			attemptCtx, cancel = context.WithTimeout(ctx, timeout)
+		}
 		dispatchErr = capturePanic("effect handler", func() error {
-			return handler(
-				ctx, effect.Effect.Anchoring,
+			return entry.handler(
+				attemptCtx, effect.Effect.Anchoring,
 				effect.Effect.Payload,
 			)
 		})
+		cancel()
 	}
 
 	if dispatchErr == nil {
