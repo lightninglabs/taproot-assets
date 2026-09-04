@@ -43,6 +43,11 @@ type PrometheusConfig struct {
 	// asset minter.
 	AssetMinter *tapgarden.ChainPlanter
 
+	// AnchoringRegistry is the re-org watcher's registry, used to
+	// export the daemon's speculative anchorings and their
+	// delivery state.
+	AnchoringRegistry *tapdb.ReorgRegistryStore
+
 	// CacheStats is a function that can be used to collect cache stats
 	// from the daemon. This is used to export cache hits and misses for
 	// various caches used in the daemon.

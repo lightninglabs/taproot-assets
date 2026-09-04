@@ -35,10 +35,24 @@ type Querier interface {
 	// transaction commits, serializing journal appends so that seq order
 	// equals commit order.
 	BumpUniverseLeafJournalTail(ctx context.Context, delta int64) (int64, error)
+	// A certified foreclosure is absorbing and never cleared.
+	ClearReorgDependencyForeclosure(ctx context.Context, arg ClearReorgDependencyForeclosureParams) error
 	ConfirmChainAnchorTx(ctx context.Context, arg ConfirmChainAnchorTxParams) error
 	ConfirmChainTx(ctx context.Context, arg ConfirmChainTxParams) error
 	CountAuthMailboxMessages(ctx context.Context) (int64, error)
 	CountForwards(ctx context.Context, arg CountForwardsParams) (int64, error)
+	// Over ALL anchorings, terminal included; see
+	// CountStuckReorgAnchorings.
+	CountLaggingReorgAnchorings(ctx context.Context) (int64, error)
+	// The live gauge's rollup: counts grouped in the database, so a
+	// metrics scrape never materializes anchoring rows.
+	CountLiveReorgAnchoringsByPhase(ctx context.Context) ([]CountLiveReorgAnchoringsByPhaseRow, error)
+	CountLiveReorgDependents(ctx context.Context, parentID int64) (int64, error)
+	// Over ALL anchorings, terminal included: the delivery predicate has
+	// no terminal restriction (a buried or abandoned anchoring's site
+	// handler can still be failing), so the alarm gauges must not
+	// either.
+	CountStuckReorgAnchorings(ctx context.Context) (int64, error)
 	CountUnconfirmedAssets(ctx context.Context, arg CountUnconfirmedAssetsParams) (int64, error)
 	DeleteAllNodes(ctx context.Context, namespace string) (int64, error)
 	DeleteAssetWitnesses(ctx context.Context, assetID int64) error
@@ -124,6 +138,18 @@ type Querier interface {
 	FetchGroupedAssets(ctx context.Context) ([]FetchGroupedAssetsRow, error)
 	FetchInternalKeyByID(ctx context.Context, keyID int64) (FetchInternalKeyByIDRow, error)
 	FetchInternalKeyLocator(ctx context.Context, rawKey []byte) (FetchInternalKeyLocatorRow, error)
+	// The live anchorings whose trigger set references the given
+	// transaction: used when a satisfying candidate in that form is first
+	// recorded, to derive edges for children registered before their
+	// parent's transaction had ever been observed.
+	FetchLiveReorgDependentsByTrigger(ctx context.Context, outpointTxid []byte) ([]int64, error)
+	// The live anchorings for which the given transaction is a recorded
+	// satisfying candidate. Candidate rows are the durable record of
+	// every form in which an anchoring has ever been observed satisfied,
+	// so matching them (rather than the current witness) lets a child's
+	// registration find its parent whichever form the parent currently
+	// holds — witnessed, conflicted, or reorged back out entirely.
+	FetchLiveReorgParentsByCandidate(ctx context.Context, spenderTxid []byte) ([]int64, error)
 	FetchManagedUTXO(ctx context.Context, arg FetchManagedUTXOParams) (FetchManagedUTXORow, error)
 	FetchManagedUTXOs(ctx context.Context) ([]FetchManagedUTXOsRow, error)
 	// Fetch records from the supply_pre_commits table with optional
@@ -137,6 +163,11 @@ type Querier interface {
 	FetchMintingBatchesByInverseState(ctx context.Context, batchState int16) ([]FetchMintingBatchesByInverseStateRow, error)
 	FetchMultiverseRoot(ctx context.Context, namespaceRoot string) (FetchMultiverseRootRow, error)
 	FetchPeerAcceptedBuyPeerByScid(ctx context.Context, scid int64) ([]byte, error)
+	FetchReorgAnchoring(ctx context.Context, id int64) (ReorgAnchoring, error)
+	FetchReorgCandidateSpends(ctx context.Context, anchoringID int64) ([]ReorgCandidateSpend, error)
+	FetchReorgDependencyEdgesByChild(ctx context.Context, childID int64) ([]ReorgDependency, error)
+	FetchReorgDependencyEdgesByParent(ctx context.Context, parentID int64) ([]ReorgDependency, error)
+	FetchReorgTriggerOutpoints(ctx context.Context, anchoringID int64) ([]ReorgTriggerOutpoint, error)
 	FetchRootNode(ctx context.Context, namespace string) (MssmtNode, error)
 	FetchScriptKeyByTweakedKey(ctx context.Context, tweakedScriptKey []byte) (FetchScriptKeyByTweakedKeyRow, error)
 	FetchScriptKeyIDByTweakedKey(ctx context.Context, tweakedScriptKey []byte) (int64, error)
@@ -212,6 +243,13 @@ type Querier interface {
 	InsertNewProofEvent(ctx context.Context, arg InsertNewProofEventParams) error
 	InsertNewSyncEvent(ctx context.Context, arg InsertNewSyncEventParams) error
 	InsertPassiveAsset(ctx context.Context, arg InsertPassiveAssetParams) error
+	// Phase codes mirror tapreorg.PhaseCode: 0 unwitnessed, 1 witnessed,
+	// 2 conflicted, 3 buried, 4 abandoned, 5 withdrawn. Codes >= 3 are
+	// terminal. Verdict codes mirror tapreorg.Verdict: 0 satisfies, 1
+	// foreign. The literals below must stay in sync with those enums.
+	InsertReorgAnchoring(ctx context.Context, arg InsertReorgAnchoringParams) (int64, error)
+	InsertReorgEffect(ctx context.Context, arg InsertReorgEffectParams) (int64, error)
+	InsertReorgTriggerOutpoint(ctx context.Context, arg InsertReorgTriggerOutpointParams) error
 	InsertRootKey(ctx context.Context, arg InsertRootKeyParams) error
 	InsertSupplyCommitTransition(ctx context.Context, arg InsertSupplyCommitTransitionParams) (int64, error)
 	InsertSupplyCommitment(ctx context.Context, arg InsertSupplyCommitmentParams) (int64, error)
@@ -241,6 +279,16 @@ type Querier interface {
 	InsertUniverseServer(ctx context.Context, arg InsertUniverseServerParams) error
 	LinkDanglingSupplyUpdateEvents(ctx context.Context, arg LinkDanglingSupplyUpdateEventsParams) error
 	ListClaimedOutpoints(ctx context.Context, arg ListClaimedOutpointsParams) ([]ListClaimedOutpointsRow, error)
+	ListLiveReorgAnchorings(ctx context.Context) ([]ReorgAnchoring, error)
+	// The observability surface's list query: a pure row projection with
+	// an aggregated candidate count — no per-row follow-up queries and
+	// no raw transaction or proof deserialization behind it. Filters are
+	// applied here, not over materialized rows, and every page is
+	// bounded — the table is never pruned, so an unbounded scan would
+	// grow without limit.
+	ListReorgAnchoringSummariesPage(ctx context.Context, arg ListReorgAnchoringSummariesPageParams) ([]ListReorgAnchoringSummariesPageRow, error)
+	ListReorgPendingDeliveries(ctx context.Context, now int64) ([]ReorgAnchoring, error)
+	ListReorgPendingEffects(ctx context.Context, arg ListReorgPendingEffectsParams) ([]ReorgOutbox, error)
 	LogProofTransferAttempt(ctx context.Context, arg LogProofTransferAttemptParams) error
 	LogServerSync(ctx context.Context, arg LogServerSyncParams) error
 	MarkManagedUTXOAsSwept(ctx context.Context, arg MarkManagedUTXOAsSweptParams) error
@@ -252,6 +300,8 @@ type Querier interface {
 	// pre-commitment corresponds to an asset issuance where a remote node acted as
 	// the issuer.
 	MarkPreCommitSpentByOutpoint(ctx context.Context, arg MarkPreCommitSpentByOutpointParams) error
+	MarkReorgAnchoringDelivered(ctx context.Context, arg MarkReorgAnchoringDeliveredParams) error
+	MarkReorgEffectDispatched(ctx context.Context, arg MarkReorgEffectDispatchedParams) error
 	MaxUniverseLeafJournalSeq(ctx context.Context) (int64, error)
 	NewMintingBatch(ctx context.Context, arg NewMintingBatchParams) error
 	QueryAddr(ctx context.Context, arg QueryAddrParams) (QueryAddrRow, error)
@@ -323,8 +373,18 @@ type Querier interface {
 	QueryUniverseStats(ctx context.Context) (QueryUniverseStatsRow, error)
 	QueryUniverseSupplyLeaves(ctx context.Context, arg QueryUniverseSupplyLeavesParams) ([]QueryUniverseSupplyLeavesRow, error)
 	ReAnchorPassiveAssets(ctx context.Context, arg ReAnchorPassiveAssetsParams) error
+	RecordReorgDeliveryFailure(ctx context.Context, arg RecordReorgDeliveryFailureParams) error
+	RecordReorgEffectFailure(ctx context.Context, arg RecordReorgEffectFailureParams) error
 	SetAddrManaged(ctx context.Context, arg SetAddrManagedParams) error
 	SetAssetSpent(ctx context.Context, arg SetAssetSpentParams) (int64, error)
+	// A newly sensed phase is a new delivery objective, so the failure
+	// bookkeeping of the previous objective (backoff, attempts, stuck)
+	// resets with it; a systematically failing handler re-sticks after
+	// the usual number of attempts. Terminal phases are absorbing at the
+	// row level: a write racing another writer's terminal transition
+	// (a site-initiated withdrawal, most likely) matches no rows, and
+	// the caller observes the refusal via the row count.
+	SetReorgAnchoringPhase(ctx context.Context, arg SetReorgAnchoringPhaseParams) (int64, error)
 	// Sets the content-hash key for a single supply update event row.
 	// Used by the programmatic migration that backfills pre-existing
 	// rows after column 000062 is added.
@@ -340,6 +400,11 @@ type Querier interface {
 	UniverseRootsAfterID(ctx context.Context, arg UniverseRootsAfterIDParams) ([]UniverseRootsAfterIDRow, error)
 	UpdateBatchGenesisTx(ctx context.Context, arg UpdateBatchGenesisTxParams) error
 	UpdateMintingBatchState(ctx context.Context, arg UpdateMintingBatchStateParams) error
+	// The first certified foreclosure freezes the edge: certification is
+	// act-final, so later stagings — fresher parent forms, off-chain
+	// flips — must not displace evidence the notifier certified, lest
+	// the child absorb an abandonment on a transaction it never did.
+	UpdateReorgDependencyForeclosure(ctx context.Context, arg UpdateReorgDependencyForeclosureParams) error
 	UpdateSupplyCommitTransitionCommitment(ctx context.Context, arg UpdateSupplyCommitTransitionCommitmentParams) error
 	UpdateSupplyCommitmentChainDetails(ctx context.Context, arg UpdateSupplyCommitmentChainDetailsParams) error
 	UpdateSupplyCommitmentRoot(ctx context.Context, arg UpdateSupplyCommitmentRootParams) error
@@ -375,6 +440,19 @@ type Querier interface {
 	UpsertMintSupplyPreCommit(ctx context.Context, arg UpsertMintSupplyPreCommitParams) (int64, error)
 	UpsertMultiverseLeaf(ctx context.Context, arg UpsertMultiverseLeafParams) (int64, error)
 	UpsertMultiverseRoot(ctx context.Context, arg UpsertMultiverseRootParams) (int64, error)
+	// Certification is sticky: once set it survives every later update,
+	// since a certified act crossing is never retracted by re-orgs. The
+	// watcher verifies a certifying location against the chain before it
+	// upserts, so a certified row's location was dominant when recorded.
+	//
+	// Witness enrichment (block_header, merkle_proof) only ever
+	// refreshes: a later observation that lacks block data must not
+	// erase enrichment already captured, since burial handlers rebuild
+	// proofs from it without network access.
+	UpsertReorgCandidateSpend(ctx context.Context, arg UpsertReorgCandidateSpendParams) error
+	// Edge creation is idempotent: registration-time and candidate-time
+	// derivation can discover the same edge, and the first write wins.
+	UpsertReorgDependency(ctx context.Context, arg UpsertReorgDependencyParams) error
 	UpsertRfqPolicy(ctx context.Context, arg UpsertRfqPolicyParams) error
 	UpsertRootNode(ctx context.Context, arg UpsertRootNodeParams) error
 	UpsertScriptKey(ctx context.Context, arg UpsertScriptKeyParams) (int64, error)

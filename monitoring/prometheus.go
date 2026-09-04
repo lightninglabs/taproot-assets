@@ -75,6 +75,12 @@ func (p *PrometheusExporter) Start() error {
 	}
 	p.registry.MustRegister(assetBalancesCollecor)
 
+	reorgCollector, err := newReorgCollector(p.config, p.registry)
+	if err != nil {
+		return err
+	}
+	p.registry.MustRegister(reorgCollector)
+
 	gardenCollector, err := newGardenCollector(p.config, p.registry)
 	if err != nil {
 		return err

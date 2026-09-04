@@ -82,6 +82,9 @@ http:
       additional_bindings:
         - get: "/v1/taproot-assets/assets/transfers/{anchor_txid}"
 
+    - selector: taprpc.TaprootAssets.ListAnchorings
+      get: "/v1/taproot-assets/anchorings"
+
     - selector: taprpc.TaprootAssets.FetchAssetMeta
       get: "/v1/taproot-assets/assets/meta/asset-id/{asset_id_str}"
       additional_bindings:
