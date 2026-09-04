@@ -132,10 +132,11 @@ func TestReceiveAnchoringPersistence(t *testing.T) {
 
 		return executor.ExecTx(
 			ctx, WriteTxOption(), func(q *sqlc.Queries) error {
-				return assetsStore.ApplyReceiveReconfirm(
+				_, err := assetsStore.ApplyReceiveReconfirm(
 					ctx, q, anchorTxid, blockHash, height,
 					0, header, merkle,
 				)
+				return err
 			},
 		)
 	}
@@ -199,9 +200,10 @@ func TestReceiveAnchoringPersistence(t *testing.T) {
 	abandon := func() error {
 		return executor.ExecTx(
 			ctx, WriteTxOption(), func(q *sqlc.Queries) error {
-				return assetsStore.ApplyReceiveAbandonment(
+				_, err := assetsStore.ApplyReceiveAbandonment(
 					ctx, q, anchorTxid, detected,
 				)
+				return err
 			},
 		)
 	}
@@ -279,10 +281,11 @@ func TestReceiveAnchoringReconfirmBeforeProofs(t *testing.T) {
 	blockHash, header, merkle := blockContextFor(t, anchorTx, 10)
 	err := executor.ExecTx(
 		ctx, WriteTxOption(), func(q *sqlc.Queries) error {
-			return assetsStore.ApplyReceiveReconfirm(
+			_, err := assetsStore.ApplyReceiveReconfirm(
 				ctx, q, anchorTxid, blockHash, 700, 0,
 				header, merkle,
 			)
+			return err
 		},
 	)
 	require.NoError(t, err)
@@ -384,10 +387,11 @@ func TestReceiveAnchoringMultiLeaf(t *testing.T) {
 
 		return executor.ExecTx(
 			ctx, WriteTxOption(), func(q *sqlc.Queries) error {
-				return assetsStore.ApplyReceiveReconfirm(
+				_, err := assetsStore.ApplyReceiveReconfirm(
 					ctx, q, anchorTxid, blockHash, height,
 					0, header, merkle,
 				)
+				return err
 			},
 		)
 	}
@@ -451,9 +455,10 @@ func TestReceiveAnchoringMultiLeaf(t *testing.T) {
 	abandon := func() error {
 		return executor.ExecTx(
 			ctx, WriteTxOption(), func(q *sqlc.Queries) error {
-				return assetsStore.ApplyReceiveAbandonment(
+				_, err := assetsStore.ApplyReceiveAbandonment(
 					ctx, q, anchorTxid, detected,
 				)
+				return err
 			},
 		)
 	}

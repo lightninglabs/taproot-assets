@@ -55,9 +55,10 @@ func TestMintAnchoringAbandonment(t *testing.T) {
 	abandon := func() error {
 		return executor.ExecTx(
 			ctx, WriteTxOption(), func(q *sqlc.Queries) error {
-				return assetsStore.ApplyMintAbandonment(
+				_, err := assetsStore.ApplyMintAbandonment(
 					ctx, q, genesisTxid, rawBatchKey,
 				)
+				return err
 			},
 		)
 	}
@@ -141,10 +142,11 @@ func TestMintAnchoringConfirmCycle(t *testing.T) {
 
 		return executor.ExecTx(
 			ctx, WriteTxOption(), func(q *sqlc.Queries) error {
-				return assetsStore.ApplyReceiveReconfirm(
+				_, err := assetsStore.ApplyReceiveReconfirm(
 					ctx, q, genesisTxid, blockHash,
 					height, 0, header, merkle,
 				)
+				return err
 			},
 		)
 	}

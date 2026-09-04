@@ -6,6 +6,8 @@ import (
 
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
+	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/tapreorg"
@@ -89,16 +91,22 @@ type recordingMintLog struct {
 	abandonment int
 
 	lastTxid chainhash.Hash
+
+	// locators is what the proof-touching bodies report as
+	// rewritten or deleted, and so what the site must hand to the
+	// mirror.
+	locators []proof.Locator
 }
 
 func (l *recordingMintLog) ApplyReceiveReconfirm(_ context.Context,
 	_ *sqlc.Queries, anchorTxid chainhash.Hash, _ chainhash.Hash,
-	_, _ uint32, _ wire.BlockHeader, _ proof.TxMerkleProof) error {
+	_, _ uint32, _ wire.BlockHeader,
+	_ proof.TxMerkleProof) ([]proof.Locator, error) {
 
 	l.reconfirms++
 	l.lastTxid = anchorTxid
 
-	return nil
+	return l.locators, nil
 }
 
 func (l *recordingMintLog) ApplyReceiveUnconfirm(_ context.Context,
@@ -111,12 +119,13 @@ func (l *recordingMintLog) ApplyReceiveUnconfirm(_ context.Context,
 }
 
 func (l *recordingMintLog) ApplyMintAbandonment(_ context.Context,
-	_ *sqlc.Queries, genesisTxid chainhash.Hash, _ []byte) error {
+	_ *sqlc.Queries, genesisTxid chainhash.Hash,
+	_ []byte) ([]proof.Locator, error) {
 
 	l.abandonment++
 	l.lastTxid = genesisTxid
 
-	return nil
+	return l.locators, nil
 }
 
 // recordingRegistryTx is a RegistryTx that records enqueued effects.
@@ -136,10 +145,78 @@ func (r *recordingRegistryTx) EnqueueEffect(_ context.Context,
 	return nil
 }
 
+// mirrorLocator builds a locator the recording logs report as rewritten
+// or deleted, and so the locator the site must hand to the mirror.
+func mirrorLocator(t *testing.T, anchorTxid chainhash.Hash) proof.Locator {
+	t.Helper()
+
+	var assetID asset.ID
+	assetID[0] = 0xaa
+
+	return proof.Locator{
+		AssetID:   &assetID,
+		ScriptKey: *test.RandPubKey(t),
+		OutPoint:  &wire.OutPoint{Hash: anchorTxid, Index: 0},
+	}
+}
+
+// actGated filters the mirror-sync housekeeping out of the recorded
+// effects, leaving the act-gated emissions.
+func actGated(effects []tapreorg.OutboxEffect) []tapreorg.OutboxEffect {
+	var out []tapreorg.OutboxEffect
+	for _, effect := range effects {
+		if effect.Kind != proof.MirrorSyncEffectKind {
+			out = append(out, effect)
+		}
+	}
+
+	return out
+}
+
+// requireMirrorSyncs asserts the recorded mirror-sync effects, in
+// order: each is tied to the anchoring, carries the given op, and
+// names exactly the given locator.
+func requireMirrorSyncs(t *testing.T, effects []tapreorg.OutboxEffect,
+	id tapreorg.AnchoringID, loc proof.Locator,
+	ops ...proof.MirrorSyncOp) {
+
+	t.Helper()
+
+	var syncs []proof.MirrorSyncPayload
+	for _, effect := range effects {
+		if effect.Kind != proof.MirrorSyncEffectKind {
+			continue
+		}
+		require.Equal(t, id, effect.Anchoring.UnwrapOr(0))
+
+		payload, err := proof.DecodeMirrorSyncPayload(
+			effect.Payload.Version, effect.Payload.Data,
+		)
+		require.NoError(t, err)
+		syncs = append(syncs, payload)
+	}
+
+	require.Len(t, syncs, len(ops))
+	for i, op := range ops {
+		require.Equal(t, op, syncs[i].Op, "sync %d", i)
+		require.Len(t, syncs[i].Locators, 1, "sync %d", i)
+
+		got := syncs[i].Locators[0]
+		require.Equal(t, loc.AssetID, got.AssetID, "sync %d", i)
+		require.Equal(
+			t, loc.ScriptKey.SerializeCompressed(),
+			got.ScriptKey.SerializeCompressed(), "sync %d", i,
+		)
+		require.Equal(t, loc.OutPoint, got.OutPoint, "sync %d", i)
+	}
+}
+
 // TestMintSiteActGating pins the mint site's act-gating contract: the
 // batch's external emissions (the universe/supply publish effect) are
 // enqueued by the burial handler and only there. Every other handler
-// converges local state without enqueueing anything.
+// converges local state without enqueueing anything act-gated; the
+// confirmations and the abandonment enqueue only the file mirror's
+// catch-up for the proofs they touched.
 func TestMintSiteActGating(t *testing.T) {
 	t.Parallel()
 
@@ -170,50 +247,64 @@ func TestMintSiteActGating(t *testing.T) {
 		}},
 	}
 
-	log := &recordingMintLog{}
+	loc := mirrorLocator(t, blob.GenesisTxid)
+	log := &recordingMintLog{locators: []proof.Locator{loc}}
 	site := &mintSite{planter: NewChainPlanter(PlanterConfig{
 		GardenKit: GardenKit{MintAnchoringLog: log},
 	})}
 	ctx := context.Background()
 
-	// Witnessing converges the confirmation; nothing is emitted.
+	// Witnessing converges the confirmation; nothing act-gated is
+	// emitted, only the mirror's catch-up for the re-stamped proof.
 	tx := &recordingRegistryTx{}
 	anchoring.Phase = tapreorg.Witnessed{W: witness}
 	require.NoError(t, site.OnWitnessed(ctx, tx, anchoring))
 	require.Equal(t, 1, log.reconfirms)
 	require.Equal(t, blob.GenesisTxid, log.lastTxid)
-	require.Empty(t, tx.effects)
+	require.Empty(t, actGated(tx.effects))
+	requireMirrorSyncs(
+		t, tx.effects, anchoring.ID, loc, proof.MirrorSyncRewrite,
+	)
 
-	// The soft downgrades emit nothing either.
+	// The soft downgrades emit nothing at all.
 	anchoring.Phase = tapreorg.Unwitnessed{}
 	require.NoError(t, site.OnUnwitnessed(ctx, tx, anchoring))
 	require.Equal(t, 1, log.unconfirms)
-	require.Empty(t, tx.effects)
+	require.Len(t, tx.effects, 1)
 
 	anchoring.Phase = tapreorg.Conflicted{}
 	require.NoError(t, site.OnConflicted(ctx, tx, anchoring))
 	require.Equal(t, 2, log.unconfirms)
-	require.Empty(t, tx.effects)
+	require.Len(t, tx.effects, 1)
 
 	// Burial re-runs the convergent confirmation (covering
 	// coalesced deliveries) and enqueues exactly the publish
-	// effect.
+	// effect, beside the re-stamp's mirror catch-up.
 	anchoring.Phase = tapreorg.Buried{W: witness}
 	require.NoError(t, site.OnBuried(ctx, tx, anchoring))
 	require.Equal(t, 2, log.reconfirms)
-	require.Len(t, tx.effects, 1)
-	require.Equal(t, MintPublishEffectKind, tx.effects[0].Kind)
-	require.Equal(
-		t, anchoring.ID, tx.effects[0].Anchoring.UnwrapOr(0),
+	published := actGated(tx.effects)
+	require.Len(t, published, 1)
+	require.Equal(t, MintPublishEffectKind, published[0].Kind)
+	require.Equal(t, anchoring.ID, published[0].Anchoring.UnwrapOr(0))
+	require.Equal(t, payload, published[0].Payload)
+	requireMirrorSyncs(
+		t, tx.effects, anchoring.ID, loc,
+		proof.MirrorSyncRewrite, proof.MirrorSyncRewrite,
 	)
-	require.Equal(t, payload, tx.effects[0].Payload)
 
 	// Abandonment compensates locally; nothing was published, so
-	// nothing is emitted or retracted.
+	// nothing act-gated is emitted or retracted. The mirror sheds
+	// the deleted proof.
 	anchoring.Phase = tapreorg.Abandoned{}
 	require.NoError(t, site.OnAbandoned(ctx, tx, anchoring))
 	require.Equal(t, 1, log.abandonment)
-	require.Len(t, tx.effects, 1)
+	require.Len(t, actGated(tx.effects), 1)
+	requireMirrorSyncs(
+		t, tx.effects, anchoring.ID, loc,
+		proof.MirrorSyncRewrite, proof.MirrorSyncRewrite,
+		proof.MirrorSyncDelete,
+	)
 }
 
 // TestMintSiteEvaluateCandidate pins the mint site's verdict: exactly

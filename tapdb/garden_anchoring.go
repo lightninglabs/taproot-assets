@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 )
@@ -30,11 +31,11 @@ import (
 // of the proofs it deleted.
 func (a *AssetStore) ApplyMintAbandonment(ctx context.Context,
 	q *sqlc.Queries, genesisTxid chainhash.Hash,
-	rawBatchKey []byte) error {
+	rawBatchKey []byte) ([]proof.Locator, error) {
 
-	assetIDs, err := q.AssetIDsByAnchorTxPrefix(ctx, genesisTxid[:])
+	rows, err := q.AnchoredAssetsByAnchorTxPrefix(ctx, genesisTxid[:])
 	if err != nil {
-		return fmt.Errorf("unable to find minted assets: %w", err)
+		return nil, fmt.Errorf("unable to find minted assets: %w", err)
 	}
 
 	deleted := make([]proof.Locator, 0, len(rows))
@@ -68,16 +69,17 @@ func (a *AssetStore) ApplyMintAbandonment(ctx context.Context,
 			return nil, fmt.Errorf("unable to delete proof: %w",
 				err)
 		}
-		if err := q.DeleteAssetProofByAssetID(ctx, assetID); err != nil {
-			return fmt.Errorf("unable to delete proof: %w", err)
+		if err := q.DeleteAssetByID(ctx, row.AssetID); err != nil {
+			return nil, fmt.Errorf("unable to delete asset: %w",
+				err)
 		}
-		if err := q.DeleteAssetByID(ctx, assetID); err != nil {
-			return fmt.Errorf("unable to delete asset: %w", err)
-		}
+
+		deleted = append(deleted, loc)
 	}
 
 	if err := q.UnconfirmChainAnchorTx(ctx, genesisTxid[:]); err != nil {
-		return fmt.Errorf("unable to unconfirm genesis tx: %w", err)
+		return nil, fmt.Errorf("unable to unconfirm genesis tx: %w",
+			err)
 	}
 
 	err = q.UpdateMintingBatchState(ctx, BatchStateUpdate{
@@ -87,10 +89,10 @@ func (a *AssetStore) ApplyMintAbandonment(ctx context.Context,
 		),
 	})
 	if err != nil {
-		return fmt.Errorf("unable to cancel batch: %w", err)
+		return nil, fmt.Errorf("unable to cancel batch: %w", err)
 	}
 
-	return nil
+	return deleted, nil
 }
 
 // A compile-time assertion that the asset store provides the mint

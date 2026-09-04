@@ -41,21 +41,56 @@ const (
 // mint site drives from its handlers, implemented by the asset store.
 // (Re)confirmation and the potency-tier unconfirm reuse the receive
 // side's bodies: minted state has the same shape as received state.
+// The bodies that touch stored proofs report the locators of the
+// proofs they rewrote or deleted, so the site can enqueue the file
+// mirror's catch-up in the same transaction.
 type MintAnchoringLog interface {
 	// ApplyReceiveReconfirm converges anchored state to a
-	// (re)confirmed transaction.
+	// (re)confirmed transaction, returning the locators of the
+	// proofs it re-stamped.
 	ApplyReceiveReconfirm(ctx context.Context, q *sqlc.Queries,
 		anchorTxid chainhash.Hash, blockHash chainhash.Hash,
 		blockHeight, txIndex uint32, header wire.BlockHeader,
-		merkle proof.TxMerkleProof) error
+		merkle proof.TxMerkleProof) ([]proof.Locator, error)
 
 	// ApplyReceiveUnconfirm withdraws the recorded confirmation.
 	ApplyReceiveUnconfirm(ctx context.Context, q *sqlc.Queries,
 		anchorTxid chainhash.Hash) error
 
-	// ApplyMintAbandonment compensates an abandoned batch.
+	// ApplyMintAbandonment compensates an abandoned batch, returning
+	// the locators of the proofs it deleted.
 	ApplyMintAbandonment(ctx context.Context, q *sqlc.Queries,
-		genesisTxid chainhash.Hash, rawBatchKey []byte) error
+		genesisTxid chainhash.Hash,
+		rawBatchKey []byte) ([]proof.Locator, error)
+}
+
+// enqueueMirrorSync enqueues the proof-file mirror's catch-up for the
+// database proofs a handler rewrote or deleted, in the handler's own
+// transaction. Nothing is enqueued for an empty set.
+func enqueueMirrorSync(ctx context.Context, tx tapreorg.RegistryTx,
+	anchoring *tapreorg.Anchoring, op proof.MirrorSyncOp,
+	locators []proof.Locator) error {
+
+	if len(locators) == 0 {
+		return nil
+	}
+
+	version, data, err := proof.MirrorSyncPayload{
+		Op:       op,
+		Locators: locators,
+	}.Encode()
+	if err != nil {
+		return fmt.Errorf("unable to encode mirror sync: %w", err)
+	}
+
+	return tx.EnqueueEffect(ctx, tapreorg.OutboxEffect{
+		Kind:      proof.MirrorSyncEffectKind,
+		Anchoring: fn.Some(anchoring.ID),
+		Payload: tapreorg.VersionedBlob{
+			Version: version,
+			Data:    data,
+		},
+	})
 }
 
 // mintBlob is the mint site's anchoring blob: the batch key plus the
@@ -136,7 +171,9 @@ func (s *mintSite) EvaluateCandidate(match tapreorg.VersionedBlob,
 	return tapreorg.VerdictForeign, nil
 }
 
-// reconfirm converges minted state to the current witness.
+// reconfirm converges minted state to the current witness. The
+// re-stamped database proofs are mirrored to the file tree through
+// the outbox.
 func (s *mintSite) reconfirm(ctx context.Context, tx tapreorg.RegistryTx,
 	anchoring *tapreorg.Anchoring) error {
 
@@ -150,10 +187,17 @@ func (s *mintSite) reconfirm(ctx context.Context, tx tapreorg.RegistryTx,
 		return err
 	}
 
-	return s.planter.cfg.MintAnchoringLog.ApplyReceiveReconfirm(
+	restamped, err := s.planter.cfg.MintAnchoringLog.ApplyReceiveReconfirm(
 		ctx, tx.Queries(), blob.GenesisTxid, witness.W.BlockHash(),
 		witness.W.Height(), witness.W.TxIndex(),
 		*witness.BlockHeader, *witness.MerkleProof,
+	)
+	if err != nil {
+		return err
+	}
+
+	return enqueueMirrorSync(
+		ctx, tx, anchoring, proof.MirrorSyncRewrite, restamped,
 	)
 }
 
@@ -216,7 +260,9 @@ func (s *mintSite) OnBuried(ctx context.Context, tx tapreorg.RegistryTx,
 // OnAbandoned compensates: the chain decided against the genesis
 // transaction with act-level finality, so the batch's assets never
 // came to be. Nothing was published externally — publication is
-// act-gated — so compensation is purely local.
+// act-gated — so compensation is purely local: the database rows go
+// here, and the file mirror sheds the deleted proofs through the
+// outbox.
 func (s *mintSite) OnAbandoned(ctx context.Context, tx tapreorg.RegistryTx,
 	anchoring *tapreorg.Anchoring) error {
 
@@ -225,8 +271,15 @@ func (s *mintSite) OnAbandoned(ctx context.Context, tx tapreorg.RegistryTx,
 		return err
 	}
 
-	return s.planter.cfg.MintAnchoringLog.ApplyMintAbandonment(
+	deleted, err := s.planter.cfg.MintAnchoringLog.ApplyMintAbandonment(
 		ctx, tx.Queries(), blob.GenesisTxid, blob.RawBatchKey[:],
+	)
+	if err != nil {
+		return err
+	}
+
+	return enqueueMirrorSync(
+		ctx, tx, anchoring, proof.MirrorSyncDelete, deleted,
 	)
 }
 

@@ -7,6 +7,8 @@ import (
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightninglabs/taproot-assets/address"
+	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/tapreorg"
@@ -29,6 +31,11 @@ type receiveCall struct {
 // that it persisted the right block.
 type recordingReceiveLog struct {
 	calls []receiveCall
+
+	// locators is what the proof-touching bodies report as
+	// rewritten or deleted, and so what the site must hand to the
+	// mirror.
+	locators []proof.Locator
 }
 
 func (l *recordingReceiveLog) StakeReceivedProofs(_ context.Context,
@@ -49,7 +56,8 @@ func (l *recordingReceiveLog) HasReceivedProof(_ context.Context,
 func (l *recordingReceiveLog) ApplyReceiveReconfirm(_ context.Context,
 	_ *sqlc.Queries, anchorTxid chainhash.Hash,
 	blockHash chainhash.Hash, blockHeight, txIndex uint32,
-	header wire.BlockHeader, _ proof.TxMerkleProof) error {
+	header wire.BlockHeader,
+	_ proof.TxMerkleProof) ([]proof.Locator, error) {
 
 	l.calls = append(l.calls, receiveCall{
 		kind:        "reconfirm",
@@ -60,7 +68,7 @@ func (l *recordingReceiveLog) ApplyReceiveReconfirm(_ context.Context,
 		header:      header,
 	})
 
-	return nil
+	return l.locators, nil
 }
 
 func (l *recordingReceiveLog) ApplyReceiveUnconfirm(_ context.Context,
@@ -76,7 +84,7 @@ func (l *recordingReceiveLog) ApplyReceiveUnconfirm(_ context.Context,
 
 func (l *recordingReceiveLog) ApplyReceiveAbandonment(_ context.Context,
 	_ *sqlc.Queries, anchorTxid chainhash.Hash,
-	resetStatus int16) error {
+	resetStatus int16) ([]proof.Locator, error) {
 
 	l.calls = append(l.calls, receiveCall{
 		kind:        "abandon",
@@ -84,7 +92,7 @@ func (l *recordingReceiveLog) ApplyReceiveAbandonment(_ context.Context,
 		resetStatus: resetStatus,
 	})
 
-	return nil
+	return l.locators, nil
 }
 
 // kinds returns the recorded call kinds in order.
@@ -112,6 +120,72 @@ func (r *recordingReceiveTx) EnqueueEffect(_ context.Context,
 	r.effects = append(r.effects, effect)
 
 	return nil
+}
+
+// mirrorLocator builds a locator the recording logs report as rewritten
+// or deleted, and so the locator the site must hand to the mirror.
+func mirrorLocator(t *testing.T, anchorTxid chainhash.Hash) proof.Locator {
+	t.Helper()
+
+	var assetID asset.ID
+	assetID[0] = 0xaa
+
+	return proof.Locator{
+		AssetID:   &assetID,
+		ScriptKey: *test.RandPubKey(t),
+		OutPoint:  &wire.OutPoint{Hash: anchorTxid, Index: 0},
+	}
+}
+
+// actGated filters the mirror-sync housekeeping out of the recorded
+// effects, leaving the act-gated emissions.
+func actGated(effects []tapreorg.OutboxEffect) []tapreorg.OutboxEffect {
+	var out []tapreorg.OutboxEffect
+	for _, effect := range effects {
+		if effect.Kind != proof.MirrorSyncEffectKind {
+			out = append(out, effect)
+		}
+	}
+
+	return out
+}
+
+// requireMirrorSyncs asserts the recorded mirror-sync effects, in
+// order: each is tied to the anchoring, carries the given op, and
+// names exactly the given locator.
+func requireMirrorSyncs(t *testing.T, effects []tapreorg.OutboxEffect,
+	id tapreorg.AnchoringID, loc proof.Locator,
+	ops ...proof.MirrorSyncOp) {
+
+	t.Helper()
+
+	var syncs []proof.MirrorSyncPayload
+	for _, effect := range effects {
+		if effect.Kind != proof.MirrorSyncEffectKind {
+			continue
+		}
+		require.Equal(t, id, effect.Anchoring.UnwrapOr(0))
+
+		payload, err := proof.DecodeMirrorSyncPayload(
+			effect.Payload.Version, effect.Payload.Data,
+		)
+		require.NoError(t, err)
+		syncs = append(syncs, payload)
+	}
+
+	require.Len(t, syncs, len(ops))
+	for i, op := range ops {
+		require.Equal(t, op, syncs[i].Op, "sync %d", i)
+		require.Len(t, syncs[i].Locators, 1, "sync %d", i)
+
+		got := syncs[i].Locators[0]
+		require.Equal(t, loc.AssetID, got.AssetID, "sync %d", i)
+		require.Equal(
+			t, loc.ScriptKey.SerializeCompressed(),
+			got.ScriptKey.SerializeCompressed(), "sync %d", i,
+		)
+		require.Equal(t, loc.OutPoint, got.OutPoint, "sync %d", i)
+	}
 }
 
 // witnessAt builds a witness for the transaction in the given block,
@@ -152,10 +226,11 @@ func witnessAt(t *testing.T, tx *wire.MsgTx, nonce uint32,
 // first, or that read the wrong end of the candidate list, would still
 // look correct to a single-confirmation test.
 //
-// The receive site also emits nothing at any phase: it is the one
-// migrated site with no external effect, so its burial handler is a
-// plain convergent confirmation and the outbox must stay empty
-// throughout.
+// The receive site also emits nothing act-gated at any phase: it is
+// the one migrated site with no external effect, so its burial handler
+// is a plain convergent confirmation. What it does enqueue is
+// housekeeping — the file mirror's catch-up for every proof a
+// confirmation re-stamped or the abandonment deleted.
 func TestReceiveSiteReorgLadder(t *testing.T) {
 	t.Parallel()
 
@@ -172,7 +247,8 @@ func TestReceiveSiteReorgLadder(t *testing.T) {
 	witnessB, candidateB := witnessAt(t, anchorTx, 11, 705, 4)
 	require.NotEqual(t, witnessA.BlockHash(), witnessB.BlockHash())
 
-	log := &recordingReceiveLog{}
+	loc := mirrorLocator(t, anchorTxid)
+	log := &recordingReceiveLog{locators: []proof.Locator{loc}}
 	site := &receiveSite{custodian: &Custodian{
 		cfg: &Config{AnchoringLog: log},
 	}}
@@ -257,8 +333,15 @@ func TestReceiveSiteReorgLadder(t *testing.T) {
 		t, int16(address.StatusTransactionDetected), last.resetStatus,
 	)
 
-	// The receive site emits nothing, at any phase.
-	require.Empty(t, tx.effects)
+	// The receive site emits nothing act-gated, at any phase. The
+	// mirror follows each confirmation's re-stamp and the
+	// abandonment's deletion, naming the proof the log reported.
+	require.Empty(t, actGated(tx.effects))
+	requireMirrorSyncs(
+		t, tx.effects, anchoring.ID, loc,
+		proof.MirrorSyncRewrite, proof.MirrorSyncRewrite,
+		proof.MirrorSyncRewrite, proof.MirrorSyncDelete,
+	)
 }
 
 // TestReceiveSiteConflictIsSoft pins the potency-tier treatment of an
@@ -301,4 +384,8 @@ func TestReceiveSiteConflictIsSoft(t *testing.T) {
 	require.NoError(t, site.OnWitnessed(ctx, tx, anchoring))
 
 	require.Equal(t, []string{"unconfirm", "reconfirm"}, log.kinds())
+
+	// A re-stamp that touched no stored proof leaves the mirror
+	// nothing to catch up on.
+	require.Empty(t, tx.effects)
 }

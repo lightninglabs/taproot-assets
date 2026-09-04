@@ -1715,7 +1715,10 @@ func (c *Custodian) assertProofInLocalArchive(p *proof.AnnotatedProof) error {
 	}
 
 	// We don't have the proof yet, or not in all backends, so we
-	// need to import it now.
+	// need to import it now — unless the anchoring watcher has
+	// abandoned the receive it attests, in which case the copy we
+	// hold outlived the compensation and must not re-materialize
+	// what it withdrew.
 	if !haveProof {
 		if err := c.importOrStake(ctxt, p); err != nil {
 			return fmt.Errorf("error importing proof file into "+

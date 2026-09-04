@@ -26,22 +26,27 @@ const (
 
 // ReceiveAnchoringLog is the transaction-scoped persistence surface
 // the receive site drives from its handlers, implemented by the asset
-// store.
+// store. The bodies that touch stored proofs report the locators of
+// the proofs they rewrote or deleted, so the site can enqueue the
+// file mirror's catch-up in the same transaction.
 type ReceiveAnchoringLog interface {
 	// ApplyReceiveReconfirm converges received state to a
-	// (re)confirmed anchor.
+	// (re)confirmed anchor, returning the locators of the proofs it
+	// re-stamped.
 	ApplyReceiveReconfirm(ctx context.Context, q *sqlc.Queries,
 		anchorTxid chainhash.Hash, blockHash chainhash.Hash,
 		blockHeight, txIndex uint32, header wire.BlockHeader,
-		merkle proof.TxMerkleProof) error
+		merkle proof.TxMerkleProof) ([]proof.Locator, error)
 
 	// ApplyReceiveUnconfirm withdraws the recorded confirmation.
 	ApplyReceiveUnconfirm(ctx context.Context, q *sqlc.Queries,
 		anchorTxid chainhash.Hash) error
 
-	// ApplyReceiveAbandonment compensates an abandoned receive.
+	// ApplyReceiveAbandonment compensates an abandoned receive,
+	// returning the locators of the proofs it deleted.
 	ApplyReceiveAbandonment(ctx context.Context, q *sqlc.Queries,
-		anchorTxid chainhash.Hash, resetStatus int16) error
+		anchorTxid chainhash.Hash,
+		resetStatus int16) ([]proof.Locator, error)
 
 	// StakeReceivedProofs imports verified received proofs on the
 	// registration transaction, skipping any already held, and
@@ -67,6 +72,35 @@ type VerifiedProofWriter interface {
 	// the proof is expected to exist already.
 	ImportVerifiedProofs(ctx context.Context, replace bool,
 		proofs ...proof.VerifiedAnnotatedProof) error
+}
+
+// enqueueMirrorSync enqueues the proof-file mirror's catch-up for the
+// database proofs a handler rewrote or deleted, in the handler's own
+// transaction. Nothing is enqueued for an empty set.
+func enqueueMirrorSync(ctx context.Context, tx tapreorg.RegistryTx,
+	anchoring *tapreorg.Anchoring, op proof.MirrorSyncOp,
+	locators []proof.Locator) error {
+
+	if len(locators) == 0 {
+		return nil
+	}
+
+	version, data, err := proof.MirrorSyncPayload{
+		Op:       op,
+		Locators: locators,
+	}.Encode()
+	if err != nil {
+		return fmt.Errorf("unable to encode mirror sync: %w", err)
+	}
+
+	return tx.EnqueueEffect(ctx, tapreorg.OutboxEffect{
+		Kind:      proof.MirrorSyncEffectKind,
+		Anchoring: fn.Some(anchoring.ID),
+		Payload: tapreorg.VersionedBlob{
+			Version: version,
+			Data:    data,
+		},
+	})
 }
 
 // encodeReceiveBlob encodes the receive site's anchoring blob: the
@@ -130,7 +164,9 @@ func (s *receiveSite) EvaluateCandidate(match tapreorg.VersionedBlob,
 	return tapreorg.VerdictForeign, nil
 }
 
-// reconfirm converges received state to the current witness.
+// reconfirm converges received state to the current witness. The
+// re-stamped database proofs are mirrored to the file tree through
+// the outbox.
 func (s *receiveSite) reconfirm(ctx context.Context,
 	tx tapreorg.RegistryTx, anchoring *tapreorg.Anchoring) error {
 
@@ -144,10 +180,17 @@ func (s *receiveSite) reconfirm(ctx context.Context,
 		return err
 	}
 
-	return s.custodian.cfg.AnchoringLog.ApplyReceiveReconfirm(
+	restamped, err := s.custodian.cfg.AnchoringLog.ApplyReceiveReconfirm(
 		ctx, tx.Queries(), anchorTxid, witness.W.BlockHash(),
 		witness.W.Height(), witness.W.TxIndex(),
 		*witness.BlockHeader, *witness.MerkleProof,
+	)
+	if err != nil {
+		return err
+	}
+
+	return enqueueMirrorSync(
+		ctx, tx, anchoring, proof.MirrorSyncRewrite, restamped,
 	)
 }
 
@@ -200,7 +243,8 @@ func (s *receiveSite) OnBuried(ctx context.Context,
 
 // OnAbandoned compensates: the sender's anchor transaction was
 // decided against with act-level finality, so the received assets
-// never materialized on the surviving chain.
+// never materialized on the surviving chain. The deleted database
+// proofs are shed from the file mirror through the outbox.
 func (s *receiveSite) OnAbandoned(ctx context.Context,
 	tx tapreorg.RegistryTx, anchoring *tapreorg.Anchoring) error {
 
@@ -209,15 +253,68 @@ func (s *receiveSite) OnAbandoned(ctx context.Context,
 		return err
 	}
 
-	return s.custodian.cfg.AnchoringLog.ApplyReceiveAbandonment(
+	deleted, err := s.custodian.cfg.AnchoringLog.ApplyReceiveAbandonment(
 		ctx, tx.Queries(), anchorTxid,
 		int16(address.StatusTransactionDetected),
+	)
+	if err != nil {
+		return err
+	}
+
+	return enqueueMirrorSync(
+		ctx, tx, anchoring, proof.MirrorSyncDelete, deleted,
 	)
 }
 
 // A compile-time assertion that the receive site satisfies the site
 // contract.
 var _ tapreorg.Site = (*receiveSite)(nil)
+
+// ErrAnchoringAbandoned marks a proof file refused for import because
+// the receive site's anchoring for its tip anchor transaction has been
+// abandoned: the chain decided against that transaction with act-level
+// finality and the site's compensation withdrew whatever the file had
+// materialized, so importing it again would resurrect state the chain
+// discarded.
+var ErrAnchoringAbandoned = errors.New("receive anchoring abandoned")
+
+// RefuseAbandonedReceive returns ErrAnchoringAbandoned when the receive
+// site holds an abandoned anchoring for the file's tip anchor
+// transaction. It guards the import paths that could re-materialize
+// compensated state: the custodian's archive assertion, fed by a local
+// universe that keeps the proof past the abandonment, and the
+// RegisterTransfer RPC. A nil watcher checks nothing.
+func RefuseAbandonedReceive(ctx context.Context,
+	watcher tapreorg.Registrar, file *proof.File) error {
+
+	if watcher == nil || file.IsEmpty() {
+		return nil
+	}
+
+	tip, err := file.LastProof()
+	if err != nil {
+		return fmt.Errorf("unable to read tip proof: %w", err)
+	}
+	anchorTxid := tip.AnchorTx.TxHash()
+
+	anchoring, err := watcher.LookupByMatchKey(
+		ctx, ReceiveSiteID, anchorTxid.CloneBytes(),
+	)
+	if err != nil {
+		return fmt.Errorf("unable to look up receive anchoring: %w",
+			err)
+	}
+	if anchoring == nil {
+		return nil
+	}
+
+	if _, abandoned := anchoring.Phase.(tapreorg.Abandoned); abandoned {
+		return fmt.Errorf("%w: anchor tx %v", ErrAnchoringAbandoned,
+			anchorTxid)
+	}
+
+	return nil
+}
 
 // AnchoringSite returns the custodian's site implementation, for
 // registration with the re-org watcher.
@@ -366,8 +463,9 @@ func receiveRegistrationSpec(file *proof.File,
 // and its anchoring in one registration transaction, so the receiver
 // never holds an asset the watcher does not hold custody of: a
 // registration the registry refuses, or any other failure inside the
-// transaction, rolls the import back with it. An unwatchable file is
-// refused rather than held.
+// transaction, rolls the import back with it. A file the watcher has
+// abandoned is refused before anything runs, and an unwatchable file
+// is refused rather than held.
 //
 // The proof-file mirror is written for the proofs the stake imported
 // once the transaction commits, and the proof event subscribers are
@@ -381,6 +479,11 @@ func (c *Custodian) StakeReceive(ctx context.Context,
 	file, err := annotated.Blob.AsFile()
 	if err != nil {
 		return fmt.Errorf("unable to decode proof file: %w", err)
+	}
+
+	err = RefuseAbandonedReceive(ctx, c.cfg.AnchoringWatcher, file)
+	if err != nil {
+		return err
 	}
 
 	// The locator names the proof in the mirror and to subscribers;

@@ -54,13 +54,13 @@ type AnchoringLog interface {
 	ApplyAnchorTxUnconfirm(ctx context.Context, q *sqlc.Queries,
 		anchorTxid chainhash.Hash) error
 
-	// ApplyTransferAbandonment compensates an act-level loss.
-	// foreclosures are the transactions the chain decided for over
-	// the transfer's inputs; an input any of them consumed is not
-	// restored.
+	// ApplyTransferAbandonment compensates an act-level loss,
+	// returning the locators of the proofs it deleted. foreclosures
+	// are the transactions the chain decided for over the transfer's
+	// inputs; an input any of them consumed is not restored.
 	ApplyTransferAbandonment(ctx context.Context, q *sqlc.Queries,
 		anchorTxid chainhash.Hash,
-		foreclosures []*wire.MsgTx) error
+		foreclosures []*wire.MsgTx) ([]proof.Locator, error)
 
 	// RebuildAnchorConfirm reconstructs the confirmation event from
 	// stored state plus the witness's block context, without
@@ -85,6 +85,35 @@ type AnchoringLog interface {
 	// porter calls this once the outcome is in hand and the proofs
 	// are committed.
 	NotifyProofs(blobs ...proof.Blob)
+}
+
+// enqueueMirrorSync enqueues the proof-file mirror's catch-up for the
+// database proofs a handler rewrote or deleted, in the handler's own
+// transaction. Nothing is enqueued for an empty set.
+func enqueueMirrorSync(ctx context.Context, tx tapreorg.RegistryTx,
+	anchoring *tapreorg.Anchoring, op proof.MirrorSyncOp,
+	locators []proof.Locator) error {
+
+	if len(locators) == 0 {
+		return nil
+	}
+
+	version, data, err := proof.MirrorSyncPayload{
+		Op:       op,
+		Locators: locators,
+	}.Encode()
+	if err != nil {
+		return fmt.Errorf("unable to encode mirror sync: %w", err)
+	}
+
+	return tx.EnqueueEffect(ctx, tapreorg.OutboxEffect{
+		Kind:      proof.MirrorSyncEffectKind,
+		Anchoring: fn.Some(anchoring.ID),
+		Payload: tapreorg.VersionedBlob{
+			Version: version,
+			Data:    data,
+		},
+	})
 }
 
 // porterBlob is the porter's anchoring payload (and, without the
@@ -167,7 +196,9 @@ func (s *porterSite) EvaluateCandidate(match tapreorg.VersionedBlob,
 
 // applyConfirm rebuilds the confirmation event from stored state plus
 // the witness's block context and applies it, all on the handler's
-// transaction.
+// transaction. The database proofs the confirmation wrote — the
+// transfer's local outputs and the passive assets it re-anchored —
+// are mirrored to the file tree through the outbox.
 func (s *porterSite) applyConfirm(ctx context.Context,
 	tx tapreorg.RegistryTx, anchoring *tapreorg.Anchoring) error {
 
@@ -191,14 +222,28 @@ func (s *porterSite) applyConfirm(ctx context.Context,
 		return fmt.Errorf("unable to rebuild confirmation: %w", err)
 	}
 
-	_, err = s.porter.cfg.AnchoringLog.ApplyAnchorTxConfirm(
+	localKeys, err := s.porter.cfg.AnchoringLog.ApplyAnchorTxConfirm(
 		ctx, q, conf, burns,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to apply confirmation: %w", err)
 	}
 
-	return nil
+	var rewritten []proof.Locator
+	for _, key := range localKeys {
+		if p, ok := conf.FinalProofs[key]; ok {
+			rewritten = append(rewritten, p.Locator)
+		}
+	}
+	for assetID := range conf.PassiveAssetProofFiles {
+		for _, p := range conf.PassiveAssetProofFiles[assetID] {
+			rewritten = append(rewritten, p.Locator)
+		}
+	}
+
+	return enqueueMirrorSync(
+		ctx, tx, anchoring, proof.MirrorSyncRewrite, rewritten,
+	)
 }
 
 // OnWitnessed converges the transfer to a confirmed anchor: the full
@@ -311,7 +356,8 @@ func foreclosingTxs(anchoring *tapreorg.Anchoring) []*wire.MsgTx {
 }
 
 // OnAbandoned compensates: the chain decided against the transfer's
-// anchor with act-level finality.
+// anchor with act-level finality. The deleted database proofs are
+// shed from the file mirror through the outbox.
 func (s *porterSite) OnAbandoned(ctx context.Context,
 	tx tapreorg.RegistryTx, anchoring *tapreorg.Anchoring) error {
 
@@ -320,8 +366,15 @@ func (s *porterSite) OnAbandoned(ctx context.Context,
 		return err
 	}
 
-	return s.porter.cfg.AnchoringLog.ApplyTransferAbandonment(
+	deleted, err := s.porter.cfg.AnchoringLog.ApplyTransferAbandonment(
 		ctx, tx.Queries(), blob.AnchorTxid, foreclosingTxs(anchoring),
+	)
+	if err != nil {
+		return err
+	}
+
+	return enqueueMirrorSync(
+		ctx, tx, anchoring, proof.MirrorSyncDelete, deleted,
 	)
 }
 
