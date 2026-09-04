@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"fmt"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btclog/v2"
 	"github.com/davecgh/go-spew/spew"
@@ -913,9 +914,40 @@ func genServerConfig(ctx context.Context, cfg *Config,
 
 				// Leased leaves are still ours until their
 				// spend confirms, so they stay in the backup.
-				return assetStore.FetchAllAssets(
+				assets, err := assetStore.FetchAllAssets(
 					ctx, false, true, nil,
 				)
+				if err != nil {
+					return nil, err
+				}
+
+				// Leaves that fund asset channels belong to
+				// lnd's channel state and channel.backup, a
+				// fresh tapd cannot use them on their own.
+				return fn.Filter(assets, backupEligible), nil
+			},
+			LookupSpent: func(ctx context.Context,
+				scriptKey *btcec.PublicKey,
+				anchorPoint wire.OutPoint) (bool, error) {
+
+				leaves, err := assetStore.FetchAllAssets(
+					ctx, true, true,
+					&tapdb.AssetQueryFilters{
+						ScriptKey: &asset.ScriptKey{
+							PubKey: scriptKey,
+						},
+						AnchorPoint: &anchorPoint,
+					},
+				)
+				if err != nil {
+					return false, err
+				}
+
+				return fn.Any(leaves, func(
+					a *asset.ChainAsset) bool {
+
+					return a.IsSpent
+				}), nil
 			},
 			ProofArchive:  proofArchive,
 			KeyLookup:     tapdbAddrBook,
@@ -1009,6 +1041,18 @@ func genServerConfig(ctx context.Context, cfg *Config,
 		BackupUpdater: backupUpdater,
 		Prometheus:    cfg.Prometheus,
 	}, nil
+}
+
+// backupEligible reports whether a wallet leaf belongs in the asset wallet
+// backup file. Channel related leaves are excluded, they are covered by lnd's
+// channel state and cannot be used by a tapd restored on their own.
+func backupEligible(a *asset.ChainAsset) bool {
+	if a == nil || a.Asset == nil || a.ScriptKey.TweakedScriptKey == nil {
+		return true
+	}
+
+	return a.ScriptKey.TweakedScriptKey.Type !=
+		asset.ScriptKeyScriptPathChannel
 }
 
 // CreateServerFromConfig creates a new Taproot Asset server from the given CLI

@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -32,8 +33,8 @@ const (
 	// every asset.
 	DefaultRetryInterval = 30 * time.Second
 
-	// startupTimeout bounds the key derivation and initial reconcile that
-	// happen synchronously in Start.
+	// startupTimeout bounds the key derivation and the check of the
+	// existing file that happen synchronously in Start.
 	startupTimeout = 2 * time.Minute
 
 	// shutdownSyncTimeout bounds the final reconcile that happens in Stop.
@@ -46,9 +47,17 @@ var (
 	ErrUpdaterNotActive = errors.New("backup updater is not active")
 )
 
-// AssetFetcher returns the current set of wallet assets that should be part
-// of the backup. Filtering of unconfirmed assets is done by the Updater.
+// AssetFetcher returns the current set of unspent wallet assets that should
+// be part of the backup. Filtering of unconfirmed assets is done by the
+// Updater.
 type AssetFetcher func(ctx context.Context) ([]*asset.ChainAsset, error)
+
+// SpentLookup reports whether the wallet database knows the leaf identified
+// by script key and anchor outpoint and has it marked as spent. It is used to
+// prune leaves from the file that were spent while the Updater was not
+// running. Leaves the database does not know at all are not spent.
+type SpentLookup func(ctx context.Context, scriptKey *btcec.PublicKey,
+	anchorPoint wire.OutPoint) (bool, error)
 
 // ProofNotifier is the event publisher the Updater subscribes to in order to
 // learn about received, transferred and re-anchored assets. Every new or
@@ -68,6 +77,12 @@ type EventNotifier = fn.EventPublisher[fn.Event, bool]
 type UpdaterConfig struct {
 	// FetchAssets returns the current set of unspent wallet assets.
 	FetchAssets AssetFetcher
+
+	// LookupSpent reports whether the database knows a leaf as spent. It
+	// is consulted for entries that are only found on disk, so a leaf
+	// spent while the Updater was down does not stay in the file forever.
+	// Optional, without it disk-only entries are always retained.
+	LookupSpent SpentLookup
 
 	// ProofArchive is used to fetch the proof file of each asset.
 	ProofArchive proof.Exporter
@@ -272,6 +287,7 @@ func (u *Updater) Start() error {
 			u.receiver, false, nil,
 		)
 		if err != nil {
+			u.receiver.Stop()
 			u.receiver = nil
 			startErr = fmt.Errorf("unable to subscribe to proof "+
 				"events: %w", err)
@@ -337,10 +353,13 @@ func (u *Updater) Stop() error {
 
 // unsubscribe removes the change subscriptions that were registered in Start.
 func (u *Updater) unsubscribe() {
+	// The publishers may already have shut down and dropped their
+	// subscribers, in which case removal reports the subscriber as
+	// unknown. That is expected on shutdown, so it is not worth a warning.
 	if u.receiver != nil {
 		err := u.cfg.ProofNotifier.RemoveSubscriber(u.receiver)
 		if err != nil {
-			log.Warnf("Unable to remove proof subscriber: %v", err)
+			log.Debugf("Unable to remove proof subscriber: %v", err)
 		}
 		u.receiver = nil
 	}
@@ -350,7 +369,7 @@ func (u *Updater) unsubscribe() {
 	for idx, eventReceiver := range u.eventReceivers {
 		err := u.cfg.EventNotifiers[idx].RemoveSubscriber(eventReceiver)
 		if err != nil {
-			log.Warnf("Unable to remove event subscriber: %v", err)
+			log.Debugf("Unable to remove event subscriber: %v", err)
 		}
 	}
 	u.eventReceivers = nil
@@ -392,13 +411,18 @@ func (u *Updater) mainLoop() {
 	var (
 		timer   *time.Timer
 		timerCh <-chan time.Time
+
+		// retrying is true while the armed timer is a retry after a
+		// failure rather than a debounce of fresh changes.
+		retrying bool
 	)
-	arm := func(d time.Duration) {
+	arm := func(d time.Duration, retry bool) {
 		if timer != nil {
 			timer.Stop()
 		}
 		timer = time.NewTimer(d)
 		timerCh = timer.C
+		retrying = retry
 	}
 	disarm := func() {
 		if timer != nil {
@@ -406,6 +430,7 @@ func (u *Updater) mainLoop() {
 		}
 		timer = nil
 		timerCh = nil
+		retrying = false
 	}
 	defer disarm()
 
@@ -416,12 +441,12 @@ func (u *Updater) mainLoop() {
 		case err != nil:
 			log.Errorf("Unable to update backup file: %v, "+
 				"retrying in %v", err, u.cfg.RetryInterval)
-			arm(u.cfg.RetryInterval)
+			arm(u.cfg.RetryInterval, true)
 
 		case failed > 0:
 			log.Warnf("%d asset(s) could not be backed up, "+
 				"retrying in %v", failed, u.cfg.RetryInterval)
-			arm(u.cfg.RetryInterval)
+			arm(u.cfg.RetryInterval, true)
 		}
 	}
 
@@ -430,10 +455,12 @@ func (u *Updater) mainLoop() {
 	handleResult(u.reconcile(u.ctx, true))
 
 	// Only arm the debounce timer for the first notification of a burst,
-	// later ones fold into it.
+	// later ones fold into it. A change that arrives while a retry is
+	// pending pulls the retry forward to the debounce delay, so a fresh
+	// change is not held back by an earlier failure.
 	onChange := func() {
-		if timerCh == nil {
-			arm(u.cfg.Debounce)
+		if timerCh == nil || retrying {
+			arm(u.cfg.Debounce, false)
 		}
 	}
 
@@ -482,7 +509,7 @@ func (u *Updater) mainLoop() {
 					"backed up", failed)
 			}
 			if err != nil {
-				arm(u.cfg.RetryInterval)
+				arm(u.cfg.RetryInterval, true)
 			}
 			req.errChan <- err
 
@@ -598,6 +625,29 @@ func (u *Updater) updateFile() error {
 		}
 	}
 
+	// Entries only found on disk are retained, unless the database knows
+	// them as spent: that happens when a spend confirmed while the
+	// Updater was not running. Leaves the database does not know at all
+	// stay, they may come from a file the operator placed here.
+	for key, ab := range combined {
+		if _, inMemory := u.entries[key]; inMemory {
+			continue
+		}
+		if _, pending := u.pendingRemovals[key]; pending {
+			continue
+		}
+
+		spent, err := u.knownSpent(ab)
+		if err != nil {
+			return err
+		}
+		if spent {
+			log.Infof("Dropping spent leaf %x at %v from backup "+
+				"file", key.assetID[:], key.outpoint)
+			delete(combined, key)
+		}
+	}
+
 	for key, entry := range u.entries {
 		combined[key] = entry.backup
 	}
@@ -645,10 +695,30 @@ func (u *Updater) updateFile() error {
 	return nil
 }
 
+// knownSpent reports whether the database knows the leaf of a disk-only
+// entry as spent.
+func (u *Updater) knownSpent(ab *AssetBackup) (bool, error) {
+	if u.cfg.LookupSpent == nil {
+		return false, nil
+	}
+
+	spent, err := u.cfg.LookupSpent(
+		u.ctx, ab.Asset.ScriptKey.PubKey, ab.AnchorOutpoint,
+	)
+	if err != nil {
+		return false, fmt.Errorf("unable to look up spent state of "+
+			"disk entry: %w", err)
+	}
+
+	return spent, nil
+}
+
 // readDisk reads and decodes the currently persisted backup. It returns nil
 // if nothing is persisted yet. Both encrypted and plaintext files are
 // accepted, so a plaintext export placed at the backup path is picked up and
-// re-written encrypted on the next update.
+// re-written encrypted on the next update. Optimistic (v3) exports are
+// refused, their entries carry no proof data and would be useless once
+// re-written into the compact file.
 func (u *Updater) readDisk() (*WalletBackup, error) {
 	packed, err := u.cfg.Swapper.Extract()
 	switch {
@@ -673,6 +743,13 @@ func (u *Updater) readDisk() (*WalletBackup, error) {
 	if err != nil {
 		return nil, fmt.Errorf("existing backup file cannot be "+
 			"decoded: %w", err)
+	}
+
+	if walletBackup.Version == BackupVersionOptimistic {
+		return nil, fmt.Errorf("existing backup file is an " +
+			"optimistic (v3) export without proof data, it " +
+			"cannot be maintained as the backup file; move it " +
+			"away or import it and delete it")
 	}
 
 	return walletBackup, nil

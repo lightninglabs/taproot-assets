@@ -903,6 +903,12 @@ func ValidateConfig(cfg Config, cfgLogger btclog.Logger) (*Config, error) {
 		)
 	}
 	cfg.Backup.FilePath = CleanAndExpandPath(cfg.Backup.FilePath)
+	if info, err := os.Stat(cfg.Backup.FilePath); err == nil &&
+		info.IsDir() {
+
+		return nil, fmt.Errorf("backup.filepath %v is a directory, "+
+			"it must name a file", cfg.Backup.FilePath)
+	}
 
 	// We'll also update the database file location as well, if it wasn't
 	// set.

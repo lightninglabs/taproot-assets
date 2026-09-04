@@ -10,6 +10,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
@@ -30,16 +31,17 @@ const (
 	testTimeout = 5 * time.Second
 
 	// testQuiet is how long tests wait to assert that no write happens.
-	testQuiet = 6 * testDebounce
+	testQuiet = 10 * testDebounce
 )
 
 // mockSwapper is an in-memory Swapper that records every write and can be
 // told to fail.
 type mockSwapper struct {
-	mu     sync.Mutex
-	data   []byte
-	fail   bool
-	writes chan []byte
+	mu         sync.Mutex
+	data       []byte
+	fail       bool
+	extractErr error
+	writes     chan []byte
 }
 
 func newMockSwapper() *mockSwapper {
@@ -48,14 +50,17 @@ func newMockSwapper() *mockSwapper {
 
 func (m *mockSwapper) UpdateAndSwap(packed []byte) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	if m.fail {
+		m.mu.Unlock()
 		return errors.New("disk full")
 	}
 
 	m.data = append([]byte{}, packed...)
-	m.writes <- m.data
+	data := m.data
+	m.mu.Unlock()
+
+	// Deliver outside the lock so a slow test cannot block Extract.
+	m.writes <- data
 
 	return nil
 }
@@ -64,11 +69,21 @@ func (m *mockSwapper) Extract() ([]byte, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	if m.extractErr != nil {
+		return nil, m.extractErr
+	}
 	if m.data == nil {
 		return nil, ErrNoBackupFile
 	}
 
 	return append([]byte{}, m.data...), nil
+}
+
+func (m *mockSwapper) setExtractErr(err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.extractErr = err
 }
 
 func (m *mockSwapper) setFail(fail bool) {
@@ -204,19 +219,30 @@ func (m *mockKeyLookup) FetchInternalKeyLocator(_ context.Context,
 
 // assetSource is a mutable in-memory stand-in for the asset database.
 type assetSource struct {
-	mu     sync.Mutex
-	assets map[entryKey]*asset.ChainAsset
-	err    error
+	mu      sync.Mutex
+	assets  map[entryKey]*asset.ChainAsset
+	err     error
+	fetches int
+
+	// spent records leaves the source knows as spent, by key.
+	spent map[entryKey]struct{}
+
+	// spentErr, if set, is returned by lookupSpent.
+	spentErr error
 }
 
 func newAssetSource() *assetSource {
-	return &assetSource{assets: make(map[entryKey]*asset.ChainAsset)}
+	return &assetSource{
+		assets: make(map[entryKey]*asset.ChainAsset),
+		spent:  make(map[entryKey]struct{}),
+	}
 }
 
 func (s *assetSource) fetch(_ context.Context) ([]*asset.ChainAsset, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	s.fetches++
 	if s.err != nil {
 		return nil, s.err
 	}
@@ -241,6 +267,44 @@ func (s *assetSource) remove(a *asset.ChainAsset) {
 	defer s.mu.Unlock()
 
 	delete(s.assets, keyForChainAsset(a))
+}
+
+// spend removes the leaf from the unspent set and records it as spent.
+func (s *assetSource) spend(a *asset.ChainAsset) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	key := keyForChainAsset(a)
+	delete(s.assets, key)
+	s.spent[key] = struct{}{}
+}
+
+func (s *assetSource) numFetches() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.fetches
+}
+
+func (s *assetSource) lookupSpent(_ context.Context,
+	scriptKey *btcec.PublicKey, anchorPoint wire.OutPoint) (bool, error) {
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.spentErr != nil {
+		return false, s.spentErr
+	}
+
+	for key := range s.spent {
+		if key.scriptKey == asset.ToSerialized(scriptKey) &&
+			key.outpoint == anchorPoint {
+
+			return true, nil
+		}
+	}
+
+	return false, nil
 }
 
 // testChainAsset is a chain asset together with the proof file it was built
@@ -339,6 +403,7 @@ func newUpdaterHarness(t *testing.T) *updaterHarness {
 func (h *updaterHarness) config() *UpdaterConfig {
 	return &UpdaterConfig{
 		FetchAssets:   h.source.fetch,
+		LookupSpent:   h.source.lookupSpent,
 		ProofArchive:  h.archive,
 		KeyLookup:     h.lookup,
 		ProofNotifier: h.notifier,
@@ -591,6 +656,8 @@ func TestUpdaterDebounce(t *testing.T) {
 	h.start()
 	h.waitWrite()
 
+	before := h.source.numFetches()
+
 	a := h.newAsset()
 	h.source.add(a.ChainAsset)
 	for i := 0; i < 20; i++ {
@@ -599,6 +666,10 @@ func TestUpdaterDebounce(t *testing.T) {
 
 	assertEntries(t, h.waitWrite(), a)
 	h.assertNoWrite()
+
+	// The burst was coalesced into a single reconcile, not one per
+	// notification.
+	require.Equal(t, before+1, h.source.numFetches())
 }
 
 // TestUpdaterDiskOnlyEntriesRetained asserts that entries found on disk that
@@ -626,6 +697,157 @@ func TestUpdaterDiskOnlyEntriesRetained(t *testing.T) {
 	h.source.remove(local.ChainAsset)
 	h.notifier.notify(t)
 	assertEntries(t, h.waitWrite(), foreign)
+}
+
+// TestUpdaterDiskOnlySpentPruned asserts that a leaf spent while the Updater
+// was not running, so only found on disk, is dropped once the database
+// reports it as spent, while leaves the database does not know are kept.
+func TestUpdaterDiskOnlySpentPruned(t *testing.T) {
+	t.Parallel()
+
+	h := newUpdaterHarness(t)
+
+	// The previous run left two leaves in the file. One was spent while
+	// we were down, one belongs to another wallet entirely.
+	spentWhileDown, foreign := h.newAsset(), h.newAsset()
+	packed, err := EncryptBackup(
+		newTestEncrypter(t, h.deriver),
+		encodePlain(t, spentWhileDown, foreign),
+	)
+	require.NoError(t, err)
+	h.swapper.seed(packed)
+	h.source.spend(spentWhileDown.ChainAsset)
+
+	live := h.newAsset()
+	h.source.add(live.ChainAsset)
+	h.start()
+
+	assertEntries(t, h.waitWrite(), foreign, live)
+
+	// A lookup failure is a write failure, the file is left untouched
+	// and the write retried.
+	h.source.mu.Lock()
+	h.source.spentErr = errors.New("db locked")
+	h.source.mu.Unlock()
+
+	live2 := h.newAsset()
+	h.source.add(live2.ChainAsset)
+	h.notifier.notify(t)
+	h.assertNoWrite()
+	assertEntries(t, h.onDisk(), foreign, live)
+
+	h.source.mu.Lock()
+	h.source.spentErr = nil
+	h.source.mu.Unlock()
+	assertEntries(t, h.waitWrite(), foreign, live, live2)
+}
+
+// TestUpdaterRetryPulledForwardByChange asserts that a change arriving while
+// a retry is pending is handled after the debounce, not the retry interval.
+func TestUpdaterRetryPulledForwardByChange(t *testing.T) {
+	t.Parallel()
+
+	h := newUpdaterHarness(t)
+	cfg := h.config()
+	cfg.RetryInterval = 10 * time.Second
+	u, err := NewUpdater(cfg)
+	require.NoError(t, err)
+	h.updater = u
+	h.start()
+	h.waitWrite()
+
+	// Provoke a failure so a long retry is armed.
+	h.swapper.setFail(true)
+	a := h.newAsset()
+	h.source.add(a.ChainAsset)
+	h.notifier.notify(t)
+	h.assertNoWrite()
+
+	// The disk recovers and another change arrives. It must not wait for
+	// the 10s retry.
+	h.swapper.setFail(false)
+	h.notifier.notify(t)
+
+	start := time.Now()
+	assertEntries(t, h.waitWrite(), a)
+	require.Less(t, time.Since(start), 5*time.Second)
+}
+
+// TestUpdaterCorruptFileAtRuntime asserts that a backup file that becomes
+// unreadable while running blocks writes with an error, is retried, and is
+// recovered from once it is readable again.
+func TestUpdaterCorruptFileAtRuntime(t *testing.T) {
+	t.Parallel()
+
+	h := newUpdaterHarness(t)
+	a1 := h.newAsset()
+	h.source.add(a1.ChainAsset)
+	h.start()
+	assertEntries(t, h.waitWrite(), a1)
+
+	h.swapper.setExtractErr(errors.New("I/O error"))
+
+	a2 := h.newAsset()
+	h.source.add(a2.ChainAsset)
+	h.notifier.notify(t)
+	h.assertNoWrite()
+
+	err := h.updater.Sync(context.Background())
+	require.ErrorContains(t, err, "I/O error")
+
+	h.swapper.setExtractErr(nil)
+	assertEntries(t, h.waitWrite(), a1, a2)
+}
+
+// TestUpdaterOptimisticFileRejected asserts that a v3 export at the backup
+// path is refused rather than silently rewritten without its proof data.
+func TestUpdaterOptimisticFileRejected(t *testing.T) {
+	t.Parallel()
+
+	h := newUpdaterHarness(t)
+	plain, err := EncodeWalletBackup(&WalletBackup{
+		Version:        BackupVersionOptimistic,
+		Assets:         []*AssetBackup{newTestAssetBackupV3(t)},
+		FederationURLs: []string{"universe.example:10029"},
+	})
+	require.NoError(t, err)
+	h.swapper.seed(plain)
+
+	require.ErrorContains(t, h.updater.Start(), "optimistic (v3)")
+
+	// Encrypted v3 is refused the same way.
+	packed, err := EncryptBackup(newTestEncrypter(t, h.deriver), plain)
+	require.NoError(t, err)
+	h2 := newUpdaterHarness(t)
+	h2.deriver = h.deriver
+	cfg := h2.config()
+	u, err := NewUpdater(cfg)
+	require.NoError(t, err)
+	h2.swapper.seed(packed)
+	require.ErrorContains(t, u.Start(), "optimistic (v3)")
+}
+
+// TestUpdaterSkipsIncompleteAssets asserts that fetched assets without the
+// fields needed to identify them are ignored rather than crash the loop.
+func TestUpdaterSkipsIncompleteAssets(t *testing.T) {
+	t.Parallel()
+
+	h := newUpdaterHarness(t)
+	a := h.newAsset()
+	h.source.add(a.ChainAsset)
+
+	// A row without an asset and one without a script key.
+	h.source.mu.Lock()
+	h.source.assets[entryKey{assetID: asset.ID{1}}] = &asset.ChainAsset{}
+	broken := *a.ChainAsset
+	brokenAsset := *a.Asset
+	brokenAsset.ScriptKey = asset.ScriptKey{}
+	broken.Asset = &brokenAsset
+	h.source.assets[entryKey{assetID: asset.ID{2}}] = &broken
+	h.source.mu.Unlock()
+
+	h.start()
+	assertEntries(t, h.waitWrite(), a)
 }
 
 // TestUpdaterPlaintextFileAdopted asserts that a plaintext export placed at
