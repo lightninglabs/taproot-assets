@@ -671,9 +671,15 @@ func (sk *ScriptKeyBackup) Decode(r io.Reader) error {
 		sk.Tweak = tweak
 	}
 
-	// Decode the script key type if present.
+	// Decode the script key type if present. A value this decoder does
+	// not know, from a newer exporter or a damaged blob, is treated as
+	// unknown so the importer classifies the key from its material
+	// instead of registering a type no filter will ever match.
 	if _, ok := parsedTypes[ScriptKeyTypeType]; ok {
-		sk.Type = asset.ScriptKeyType(keyType)
+		decodedType := asset.ScriptKeyType(keyType)
+		if decodedType <= asset.ScriptKeyUniquePedersen {
+			sk.Type = decodedType
+		}
 	}
 
 	return nil

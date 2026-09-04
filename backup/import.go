@@ -89,21 +89,48 @@ type ImportConfig struct {
 	WalletProofs proof.Exporter
 }
 
+// keyMaterialComplete reports whether the key info of an entry carries the
+// public keys the import needs to register it.
+func keyMaterialComplete(ab *AssetBackup) bool {
+	if info := ab.AnchorInternalKeyInfo; info != nil && info.PubKey == nil {
+		return false
+	}
+
+	if info := ab.ScriptKeyInfo; info != nil {
+		if info.PubKey == nil || info.RawKey.PubKey == nil {
+			return false
+		}
+	}
+
+	return true
+}
+
 // scriptKeyTypeForImport returns the type a restored script key is registered
 // with. A type recorded by the exporting wallet wins. Backups that predate the
-// type field are classified from the key material: BIP-0086 and unique
-// Pedersen keys are recognised by re-deriving them, which matters because a
-// Pedersen key carries a tweak yet must stay visible and spendable like a
-// BIP-0086 key. Any other tweaked key is an external script path key.
+// type field are classified from the key material: tombstones by the NUMS
+// key, burns from the first witness, BIP-0086 and unique Pedersen keys by
+// re-deriving them. The Pedersen case matters because such a key carries a
+// tweak yet must stay visible and spendable like a BIP-0086 key. Any other
+// tweaked key is an external script path key.
 func scriptKeyTypeForImport(sk asset.ScriptKey,
-	assetID asset.ID) asset.ScriptKeyType {
+	a *asset.Asset) asset.ScriptKeyType {
 
 	tweaked := sk.TweakedScriptKey
-	if tweaked == nil || sk.PubKey == nil {
+	if tweaked == nil || sk.PubKey == nil || a == nil {
 		return asset.ScriptKeyUnknown
 	}
 	if tweaked.Type != asset.ScriptKeyUnknown {
 		return tweaked.Type
+	}
+
+	if sk.PubKey.IsEqual(asset.NUMSPubKey) {
+		return asset.ScriptKeyTombstone
+	}
+
+	if len(a.PrevWitnesses) > 0 &&
+		asset.IsBurnKey(sk.PubKey, a.PrevWitnesses[0]) {
+
+		return asset.ScriptKeyBurn
 	}
 
 	if tweaked.RawKey.PubKey != nil {
@@ -113,7 +140,7 @@ func scriptKeyTypeForImport(sk asset.ScriptKey,
 		}
 
 		pedersen, err := asset.DeriveUniqueScriptKey(
-			*tweaked.RawKey.PubKey, assetID,
+			*tweaked.RawKey.PubKey, a.ID(),
 			asset.ScriptKeyDerivationUniquePedersen,
 		)
 		if err == nil && pedersen.PubKey.IsEqual(sk.PubKey) {
@@ -488,6 +515,16 @@ func ImportBackup(ctx context.Context, backupBlob []byte,
 		// Key registration errors are fatal since they
 		// indicate DB/infrastructure problems.
 
+		// Entries without the public keys they claim to describe
+		// cannot be registered and would not be spendable, so they
+		// count as data errors rather than crash the import.
+		if !keyMaterialComplete(assetBackup) {
+			log.Warnf("Skipping asset %d (id=%x): incomplete "+
+				"key material", i, assetID[:])
+			numSkipped++
+			continue
+		}
+
 		// Register the anchor internal key so LND can sign
 		// for the anchor output when spending.
 		if assetBackup.AnchorInternalKeyInfo != nil {
@@ -524,7 +561,7 @@ func ImportBackup(ctx context.Context, backupBlob []byte,
 			}
 
 			scriptKeyType := scriptKeyTypeForImport(
-				scriptKey, assetID,
+				scriptKey, assetBackup.Asset,
 			)
 			scriptKey.TweakedScriptKey.Type = scriptKeyType
 
