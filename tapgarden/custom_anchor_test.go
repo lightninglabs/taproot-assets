@@ -650,6 +650,90 @@ func TestFundedMintAnchorPsbtCopyPreservesMetadata(t *testing.T) {
 	require.NotEqual(t, pkt.Unknowns, copyPkt.Unknowns)
 }
 
+type customAnchorBindAugmenter struct {
+	NoOpAugmenter
+	bind func(*MintingBatch) (fn.Option[PreCommitBindData], error)
+}
+
+func (a customAnchorBindAugmenter) BindData(_ context.Context,
+	batch *MintingBatch) (fn.Option[PreCommitBindData], error) {
+
+	return a.bind(batch)
+}
+
+// TestCustomGenesisPsbtStagedBatch verifies that binding uses an independent
+// batch and that neither successful nor failed binding changes its source.
+func TestCustomGenesisPsbtStagedBatch(t *testing.T) {
+	bindErr := errors.New("injected bind failure")
+	for _, test := range []struct {
+		name      string
+		bindErr   error
+		copyError bool
+	}{
+		{name: "success"},
+		{name: "bind error", bindErr: bindErr},
+		{name: "copy error", copyError: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			original := &FundedMintAnchorPsbt{
+				FundedPsbt: fundedPsbt(testCustomAnchorPacket(t)),
+			}
+			if test.copyError {
+				original.Pkt.UnsignedTx = nil
+			}
+			batch := &MintingBatch{
+				GenesisPacket: original,
+				Seedlings: map[string]*Seedling{
+					"seed": {AssetName: "original"},
+				},
+			}
+			batch.setState(BatchStateFrozen)
+			pkt := testCustomAnchorPacket(t)
+			var before bytes.Buffer
+			require.NoError(t, pkt.Serialize(&before))
+			bindCalled := false
+			augmenter := customAnchorBindAugmenter{
+				bind: func(staged *MintingBatch) (
+					fn.Option[PreCommitBindData], error) {
+
+					bindCalled = true
+					require.NotSame(t, batch, staged)
+					require.Equal(t, batch.State(), staged.State())
+					require.NotSame(t, original, staged.GenesisPacket)
+					require.NotSame(t, pkt, staged.GenesisPacket.Pkt)
+					require.True(t, isCustomAnchorPsbt(
+						staged.GenesisPacket.Pkt,
+					))
+					staged.setState(BatchStatePending)
+					staged.Seedlings["seed"].AssetName = "staged"
+					return fn.None[PreCommitBindData](), test.bindErr
+				},
+			}
+			_, err := customGenesisPsbt(
+				t.Context(), address.TestNet3Tap, batch, pkt, 0,
+				-1, noneUint32(), augmenter,
+			)
+			switch {
+			case test.copyError:
+				require.ErrorContains(t, err, "copy pending batch")
+				require.False(t, bindCalled)
+			case test.bindErr != nil:
+				require.ErrorIs(t, err, test.bindErr)
+				require.True(t, bindCalled)
+			default:
+				require.NoError(t, err)
+				require.True(t, bindCalled)
+			}
+			require.Same(t, original, batch.GenesisPacket)
+			require.Equal(t, BatchStateFrozen, batch.State())
+			require.Equal(t, "original", batch.Seedlings["seed"].AssetName)
+			var after bytes.Buffer
+			require.NoError(t, pkt.Serialize(&after))
+			require.Equal(t, before.Bytes(), after.Bytes())
+		})
+	}
+}
+
 func TestCustomGenesisPsbtSupplyPreCommitment(t *testing.T) {
 	ctx := context.Background()
 	augmenter := mockSupplyCommitAugmenter{

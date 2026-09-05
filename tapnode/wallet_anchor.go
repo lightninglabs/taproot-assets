@@ -90,8 +90,8 @@ type CustomAnchorBatchLeaser interface {
 	LeaseInputs(context.Context, CustomAnchorLeaseID,
 		[]wire.OutPoint) ([]wire.OutPoint, error)
 
-	// ReleaseInputs releases only leases owned by leaseID and attempts every
-	// requested outpoint before returning any joined errors.
+	// ReleaseInputs releases only leases owned by leaseID and attempts
+	// every requested outpoint before returning any joined errors.
 	ReleaseInputs(context.Context, CustomAnchorLeaseID,
 		[]wire.OutPoint) error
 }

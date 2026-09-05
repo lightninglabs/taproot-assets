@@ -2104,12 +2104,15 @@ func customGenesisPsbt(ctx context.Context,
 	}
 
 	// BindData is the persistence source of truth after the upstream
-	// augmenter refactor. Stage the funded packet on a shallow batch copy
+	// augmenter refactor. Stage the funded packet on an independent copy
 	// and ensure it resolves to the same output the caller declared.
 	if pendingBatch != nil {
-		stagedBatch := *pendingBatch
+		stagedBatch, err := pendingBatch.Copy()
+		if err != nil {
+			return zero, fmt.Errorf("copy pending batch: %w", err)
+		}
 		stagedBatch.GenesisPacket = &result
-		bindData, err := augmenter.BindData(ctx, &stagedBatch)
+		bindData, err := augmenter.BindData(ctx, stagedBatch)
 		if err != nil {
 			return zero, fmt.Errorf("augmenter BindData: %w", err)
 		}

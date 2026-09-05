@@ -233,7 +233,9 @@ func (l *LndRpcWalletAnchor) LeaseInputs(ctx context.Context,
 	seen := make(map[wire.OutPoint]struct{}, len(ops))
 	for _, op := range ops {
 		if _, ok := seen[op]; ok {
-			return nil, fmt.Errorf("custom anchor input is repeated: %v", op)
+			return nil, fmt.Errorf(
+				"custom anchor input is repeated: %v", op,
+			)
 		}
 		seen[op] = struct{}{}
 	}
@@ -253,8 +255,10 @@ func (l *LndRpcWalletAnchor) LeaseInputs(ctx context.Context,
 	for _, op := range ops {
 		lease, ok := leaseByOutpoint[op]
 		if ok && lease.LockID != lockID {
-			return nil, fmt.Errorf("wallet input %v is already leased by "+
-				"another batch or subsystem", op)
+			return nil, fmt.Errorf(
+				"wallet input %v is already leased by "+
+					"another batch or subsystem", op,
+			)
 		}
 	}
 
@@ -271,7 +275,9 @@ func (l *LndRpcWalletAnchor) LeaseInputs(ctx context.Context,
 			ctx, 0, math.MaxInt32,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("error listing wallet inputs: %w", err)
+			return nil, fmt.Errorf(
+				"error listing wallet inputs: %w", err,
+			)
 		}
 		walletInputs = make(map[wire.OutPoint]struct{}, len(utxos))
 		for _, utxo := range utxos {
@@ -336,9 +342,11 @@ func (l *LndRpcWalletAnchor) ReleaseInputs(ctx context.Context,
 		if _, ok := owned[op]; !ok {
 			continue
 		}
-		if err := l.lnd.WalletKit.ReleaseOutput(ctx, lockID, op); err != nil {
+		err := l.lnd.WalletKit.ReleaseOutput(ctx, lockID, op)
+		if err != nil {
 			releaseErr = errors.Join(releaseErr, fmt.Errorf(
-				"error releasing custom anchor lease %v: %w", op, err,
+				"error releasing custom anchor lease %v: %w",
+				op, err,
 			))
 		}
 	}

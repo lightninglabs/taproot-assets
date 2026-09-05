@@ -244,8 +244,8 @@ func TestCustomAnchorBatchLeasePartialRollback(t *testing.T) {
 	require.ErrorContains(t, err, "injected lease failure")
 	require.Equal(t, []wire.OutPoint{current, newInput}, locked)
 
-	// This mirrors the planter's owner-aware rollback: the existing lease is
-	// excluded, while the newly acquired lease is released in one snapshot.
+	// This mirrors the planter's owner-aware rollback: the existing lease
+	// is excluded, while the new lease is released in one snapshot.
 	require.NoError(t, wallet.ReleaseInputs(
 		t.Context(), leaseID, []wire.OutPoint{newInput},
 	))
