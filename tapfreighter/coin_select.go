@@ -73,9 +73,10 @@ func (s *CoinSelect) SelectCoins(ctx context.Context,
 
 	// We list the eligible coins in pages of descending amounts, so we can
 	// stop listing as soon as the accumulated amount covers the target,
-	// instead of loading every coin the node holds. If specific inputs are
-	// requested, we can't bound the listing, as those are filtered out of
-	// the full listing.
+	// instead of loading every coin the node holds. Specific inputs are
+	// already bounded by their anchor points at the database layer, but the
+	// full previous ID is filtered afterward, so that listing stays
+	// unpaged.
 	pageSize := int32(eligibleCoinsPageSize)
 	if len(constraints.PrevIDs) > 0 {
 		pageSize = 0
