@@ -174,6 +174,11 @@ type RootNodesQuery struct {
 	// Limit is the maximum number of root nodes to return. If this is
 	// zero, then the default limit will be used.
 	Limit int32
+
+	// ProofType is an optional filter for the proof type of the returned
+	// root nodes. If set to ProofTypeUnspecified, root nodes of all proof
+	// types are returned.
+	ProofType ProofType
 }
 
 // RootNodes returns the set of root nodes for all known base universes assets.
