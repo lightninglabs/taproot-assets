@@ -17,6 +17,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapconfig"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	wrpc "github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
+	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -297,4 +298,26 @@ func TestExportProofValidation(t *testing.T) {
 			assertCode(t, err, tc.wantCode)
 		})
 	}
+}
+
+// TestAssetLeavesValidation tests that AssetLeaves rejects an unspecified
+// proof type with InvalidArgument. An unspecified proof type resolves to a
+// universe that does not exist, so without this check the RPC returns an
+// empty leaf list instead of an error.
+func TestAssetLeavesValidation(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer()
+	unspecified := unirpc.ProofType_PROOF_TYPE_UNSPECIFIED
+	_, err := server.AssetLeaves(
+		context.Background(), &unirpc.AssetLeavesRequest{
+			Id: &unirpc.ID{
+				Id: &unirpc.ID_AssetId{
+					AssetId: make([]byte, 32),
+				},
+				ProofType: unspecified,
+			},
+		},
+	)
+	assertCode(t, err, codes.InvalidArgument)
 }
