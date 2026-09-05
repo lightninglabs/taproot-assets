@@ -1,3 +1,4 @@
+//nolint:lll
 package tapdb
 
 import (
@@ -259,6 +260,15 @@ type PendingAssetStore interface {
 	// mint batch supply commit on disk.
 	UpsertMintSupplyPreCommit(ctx context.Context,
 		arg UpsertBatchPreCommitParams) (int64, error)
+}
+
+type customAnchorKeyRepairQueries interface {
+	FetchCustomAnchorKeyRepairCandidates(context.Context) (
+		[]sqlc.FetchCustomAnchorKeyRepairCandidatesRow, error)
+	RepairCustomAnchorInternalKey(context.Context,
+		sqlc.RepairCustomAnchorInternalKeyParams) (int64, error)
+	UpsertWalletVerifiedInternalKey(context.Context,
+		sqlc.UpsertWalletVerifiedInternalKeyParams) (int64, error)
 }
 
 var (
@@ -1040,9 +1050,10 @@ func fetchAssetSeedlings(ctx context.Context, q PendingAssetStore,
 // https://github.com/kyleconroy/sqlc/issues/1334 is fixed in sqlc, after code
 // generation, the GroupKeyFamily and GroupKeyIndex fields of the
 // FetchAssetsForBatchRow need to be manually modified to be sql.NullInt32.
-func fetchAssetSprouts(ctx context.Context, q PendingAssetStore,
-	rawBatchKey, batchSibling, genScript []byte) (*commitment.TapCommitment,
-	error) {
+func fetchAssetSprouts(
+	ctx context.Context, q PendingAssetStore,
+	rawBatchKey, batchSibling, genScript []byte,
+	mintingInternalKey *btcec.PublicKey) (*commitment.TapCommitment, error) {
 
 	dbSprout, err := q.FetchAssetsForBatch(ctx, rawBatchKey)
 	if err != nil {
@@ -1164,13 +1175,6 @@ func fetchAssetSprouts(ctx context.Context, q PendingAssetStore,
 		sprouts[i] = assetSprout
 	}
 
-	// Verify that we can reconstruct the genesis output script used in the
-	// anchor TX.
-	batchKey, err := btcec.ParsePubKey(rawBatchKey)
-	if err != nil {
-		return nil, err
-	}
-
 	var tapSibling *chainhash.Hash
 	if len(batchSibling) != 0 {
 		tapSibling, err = chainhash.NewHash(batchSibling)
@@ -1180,7 +1184,7 @@ func fetchAssetSprouts(ctx context.Context, q PendingAssetStore,
 	}
 
 	return tapgarden.VerifyOutputScript(
-		batchKey, tapSibling, genScript, sprouts,
+		mintingInternalKey, tapSibling, genScript, sprouts,
 	)
 }
 
@@ -1434,6 +1438,8 @@ func marshalMintingBatch(ctx context.Context, q PendingAssetStore,
 		batch.GenesisPacket = &tapgarden.FundedMintAnchorPsbt{
 			FundedPsbt: tapsend.FundedPsbt{
 				Pkt: genesisPkt,
+				LockedUTXOs: tapgarden.
+					CustomAnchorLockedUTXOs(genesisPkt),
 				ChangeOutputIndex: extractSqlInt32[int32](
 					dbBatch.ChangeOutputIndex,
 				),
@@ -1483,8 +1489,13 @@ func marshalMintingBatch(ctx context.Context, q PendingAssetStore,
 		genesisTx := batch.GenesisPacket.Pkt.UnsignedTx
 		genesisScript := genesisTx.TxOut[assetAnchorOutIdx].PkScript
 		tapscriptSibling := batch.TapSibling()
+		mintingInternalKey, err := batch.MintingInternalKey()
+		if err != nil {
+			return nil, err
+		}
 		batch.RootAssetCommitment, err = fetchAssetSprouts(
 			ctx, q, dbBatch.RawKey, tapscriptSibling, genesisScript,
+			mintingInternalKey,
 		)
 		if err != nil {
 			return nil, err
@@ -1810,16 +1821,146 @@ func (a *AssetMintingStore) AddSproutsToBatch(ctx context.Context,
 	return nil
 }
 
+// FetchCustomAnchorKeyRepairCandidates returns historical mint rows with the
+// retained data needed for the wallet-aware repair audit.
+func (a *AssetMintingStore) FetchCustomAnchorKeyRepairCandidates(
+	ctx context.Context) ([]tapgarden.CustomAnchorKeyRepairCandidate, error) {
+
+	var candidates []tapgarden.CustomAnchorKeyRepairCandidate
+	readOpts := NewAssetStoreReadTx()
+	err := a.db.ExecTx(ctx, &readOpts, func(q PendingAssetStore) error {
+		repairQueries, ok := q.(customAnchorKeyRepairQueries)
+		if !ok {
+			return fmt.Errorf(
+				"custom anchor key repair queries unavailable",
+			)
+		}
+
+		rows, err := repairQueries.
+			FetchCustomAnchorKeyRepairCandidates(ctx)
+		if err != nil {
+			return err
+		}
+
+		for _, row := range rows {
+			assetOutputIndex := ^uint32(0)
+			if row.AssetsOutputIndex.Valid &&
+				row.AssetsOutputIndex.Int32 >= 0 {
+
+				assetOutputIndex = uint32(
+					row.AssetsOutputIndex.Int32,
+				)
+			}
+
+			candidates = append(candidates,
+				tapgarden.CustomAnchorKeyRepairCandidate{
+					BatchKey:         row.BatchKey,
+					MintingTxPsbt:    row.MintingTxPsbt,
+					AssetOutputIndex: assetOutputIndex,
+					Outpoint:         row.Outpoint,
+					ManagedInternalKey: row.
+						ManagedInternalKey,
+					MerkleRoot: row.MerkleRoot,
+				},
+			)
+		}
+
+		return nil
+	})
+
+	return candidates, err
+}
+
+// RepairCustomAnchorInternalKey compare-and-swaps the exact poisoned managed
+// UTXO to a descriptor that the caller has already proven belongs to the
+// wallet and binds the candidate's committed output.
+func (a *AssetMintingStore) RepairCustomAnchorInternalKey(ctx context.Context,
+	candidate tapgarden.CustomAnchorKeyRepairCandidate,
+	desc keychain.KeyDescriptor) error {
+
+	if desc.PubKey == nil {
+		return fmt.Errorf("verified custom anchor key is missing")
+	}
+
+	var writeOpts AssetStoreTxOptions
+	return a.db.ExecTx(ctx, &writeOpts, func(q PendingAssetStore) error {
+		repairQueries, ok := q.(customAnchorKeyRepairQueries)
+		if !ok {
+			return fmt.Errorf(
+				"custom anchor key repair queries unavailable",
+			)
+		}
+
+		rawKey := desc.PubKey.SerializeCompressed()
+		_, err := repairQueries.UpsertWalletVerifiedInternalKey(
+			ctx, sqlc.UpsertWalletVerifiedInternalKeyParams{
+				RawKey:    rawKey,
+				KeyFamily: int32(desc.Family),
+				KeyIndex:  int32(desc.Index),
+			},
+		)
+		if err != nil {
+			return fmt.Errorf(
+				"unable to store verified custom anchor key: %w",
+				err,
+			)
+		}
+
+		updated, err := repairQueries.RepairCustomAnchorInternalKey(
+			ctx, sqlc.RepairCustomAnchorInternalKeyParams{
+				BatchKey: candidate.BatchKey,
+				AssetOutputIndex: sql.NullInt32{
+					Int32: int32(candidate.AssetOutputIndex),
+					Valid: true,
+				},
+				ExpectedOldKey: candidate.BatchKey,
+				ReplacementKey: rawKey,
+				Outpoint:       candidate.Outpoint,
+			},
+		)
+		if err != nil {
+			return err
+		}
+		if updated != 1 {
+			return fmt.Errorf(
+				"custom anchor key repair "+
+					"compare-and-swap updated %d rows",
+				updated,
+			)
+		}
+
+		return nil
+	})
+}
+
 // CommitSignedGenesisTx binds a fully signed genesis transaction to a pending
-// batch on disk. The anchor output index and script root are also stored to
-// ensure we can reconstruct the private key needed to sign for the batch. The
-// genesis transaction itself is inserted as a new chain transaction, which all
-// other components then reference.
+// batch on disk using the batch key as the minting internal key. This preserves
+// the original MintingStore contract for callers that don't use a custom
+// anchor.
+func (a *AssetMintingStore) CommitSignedGenesisTx(ctx context.Context,
+	batch *tapgarden.MintingBatch, genesisPkt *tapsend.FundedPsbt,
+	anchorOutputIndex uint32, merkleRoot, tapTreeRoot []byte,
+	tapSibling []byte) error {
+
+	return a.CommitSignedGenesisTxWithKey(
+		ctx, batch, batch.BatchKey, genesisPkt, anchorOutputIndex,
+		merkleRoot, tapTreeRoot, tapSibling,
+	)
+}
+
+// CommitSignedGenesisTxWithKey binds a fully signed genesis transaction to a
+// pending batch on disk using the specified minting internal key. The anchor
+// output index and script root are also stored to ensure we can reconstruct the
+// private key needed to sign for the batch. The genesis transaction itself is
+// inserted as a new chain transaction, which all other components then
+// reference.
 //
 // TODO(roasbeef): or could just re-read assets from disk and set the script
 // root manually?
-func (a *AssetMintingStore) CommitSignedGenesisTx(ctx context.Context,
-	batch *tapgarden.MintingBatch, genesisPkt *tapsend.FundedPsbt,
+func (a *AssetMintingStore) CommitSignedGenesisTxWithKey(ctx context.Context,
+	batch *tapgarden.MintingBatch,
+	mintingInternalKey keychain.KeyDescriptor,
+	genesisPkt *tapsend.FundedPsbt,
 	anchorOutputIndex uint32, merkleRoot, tapTreeRoot []byte,
 	tapSibling []byte) error {
 
@@ -1842,6 +1983,10 @@ func (a *AssetMintingStore) CommitSignedGenesisTx(ctx context.Context,
 	genTXID := rawGenTx.TxHash()
 
 	rawBatchKey := batchKey.SerializeCompressed()
+	if mintingInternalKey.PubKey == nil {
+		return fmt.Errorf("minting internal key is missing")
+	}
+	rawMintingInternalKey := mintingInternalKey.PubKey.SerializeCompressed()
 
 	anchorOutput := rawGenTx.TxOut[anchorOutputIndex]
 	anchorPoint := wire.OutPoint{
@@ -1861,6 +2006,25 @@ func (a *AssetMintingStore) CommitSignedGenesisTx(ctx context.Context,
 
 	var writeTxOpts AssetStoreTxOptions
 	err = a.db.ExecTx(ctx, &writeTxOpts, func(q PendingAssetStore) error {
+		repairQueries, ok := q.(customAnchorKeyRepairQueries)
+		if !ok {
+			return fmt.Errorf(
+				"wallet-verified internal key query unavailable",
+			)
+		}
+
+		_, err := repairQueries.UpsertWalletVerifiedInternalKey(
+			ctx, sqlc.UpsertWalletVerifiedInternalKeyParams{
+				RawKey:    rawMintingInternalKey,
+				KeyFamily: int32(mintingInternalKey.Family),
+				KeyIndex:  int32(mintingInternalKey.Index),
+			})
+		if err != nil {
+			return fmt.Errorf(
+				"unable to store minting internal key: %w", err,
+			)
+		}
+
 		// First, we'll update the genesis packet stored as part of the
 		// batch, as this packet is now fully signed.
 		pktBytes, err := fn.Serialize(genesisPkt.Pkt)
@@ -1893,7 +2057,7 @@ func (a *AssetMintingStore) CommitSignedGenesisTx(ctx context.Context,
 		// this is where all the assets will be anchored within.
 		rootVersion := uint8(commitment.TapCommitmentV2)
 		utxoID, err := q.UpsertManagedUTXO(ctx, RawManagedUTXO{
-			RawKey:           rawBatchKey,
+			RawKey:           rawMintingInternalKey,
 			Outpoint:         anchorOutpoint,
 			AmtSats:          anchorOutput.Value,
 			TaprootAssetRoot: tapTreeRoot,
@@ -1941,6 +2105,53 @@ func (a *AssetMintingStore) CommitSignedGenesisTx(ctx context.Context,
 
 	batch.SetStateOnDBSuccess(tapgarden.BatchStateBroadcast)
 	return nil
+}
+
+// StoreSignedGenesisPsbt durably records a signed custom genesis packet while
+// leaving its batch committed. The transaction is only anchored into the
+// asset store after publication validation succeeds.
+func (a *AssetMintingStore) StoreSignedGenesisPsbt(ctx context.Context,
+	batchKey *btcec.PublicKey, genesisPkt *tapsend.FundedPsbt) error {
+
+	pktBytes, err := fn.Serialize(genesisPkt.Pkt)
+	if err != nil {
+		return fmt.Errorf(
+			"unable to serialize signed genesis packet: %w", err,
+		)
+	}
+
+	rawBatchKey := batchKey.SerializeCompressed()
+	var writeTxOpts AssetStoreTxOptions
+	return a.db.ExecTx(ctx, &writeTxOpts, func(q PendingAssetStore) error {
+		batch, err := q.FetchMintingBatch(ctx, rawBatchKey)
+		if err != nil {
+			return fmt.Errorf(
+				"unable to fetch batch before "+
+					"storing signed packet: %w", err,
+			)
+		}
+		if tapgarden.BatchState(batch.BatchState) !=
+			tapgarden.BatchStateCommitted {
+
+			return fmt.Errorf(
+				"cannot store signed genesis "+
+					"packet for batch in state %v",
+				tapgarden.BatchState(batch.BatchState),
+			)
+		}
+
+		err = q.UpdateBatchGenesisTx(ctx, GenesisTxUpdate{
+			RawKey:        rawBatchKey,
+			MintingTxPsbt: pktBytes,
+		})
+		if err != nil {
+			return fmt.Errorf(
+				"unable to store signed genesis packet: %w", err,
+			)
+		}
+
+		return nil
+	})
 }
 
 // MarkBatchConfirmed stores final confirmation information for a batch on
@@ -2211,7 +2422,9 @@ func (a *AssetMintingStore) DeleteTapscriptTree(ctx context.Context,
 // cultivator consume separately, as well as the TapscriptTreeManager
 // used for batch tap siblings.
 var (
-	_ tapgarden.BatchStore       = (*AssetMintingStore)(nil)
-	_ tapgarden.MintingRefReader = (*AssetMintingStore)(nil)
-	_ asset.TapscriptTreeManager = (*AssetMintingStore)(nil)
+	_ tapgarden.BatchStore              = (*AssetMintingStore)(nil)
+	_ tapgarden.MintingRefReader        = (*AssetMintingStore)(nil)
+	_ tapgarden.SignedGenesisPsbtStore  = (*AssetMintingStore)(nil)
+	_ tapgarden.MintingInternalKeyStore = (*AssetMintingStore)(nil)
+	_ asset.TapscriptTreeManager        = (*AssetMintingStore)(nil)
 )

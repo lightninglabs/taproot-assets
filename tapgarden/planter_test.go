@@ -1,3 +1,4 @@
+//nolint:lll
 package tapgarden_test
 
 import (
@@ -95,7 +96,7 @@ type mintingTestHarness struct {
 
 	chain *tapnodemock.ChainBridge
 
-	store *tapdb.AssetMintingStore
+	store testMintingStore
 
 	treeStore *tapgarden.FallibleTapscriptTreeMgr
 
@@ -132,12 +133,26 @@ type mintingTestHarness struct {
 	testing.TB
 
 	errChan chan error
+
+	leaseRenewalInterval time.Duration
+
+	// pendingConfReq records the watcher that is installed before the
+	// transaction is published. The production caretaker deliberately uses
+	// watcher-first ordering so an ambiguous earlier publication cannot race
+	// confirmation tracking.
+	pendingConfReq *int
+}
+
+type testMintingStore interface {
+	tapgarden.BatchStore
+	tapgarden.MintingRefReader
+	asset.TapscriptTreeManager
 }
 
 // newMintingTestHarness creates a new test harness from an active minting
 // store and an existing testing context.
 func newMintingTestHarness(t testing.TB,
-	store *tapdb.AssetMintingStore) *mintingTestHarness {
+	store testMintingStore) *mintingTestHarness {
 
 	keyRing := tapnodemock.NewKeyRing()
 	genSigner := tapgarden.NewMockGenSigner(keyRing)
@@ -188,9 +203,10 @@ func (t *mintingTestHarness) refreshChainPlanter() {
 			ProofWatcher:       t.proofWatcher,
 			GenesisTxAugmenter: t.augmenter,
 		},
-		ChainParams:  *chainParams,
-		ProofUpdates: t.proofFiles,
-		ErrChan:      t.errChan,
+		ChainParams:                      *chainParams,
+		ProofUpdates:                     t.proofFiles,
+		ErrChan:                          t.errChan,
+		CustomAnchorLeaseRenewalInterval: t.leaseRenewalInterval,
 	})
 	require.NoError(t, t.planter.Start())
 }
@@ -1114,6 +1130,21 @@ func (t *mintingTestHarness) assertGenesisPsbtFinalized(
 func (t *mintingTestHarness) assertTxPublished() *wire.MsgTx {
 	t.Helper()
 
+	// Most callers haven't consumed the watcher request yet, so accepting it
+	// here unblocks the production watcher-first ordering. A few security tests
+	// intentionally consume the watcher themselves before allowing a later
+	// retry; in that case the publication can arrive directly.
+	select {
+	case tx := <-t.chain.PublishReq:
+		return tx
+
+	case reqNo := <-t.chain.ConfReqSignal:
+		t.pendingConfReq = &reqNo
+
+	case <-time.After(defaultTimeout):
+		t.Fatal("transaction publication request not sent")
+	}
+
 	tx, err := fn.RecvOrTimeout(t.chain.PublishReq, defaultTimeout)
 	require.NoError(t, err)
 
@@ -1126,10 +1157,15 @@ func (t *mintingTestHarness) assertTxPublished() *wire.MsgTx {
 func (t *mintingTestHarness) assertConfReqSent(tx *wire.MsgTx,
 	block *wire.MsgBlock) func() {
 
-	reqNo, err := fn.RecvOrTimeout(
-		t.chain.ConfReqSignal, defaultTimeout,
-	)
-	require.NoError(t, err)
+	reqNo := t.pendingConfReq
+	if reqNo == nil {
+		var err error
+		reqNo, err = fn.RecvOrTimeout(
+			t.chain.ConfReqSignal, defaultTimeout,
+		)
+		require.NoError(t, err)
+	}
+	t.pendingConfReq = nil
 
 	return func() {
 		t.chain.SendConfNtfn(*reqNo, &chainhash.Hash{}, 1, 0, block, tx)
@@ -1916,6 +1952,12 @@ func testFundFailureReleasesWalletLeases(t *mintingTestHarness) {
 	)
 	require.NoError(t, err)
 	require.Equal(t, funded.LockedUTXOs[0], *unlocked)
+	select {
+	case released := <-t.wallet.ReleaseInputSignal:
+		t.Fatalf("wallet-funded input used custom release path: %v",
+			released)
+	default:
+	}
 }
 
 // testFundBatchChecksDurableSingleton verifies that FundBatch checks the

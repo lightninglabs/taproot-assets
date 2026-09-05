@@ -195,6 +195,39 @@
         ]
       }
     },
+    "/v1/taproot-assets/assets/mint/prepare": {
+      "post": {
+        "summary": "tapcli `assets mint prepare`\nPrepareBatch commits the assets into a caller-authored anchor PSBT and\nreturns the packet for external signing. The batch remains paused until\nFinalizeBatch is called with the signed packet.",
+        "operationId": "Mint_PrepareBatch",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/mintrpcPrepareBatchResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/mintrpcPrepareBatchRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Mint"
+        ]
+      }
+    },
     "/v1/taproot-assets/assets/mint/seal": {
       "post": {
         "summary": "tapcli `assets mint seal`\nSealBatch will attempt to seal the current pending batch by creating and\nvalidating asset group witness for all assets in the batch. If a witness\nis not provided, a signature will be derived to serve as the witness. This\nRPC is only needed if any assets in the batch have a custom asset group key\nthat require an external signer. Otherwise, FinalizeBatch can be called\ndirectly.",
@@ -319,6 +352,11 @@
         "branch": {
           "$ref": "#/definitions/taprpcTapBranch",
           "description": "A TapBranch that represents a Tapscript tree managed externally."
+        },
+        "signed_psbt": {
+          "type": "string",
+          "format": "byte",
+          "description": "The externally signed packet returned by PrepareBatch. All non-signing\nfields must be identical to the prepared packet."
         }
       }
     },
@@ -350,6 +388,30 @@
         "branch": {
           "$ref": "#/definitions/taprpcTapBranch",
           "description": "A TapBranch that represents a Tapscript tree managed externally."
+        },
+        "anchor_psbt": {
+          "type": "string",
+          "format": "byte",
+          "description": "An optional caller-funded anchor PSBT. Input zero remains the asset\ngenesis point and the packet must not contain signatures yet. The\nselected asset anchor output must not contain PSBT_OUT_TAP_TREE because\nPrepareBatch replaces its script tree with the asset commitment and the\noptional batch_sibling."
+        },
+        "asset_anchor_output_index": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The output that will receive the Taproot Asset commitment."
+        },
+        "change_output_index": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The index of an existing change output in anchor_psbt."
+        },
+        "no_change_output": {
+          "type": "boolean",
+          "description": "Set when anchor_psbt has no change output."
+        },
+        "pre_commit_output_index": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The supply commitment output in anchor_psbt, when applicable."
         }
       }
     },
@@ -525,6 +587,18 @@
           "type": "string",
           "format": "byte",
           "description": "The genesis transaction as a PSBT packet. Only populated if the batch has\nbeen committed."
+        },
+        "custom_anchor_lease_error": {
+          "type": "string",
+          "description": "The latest prepared or broadcast custom-anchor wallet lease renewal\ndegradation. Empty after a successful renewal or wallet acceptance."
+        },
+        "custom_anchor_publish_error": {
+          "type": "string",
+          "description": "The latest ambiguous publication error for a custom-anchor transaction\nthat remains watched and retried byte-identically."
+        },
+        "custom_anchor_key_error": {
+          "type": "string",
+          "description": "Historical custom-anchor key health requiring operator intervention.\nEmpty when the managed anchor key is healthy or was repaired."
         }
       }
     },
@@ -577,6 +651,24 @@
         "script_key": {
           "$ref": "#/definitions/taprpcScriptKey",
           "description": "The optional script key to use for the new asset. If no script key is given,\na BIP-86 key will be derived from the underlying wallet."
+        }
+      }
+    },
+    "mintrpcPrepareBatchRequest": {
+      "type": "object",
+      "properties": {
+        "short_response": {
+          "type": "boolean",
+          "description": "If true, then the assets currently in the batch won't be returned in the\nresponse."
+        }
+      }
+    },
+    "mintrpcPrepareBatchResponse": {
+      "type": "object",
+      "properties": {
+        "batch": {
+          "$ref": "#/definitions/mintrpcMintingBatch",
+          "description": "The prepared batch, including the commitment-mutated anchor PSBT."
         }
       }
     },

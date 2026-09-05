@@ -10,6 +10,7 @@ import (
 
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightninglabs/taproot-assets/address"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/rpcserver"
 	"github.com/lightninglabs/taproot-assets/tapcfg"
 	"github.com/lightninglabs/taproot-assets/taprpc"
@@ -126,6 +127,13 @@ const (
 	shortResponseName             = "short"
 	enableSupplyCommitmentsName   = "enable_supply_commitments"
 	feeRateName                   = "sat_per_vbyte"
+	anchorPsbtName                = "anchor_psbt"
+	assetAnchorOutputIndexName    = "asset_anchor_output_index"
+	changeOutputIndexName         = "change_output_index"
+	noChangeOutputName            = "no_change_output"
+	preCommitOutputIndexName      = "pre_commit_output_index"
+	signedPsbtName                = "signed_psbt"
+	outputPsbtName                = "output_psbt"
 	skipProofCourierPingCheckName = "skip-proof-courier-ping-check"
 	assetAmountName               = "amount"
 	burnOverrideConfirmationName  = "override_confirmation_destroy_assets"
@@ -238,6 +246,7 @@ var mintAssetCommand = cli.Command{
 		listBatchesCommand,
 		fundBatchCommand,
 		sealBatchCommand,
+		prepareBatchCommand,
 		finalizeBatchCommand,
 		cancelBatchCommand,
 	},
@@ -496,6 +505,14 @@ var fundBatchCommand = cli.Command{
 			Usage: "if set, the fee rate in sat/vB to use for " +
 				"the minting transaction",
 		},
+		cli.StringFlag{
+			Name:  anchorPsbtName,
+			Usage: "caller-funded PSBT file",
+		},
+		cli.Uint64Flag{Name: assetAnchorOutputIndexName},
+		cli.Int64Flag{Name: changeOutputIndexName},
+		cli.BoolFlag{Name: noChangeOutputName},
+		cli.Uint64Flag{Name: preCommitOutputIndexName},
 	},
 	Action: fundBatch,
 }
@@ -510,14 +527,78 @@ func fundBatch(ctx *cli.Context) error {
 		return err
 	}
 
-	resp, err := client.FundBatch(ctxc, &mintrpc.FundBatchRequest{
+	req := &mintrpc.FundBatchRequest{
 		ShortResponse: ctx.Bool(shortResponseName),
 		FeeRate:       feeRate,
-	})
+	}
+	if path := ctx.String(anchorPsbtName); path != "" {
+		anchorPath := tapcfg.CleanAndExpandPath(path)
+		req.AnchorPsbt, err = os.ReadFile(anchorPath)
+		if err != nil {
+			return err
+		}
+		assetIdx := ctx.Uint64(assetAnchorOutputIndexName)
+		if assetIdx > math.MaxUint32 {
+			return fmt.Errorf("asset anchor output index out of " +
+				"range")
+		}
+		changeIdx := ctx.Int64(changeOutputIndexName)
+		if changeIdx < 0 || changeIdx > math.MaxInt32 {
+			return fmt.Errorf("change output index out of range")
+		}
+		req.AssetAnchorOutputIndex = uint32(assetIdx)
+		req.ChangeOutputIndex = int32(changeIdx)
+		req.NoChangeOutput = ctx.Bool(noChangeOutputName)
+		if ctx.IsSet(preCommitOutputIndexName) {
+			preCommitIdx := ctx.Uint64(preCommitOutputIndexName)
+			if preCommitIdx > math.MaxUint32 {
+				return fmt.Errorf(
+					"pre-commitment output " +
+						"index out of range",
+				)
+			}
+			req.PreCommitOutputIndex = fn.Ptr(uint32(preCommitIdx))
+		}
+	}
+	resp, err := client.FundBatch(ctxc, req)
 	if err != nil {
 		return fmt.Errorf("unable to fund batch: %w", err)
 	}
 
+	printRespJSON(resp)
+	return nil
+}
+
+var prepareBatchCommand = cli.Command{
+	Name:  "prepare",
+	Usage: "prepare a custom anchor batch for external signing",
+	Flags: []cli.Flag{cli.StringFlag{
+		Name:  outputPsbtName,
+		Usage: "write the raw prepared PSBT to this file",
+	}},
+	Action: prepareBatch,
+}
+
+func prepareBatch(ctx *cli.Context) error {
+	client, cleanUp := getMintClient(ctx)
+	defer cleanUp()
+	resp, err := client.PrepareBatch(
+		getContext(), &mintrpc.PrepareBatchRequest{},
+	)
+	if err != nil {
+		return fmt.Errorf("unable to prepare batch: %w", err)
+	}
+	if path := ctx.String(outputPsbtName); path != "" {
+		if resp.Batch == nil {
+			return fmt.Errorf("prepare response has no batch")
+		}
+		path = tapcfg.CleanAndExpandPath(path)
+		err = os.WriteFile(path, resp.Batch.BatchPsbt, 0o600)
+		if err != nil {
+			return fmt.Errorf("unable to write prepared PSBT: %w",
+				err)
+		}
+	}
 	printRespJSON(resp)
 	return nil
 }
@@ -616,6 +697,10 @@ var finalizeBatchCommand = cli.Command{
 			Usage: "if set, the fee rate in sat/vB to use for " +
 				"the minting transaction",
 		},
+		cli.StringFlag{
+			Name:  signedPsbtName,
+			Usage: "externally signed PSBT file",
+		},
 	},
 	Action: finalizeBatch,
 }
@@ -630,10 +715,18 @@ func finalizeBatch(ctx *cli.Context) error {
 		return err
 	}
 
-	resp, err := client.FinalizeBatch(ctxc, &mintrpc.FinalizeBatchRequest{
+	req := &mintrpc.FinalizeBatchRequest{
 		ShortResponse: ctx.Bool(shortResponseName),
 		FeeRate:       feeRate,
-	})
+	}
+	if path := ctx.String(signedPsbtName); path != "" {
+		signedPath := tapcfg.CleanAndExpandPath(path)
+		req.SignedPsbt, err = os.ReadFile(signedPath)
+		if err != nil {
+			return err
+		}
+	}
+	resp, err := client.FinalizeBatch(ctxc, req)
 	if err != nil {
 		return fmt.Errorf("unable to finalize batch: %w", err)
 	}

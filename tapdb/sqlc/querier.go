@@ -126,6 +126,11 @@ type Querier interface {
 	FetchChainTxByID(ctx context.Context, txnID int64) (FetchChainTxByIDRow, error)
 	FetchChildren(ctx context.Context, arg FetchChildrenParams) ([]FetchChildrenRow, error)
 	FetchChildrenSelfJoin(ctx context.Context, arg FetchChildrenSelfJoinParams) ([]FetchChildrenSelfJoinRow, error)
+	// Return historical mint rows with enough retained information for the
+	// wallet-aware startup audit. The caller must still prove that the packet is a
+	// tapd custom anchor, that the locator derives the committed internal key and
+	// that the backing wallet controls it before attempting a repair.
+	FetchCustomAnchorKeyRepairCandidates(ctx context.Context) ([]FetchCustomAnchorKeyRepairCandidatesRow, error)
 	FetchGenesisByAssetID(ctx context.Context, assetID []byte) (GenesisInfoView, error)
 	FetchGenesisByGroupKey(ctx context.Context, tweakedGroupKey []byte) (GenesisInfoView, error)
 	FetchGenesisByID(ctx context.Context, genAssetID int64) (FetchGenesisByIDRow, error)
@@ -375,6 +380,7 @@ type Querier interface {
 	ReAnchorPassiveAssets(ctx context.Context, arg ReAnchorPassiveAssetsParams) error
 	RecordReorgDeliveryFailure(ctx context.Context, arg RecordReorgDeliveryFailureParams) error
 	RecordReorgEffectFailure(ctx context.Context, arg RecordReorgEffectFailureParams) error
+	RepairCustomAnchorInternalKey(ctx context.Context, arg RepairCustomAnchorInternalKeyParams) (int64, error)
 	SetAddrManaged(ctx context.Context, arg SetAddrManagedParams) error
 	SetAssetSpent(ctx context.Context, arg SetAssetSpentParams) (int64, error)
 	// A newly sensed phase is a new delivery objective, so the failure
@@ -468,6 +474,7 @@ type Querier interface {
 	UpsertUniverseRoot(ctx context.Context, arg UpsertUniverseRootParams) (int64, error)
 	UpsertUniverseSupplyLeaf(ctx context.Context, arg UpsertUniverseSupplyLeafParams) (int64, error)
 	UpsertUniverseSupplyRoot(ctx context.Context, arg UpsertUniverseSupplyRootParams) (int64, error)
+	UpsertWalletVerifiedInternalKey(ctx context.Context, arg UpsertWalletVerifiedInternalKeyParams) (int64, error)
 }
 
 var _ Querier = (*Queries)(nil)

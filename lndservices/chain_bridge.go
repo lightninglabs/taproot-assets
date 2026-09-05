@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
+	"unicode"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
@@ -17,7 +19,10 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapnode"
 	"github.com/lightninglabs/taproot-assets/tapreorg"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const (
@@ -366,6 +371,220 @@ func (l *LndRpcChainBridge) PublishTransaction(ctx context.Context,
 	return err
 }
 
+// ValidateAndPublishTransaction submits a transaction before tapd persists an
+// irreversible broadcast state. Only explicit, allowlisted TestMempoolAccept
+// rejections are definitive. Transport, context and unrecognized application
+// failures remain ambiguous.
+func (l *LndRpcChainBridge) ValidateAndPublishTransaction(ctx context.Context,
+	tx *wire.MsgTx, label string) error {
+
+	err := l.lnd.WalletKit.PublishTransaction(ctx, tx, label)
+	if err == nil {
+		return nil
+	}
+
+	return wrapValidateAndPublishError(err)
+}
+
+// wrapValidateAndPublishError adds operation context while retaining the
+// definitive marker, gRPC status and original error in the unwrap chain.
+func wrapValidateAndPublishError(err error) error {
+	publishErr := fmt.Errorf(
+		"unable to validate and publish transaction: %w", err,
+	)
+	if isDefinitivePublishError(err) {
+		return tapnode.NewDefinitivePublishError(publishErr)
+	}
+
+	return publishErr
+}
+
+// isDefinitivePublishError recognizes the typed lnd publication errors that
+// are emitted only after TestMempoolAccept conclusively rejects a transaction.
+// Other application and transport errors remain ambiguous: a backend can fail
+// after relaying the transaction, so they must not restore a cancellable
+// pre-broadcast state.
+func isDefinitivePublishError(err error) bool {
+	rpcStatus, ok := status.FromError(err)
+	if !ok {
+		return false
+	}
+
+	// The pinned WalletKit implementation returns mapped backend
+	// publication errors as Unknown. Do not infer equivalent semantics for
+	// any other gRPC code: even policy-looking text is ambiguous there.
+	if rpcStatus.Code() != codes.Unknown {
+		return false
+	}
+
+	// Reject reasons use both hyphenated and space-separated spellings.
+	// Tokenizing them gives us delimiter-insensitive matching while keeping
+	// every match bounded to complete words.
+	tokens := publishErrorTokens(rpcStatus.Message())
+	if len(tokens) == 0 {
+		return false
+	}
+
+	// Missing-input, conflict and already-known responses are ambiguous.
+	// The backend may have a different mempool view, or may already have
+	// accepted the transaction. Keep these exclusions ahead of the policy
+	// allowlist so a secondary phrase such as "insufficient fee" can never
+	// make them definitive.
+	ambiguousTokens := map[string]struct{}{
+		"already": {}, "alreadyexists": {}, "alreadyknown": {},
+		"conflict": {}, "conflicting": {}, "conflicts": {},
+		"doublespend": {}, "exists": {}, "known": {},
+		"missing": {}, "missingorspent": {}, "nonexistent": {},
+		"orphan": {}, "replacement": {}, "spend": {},
+		"spending": {}, "spent": {}, "unavailable": {},
+	}
+	if fn.Any(tokens, func(token string) bool {
+		_, ambiguous := ambiguousTokens[token]
+		return ambiguous
+	}) {
+
+		return false
+	}
+
+	ambiguousPhrases := [][]string{
+		{"double", "spend"}, {"not", "found"},
+		{"in", "mempool"}, {"in", "chain"},
+		{"in", "block", "chain"}, {"in", "blockchain"},
+		{"unknown", "input"}, {"unknown", "inputs"},
+		{"unknown", "outpoint"}, {"unknown", "parent"},
+	}
+	if containsAnyTokenPhrase(tokens, ambiguousPhrases) {
+		return false
+	}
+
+	return isDefinitiveRejectReason(tokens)
+}
+
+// isDefinitiveRejectReason matches only complete TestMempoolAccept reject
+// reasons or reasons behind explicit reject framing. This avoids treating
+// incidental text such as "backend dust cache unavailable" as a rejection.
+func isDefinitiveRejectReason(tokens []string) bool {
+	mempoolFeePrefix := publishErrorTokens(lnwallet.ErrMempoolFee.Error())
+	if hasTokenPrefix(tokens, mempoolFeePrefix) {
+		return true
+	}
+
+	// Some backends add a small amount of explicit framing around the raw
+	// reject reason. Strip only known frames; arbitrary leading text must
+	// not turn a policy word into a definitive result.
+	rejectFrames := [][]string{
+		{"transaction", "rejected", "by", "the", "mempool"},
+		{"transaction", "rejected", "by", "mempool"},
+		{"transaction", "rejected"},
+		{"mempool", "reject", "reason"},
+		{"mempool", "rejection"},
+		{"reject", "reason"},
+	}
+	for _, frame := range rejectFrames {
+		if hasTokenPrefix(tokens, frame) && len(tokens) > len(frame) {
+			tokens = tokens[len(frame):]
+			break
+		}
+	}
+
+	// These are stable policy and consensus reject reasons produced by
+	// TestMempoolAccept. The bad-txns entries are intentionally enumerated;
+	// a broad bad-txns prefix would also accept inputs-missingorspent.
+	definitiveRejectReasons := [][]string{
+		{"non", "final"}, {"nonfinal"},
+		{"non", "bip68", "final"},
+		{"dust"}, {"transaction", "output", "is", "dust"},
+		{"nonstandard"}, {"non", "standard"},
+		{"non", "mandatory", "script", "verify", "flag"},
+		{"non", "mandatory", "script", "verify", "flag", "failed"},
+		{"mandatory", "script", "verify", "flag"},
+		{"mandatory", "script", "verify", "flag", "failed"},
+		{"tx", "size"}, {"tx", "size", "small"},
+		{"too", "many", "sigops"},
+		{"bad", "txns", "too", "many", "sigops"},
+		{"scriptpubkey"},
+		{"too", "long", "mempool", "chain"},
+		{"too", "many", "ancestors"},
+		{"too", "many", "descendants"},
+		{"insufficient", "fee"}, {"min", "relay", "fee"},
+		{"min", "relay", "fee", "not", "met"},
+		{"mempool", "min", "fee"},
+		{"mempool", "min", "fee", "not", "met"},
+		{"bad", "txns", "vin", "empty"},
+		{"bad", "txns", "vout", "empty"},
+		{"bad", "txns", "oversize"},
+		{"bad", "txns", "vout", "negative"},
+		{"bad", "txns", "vout", "toolarge"},
+		{"bad", "txns", "txouttotal", "toolarge"},
+		{"bad", "txns", "prevout", "null"},
+		{"bad", "txns", "inputvalues", "outofrange"},
+		{"bad", "txns", "in", "belowout"},
+		{"bad", "txns", "fee", "outofrange"},
+		{"bad", "txns", "inputs", "duplicate"},
+	}
+
+	return fn.Any(definitiveRejectReasons, func(reason []string) bool {
+		return tokenSlicesEqual(tokens, reason)
+	})
+}
+
+// publishErrorTokens splits a reject reason into lowercase alphanumeric words.
+// This normalizes punctuation (including hyphens) without permitting substring
+// matches inside unrelated words.
+func publishErrorTokens(errMsg string) []string {
+	return strings.FieldsFunc(strings.ToLower(errMsg), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	})
+}
+
+// hasTokenPrefix reports whether prefix occurs at the start of tokens.
+func hasTokenPrefix(tokens, prefix []string) bool {
+	return len(prefix) <= len(tokens) && tokenSlicesEqual(
+		tokens[:len(prefix)], prefix,
+	)
+}
+
+// tokenSlicesEqual reports whether two token slices are equal.
+func tokenSlicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+
+	for idx := range a {
+		if a[idx] != b[idx] {
+			return false
+		}
+	}
+
+	return true
+}
+
+// containsAnyTokenPhrase reports whether any phrase occurs as a contiguous,
+// word-bounded sequence within tokens.
+func containsAnyTokenPhrase(tokens []string, phrases [][]string) bool {
+	return fn.Any(phrases, func(phrase []string) bool {
+		if len(phrase) == 0 || len(phrase) > len(tokens) {
+			return false
+		}
+
+		for start := 0; start <= len(tokens)-len(phrase); start++ {
+			matches := true
+			for offset := range phrase {
+				if tokens[start+offset] != phrase[offset] {
+					matches = false
+					break
+				}
+			}
+
+			if matches {
+				return true
+			}
+		}
+
+		return false
+	})
+}
+
 // EstimateFee returns a fee estimate for the confirmation target.
 func (l *LndRpcChainBridge) EstimateFee(ctx context.Context,
 	confTarget uint32) (chainfee.SatPerKWeight, error) {
@@ -403,6 +622,7 @@ func (l *LndRpcChainBridge) GenProofChainLookup(
 // A compile time assertion to ensure LndRpcChainBridge meets the
 // tapnode.ChainBridge interface.
 var _ tapnode.ChainBridge = (*LndRpcChainBridge)(nil)
+var _ tapnode.DefinitivePublisher = (*LndRpcChainBridge)(nil)
 
 // A compile-time assertion that the chain bridge satisfies the chain
 // sensing contract the re-org watcher pins in its own package.

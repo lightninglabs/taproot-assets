@@ -2562,6 +2562,61 @@ func TestAssetGroupComplexWitness(t *testing.T) {
 	require.True(t, groupKey.IsEqual(storedGroup.GroupKey))
 }
 
+// TestGroupKeyUpsertAfterPlaceholderImport verifies the default proof and
+// universe import order: a raw-key-only placeholder can be inserted first,
+// then a grouped mint can resolve the same stable key ID without granting the
+// generic upsert path authority to change its locator.
+func TestGroupKeyUpsertAfterPlaceholderImport(t *testing.T) {
+	t.Parallel()
+
+	_, assetStore, db := newAssetStore(t)
+	ctx := context.Background()
+	internalKey := test.RandPubKey(t)
+	rawKey := internalKey.SerializeCompressed()
+
+	placeholderID, err := db.UpsertInternalKey(ctx, InternalKey{
+		RawKey: rawKey,
+	})
+	require.NoError(t, err)
+
+	groupAnchorGen := asset.RandGenesis(t, asset.Normal)
+	groupAnchorGen.MetaHash = [32]byte{}
+	genesisPointID, err := upsertGenesisPoint(
+		ctx, db, groupAnchorGen.FirstPrevOut,
+	)
+	require.NoError(t, err)
+	genAssetID, err := upsertGenesis(
+		ctx, db, genesisPointID, groupAnchorGen,
+	)
+	require.NoError(t, err)
+
+	groupKey := asset.GroupKey{
+		RawKey: keychain.KeyDescriptor{
+			KeyLocator: keychain.KeyLocator{
+				Family: 212,
+				Index:  721,
+			},
+			PubKey: internalKey,
+		},
+		GroupPubKey: *internalKey,
+	}
+	_, err = upsertGroupKey(
+		ctx, &groupKey, assetStore.db, genesisPointID, genAssetID,
+	)
+	require.NoError(t, err)
+
+	resolvedID, err := db.UpsertInternalKey(ctx, InternalKey{
+		RawKey: rawKey, KeyFamily: int32(groupKey.RawKey.Family),
+		KeyIndex: int32(groupKey.RawKey.Index),
+	})
+	require.NoError(t, err)
+	require.Equal(t, placeholderID, resolvedID)
+	locator, err := db.FetchInternalKeyLocator(ctx, rawKey)
+	require.NoError(t, err)
+	require.Zero(t, locator.KeyFamily)
+	require.Zero(t, locator.KeyIndex)
+}
+
 // TestStoreFetchAssetGroupV1 tests that we can store and fetch an asset group
 // version 1.
 func TestStoreFetchAssetGroupV1(t *testing.T) {

@@ -4,8 +4,26 @@ INSERT INTO internal_keys (
 ) VALUES (
     $1, $2, $3
 ) ON CONFLICT (raw_key)
-    -- This is a NOP, raw_key is the unique field that caused the conflict.
-    DO UPDATE SET raw_key = EXCLUDED.raw_key
+    -- Generic imports must never mutate a locator already associated with a
+    -- raw key. They only need the stable key ID, while the wallet-verified
+    -- query below owns locator promotion and conflict validation.
+    DO UPDATE SET raw_key = internal_keys.raw_key
+RETURNING key_id;
+
+-- name: UpsertWalletVerifiedInternalKey :one
+INSERT INTO internal_keys (
+    raw_key, key_family, key_index
+) VALUES (
+    $1, $2, $3
+) ON CONFLICT (raw_key)
+    -- This query is restricted to a wallet-verified descriptor. It may
+    -- upgrade the historical 0/0 placeholder, but never overwrite a known,
+    -- conflicting locator.
+    DO UPDATE SET key_family = EXCLUDED.key_family,
+                  key_index = EXCLUDED.key_index
+    WHERE (internal_keys.key_family = 0 AND internal_keys.key_index = 0)
+       OR (internal_keys.key_family = EXCLUDED.key_family AND
+           internal_keys.key_index = EXCLUDED.key_index)
 RETURNING key_id;
 
 -- name: NewMintingBatch :exec
@@ -677,6 +695,57 @@ SELECT *
 FROM managed_utxos utxos
 JOIN internal_keys keys
     ON utxos.internal_key_id = keys.key_id;
+
+-- name: FetchCustomAnchorKeyRepairCandidates :many
+-- Return historical mint rows with enough retained information for the
+-- wallet-aware startup audit. The caller must still prove that the packet is a
+-- tapd custom anchor, that the locator derives the committed internal key and
+-- that the backing wallet controls it before attempting a repair.
+SELECT batch_keys.raw_key AS batch_key,
+       batches.minting_tx_psbt,
+       batches.assets_output_index,
+       utxos.outpoint,
+       utxo_keys.raw_key AS managed_internal_key,
+       utxos.merkle_root
+FROM asset_minting_batches batches
+JOIN internal_keys batch_keys
+    ON batches.batch_id = batch_keys.key_id
+JOIN genesis_points genesis
+    ON batches.genesis_id = genesis.genesis_id
+JOIN chain_txns chain_tx
+    ON genesis.anchor_tx_id = chain_tx.txn_id
+JOIN managed_utxos utxos
+    ON utxos.txn_id = chain_tx.txn_id
+JOIN internal_keys utxo_keys
+    ON utxos.internal_key_id = utxo_keys.key_id
+WHERE batches.minting_tx_psbt IS NOT NULL;
+
+-- name: RepairCustomAnchorInternalKey :execrows
+WITH candidate_batch AS (
+    SELECT chain_tx.txn_id
+    FROM asset_minting_batches batches
+    JOIN internal_keys batch_keys
+        ON batches.batch_id = batch_keys.key_id
+    JOIN genesis_points genesis
+        ON batches.genesis_id = genesis.genesis_id
+    JOIN chain_txns chain_tx
+        ON genesis.anchor_tx_id = chain_tx.txn_id
+    WHERE batch_keys.raw_key = @batch_key
+      AND batches.assets_output_index = @asset_output_index
+), expected_old_key AS (
+    SELECT key_id
+    FROM internal_keys
+    WHERE internal_keys.raw_key = @expected_old_key
+), replacement_key AS (
+    SELECT key_id
+    FROM internal_keys
+    WHERE internal_keys.raw_key = @replacement_key
+)
+UPDATE managed_utxos
+SET internal_key_id = (SELECT key_id FROM replacement_key)
+WHERE outpoint = @outpoint
+  AND txn_id = (SELECT txn_id FROM candidate_batch)
+  AND internal_key_id = (SELECT key_id FROM expected_old_key);
 
 -- name: AnchorPendingAssets :exec
 WITH assets_to_update AS (

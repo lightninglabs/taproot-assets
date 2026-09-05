@@ -1,20 +1,28 @@
+//nolint:lll
 package tapgarden
 
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"reflect"
 	"slices"
 	"sync"
 	"time"
 
+	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/mempool"
 	"github.com/btcsuite/btcd/psbt/v2"
+	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taproot-assets/address"
@@ -26,6 +34,8 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"golang.org/x/exp/maps"
 )
@@ -115,6 +125,11 @@ type PlanterConfig struct {
 	// ErrChan is the main error channel the planter will report back
 	// critical errors to the main server.
 	ErrChan chan<- error
+
+	// CustomAnchorLeaseRenewalInterval controls how often wallet-owned
+	// inputs in a caller-funded batch are re-leased while awaiting an
+	// external signer. Zero uses the production default.
+	CustomAnchorLeaseRenewalInterval time.Duration
 
 	// TODO(roasbeef): something notification related?
 }
@@ -327,6 +342,7 @@ type UnsealedSeedling struct {
 type FinalizeParams struct {
 	FeeRate        fn.Option[chainfee.SatPerKWeight]
 	SiblingTapTree fn.Option[asset.TapscriptTreeNodes]
+	SignedPsbt     *psbt.Packet
 }
 
 // FundParams are the options available to change how a batch is funded, and how
@@ -334,6 +350,606 @@ type FinalizeParams struct {
 type FundParams struct {
 	FeeRate        fn.Option[chainfee.SatPerKWeight]
 	SiblingTapTree fn.Option[asset.TapscriptTreeNodes]
+
+	// AnchorPsbt is an optional caller-authored anchor transaction. When
+	// present, the wallet funding step is skipped and the caller-selected
+	// inputs, outputs and PSBT metadata are preserved.
+	AnchorPsbt *psbt.Packet
+
+	// AssetAnchorOutIdx selects the output whose script will be replaced by
+	// the final Taproot Asset commitment during batch preparation.
+	AssetAnchorOutIdx uint32
+
+	// ChangeOutputIndex identifies a pre-existing change output in the
+	// caller-authored PSBT. A value of -1 means that there is no change
+	// output.
+	ChangeOutputIndex int32
+
+	// PreCommitOutputIndex selects the caller-provided supply commitment
+	// pre-commitment output. It must be set when the pending batch enables
+	// supply commitments.
+	PreCommitOutputIndex fn.Option[uint32]
+}
+
+var customAnchorPsbtMarker = []byte{
+	0xfc, 0x04, 't', 'a', 'p', 'd', 0x01,
+}
+
+var customAnchorPublishMarker = []byte{
+	0xfc, 0x04, 't', 'a', 'p', 'd', 0x02,
+}
+
+type customAnchorPublishState byte
+
+type customAnchorLeaseMarkerState byte
+
+const (
+	customAnchorPublishNone customAnchorPublishState = iota
+	customAnchorPublishPending
+	customAnchorPublishRejected
+	customAnchorImportPending
+
+	maxFinalScriptWitnessSize = 4_000_000
+	maxFinalWitnessItems      = 100_000
+
+	customAnchorLeaseRenewalInterval = 5 * time.Minute
+)
+
+const (
+	customAnchorLeaseMarkerMissing customAnchorLeaseMarkerState = iota
+	customAnchorLeaseMarkerLegacy
+	customAnchorLeaseMarkerCurrent
+)
+
+func markCustomAnchorPsbt(packet *psbt.Packet) {
+	if isCustomAnchorPsbt(packet) {
+		return
+	}
+
+	packet.Unknowns = append(packet.Unknowns, &psbt.Unknown{
+		Key:   fn.CopySlice(customAnchorPsbtMarker),
+		Value: []byte{1},
+	})
+}
+
+// SetCustomAnchorLockedUTXOs records the wallet-owned inputs leased for a
+// custom anchor transaction in tapd's existing proprietary PSBT marker. Caller
+// metadata is left untouched, and the marker is persisted with the packet.
+func SetCustomAnchorLockedUTXOs(packet *psbt.Packet, ops []wire.OutPoint) {
+	if packet == nil {
+		return
+	}
+
+	value := make([]byte, 5+36*len(ops))
+	value[0] = 1
+	binary.LittleEndian.PutUint32(value[1:5], uint32(len(ops)))
+	offset := 5
+	for _, op := range ops {
+		copy(value[offset:offset+32], op.Hash[:])
+		binary.LittleEndian.PutUint32(value[offset+32:offset+36], op.Index)
+		offset += 36
+	}
+
+	unknowns := packet.Unknowns[:0]
+	for _, unknown := range packet.Unknowns {
+		if !bytes.Equal(unknown.Key, customAnchorPsbtMarker) {
+			unknowns = append(unknowns, unknown)
+		}
+	}
+	packet.Unknowns = append(unknowns, &psbt.Unknown{
+		Key: fn.CopySlice(customAnchorPsbtMarker), Value: value,
+	})
+}
+
+// parseCustomAnchorLockedUTXOs validates and returns the wallet-owned custom
+// anchor inputs stored in tapd's PSBT marker. The original one-byte marker is
+// reported as legacy so callers can rediscover and lease wallet-owned inputs
+// before publication. Malformed current markers must never be interpreted as
+// an external-only transaction.
+func parseCustomAnchorLockedUTXOs(packet *psbt.Packet) ([]wire.OutPoint,
+	customAnchorLeaseMarkerState, error) {
+
+	if packet == nil {
+		return nil, customAnchorLeaseMarkerMissing, nil
+	}
+
+	var marker *psbt.Unknown
+	for _, unknown := range packet.Unknowns {
+		if !bytes.Equal(unknown.Key, customAnchorPsbtMarker) {
+			continue
+		}
+		if marker != nil {
+			return nil, customAnchorLeaseMarkerCurrent,
+				fmt.Errorf("duplicate custom anchor lease marker")
+		}
+		marker = unknown
+	}
+
+	if marker == nil {
+		return nil, customAnchorLeaseMarkerMissing, nil
+	}
+	if len(marker.Value) == 1 && marker.Value[0] == 1 {
+		return nil, customAnchorLeaseMarkerLegacy, nil
+	}
+	if len(marker.Value) < 5 || marker.Value[0] != 1 {
+		return nil, customAnchorLeaseMarkerCurrent,
+			fmt.Errorf("malformed custom anchor lease marker")
+	}
+
+	count := binary.LittleEndian.Uint32(marker.Value[1:5])
+	if uint64(count) > uint64((len(marker.Value)-5)/36) ||
+		len(marker.Value) != 5+int(count)*36 {
+
+		return nil, customAnchorLeaseMarkerCurrent,
+			fmt.Errorf("malformed custom anchor lease marker length")
+	}
+
+	ops := make([]wire.OutPoint, count)
+	seen := make(map[wire.OutPoint]struct{}, count)
+	offset := 5
+	for idx := range ops {
+		copy(ops[idx].Hash[:], marker.Value[offset:offset+32])
+		ops[idx].Index = binary.LittleEndian.Uint32(
+			marker.Value[offset+32 : offset+36],
+		)
+		offset += 36
+		if _, ok := seen[ops[idx]]; ok {
+			return nil, customAnchorLeaseMarkerCurrent,
+				fmt.Errorf("duplicate custom anchor leased input %v",
+					ops[idx])
+		}
+		seen[ops[idx]] = struct{}{}
+	}
+
+	if len(ops) > 0 && packet.UnsignedTx == nil {
+		return nil, customAnchorLeaseMarkerCurrent,
+			fmt.Errorf("custom anchor lease marker has no transaction")
+	}
+	for _, op := range ops {
+		matched := false
+		for _, txIn := range packet.UnsignedTx.TxIn {
+			if txIn.PreviousOutPoint == op {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return nil, customAnchorLeaseMarkerCurrent,
+				fmt.Errorf("custom anchor leased input %v is not in the "+
+					"transaction", op)
+		}
+	}
+
+	return ops, customAnchorLeaseMarkerCurrent, nil
+}
+
+// CustomAnchorLockedUTXOs returns the wallet-owned custom-anchor inputs stored
+// in tapd's PSBT marker. Strict publication paths use the parser above and
+// fail closed on malformed data; this compatibility accessor returns no leases
+// for legacy or malformed markers.
+func CustomAnchorLockedUTXOs(packet *psbt.Packet) []wire.OutPoint {
+	ops, _, err := parseCustomAnchorLockedUTXOs(packet)
+	if err != nil {
+		return nil
+	}
+
+	return ops
+}
+
+// acquireCustomAnchorLeases leases all inputs controlled by the backing
+// wallet while allowing foreign inputs to remain under an external signer's
+// control. Only leases acquired during this call are rolled back on failure.
+func acquireCustomAnchorLeases(ctx context.Context, wallet tapnode.WalletAnchor,
+	leaseID tapnode.CustomAnchorLeaseID, packet *psbt.Packet,
+	previouslyLocked []wire.OutPoint) ([]wire.OutPoint, error) {
+
+	if packet == nil || packet.UnsignedTx == nil {
+		return nil, fmt.Errorf("custom anchor PSBT is missing a transaction")
+	}
+	ops := make([]wire.OutPoint, 0, len(packet.UnsignedTx.TxIn))
+	for _, txIn := range packet.UnsignedTx.TxIn {
+		ops = append(ops, txIn.PreviousOutPoint)
+	}
+
+	return leaseCustomAnchorOutpoints(
+		ctx, wallet, leaseID, ops, previouslyLocked,
+	)
+}
+
+// leaseCustomAnchorOutpoints leases the requested wallet-owned outpoints. The
+// optimized wallet extension snapshots ownership once; older implementations
+// retain the compatible per-input behavior.
+func leaseCustomAnchorOutpoints(ctx context.Context,
+	wallet tapnode.WalletAnchor, leaseID tapnode.CustomAnchorLeaseID,
+	ops, previouslyLocked []wire.OutPoint) ([]wire.OutPoint, error) {
+
+	leaser, ok := wallet.(tapnode.CustomAnchorLeaser)
+	if !ok {
+		return nil, fmt.Errorf("wallet does not support custom anchor leases")
+	}
+
+	seen := make(map[wire.OutPoint]struct{}, len(ops))
+	for _, op := range ops {
+		if _, ok := seen[op]; ok {
+			return nil, fmt.Errorf("custom anchor PSBT repeats input %v", op)
+		}
+		seen[op] = struct{}{}
+	}
+
+	previous := make(map[wire.OutPoint]struct{}, len(previouslyLocked))
+	for _, op := range previouslyLocked {
+		previous[op] = struct{}{}
+	}
+
+	if batchLeaser, ok := wallet.(tapnode.CustomAnchorBatchLeaser); ok {
+		locked, err := batchLeaser.LeaseInputs(ctx, leaseID, ops)
+		newlyLocked := newlyAcquiredLeases(locked, previouslyLocked)
+		if err != nil {
+			releaseErr := rollbackCustomAnchorOutpoints(
+				ctx, wallet, leaseID, newlyLocked,
+			)
+			return nil, errors.Join(err, releaseErr)
+		}
+
+		lockedSet := make(map[wire.OutPoint]struct{}, len(locked))
+		for _, op := range locked {
+			if _, requested := seen[op]; !requested {
+				releaseErr := rollbackCustomAnchorOutpoints(
+					ctx, wallet, leaseID, newlyLocked,
+				)
+				return nil, errors.Join(fmt.Errorf(
+					"wallet returned unrequested custom anchor lease %v", op,
+				), releaseErr)
+			}
+			if _, duplicate := lockedSet[op]; duplicate {
+				releaseErr := rollbackCustomAnchorOutpoints(
+					ctx, wallet, leaseID, newlyLocked,
+				)
+				return nil, errors.Join(fmt.Errorf(
+					"wallet returned duplicate custom anchor lease %v", op,
+				), releaseErr)
+			}
+			lockedSet[op] = struct{}{}
+		}
+		for _, op := range previouslyLocked {
+			if _, renewed := lockedSet[op]; renewed {
+				continue
+			}
+			releaseErr := rollbackCustomAnchorOutpoints(
+				ctx, wallet, leaseID, newlyLocked,
+			)
+			return nil, errors.Join(fmt.Errorf(
+				"unable to renew custom anchor input lease %v", op,
+			), releaseErr)
+		}
+
+		return locked, nil
+	}
+
+	locked := make([]wire.OutPoint, 0, len(ops))
+	newlyLocked := make([]wire.OutPoint, 0, len(ops))
+	for _, op := range ops {
+		owned, err := leaser.LeaseInput(ctx, leaseID, op)
+		if err != nil {
+			releaseErr := rollbackCustomAnchorOutpoints(
+				ctx, wallet, leaseID, newlyLocked,
+			)
+			return nil, errors.Join(
+				fmt.Errorf("unable to lease custom anchor input %v: %w",
+					op, err), releaseErr,
+			)
+		}
+		if !owned {
+			if _, wasLocked := previous[op]; wasLocked {
+				releaseErr := rollbackCustomAnchorOutpoints(
+					ctx, wallet, leaseID, newlyLocked,
+				)
+				return nil, errors.Join(fmt.Errorf(
+					"unable to renew custom anchor "+
+						"input lease %v", op,
+				), releaseErr)
+			}
+			continue
+		}
+
+		locked = append(locked, op)
+		if _, wasLocked := previous[op]; !wasLocked {
+			newlyLocked = append(newlyLocked, op)
+		}
+	}
+
+	return locked, nil
+}
+
+// rollbackCustomAnchorOutpoints releases leases acquired by an operation that
+// failed. The acquisition context may itself be the reason for the failure, so
+// cleanup must not inherit its cancellation or deadline. The bounded timeout
+// keeps shutdown from waiting indefinitely on an unresponsive wallet RPC.
+func rollbackCustomAnchorOutpoints(ctx context.Context,
+	wallet tapnode.WalletAnchor, leaseID tapnode.CustomAnchorLeaseID,
+	ops []wire.OutPoint) error {
+
+	cleanupCtx, cancel := customAnchorCleanupContext(ctx)
+	defer cancel()
+
+	return releaseCustomAnchorOutpoints(
+		cleanupCtx, wallet, leaseID, ops,
+	)
+}
+
+func rollbackCustomAnchorLeases(ctx context.Context,
+	wallet tapnode.WalletAnchor, leaseID tapnode.CustomAnchorLeaseID,
+	funded *FundedMintAnchorPsbt) error {
+
+	cleanupCtx, cancel := customAnchorCleanupContext(ctx)
+	defer cancel()
+
+	return releaseCustomAnchorLeases(
+		cleanupCtx, wallet, leaseID, funded,
+	)
+}
+
+func customAnchorCleanupContext(
+	ctx context.Context) (context.Context, context.CancelFunc) {
+
+	return context.WithTimeout(
+		context.WithoutCancel(ctx), DefaultTimeout,
+	)
+}
+
+func newlyAcquiredLeases(locked, previous []wire.OutPoint) []wire.OutPoint {
+	previousSet := make(map[wire.OutPoint]struct{}, len(previous))
+	for _, op := range previous {
+		previousSet[op] = struct{}{}
+	}
+
+	var newlyLocked []wire.OutPoint
+	for _, op := range locked {
+		if _, ok := previousSet[op]; !ok {
+			newlyLocked = append(newlyLocked, op)
+		}
+	}
+
+	return newlyLocked
+}
+
+func releaseCustomAnchorOutpoints(ctx context.Context,
+	wallet tapnode.WalletAnchor, leaseID tapnode.CustomAnchorLeaseID,
+	ops []wire.OutPoint) error {
+
+	if len(ops) == 0 {
+		return nil
+	}
+
+	leaser, ok := wallet.(tapnode.CustomAnchorLeaser)
+	if !ok {
+		return fmt.Errorf("wallet does not support custom anchor leases")
+	}
+	if batchLeaser, ok := wallet.(tapnode.CustomAnchorBatchLeaser); ok {
+		return batchLeaser.ReleaseInputs(ctx, leaseID, ops)
+	}
+
+	var releaseErr error
+	for _, op := range ops {
+		if err := leaser.ReleaseInput(ctx, leaseID, op); err != nil {
+			releaseErr = errors.Join(releaseErr, fmt.Errorf(
+				"unable to release custom anchor input %v: %w", op, err,
+			))
+		}
+	}
+
+	return releaseErr
+}
+
+func releaseCustomAnchorLeases(ctx context.Context,
+	wallet tapnode.WalletAnchor, leaseID tapnode.CustomAnchorLeaseID,
+	funded *FundedMintAnchorPsbt) error {
+
+	if funded == nil {
+		return nil
+	}
+	if err := releaseCustomAnchorOutpoints(
+		ctx, wallet, leaseID, funded.LockedUTXOs,
+	); err != nil {
+		return err
+	}
+
+	funded.LockedUTXOs = nil
+	SetCustomAnchorLockedUTXOs(funded.Pkt, nil)
+	return nil
+}
+
+func renewCustomAnchorLeases(ctx context.Context, wallet tapnode.WalletAnchor,
+	leaseID tapnode.CustomAnchorLeaseID, funded *FundedMintAnchorPsbt) error {
+
+	return renewCustomAnchorLeasesWithMarkerUpdate(
+		ctx, wallet, leaseID, funded, true,
+	)
+}
+
+// renewCustomAnchorLeasesReadOnly renews leases without changing the shared
+// funded packet. Active caretakers use this form because the planter may copy
+// the packet concurrently after a publication result.
+func renewCustomAnchorLeasesReadOnly(ctx context.Context,
+	wallet tapnode.WalletAnchor, leaseID tapnode.CustomAnchorLeaseID,
+	funded *FundedMintAnchorPsbt) error {
+
+	return renewCustomAnchorLeasesWithMarkerUpdate(
+		ctx, wallet, leaseID, funded, false,
+	)
+}
+
+func renewCustomAnchorLeasesWithMarkerUpdate(ctx context.Context,
+	wallet tapnode.WalletAnchor, leaseID tapnode.CustomAnchorLeaseID,
+	funded *FundedMintAnchorPsbt, updateLegacyMarker bool) error {
+
+	if funded == nil {
+		return nil
+	}
+	if _, ok := wallet.(tapnode.CustomAnchorLeaser); !ok {
+		return fmt.Errorf("wallet does not support custom anchor leases")
+	}
+
+	markerOps, markerState, err := parseCustomAnchorLockedUTXOs(funded.Pkt)
+	if err != nil {
+		return fmt.Errorf("invalid custom anchor lease marker: %w", err)
+	}
+	lockedUTXOs := funded.LockedUTXOs
+	if markerState == customAnchorLeaseMarkerLegacy {
+		locked, err := acquireCustomAnchorLeases(
+			ctx, wallet, leaseID, funded.Pkt, nil,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to upgrade legacy custom anchor "+
+				"leases: %w", err)
+		}
+
+		if updateLegacyMarker {
+			funded.LockedUTXOs = locked
+			SetCustomAnchorLockedUTXOs(funded.Pkt, locked)
+		}
+
+		return nil
+	} else if markerState == customAnchorLeaseMarkerCurrent {
+		lockedUTXOs = markerOps
+	}
+	locked, err := leaseCustomAnchorOutpoints(
+		ctx, wallet, leaseID, lockedUTXOs, lockedUTXOs,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to renew custom anchor inputs: %w", err)
+	}
+	if len(locked) != len(lockedUTXOs) {
+		return fmt.Errorf("renewed %d of %d custom anchor input leases",
+			len(locked), len(lockedUTXOs))
+	}
+
+	return nil
+}
+
+// customAnchorLeaseID derives a restart-stable, batch-specific lease owner.
+// The domain separator prevents the ID from colliding with unrelated uses of
+// the batch key.
+func customAnchorLeaseID(
+	batchKey *btcec.PublicKey) tapnode.CustomAnchorLeaseID {
+
+	preimage := append(
+		[]byte("tapd-custom-anchor-psbt-lease-v1:"),
+		batchKey.SerializeCompressed()...,
+	)
+
+	return tapnode.CustomAnchorLeaseID(sha256.Sum256(preimage))
+}
+
+func isCustomAnchorPsbt(packet *psbt.Packet) bool {
+	if packet == nil {
+		return false
+	}
+
+	for _, unknown := range packet.Unknowns {
+		if bytes.Equal(unknown.Key, customAnchorPsbtMarker) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func setCustomAnchorPublishState(packet *psbt.Packet,
+	state customAnchorPublishState) {
+
+	unknowns := packet.Unknowns[:0]
+	for _, unknown := range packet.Unknowns {
+		if !bytes.Equal(unknown.Key, customAnchorPublishMarker) {
+			unknowns = append(unknowns, unknown)
+		}
+	}
+	packet.Unknowns = unknowns
+	if state == customAnchorPublishNone {
+		return
+	}
+
+	packet.Unknowns = append(packet.Unknowns, &psbt.Unknown{
+		Key:   fn.CopySlice(customAnchorPublishMarker),
+		Value: []byte{byte(state)},
+	})
+}
+
+func getCustomAnchorPublishState(
+	packet *psbt.Packet) customAnchorPublishState {
+
+	if packet == nil {
+		return customAnchorPublishNone
+	}
+
+	for _, unknown := range packet.Unknowns {
+		if !bytes.Equal(unknown.Key, customAnchorPublishMarker) {
+			continue
+		}
+		if len(unknown.Value) == 1 {
+			state := customAnchorPublishState(unknown.Value[0])
+			switch state {
+			case customAnchorPublishNone:
+				return customAnchorPublishNone
+
+			case customAnchorPublishRejected:
+				// Older builds wrote this marker only after
+				// submitting the fully signed bytes. Treat it as
+				// publication-ambiguous so an upgrade cannot expose
+				// cancellation or release its leases.
+				return customAnchorPublishPending
+
+			case customAnchorPublishPending,
+				customAnchorImportPending:
+
+				return state
+			}
+		}
+
+		// An unknown or malformed persisted value is conservative: a
+		// publication attempt might have happened, so don't make the batch
+		// cancellable.
+		return customAnchorPublishPending
+	}
+
+	return customAnchorPublishNone
+}
+
+func stripTapdCustomAnchorMarkers(packet *psbt.Packet) {
+	if packet == nil {
+		return
+	}
+
+	unknowns := packet.Unknowns[:0]
+	for _, unknown := range packet.Unknowns {
+		if bytes.Equal(unknown.Key, customAnchorPsbtMarker) ||
+			bytes.Equal(unknown.Key, customAnchorPublishMarker) {
+
+			continue
+		}
+		unknowns = append(unknowns, unknown)
+	}
+	packet.Unknowns = unknowns
+}
+
+func customAnchorPublicationPending(batch *MintingBatch) bool {
+	if batch == nil || batch.GenesisPacket == nil ||
+		!isCustomAnchorPsbt(batch.GenesisPacket.Pkt) {
+
+		return false
+	}
+
+	// Both states contain a durably stored, fully signed transaction that
+	// the external signer can independently relay. Until confirmation (or a
+	// future definitive invalidation mechanism), cancelling either state
+	// could release its leases while the transaction is still mineable.
+	switch getCustomAnchorPublishState(batch.GenesisPacket.Pkt) {
+	case customAnchorImportPending, customAnchorPublishPending:
+		return true
+
+	default:
+		return false
+	}
 }
 
 // PendingGroupWitness specifies the asset group witness for an asset seedling
@@ -375,10 +991,20 @@ type ChainPlanter struct {
 	// progress the batch through the final phases.
 	cultivators map[BatchKey]*Cultivator
 
+	// customAnchorKeyErrors maps historical custom-anchor batches to the
+	// actionable health result produced by the startup key audit. The map is
+	// owned by the gardener after startup and attached to ListBatches results.
+	customAnchorKeyErrors map[BatchKey]string
+
 	// completionSignals is a channel used to allow the cultivators to
 	// signal that the batch is fully final, allowing garbage collection of
 	// any relevant resources.
 	completionSignals chan BatchKey
+
+	// startupCaretakerResults carries the first publication result from a
+	// custom caretaker that was resumed during startup. The gardener is the
+	// sole owner of the corresponding caretaker and pending batch mutations.
+	startupCaretakerResults chan startupCaretakerResult
 
 	// stateReqs is the channel that any outside requests for the state of
 	// the planter will come across. Each request is a closure that runs
@@ -397,21 +1023,75 @@ type ChainPlanter struct {
 	*fn.ContextGuard
 }
 
+// startupCaretakerResult is the first publication result from a custom batch
+// cultivator that was resumed during startup.
+type startupCaretakerResult struct {
+	batchKey   BatchKey
+	cultivator *Cultivator
+	err        error
+}
+
+// attachCustomAnchorKeyErrors adds startup audit health to freshly queried
+// batches. The health is intentionally in-memory: it is deterministically
+// rebuilt from retained state before the planter serves ListBatches.
+func (c *ChainPlanter) attachCustomAnchorKeyErrors(batches []*VerboseBatch) {
+	for _, batch := range batches {
+		key := asset.ToSerialized(batch.BatchKey.PubKey)
+		batch.CustomAnchorKeyError = c.customAnchorKeyErrors[key]
+	}
+}
+
+// attachCustomAnchorRuntimeStatus overlays transient custom anchor health from
+// the gardener-owned pending batch or an active caretaker onto fresh store
+// results. This makes degradation queryable by clients that subscribe after
+// the corresponding event was emitted.
+func (c *ChainPlanter) attachCustomAnchorRuntimeStatus(
+	batches []*VerboseBatch) {
+
+	var pendingKey BatchKey
+	if c.pendingBatch != nil {
+		pendingKey = asset.ToSerialized(c.pendingBatch.BatchKey.PubKey)
+	}
+
+	for _, batch := range batches {
+		key := asset.ToSerialized(batch.BatchKey.PubKey)
+		if c.pendingBatch != nil && key == pendingKey {
+			batch.CustomAnchorLeaseError =
+				c.pendingBatch.CustomAnchorLeaseError
+			batch.CustomAnchorPublishError =
+				c.pendingBatch.CustomAnchorPublishError
+		}
+
+		cultivator, ok := c.cultivators[key]
+		if !ok {
+			continue
+		}
+
+		leaseErr, publishErr := cultivator.customAnchorStatus()
+		batch.CustomAnchorLeaseError = leaseErr
+		batch.CustomAnchorPublishError = publishErr
+	}
+}
+
 // NewChainPlanter creates a new ChainPlanter instance given the passed config.
 func NewChainPlanter(cfg PlanterConfig) *ChainPlanter {
 	return &ChainPlanter{
-		cfg:         cfg,
-		cultivators: make(map[BatchKey]*Cultivator),
+		cfg:                   cfg,
+		cultivators:           make(map[BatchKey]*Cultivator),
+		customAnchorKeyErrors: make(map[BatchKey]string),
 		// Buffer size 1 is a fast path only: it lets a single
 		// cultivator that finishes while the gardener is inside a
 		// stateReq closure hand off its signal inline. Exit never
 		// depends on buffer space; a full buffer diverts the send
 		// to a goroutine (see SignalCompletion in
 		// newCultivatorForBatch).
-		completionSignals: make(chan BatchKey, 1),
-		seedlingReqs:      make(chan *Seedling),
-		stateReqs:         make(chan stateReq),
-		subscribers:       make(map[uint64]*fn.EventReceiver[fn.Event]),
+		completionSignals:       make(chan BatchKey, 1),
+		startupCaretakerResults: make(chan startupCaretakerResult, 1),
+		seedlingReqs:            make(chan *Seedling),
+		stateReqs:               make(chan stateReq),
+		subscribers: make(
+			map[uint64]*fn.EventReceiver[fn.Event],
+		),
 		ContextGuard: &fn.ContextGuard{
 			DefaultTimeout: DefaultTimeout,
 			Quit:           make(chan struct{}),
@@ -486,6 +1166,8 @@ func (c *ChainPlanter) newCultivatorForBatch(batch *MintingBatch,
 		UpdateMintingProofs: c.updateMintingProofs,
 		PublishMintEvent:    c.publishSubscriberEvent,
 		ErrChan:             c.cfg.ErrChan,
+		CustomAnchorLeaseRenewalInterval: c.cfg.
+			CustomAnchorLeaseRenewalInterval,
 	}
 	if feeRate != nil {
 		batchConfig.BatchFeeRate = feeRate
@@ -515,6 +1197,68 @@ func (c *ChainPlanter) Start() error {
 		// pending batch at a time? but would end up changing assetIDs.
 		ctx, cancel := c.WithCtxQuit()
 		defer cancel()
+
+		// Historical custom-anchor builds could persist the batch key as
+		// the managed UTXO internal key. Audit those retained rows only
+		// after the wallet key ring is available, and automatically repair
+		// only descriptors proven to be local. Unverifiable historical
+		// rows require wallet-validated operator recovery and are surfaced
+		// loudly instead of being guessed or silently ignored.
+		if repairStore, ok := c.cfg.BatchStore.(CustomAnchorKeyRepairStore); ok {
+			repairHealth, err := AuditAndRepairCustomAnchorKeys(
+				ctx, repairStore, c.cfg.KeyRing, c.cfg.ChainParams,
+			)
+			if err != nil {
+				startErr = err
+				return
+			}
+
+			for _, health := range repairHealth {
+				if health.RequiresIntervention() {
+					batchKey, err := btcec.ParsePubKey(health.BatchKey)
+					if err != nil {
+						log.Errorf(
+							"Unable to index historical custom "+
+								"anchor key health for "+
+								"batch_key=%x: %v",
+							health.BatchKey, err)
+					} else {
+						key := asset.ToSerialized(batchKey)
+						c.customAnchorKeyErrors[key] = fmt.Sprintf(
+							"status=%s, outpoint=%v: %s",
+							health.Status, health.Outpoint,
+							health.Detail,
+						)
+					}
+
+					log.Errorf(
+						"Historical custom anchor key "+
+							"requires operator action: status=%s, "+
+							"batch_key=%x, "+
+							"outpoint=%v, detail=%s", health.Status,
+						health.BatchKey, health.Outpoint,
+						health.Detail)
+					continue
+				}
+
+				batchKey, err := btcec.ParsePubKey(health.BatchKey)
+				if err == nil {
+					delete(
+						c.customAnchorKeyErrors,
+						asset.ToSerialized(batchKey),
+					)
+				}
+
+				if health.Status == CustomAnchorKeyRepaired {
+					log.Infof(
+						"Repaired historical custom anchor key: "+
+							"batch_key=%x, outpoint=%v",
+						health.BatchKey,
+						health.Outpoint)
+				}
+			}
+		}
+
 		nonFinalBatches, err := c.cfg.BatchStore.FetchNonFinalBatches(
 			ctx,
 		)
@@ -552,11 +1296,108 @@ func (c *ChainPlanter) Start() error {
 				continue
 			}
 
-			// For batches before the actual assets have been
-			// committed, we'll need to populate this field
-			// manually.
+			// All restored batches need a writable metadata map before any
+			// custom batch can be resumed through preparation or proof work.
 			if batch.AssetMetas == nil {
 				batch.AssetMetas = make(AssetMetas)
+			}
+
+			// A custom batch is paused only while awaiting an external signer.
+			// A finalized Committed packet with any historical publication
+			// marker instead
+			// resumes automatically: it may already have reached the backend
+			// before a crash and therefore must not become cancellable.
+			customBatch := batch.GenesisPacket != nil &&
+				isCustomAnchorPsbt(batch.GenesisPacket.Pkt)
+			publishState := customAnchorPublishNone
+			if customBatch {
+				publishState = getCustomAnchorPublishState(
+					batch.GenesisPacket.Pkt,
+				)
+			}
+			awaitingExternalSigner := customBatch &&
+				(batchState == BatchStatePending ||
+					batchState == BatchStateFrozen ||
+					(batchState == BatchStateCommitted &&
+						publishState !=
+							customAnchorPublishPending &&
+						publishState !=
+							customAnchorImportPending))
+			leaseRenewalFailed := false
+			if customBatch && (batchState == BatchStatePending ||
+				batchState == BatchStateFrozen ||
+				batchState == BatchStateCommitted) {
+
+				renewErr := renewCustomAnchorLeases(
+					ctx, c.cfg.Wallet,
+					customAnchorLeaseID(batch.BatchKey.PubKey),
+					batch.GenesisPacket,
+				)
+				if renewErr != nil {
+					batch.CustomAnchorLeaseError = fmt.Sprintf(
+						"custom anchor input lease renewal "+
+							"degraded during startup; Finalize will "+
+							"retry and fail closed: %v",
+						renewErr,
+					)
+					log.Warnf("Unable to renew custom anchor input "+
+						"leases during startup: %v", renewErr)
+					leaseRenewalFailed = true
+				} else {
+					batch.CustomAnchorLeaseError = ""
+				}
+			}
+
+			// A batch without durably retained signed bytes cannot advance
+			// after a failed lease renewal. Once import-pending or
+			// publish-pending is stored, the external signer can relay the
+			// transaction independently, so recovery must resume and install
+			// a confirmation watcher even while active publication is
+			// suppressed.
+			if leaseRenewalFailed &&
+				!customAnchorPublicationPending(batch) {
+
+				awaitingExternalSigner = true
+			}
+			if awaitingExternalSigner {
+				if c.pendingBatch != nil {
+					startErr = fmt.Errorf("multiple custom batches " +
+						"awaiting external signatures")
+					return
+				}
+				c.pendingBatch = batch
+				continue
+			}
+
+			// A custom batch with a signed transaction awaiting import or
+			// publication is resumed automatically. A Broadcast batch whose
+			// initial WalletKit submission failed keeps the same reservation:
+			// it remains watched and immutable, but cannot be used to amplify
+			// caller-relayed transactions through additional concurrent mints.
+			startupCustomRecovery := customBatch &&
+				batchState == BatchStateCommitted &&
+				(publishState == customAnchorImportPending ||
+					publishState == customAnchorPublishPending)
+			startupAdmissionReservation := startupCustomRecovery ||
+				(customBatch && batchState == BatchStateBroadcast &&
+					publishState == customAnchorPublishPending)
+			if startupAdmissionReservation {
+				if c.pendingBatch != nil {
+					startErr = fmt.Errorf("multiple custom batches " +
+						"require an admission reservation")
+					return
+				}
+
+				// The cultivator mutates its batch while crossing import and
+				// publication boundaries. Reserve an independent copy so API
+				// reads and the gardener never race those mutations.
+				batchCopy, err := batch.Copy()
+				if err != nil {
+					startErr = fmt.Errorf("unable to copy custom batch for "+
+						"startup reservation: %w", err)
+					return
+				}
+				c.pendingBatch = batchCopy
 			}
 
 			// If batch funding or sealing fail during startup, the
@@ -657,22 +1498,31 @@ func (c *ChainPlanter) Start() error {
 			log.Infof("Launching Cultivator(%x)", batchKey)
 			cultivator := c.newCultivatorForBatch(batch, nil)
 			if err := cultivator.Start(); err != nil {
+				delete(c.cultivators, asset.ToSerialized(
+					batch.BatchKey.PubKey,
+				))
 				startErr = err
 				return
 			}
 
-			// The cultivator advances the batch in the background,
-			// and nothing else reads its broadcast channels on
-			// this path: BroadcastErrChan is otherwise only
-			// consumed by the interactive finalize handler. Watch
-			// for a pre-broadcast failure so a failed resume
-			// cannot leave the batch occupying the singleton slot
-			// enforced by the migration 000061 index, which would
-			// block all further minting. A batch resumed at
-			// BatchStateConfirmed skips the broadcast phase
-			// entirely and reports through the completion signal,
-			// so there is nothing to watch.
-			if batch.State() != BatchStateConfirmed {
+			if startupAdmissionReservation {
+				batchKey := asset.ToSerialized(batch.BatchKey.PubKey)
+				c.Wg.Add(1)
+				go c.forwardStartupCultivatorResult(
+					batchKey, cultivator,
+				)
+			} else if batch.State() != BatchStateConfirmed {
+				// The cultivator advances the batch in the background,
+				// and nothing else reads its broadcast channels on
+				// this path: BroadcastErrChan is otherwise only
+				// consumed by the interactive finalize handler. Watch
+				// for a pre-broadcast failure so a failed resume
+				// cannot leave the batch occupying the singleton slot
+				// enforced by the migration 000061 index, which would
+				// block all further minting. A batch resumed at
+				// BatchStateConfirmed skips the broadcast phase
+				// entirely and reports through the completion signal,
+				// so there is nothing to watch.
 				c.Wg.Add(1)
 				go c.watchResumedCultivator(cultivator)
 			}
@@ -686,6 +1536,33 @@ func (c *ChainPlanter) Start() error {
 	})
 
 	return startErr
+}
+
+// forwardStartupCultivatorResult forwards exactly one publication result from
+// a custom cultivator resumed during startup. It never mutates planter state;
+// the gardener processes the result serially with all API requests.
+func (c *ChainPlanter) forwardStartupCultivatorResult(batchKey BatchKey,
+	cultivator *Cultivator) {
+
+	defer c.Wg.Done()
+
+	var result startupCaretakerResult
+	result.batchKey = batchKey
+	result.cultivator = cultivator
+
+	select {
+	case <-cultivator.cfg.BroadcastCompleteChan:
+
+	case result.err = <-cultivator.cfg.BroadcastErrChan:
+
+	case <-c.Quit:
+		return
+	}
+
+	select {
+	case c.startupCaretakerResults <- result:
+	case <-c.Quit:
+	}
 }
 
 // Stop signals the ChainPlanter to halt all operations gracefully.
@@ -1016,6 +1893,333 @@ func fundGenesisPsbt(ctx context.Context, _ address.ChainParams,
 	}
 
 	return fundedMintAnchorPsbt, nil
+}
+
+// customGenesisPsbt validates and packages a caller-authored mint anchor
+// PSBT. Unlike fundGenesisPsbt, this path doesn't ask the backing wallet to
+// add or reorder anything in the packet.
+func customGenesisPsbt(ctx context.Context,
+	chainParams address.ChainParams,
+	pendingBatch *MintingBatch, packet *psbt.Packet,
+	assetAnchorOutIdx uint32,
+	changeOutputIndex int32,
+	preCommitOutputIndex fn.Option[uint32],
+	augmenter GenesisTxAugmenter) (FundedMintAnchorPsbt, error) {
+
+	var zero FundedMintAnchorPsbt
+
+	if packet == nil || packet.UnsignedTx == nil {
+		return zero, fmt.Errorf("custom anchor PSBT is missing its " +
+			"unsigned transaction")
+	}
+	// Run pure structural checks before serialization so malformed callers
+	// retain the established, actionable validation errors. None of these
+	// checks mutate the caller's packet.
+	if len(packet.UnsignedTx.TxIn) == 0 {
+		return zero, fmt.Errorf("custom anchor PSBT must have at least " +
+			"one input")
+	}
+	if len(packet.Inputs) != len(packet.UnsignedTx.TxIn) {
+		return zero, fmt.Errorf("custom anchor PSBT input maps don't " +
+			"match unsigned transaction inputs")
+	}
+	if len(packet.Outputs) != len(packet.UnsignedTx.TxOut) {
+		return zero, fmt.Errorf("custom anchor PSBT output maps don't " +
+			"match unsigned transaction outputs")
+	}
+	if uint64(assetAnchorOutIdx) >= uint64(len(packet.UnsignedTx.TxOut)) {
+		return zero, fmt.Errorf("asset anchor output index %d out of "+
+			"range", assetAnchorOutIdx)
+	}
+	if changeOutputIndex < -1 ||
+		changeOutputIndex >= int32(len(packet.UnsignedTx.TxOut)) {
+
+		return zero, fmt.Errorf("change output index %d out of range",
+			changeOutputIndex)
+	}
+	if changeOutputIndex == int32(assetAnchorOutIdx) {
+		return zero, fmt.Errorf("asset anchor and change output indexes " +
+			"must be distinct")
+	}
+
+	if err := packet.SanityCheck(); err != nil {
+		return zero, fmt.Errorf("invalid custom anchor PSBT: %w", err)
+	}
+	fee, err := packet.GetTxFee()
+	if err != nil {
+		return zero, fmt.Errorf("custom anchor PSBT has incomplete or "+
+			"invalid input values: %w", err)
+	}
+	if fee < 0 {
+		return zero, fmt.Errorf("custom anchor PSBT outputs exceed " +
+			"known input value")
+	}
+	anchorOutput := packet.UnsignedTx.TxOut[assetAnchorOutIdx]
+	eventualAnchorOutput := tapsend.CreateDummyOutput()
+	eventualAnchorOutput.Value = anchorOutput.Value
+	if eventualAnchorOutput.Value <
+		mempool.GetDustThreshold(eventualAnchorOutput) {
+
+		return zero, fmt.Errorf("custom asset anchor output is dust")
+	}
+
+	for idx := range packet.Inputs {
+		pIn := &packet.Inputs[idx]
+		if len(pIn.PartialSigs) != 0 || len(pIn.FinalScriptSig) != 0 ||
+			len(pIn.FinalScriptWitness) != 0 ||
+			len(pIn.TaprootKeySpendSig) != 0 ||
+			len(pIn.TaprootScriptSpendSig) != 0 {
+
+			return zero, fmt.Errorf("custom anchor PSBT must be " +
+				"unsigned before batch preparation")
+		}
+	}
+
+	// A custom anchor's internal key is carried in the standard PSBT output
+	// field. This lets the caretaker derive the final output script without
+	// conflating the externally controlled key with the batch key.
+	pOut := packet.Outputs[assetAnchorOutIdx]
+	if len(pOut.TaprootInternalKey) != schnorr.PubKeyBytesLen {
+		return zero, fmt.Errorf("custom asset anchor output must specify " +
+			"a taproot internal key")
+	}
+	if _, err := schnorr.ParsePubKey(pOut.TaprootInternalKey); err != nil {
+		return zero, fmt.Errorf("invalid custom asset anchor internal "+
+			"key: %w", err)
+	}
+	_, err = customAnchorKeyDesc(
+		chainParams, packet, assetAnchorOutIdx,
+	)
+	if err != nil {
+		return zero, err
+	}
+	if pOut.TaprootTapTree != nil {
+		return zero, fmt.Errorf("custom asset anchor output must not " +
+			"specify a PSBT tap tree; use the batch sibling fields")
+	}
+	if augmenter == nil {
+		augmenter = NoOpAugmenter{}
+	}
+
+	// A caller-authored packet already contains any output contributed by
+	// the augmenter. Verify that the explicit RPC index selects the one
+	// deterministic output the augmenter expects. This prevents PostFund
+	// and BindData from silently selecting a different duplicate output.
+	extraOutputs, err := augmenter.ExtraOutputs(ctx, pendingBatch)
+	if err != nil {
+		return zero, fmt.Errorf("augmenter ExtraOutputs: %w", err)
+	}
+	if len(extraOutputs) > 1 {
+		return zero, fmt.Errorf("augmenter returned %d extra outputs, only "+
+			"zero or one is supported", len(extraOutputs))
+	}
+
+	var expectedExtraIdx fn.Option[uint32]
+	if len(extraOutputs) == 0 {
+		if preCommitOutputIndex.IsSome() {
+			return zero, fmt.Errorf("pre-commitment output index " +
+				"specified for batch without augmenter output")
+		}
+	} else {
+		idx, err := preCommitOutputIndex.UnwrapOrErr(fmt.Errorf(
+			"custom augmented batch requires a pre-commitment " +
+				"output index",
+		))
+		if err != nil {
+			return zero, err
+		}
+		if uint64(idx) >= uint64(len(packet.UnsignedTx.TxOut)) ||
+			idx == assetAnchorOutIdx ||
+			(changeOutputIndex >= 0 && idx == uint32(changeOutputIndex)) {
+
+			return zero, fmt.Errorf("invalid pre-commitment output "+
+				"index %d", idx)
+		}
+
+		expected := extraOutputs[0]
+		matches := 0
+		for outputIdx, output := range packet.UnsignedTx.TxOut {
+			if output.Value != expected.Value ||
+				!bytes.Equal(output.PkScript, expected.PkScript) {
+
+				continue
+			}
+			matches++
+			if uint32(outputIdx) != idx {
+				continue
+			}
+			expectedExtraIdx = fn.Some(idx)
+		}
+		if matches != 1 || expectedExtraIdx.IsNone() {
+			return zero, fmt.Errorf("pre-commitment output %d must be "+
+				"the unique output matching the augmenter", idx)
+		}
+	}
+
+	// For ordinary batches, exclusion-proof validation is also entirely
+	// read-only and must run before serialization so malformed metadata gets
+	// its established, precise error without touching the caller's packet.
+	if pendingBatch == nil || !pendingBatch.SupplyCommitments {
+		err = validateExclusionProofOutputs(
+			packet, assetAnchorOutIdx,
+		)
+		if err != nil {
+			return zero, err
+		}
+	}
+
+	// All caller-authored validation above is pure. Only now make the deep
+	// copy that tapd will retain and mutate with lifecycle/precommit metadata.
+	var packetBytes bytes.Buffer
+	if err := packet.Serialize(&packetBytes); err != nil {
+		return zero, fmt.Errorf("unable to copy custom anchor PSBT: %w", err)
+	}
+	packet, err = psbt.NewFromRawBytes(&packetBytes, false)
+	if err != nil {
+		return zero, fmt.Errorf("unable to copy custom anchor PSBT: %w", err)
+	}
+	stripTapdCustomAnchorMarkers(packet)
+
+	funded := tapsend.FundedPsbt{
+		Pkt:               packet,
+		ChangeOutputIndex: changeOutputIndex,
+	}
+	markCustomAnchorPsbt(packet)
+	if err := augmenter.PostFund(ctx, pendingBatch, &funded); err != nil {
+		return zero, fmt.Errorf("augmenter PostFund: %w", err)
+	}
+	err = validateExclusionProofOutputs(
+		packet, assetAnchorOutIdx,
+	)
+	if err != nil {
+		return zero, err
+	}
+	indexes := AnchorTxOutputIndexes{
+		AssetAnchorOutIdx: assetAnchorOutIdx,
+		ChangeOutIdx:      0,
+	}
+	result, err := NewFundedMintAnchorPsbt(funded, indexes)
+	if err != nil {
+		return zero, err
+	}
+
+	// BindData is the persistence source of truth after the upstream
+	// augmenter refactor. Stage the funded packet on an independent copy
+	// and ensure it resolves to the same output the caller declared.
+	if pendingBatch != nil {
+		stagedBatch, err := pendingBatch.Copy()
+		if err != nil {
+			return zero, fmt.Errorf("copy pending batch: %w", err)
+		}
+		stagedBatch.GenesisPacket = &result
+		bindData, err := augmenter.BindData(ctx, stagedBatch)
+		if err != nil {
+			return zero, fmt.Errorf("augmenter BindData: %w", err)
+		}
+		if expectedExtraIdx.IsNone() && bindData.IsSome() {
+			return zero, fmt.Errorf("augmenter bound unexpected output")
+		}
+		if expectedExtraIdx.IsSome() {
+			declaredIdx, err := expectedExtraIdx.UnwrapOrErr(fmt.Errorf(
+				"declared augmenter output index missing",
+			))
+			if err != nil {
+				return zero, err
+			}
+			bound, err := bindData.UnwrapOrErr(fmt.Errorf(
+				"augmenter did not bind the declared output",
+			))
+			if err != nil {
+				return zero, err
+			}
+			if bound.OutputIndex != declaredIdx {
+				return zero, fmt.Errorf("augmenter bound output %d, "+
+					"caller declared %d", bound.OutputIndex,
+					declaredIdx)
+			}
+		}
+	}
+
+	return result, nil
+}
+
+// customAnchorKeyDesc extracts the lnd key locator that controls a caller's
+// selected anchor internal key. Both BIP32 output records are required and
+// cross-checked so a random point or forged locator can't be persisted as a
+// wallet-managed output.
+func customAnchorKeyDesc(chainParams address.ChainParams, packet *psbt.Packet,
+	assetAnchorOutIdx uint32) (keychain.KeyDescriptor, error) {
+
+	var zero keychain.KeyDescriptor
+	if packet == nil || uint64(assetAnchorOutIdx) >=
+		uint64(len(packet.Outputs)) {
+
+		return zero, fmt.Errorf("custom anchor output metadata is missing")
+	}
+
+	pOut := packet.Outputs[assetAnchorOutIdx]
+	if len(pOut.Bip32Derivation) != 1 ||
+		len(pOut.TaprootBip32Derivation) != 1 {
+
+		return zero, fmt.Errorf("custom asset anchor output must specify " +
+			"exactly one BIP32 and Taproot BIP32 derivation")
+	}
+
+	bip32Derivation := pOut.Bip32Derivation[0]
+	taprootDerivation := pOut.TaprootBip32Derivation[0]
+	desc, err := tappsbt.KeyDescFromBip32Derivation(bip32Derivation)
+	if err != nil {
+		return zero, fmt.Errorf("invalid custom anchor key derivation: %w",
+			err)
+	}
+
+	expectedBip32, expectedTaproot := tappsbt.Bip32DerivationFromKeyDesc(
+		desc, chainParams.HDCoinType,
+	)
+	if !bytes.Equal(expectedBip32.PubKey, bip32Derivation.PubKey) ||
+		!slices.Equal(expectedBip32.Bip32Path, bip32Derivation.Bip32Path) ||
+		!bytes.Equal(
+			expectedTaproot.XOnlyPubKey,
+			taprootDerivation.XOnlyPubKey,
+		) || !slices.Equal(
+		expectedTaproot.Bip32Path, taprootDerivation.Bip32Path,
+	) || len(taprootDerivation.LeafHashes) != 0 ||
+		!bytes.Equal(
+			pOut.TaprootInternalKey,
+			taprootDerivation.XOnlyPubKey,
+		) {
+
+		return zero, fmt.Errorf("custom anchor key derivation doesn't " +
+			"match its internal key or network path")
+	}
+
+	return desc, nil
+}
+
+// validateExclusionProofOutputs ensures every non-anchor P2TR output can be
+// represented in the minting proofs. Doing this before broadcast prevents an
+// otherwise valid mint from becoming unprovable only after confirmation.
+func validateExclusionProofOutputs(packet *psbt.Packet,
+	assetAnchorOutIdx uint32) error {
+
+	if packet == nil || packet.UnsignedTx == nil {
+		return fmt.Errorf("cannot validate exclusion proof outputs without " +
+			"an unsigned transaction")
+	}
+
+	baseProof := &proof.BaseProofParams{}
+	err := proof.AddExclusionProofs(
+		baseProof, packet.UnsignedTx, packet.Outputs,
+		func(outputIndex uint32) bool {
+			return outputIndex == assetAnchorOutIdx
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("anchor PSBT cannot produce exclusion "+
+			"proofs: %w", err)
+	}
+
+	return nil
 }
 
 // filterSeedlingsWithGroup separates a set of seedlings into two sets based on
@@ -1499,8 +2703,12 @@ func fetchFinalizedBatch(ctx context.Context, refs MintingRefReader,
 		}
 	}
 
+	mintingInternalKey, err := batch.MintingInternalKey()
+	if err != nil {
+		return nil, err
+	}
 	tapCommitment, err := VerifyOutputScript(
-		batch.BatchKey.PubKey, tapSibling, genScript, batchAssets,
+		mintingInternalKey, tapSibling, genScript, batchAssets,
 	)
 
 	if err != nil {
@@ -1851,13 +3059,52 @@ func (c *ChainPlanter) cancelMintingBatch(ctx context.Context,
 
 	// If the target batch was not assigned a cultivator, the only
 	// non-cancelled batch in play is c.pendingBatch (canCancelBatch
-	// guarantees this). Update the batch state on disk and in memory in
-	// a single atomic call.
+	// guarantees this). Determine the correct terminal state, then update
+	// both the disk row and the in-memory batch in a single atomic call.
+	var cancelState BatchState
+	switch c.pendingBatch.State() {
+	case BatchStatePending, BatchStateFrozen:
+		cancelState = BatchStateSeedlingCancelled
+
+	case BatchStateCommitted:
+		if customAnchorPublicationPending(c.pendingBatch) {
+			return fmt.Errorf("custom anchor publication status is " +
+				"ambiguous and is not cancellable")
+		}
+
+		cancelState = BatchStateSproutCancelled
+
+	case BatchStateBroadcast, BatchStateConfirmed, BatchStateFinalized,
+		BatchStateSeedlingCancelled, BatchStateSproutCancelled:
+		fallthrough
+
+	default:
+		return fmt.Errorf("batch state %v is not cancellable",
+			c.pendingBatch.State())
+	}
+
 	err := c.cfg.BatchStore.UpdateBatchState(
-		ctx, c.pendingBatch, BatchStateSeedlingCancelled,
+		ctx, c.pendingBatch, cancelState,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to cancel minting batch: %w", err)
+	}
+
+	// Only release leases after cancellation is durable. A partial wallet
+	// RPC failure can then at worst leave a short-lived stale lease; it can
+	// never leave an active batch partially unprotected. Cancellation itself
+	// remains successful and the release helper attempts every recorded input.
+	if c.pendingBatch.GenesisPacket != nil &&
+		isCustomAnchorPsbt(c.pendingBatch.GenesisPacket.Pkt) {
+
+		if err := releaseCustomAnchorLeases(
+			ctx, c.cfg.Wallet,
+			customAnchorLeaseID(c.pendingBatch.BatchKey.PubKey),
+			c.pendingBatch.GenesisPacket,
+		); err != nil {
+			log.Warnf("Unable to release one or more cancelled custom "+
+				"anchor input leases: %v", err)
+		}
 	}
 
 	return nil
@@ -1951,6 +3198,12 @@ func (c *ChainPlanter) watchResumedCultivator(cultivator *Cultivator) {
 // assets.
 func (c *ChainPlanter) gardener() {
 	defer c.Wg.Done()
+	leaseRenewalInterval := c.cfg.CustomAnchorLeaseRenewalInterval
+	if leaseRenewalInterval <= 0 {
+		leaseRenewalInterval = customAnchorLeaseRenewalInterval
+	}
+	leaseRenewalTicker := time.NewTicker(leaseRenewalInterval)
+	defer leaseRenewalTicker.Stop()
 
 	// When this exits due to the quit signal, we also want to stop all the
 	// active cultivators as well.
@@ -1960,6 +3213,129 @@ func (c *ChainPlanter) gardener() {
 
 	for {
 		select {
+		case result := <-c.startupCaretakerResults:
+			cultivator, ok := c.cultivators[result.batchKey]
+			if !ok || cultivator != result.cultivator {
+				// A fast confirmation can remove the caretaker before the
+				// gardener consumes its forwarded publication success. The
+				// matching reservation is still safe to release.
+				if result.err == nil && c.pendingBatch != nil &&
+					asset.ToSerialized(
+						c.pendingBatch.BatchKey.PubKey,
+					) == result.batchKey {
+
+					c.pendingBatch = nil
+				}
+
+				log.Warnf("Ignoring stale startup caretaker result for %x",
+					result.batchKey[:])
+				continue
+			}
+
+			if result.err == nil {
+				// A clean first publication releases the exclusive recovery
+				// slot. A retained initial-failure marker keeps it until
+				// confirmation even if this recovery attempt succeeded.
+				if c.pendingBatch != nil &&
+					asset.ToSerialized(
+						c.pendingBatch.BatchKey.PubKey,
+					) == result.batchKey {
+
+					batchSnapshot, err := cultivator.batchCopy()
+					if err != nil {
+						log.Errorf("Unable to copy recovered custom batch: %v", err)
+						continue
+					}
+					if customAnchorPublicationPending(batchSnapshot) {
+						c.pendingBatch = batchSnapshot
+					} else {
+						c.pendingBatch = nil
+					}
+				}
+
+				continue
+			}
+
+			// The caretaker has exited before publication completed. Remove
+			// it before returning the same batch to the pending slot so
+			// Finalize and Cancel cannot target a dead caretaker.
+			if err := cultivator.Stop(); err != nil {
+				log.Warnf("Unable to stop failed startup cultivator: %v",
+					err)
+			}
+			delete(c.cultivators, result.batchKey)
+			c.pendingBatch = cultivator.cfg.Batch
+			log.Warnf("Startup recovery failed for batch %x: %v",
+				result.batchKey[:], result.err)
+
+		case <-leaseRenewalTicker.C:
+			batch := c.pendingBatch
+			if batch == nil || batch.GenesisPacket == nil ||
+				!isCustomAnchorPsbt(batch.GenesisPacket.Pkt) {
+
+				continue
+			}
+
+			// A startup recovery caretaker owns lease renewal until its first
+			// publication result. The pending batch is only an immutable
+			// reservation while that caretaker is active.
+			batchKey := asset.ToSerialized(batch.BatchKey.PubKey)
+			if _, ok := c.cultivators[batchKey]; ok {
+				continue
+			}
+			switch batch.State() {
+			case BatchStatePending, BatchStateFrozen,
+				BatchStateCommitted:
+
+				ctx, cancel := c.WithCtxQuit()
+				err := renewCustomAnchorLeases(
+					ctx, c.cfg.Wallet,
+					customAnchorLeaseID(batch.BatchKey.PubKey),
+					batch.GenesisPacket,
+				)
+				cancel()
+				if err != nil {
+					statusErr := fmt.Errorf("custom anchor input lease "+
+						"renewal degraded; Finalize will retry and "+
+						"fail closed: %w", err)
+					if batch.CustomAnchorLeaseError !=
+						statusErr.Error() {
+
+						leaseErrText := statusErr.Error()
+						batch.CustomAnchorLeaseError = leaseErrText
+						event, eventErr := newAssetMintErrorEvent(
+							statusErr, batch.State(), batch,
+						)
+						if eventErr != nil {
+							log.Errorf("Unable to snapshot custom anchor "+
+								"lease error event: %v", eventErr)
+						} else {
+							c.publishSubscriberEvent(event)
+						}
+					}
+					log.Warnf("Unable to renew custom anchor input "+
+						"leases: %v", err)
+					continue
+				}
+
+				if batch.CustomAnchorLeaseError != "" {
+					batch.CustomAnchorLeaseError = ""
+					event, eventErr := newAssetMintEvent(
+						batch.State(), batch,
+					)
+					if eventErr != nil {
+						log.Errorf("Unable to snapshot custom anchor "+
+							"lease recovery event: %v", eventErr)
+					} else {
+						c.publishSubscriberEvent(event)
+					}
+				}
+
+			case BatchStateBroadcast, BatchStateConfirmed,
+				BatchStateFinalized, BatchStateSeedlingCancelled,
+				BatchStateSproutCancelled:
+			}
+
 		// A request for new asset issuance just arrived, add this to
 		// the pending batch and acknowledge the receipt back to the
 		// caller.
@@ -2032,6 +3408,17 @@ func (c *ChainPlanter) gardener() {
 
 			delete(c.cultivators, batchKey)
 
+			// A recovered custom caretaker can confirm before its forwarded
+			// publication success is selected. Release its exact reservation
+			// here as well so event ordering cannot strand a Committed batch.
+			if c.pendingBatch != nil &&
+				asset.ToSerialized(
+					c.pendingBatch.BatchKey.PubKey,
+				) == batchKey {
+
+				c.pendingBatch = nil
+			}
+
 			// TODO(roasbeef): send completion signal?
 
 		// A new request just came along to query or mutate our
@@ -2103,6 +3490,27 @@ func (c *ChainPlanter) fundingError(funded *tapsend.FundedPsbt,
 	return errors.Join(cause, unlockErr)
 }
 
+// batchFundingError releases the leases held by a computed mint anchor using
+// the mechanism that acquired them. Caller-authored anchors use batch-scoped
+// custom leases, while wallet-funded anchors use the wallet's ordinary input
+// locks.
+func (c *ChainPlanter) batchFundingError(ctx context.Context,
+	batchKey *btcec.PublicKey, funded *FundedMintAnchorPsbt,
+	cause error) error {
+
+	if funded == nil {
+		return cause
+	}
+	if isCustomAnchorPsbt(funded.Pkt) {
+		releaseErr := rollbackCustomAnchorLeases(
+			ctx, c.cfg.Wallet, customAnchorLeaseID(batchKey), funded,
+		)
+		return errors.Join(cause, releaseErr)
+	}
+
+	return c.fundingError(&funded.FundedPsbt, cause)
+}
+
 // prepareFunding stores the optional tapscript sibling and constructs
 // the funding-computation closure shared by createFundedBatch and
 // applyFundingToBatch.
@@ -2128,6 +3536,43 @@ func (c *ChainPlanter) prepareFunding(ctx context.Context,
 
 	computeFunding := func(batch *MintingBatch) (
 		*FundedMintAnchorPsbt, error) {
+
+		if params.AnchorPsbt != nil {
+			anchorKeyDesc, err := customAnchorKeyDesc(
+				c.cfg.ChainParams, params.AnchorPsbt,
+				params.AssetAnchorOutIdx,
+			)
+			if err != nil {
+				return nil, err
+			}
+			if !c.cfg.KeyRing.IsLocalKey(ctx, anchorKeyDesc) {
+				return nil, fmt.Errorf("custom asset anchor internal " +
+					"key is not controlled by the backing wallet")
+			}
+
+			funded, err := customGenesisPsbt(
+				ctx, c.cfg.ChainParams, batch, params.AnchorPsbt,
+				params.AssetAnchorOutIdx,
+				params.ChangeOutputIndex,
+				params.PreCommitOutputIndex, c.augmenter(),
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			locked, err := acquireCustomAnchorLeases(
+				ctx, c.cfg.Wallet,
+				customAnchorLeaseID(batch.BatchKey.PubKey), funded.Pkt,
+				nil,
+			)
+			if err != nil {
+				return nil, err
+			}
+			funded.LockedUTXOs = locked
+			SetCustomAnchorLockedUTXOs(funded.Pkt, locked)
+
+			return &funded, nil
+		}
 
 		feeRate, err := c.anchorTxFeeRate(ctx, params.FeeRate)
 		if err != nil {
@@ -2225,11 +3670,15 @@ func (c *ChainPlanter) createFundedBatch(ctx context.Context,
 	preCommit, err := c.augmenter().BindData(ctx, newBatch)
 	if err != nil {
 		bindErr := fmt.Errorf("augmenter BindData: %w", err)
-		return nil, c.fundingError(&mintAnchorTx.FundedPsbt, bindErr)
+		return nil, c.batchFundingError(
+			ctx, newBatch.BatchKey.PubKey, mintAnchorTx, bindErr,
+		)
 	}
 	err = c.cfg.BatchStore.CommitMintingBatch(ctx, newBatch, preCommit)
 	if err != nil {
-		return nil, c.fundingError(&mintAnchorTx.FundedPsbt, err)
+		return nil, c.batchFundingError(
+			ctx, newBatch.BatchKey.PubKey, mintAnchorTx, err,
+		)
 	}
 
 	return newBatch, nil
@@ -2271,13 +3720,17 @@ func (c *ChainPlanter) applyFundingToBatch(ctx context.Context,
 	stagingBatch, err := batch.Copy()
 	if err != nil {
 		copyErr := fmt.Errorf("unable to copy batch: %w", err)
-		return c.fundingError(&mintAnchorTx.FundedPsbt, copyErr)
+		return c.batchFundingError(
+			ctx, batch.BatchKey.PubKey, mintAnchorTx, copyErr,
+		)
 	}
 	stagingBatch.GenesisPacket = mintAnchorTx
 	preCommit, err := c.augmenter().BindData(ctx, stagingBatch)
 	if err != nil {
 		bindErr := fmt.Errorf("augmenter BindData: %w", err)
-		return c.fundingError(&mintAnchorTx.FundedPsbt, bindErr)
+		return c.batchFundingError(
+			ctx, batch.BatchKey.PubKey, mintAnchorTx, bindErr,
+		)
 	}
 
 	// Persist the sibling, genesis TX, and (when present) the
@@ -2291,7 +3744,9 @@ func (c *ChainPlanter) applyFundingToBatch(ctx context.Context,
 	if err != nil {
 		commitErr := fmt.Errorf("unable to commit batch "+
 			"funding: %w", err)
-		return c.fundingError(&mintAnchorTx.FundedPsbt, commitErr)
+		return c.batchFundingError(
+			ctx, batch.BatchKey.PubKey, mintAnchorTx, commitErr,
+		)
 	}
 
 	// All persistence succeeded; mirror the funding into memory.
@@ -2640,6 +4095,332 @@ func (c *ChainPlanter) sealBatch(ctx context.Context, params SealParams,
 	return batchWithGroupInfo, nil
 }
 
+// prepareBatch commits the asset tree into a caller-authored anchor PSBT and
+// then pauses at the committed state so the packet can be signed externally.
+func (c *ChainPlanter) prepareBatch(ctx context.Context,
+	batch *MintingBatch) (*MintingBatch, error) {
+
+	if !batch.IsFunded() || !isCustomAnchorPsbt(batch.GenesisPacket.Pkt) {
+		return nil, fmt.Errorf("batch does not use a custom anchor PSBT")
+	}
+	if batch.State() != BatchStatePending &&
+		batch.State() != BatchStateFrozen {
+
+		return nil, fmt.Errorf("batch is not ready for preparation: %v",
+			batch.State())
+	}
+
+	// Legacy raw-only custom packets must fail before sealing, freezing or
+	// clearing BIP-371 fields. Without an exact wallet-owned locator we cannot
+	// safely persist a spendable managed output descriptor.
+	_, err := customAnchorMintingKeyDescriptor(
+		ctx, c.cfg.KeyRing, batch.GenesisPacket.Pkt,
+		batch.GenesisPacket.AssetAnchorOutIdx,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("custom anchor wallet key preflight failed: %w",
+			err)
+	}
+
+	sealedBatch, err := c.sealBatch(ctx, SealParams{}, batch)
+	if err != nil && !errors.Is(err, ErrBatchAlreadySealed) {
+		return nil, err
+	}
+	if sealedBatch != nil {
+		batch = sealedBatch
+	}
+
+	if batch.State() == BatchStatePending {
+		if err := freezeMintingBatch(ctx, c.cfg.BatchStore, batch); err != nil {
+			return nil, err
+		}
+	}
+
+	cultivator := c.newCultivatorForBatch(batch, nil)
+	nextState, err := cultivator.stateStep(BatchStateFrozen)
+	delete(c.cultivators, asset.ToSerialized(batch.BatchKey.PubKey))
+	if err != nil {
+		return nil, err
+	}
+	if nextState != BatchStateCommitted {
+		return nil, fmt.Errorf("unexpected prepared batch state: %v",
+			nextState)
+	}
+
+	return batch, nil
+}
+
+// mergeSignedCustomPsbt accepts only signing/finalization fields from an
+// externally signed packet. All transaction-defining and descriptive fields
+// remain those that were persisted during preparation.
+func mergeSignedCustomPsbt(stored,
+	signed *psbt.Packet) (*psbt.Packet, error) {
+
+	if stored == nil || signed == nil {
+		return nil, fmt.Errorf("signed custom anchor PSBT is missing")
+	}
+	if err := signed.SanityCheck(); err != nil {
+		return nil, fmt.Errorf("invalid signed custom anchor PSBT: %w", err)
+	}
+	normalizePacket := func(pkt *psbt.Packet) (*psbt.Packet, error) {
+		var buf bytes.Buffer
+		if err := pkt.Serialize(&buf); err != nil {
+			return nil, err
+		}
+		return psbt.NewFromRawBytes(&buf, false)
+	}
+	storedNorm, err := normalizePacket(stored)
+	if err != nil {
+		return nil, err
+	}
+	signedNorm, err := normalizePacket(signed)
+	if err != nil {
+		return nil, err
+	}
+	// Publication state is internal recovery metadata added after the
+	// caller signs. It isn't part of the prepared transaction contract and
+	// therefore isn't required in a resubmitted external packet.
+	stripTapdCustomAnchorMarkers(storedNorm)
+	stripTapdCustomAnchorMarkers(signedNorm)
+	if !reflect.DeepEqual(storedNorm.UnsignedTx, signedNorm.UnsignedTx) ||
+		!reflect.DeepEqual(storedNorm.Outputs, signedNorm.Outputs) ||
+		!reflect.DeepEqual(storedNorm.XPubs, signedNorm.XPubs) ||
+		!reflect.DeepEqual(storedNorm.Unknowns, signedNorm.Unknowns) ||
+		len(stored.Inputs) != len(signed.Inputs) {
+
+		return nil, fmt.Errorf("signed custom anchor PSBT changes prepared " +
+			"transaction or metadata")
+	}
+
+	hasSignature := false
+	for idx := range stored.Inputs {
+		storedCmp := stored.Inputs[idx]
+		signedCmp := signed.Inputs[idx]
+		isFinal := signedCmp.FinalScriptSig != nil ||
+			signedCmp.FinalScriptWitness != nil
+		if isFinal {
+			// Standard PSBT finalizers intentionally prune all input
+			// fields except the UTXO and final scripts. The stored packet
+			// remains authoritative for those omitted fields.
+			if signedCmp.WitnessUtxo != nil &&
+				!reflect.DeepEqual(
+					storedCmp.WitnessUtxo, signedCmp.WitnessUtxo,
+				) {
+
+				return nil, fmt.Errorf("signed custom anchor PSBT " +
+					"changes input UTXO")
+			}
+			if signedCmp.NonWitnessUtxo != nil &&
+				!reflect.DeepEqual(
+					storedCmp.NonWitnessUtxo,
+					signedCmp.NonWitnessUtxo,
+				) {
+
+				return nil, fmt.Errorf("signed custom anchor PSBT " +
+					"changes input UTXO")
+			}
+			if signedCmp.WitnessUtxo == nil &&
+				signedCmp.NonWitnessUtxo == nil {
+
+				return nil, fmt.Errorf("finalized custom anchor PSBT " +
+					"drops input UTXO")
+			}
+
+			hasSignature = true
+			continue
+		}
+
+		storedCmp.PartialSigs = nil
+		storedCmp.FinalScriptSig = nil
+		storedCmp.FinalScriptWitness = nil
+		storedCmp.TaprootKeySpendSig = nil
+		storedCmp.TaprootScriptSpendSig = nil
+		signedCmp.PartialSigs = nil
+		signedCmp.FinalScriptSig = nil
+		signedCmp.FinalScriptWitness = nil
+		signedCmp.TaprootKeySpendSig = nil
+		signedCmp.TaprootScriptSpendSig = nil
+
+		if !reflect.DeepEqual(storedCmp, signedCmp) {
+			return nil, fmt.Errorf("signed custom anchor PSBT changes input "+
+				"%d metadata", idx)
+		}
+
+		src := &signed.Inputs[idx]
+		if len(src.PartialSigs) != 0 || src.FinalScriptSig != nil ||
+			src.FinalScriptWitness != nil ||
+			len(src.TaprootKeySpendSig) != 0 ||
+			len(src.TaprootScriptSpendSig) != 0 {
+
+			hasSignature = true
+		}
+	}
+
+	if !hasSignature {
+		return nil, fmt.Errorf("signed custom anchor PSBT has no signatures")
+	}
+
+	var buf bytes.Buffer
+	if err := stored.Serialize(&buf); err != nil {
+		return nil, err
+	}
+	merged, err := psbt.NewFromRawBytes(&buf, false)
+	if err != nil {
+		return nil, err
+	}
+	for idx := range merged.Inputs {
+		src := &signed.Inputs[idx]
+		dst := &merged.Inputs[idx]
+		dst.PartialSigs = src.PartialSigs
+		dst.FinalScriptSig = src.FinalScriptSig
+		dst.FinalScriptWitness = src.FinalScriptWitness
+		dst.TaprootKeySpendSig = src.TaprootKeySpendSig
+		dst.TaprootScriptSpendSig = src.TaprootScriptSpendSig
+	}
+
+	return merged, nil
+}
+
+// validateFinalizedAnchorPsbt executes every input script locally before the
+// cultivator persists a broadcast state. This keeps a malformed external
+// witness retryable at the prepared state.
+func validateFinalizedAnchorPsbt(packet *psbt.Packet) error {
+	for idx := range packet.Inputs {
+		witness := packet.Inputs[idx].FinalScriptWitness
+		if witness == nil {
+			continue
+		}
+		if err := validateFinalScriptWitness(witness); err != nil {
+			return fmt.Errorf("invalid final witness for input %d: %w",
+				idx, err)
+		}
+	}
+
+	tx, err := psbt.Extract(packet)
+	if err != nil {
+		return err
+	}
+
+	prevOuts := txscript.NewMultiPrevOutFetcher(nil)
+	for idx := range packet.Inputs {
+		pIn := &packet.Inputs[idx]
+		var prevOut *wire.TxOut
+		switch {
+		case pIn.WitnessUtxo != nil:
+			prevOut = pIn.WitnessUtxo
+
+		case pIn.NonWitnessUtxo != nil:
+			outpoint := tx.TxIn[idx].PreviousOutPoint
+			if int(outpoint.Index) >= len(pIn.NonWitnessUtxo.TxOut) ||
+				pIn.NonWitnessUtxo.TxHash() != outpoint.Hash {
+
+				return fmt.Errorf("invalid non-witness UTXO for input %d",
+					idx)
+			}
+			prevOut = pIn.NonWitnessUtxo.TxOut[outpoint.Index]
+
+		default:
+			return fmt.Errorf("missing UTXO for input %d", idx)
+		}
+
+		prevOuts.AddPrevOut(tx.TxIn[idx].PreviousOutPoint, prevOut)
+	}
+
+	sigHashes := txscript.NewTxSigHashes(tx, prevOuts)
+	for idx := range tx.TxIn {
+		prevOut := prevOuts.FetchPrevOutput(
+			tx.TxIn[idx].PreviousOutPoint,
+		)
+		vm, err := txscript.NewEngine(
+			prevOut.PkScript, tx, idx, txscript.StandardVerifyFlags,
+			nil, sigHashes, prevOut.Value, prevOuts,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to validate input %d: %w", idx,
+				err)
+		}
+		if err := vm.Execute(); err != nil {
+			return fmt.Errorf("invalid witness for input %d: %w", idx,
+				err)
+		}
+	}
+
+	return nil
+}
+
+func validateFinalScriptWitness(serialized []byte) error {
+	if len(serialized) > maxFinalScriptWitnessSize {
+		return fmt.Errorf("serialized witness exceeds %d bytes",
+			maxFinalScriptWitnessSize)
+	}
+
+	reader := bytes.NewReader(serialized)
+	itemCount, err := wire.ReadVarInt(reader, 0)
+	if err != nil {
+		return fmt.Errorf("unable to read witness item count: %w", err)
+	}
+	if itemCount > maxFinalWitnessItems {
+		return fmt.Errorf("witness item count %d exceeds limit %d",
+			itemCount, maxFinalWitnessItems)
+	}
+
+	for itemIdx := uint64(0); itemIdx < itemCount; itemIdx++ {
+		itemSize, err := wire.ReadVarInt(reader, 0)
+		if err != nil {
+			return fmt.Errorf("unable to read witness item %d size: %w",
+				itemIdx, err)
+		}
+		if itemSize > uint64(reader.Len()) {
+			return fmt.Errorf("witness item %d exceeds serialized data",
+				itemIdx)
+		}
+		if _, err := reader.Seek(int64(itemSize), 1); err != nil {
+			return fmt.Errorf("unable to skip witness item %d: %w",
+				itemIdx, err)
+		}
+	}
+	if reader.Len() != 0 {
+		return fmt.Errorf("serialized witness has %d trailing bytes",
+			reader.Len())
+	}
+
+	return nil
+}
+
+// validateCustomAnchorFeeRate ensures an externally signed anchor transaction
+// meets the backing node's current minimum relay fee before the batch is moved
+// into its irreversible broadcast state.
+func (c *ChainPlanter) validateCustomAnchorFeeRate(ctx context.Context,
+	packet *psbt.Packet) error {
+
+	fee, err := packet.GetTxFee()
+	if err != nil {
+		return fmt.Errorf("unable to determine custom anchor fee: %w", err)
+	}
+
+	signedTx, err := psbt.Extract(packet)
+	if err != nil {
+		return fmt.Errorf("unable to extract custom anchor transaction: %w",
+			err)
+	}
+	weight := lntypes.WeightUnit(
+		blockchain.GetTransactionWeight(btcutil.NewTx(signedTx)),
+	)
+
+	minRelayFee, err := c.cfg.Wallet.MinRelayFee(ctx)
+	if err != nil {
+		return fmt.Errorf("unable to obtain minimum relay fee: %w", err)
+	}
+	minFee := minRelayFee.FeeForWeightRoundUp(weight)
+	if fee < minFee {
+		return fmt.Errorf("custom anchor fee does not meet minrelayfee: "+
+			"(fee=%d, minimum_fee=%d, minrelayfee=%s)", fee, minFee,
+			minRelayFee.String())
+	}
+
+	return nil
+}
+
 // finalizeBatch creates a new cultivator for the batch and starts it.
 func (c *ChainPlanter) finalizeBatch(params FinalizeParams) (*Cultivator,
 	error) {
@@ -2653,6 +4434,166 @@ func (c *ChainPlanter) finalizeBatch(params FinalizeParams) (*Cultivator,
 	// funded. If so, reject any provided parameters, as they would conflict
 	// with those previously used for batch funding.
 	haveParams := params.FeeRate.IsSome() || params.SiblingTapTree.IsSome()
+	if params.SignedPsbt != nil {
+		if haveParams {
+			return nil, fmt.Errorf("signed PSBT cannot be combined with " +
+				"fee rate or tapscript sibling")
+		}
+		state := c.pendingBatch.State()
+		// A broadcast custom packet can be resubmitted after an ambiguous
+		// publication or confirmation-registration error. The merge below
+		// still requires the prepared transaction and metadata to be identical.
+		if (state != BatchStateCommitted && state != BatchStateBroadcast) ||
+			!isCustomAnchorPsbt(c.pendingBatch.GenesisPacket.Pkt) {
+
+			return nil, fmt.Errorf("no prepared or broadcast custom batch " +
+				"available for external finalization")
+		}
+		merged, err := mergeSignedCustomPsbt(
+			c.pendingBatch.GenesisPacket.Pkt, params.SignedPsbt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		if err := validateFinalizedAnchorPsbt(merged); err != nil {
+			return nil, fmt.Errorf("externally signed PSBT is not fully "+
+				"valid: %w", err)
+		}
+		persistedTx, persistedErr := psbt.Extract(
+			c.pendingBatch.GenesisPacket.Pkt,
+		)
+		if state == BatchStateBroadcast || persistedErr == nil {
+			if persistedErr != nil {
+				return nil, fmt.Errorf("unable to extract persisted custom "+
+					"anchor transaction: %w", persistedErr)
+			}
+
+			retryTx, err := psbt.Extract(merged)
+			if err != nil {
+				return nil, fmt.Errorf("unable to extract custom anchor "+
+					"retry transaction: %w", err)
+			}
+
+			var persistedBytes, retryBytes bytes.Buffer
+			if err := persistedTx.Serialize(&persistedBytes); err != nil {
+				return nil, fmt.Errorf("unable to serialize persisted custom "+
+					"anchor transaction: %w", err)
+			}
+			if err := retryTx.Serialize(&retryBytes); err != nil {
+				return nil, fmt.Errorf("unable to serialize custom anchor "+
+					"retry transaction: %w", err)
+			}
+			if !bytes.Equal(persistedBytes.Bytes(), retryBytes.Bytes()) {
+				if state == BatchStateBroadcast {
+					return nil, fmt.Errorf("broadcast retry changes " +
+						"finalized transaction")
+				}
+
+				return nil, fmt.Errorf("committed retry changes " +
+					"finalized transaction")
+			}
+
+			// The signed transaction was already recorded before an earlier
+			// publication attempt. Reuse that exact persisted packet instead
+			// of replacing it with caller-supplied retry data.
+			merged = c.pendingBatch.GenesisPacket.Pkt
+		}
+		if state == BatchStateCommitted {
+			// A retry can select the already persisted packet above. Work on
+			// an independent copy so marker changes cannot split in-memory
+			// state from disk if the subsequent store fails.
+			var mergedBytes bytes.Buffer
+			if err := merged.Serialize(&mergedBytes); err != nil {
+				return nil, fmt.Errorf("unable to copy custom anchor "+
+					"PSBT before finalization: %w", err)
+			}
+			merged, err = psbt.NewFromRawBytes(&mergedBytes, false)
+			if err != nil {
+				return nil, fmt.Errorf("unable to copy custom anchor "+
+					"PSBT before finalization: %w", err)
+			}
+
+			ctx, cancel := c.WithCtxQuit()
+			err = c.validateCustomAnchorFeeRate(ctx, merged)
+			if err != nil {
+				cancel()
+				return nil, fmt.Errorf("externally signed PSBT has an invalid "+
+					"fee rate: %w", err)
+			}
+
+			_, err = customAnchorMintingKeyDescriptor(
+				ctx, c.cfg.KeyRing, merged,
+				c.pendingBatch.GenesisPacket.AssetAnchorOutIdx,
+			)
+			if err != nil {
+				cancel()
+				return nil, fmt.Errorf("custom anchor wallet key "+
+					"preflight failed: %w", err)
+			}
+
+			previousLocks := fn.CopySlice(
+				c.pendingBatch.GenesisPacket.LockedUTXOs,
+			)
+			locked, err := acquireCustomAnchorLeases(
+				ctx, c.cfg.Wallet,
+				customAnchorLeaseID(c.pendingBatch.BatchKey.PubKey),
+				merged, previousLocks,
+			)
+			cancel()
+			if err != nil {
+				return nil, fmt.Errorf("unable to lease custom anchor "+
+					"inputs before finalization: %w", err)
+			}
+			c.pendingBatch.CustomAnchorLeaseError = ""
+			newLocks := newlyAcquiredLeases(locked, previousLocks)
+			SetCustomAnchorLockedUTXOs(merged, locked)
+			setCustomAnchorPublishState(
+				merged, customAnchorImportPending,
+			)
+
+			// Store the signed packet before starting the caretaker. If
+			// any WalletKit publication attempt is made, the exact signed
+			// transaction survives restart and must progress into watched,
+			// immutable Broadcast handling regardless of the returned error.
+			signedFundedPsbt := c.pendingBatch.GenesisPacket.FundedPsbt
+			signedFundedPsbt.Pkt = merged
+			signedFundedPsbt.LockedUTXOs = locked
+			ctx, cancel = c.WithCtxQuit()
+			err = storeSignedGenesisPsbt(
+				ctx, c.cfg.BatchStore,
+				c.pendingBatch.BatchKey.PubKey,
+				&signedFundedPsbt,
+			)
+			cancel()
+			if err != nil {
+				releaseErr := rollbackCustomAnchorOutpoints(
+					ctx, c.cfg.Wallet,
+					customAnchorLeaseID(
+						c.pendingBatch.BatchKey.PubKey,
+					), newLocks,
+				)
+				return nil, fmt.Errorf("unable to store externally signed "+
+					"PSBT: %w", errors.Join(err, releaseErr))
+			}
+
+			c.pendingBatch.GenesisPacket.Pkt = merged
+			c.pendingBatch.GenesisPacket.LockedUTXOs = locked
+		}
+
+		cultivator := c.newCultivatorForBatch(c.pendingBatch, nil)
+		if err := cultivator.Start(); err != nil {
+			return nil, fmt.Errorf("unable to start new cultivator: %w",
+				err)
+		}
+
+		return cultivator, nil
+	}
+	if c.pendingBatch.IsFunded() && c.pendingBatch.GenesisPacket != nil &&
+		isCustomAnchorPsbt(c.pendingBatch.GenesisPacket.Pkt) {
+
+		return nil, fmt.Errorf("custom anchor batch must be prepared and " +
+			"finalized with an externally signed PSBT")
+	}
 	if haveParams && c.pendingBatch.IsFunded() {
 		return nil, fmt.Errorf("cannot provide finalize parameters " +
 			"if batch already funded")
@@ -2682,7 +4623,10 @@ func (c *ChainPlanter) finalizeBatch(params FinalizeParams) (*Cultivator,
 	// dispatch in one place rather than re-checking pending-ness
 	// here.
 	if !c.pendingBatch.IsFunded() {
-		err = c.fundPendingBatch(ctx, FundParams(params))
+		err = c.fundPendingBatch(ctx, FundParams{
+			FeeRate:        params.FeeRate,
+			SiblingTapTree: params.SiblingTapTree,
+		})
 		if err != nil {
 			return nil, err
 		}
@@ -2796,6 +4740,8 @@ func (c *ChainPlanter) ListBatches(params ListBatchesParams) ([]*VerboseBatch,
 				out <- stateErr[[]*VerboseBatch](err)
 				return
 			}
+			c.attachCustomAnchorKeyErrors(batches)
+			c.attachCustomAnchorRuntimeStatus(batches)
 			out <- stateOk(batches)
 		},
 	)
@@ -2806,6 +4752,15 @@ func (c *ChainPlanter) ListBatches(params ListBatchesParams) ([]*VerboseBatch,
 func (c *ChainPlanter) FundBatch(params FundParams) (*VerboseBatch, error) {
 	return dispatchStateReq(
 		c, func(out chan<- stateResult[*VerboseBatch]) {
+			if c.pendingBatch != nil &&
+				c.pendingBatch.State() != BatchStatePending {
+
+				out <- stateErr[*VerboseBatch](fmt.Errorf(
+					"batch in state %v cannot be funded",
+					c.pendingBatch.State(),
+				))
+				return
+			}
 			if c.pendingBatch != nil &&
 				c.pendingBatch.IsFunded() {
 
@@ -2839,6 +4794,38 @@ func (c *ChainPlanter) FundBatch(params FundParams) (*VerboseBatch, error) {
 	)
 }
 
+// PrepareBatch commits a caller-authored batch into its selected anchor
+// output and returns the packet for external signing.
+func (c *ChainPlanter) PrepareBatch() (*MintingBatch, error) {
+	return dispatchStateReq(
+		c, func(out chan<- stateResult[*MintingBatch]) {
+			if c.pendingBatch == nil {
+				out <- stateErr[*MintingBatch](fmt.Errorf(
+					"no pending batch",
+				))
+				return
+			}
+			ctx, cancel := c.WithCtxQuit()
+			preparedBatch, err := c.prepareBatch(ctx, c.pendingBatch)
+			cancel()
+			if err != nil {
+				out <- stateErr[*MintingBatch](fmt.Errorf(
+					"unable to prepare minting batch: %w", err,
+				))
+				return
+			}
+
+			c.pendingBatch = preparedBatch
+			batchCopy, err := preparedBatch.Copy()
+			if err != nil {
+				out <- stateErr[*MintingBatch](err)
+				return
+			}
+			out <- stateOk(batchCopy)
+		},
+	)
+}
+
 // SealBatch attempts to seal the current batch, by providing or deriving all
 // witnesses necessary to create the final genesis TX.
 func (c *ChainPlanter) SealBatch(params SealParams) (*MintingBatch, error) {
@@ -2847,6 +4834,15 @@ func (c *ChainPlanter) SealBatch(params SealParams) (*MintingBatch, error) {
 			if c.pendingBatch == nil {
 				out <- stateErr[*MintingBatch](fmt.Errorf(
 					"no pending batch",
+				))
+				return
+			}
+			if c.pendingBatch.State() != BatchStatePending &&
+				c.pendingBatch.State() != BatchStateFrozen {
+
+				out <- stateErr[*MintingBatch](fmt.Errorf(
+					"batch in state %v cannot be sealed",
+					c.pendingBatch.State(),
 				))
 				return
 			}
@@ -2900,6 +4896,14 @@ func (c *ChainPlanter) FinalizeBatch(params FinalizeParams) (*MintingBatch,
 
 			batchKey := c.pendingBatch.BatchKey.PubKey
 			batchKeySerial := asset.ToSerialized(batchKey)
+			customBatch := c.pendingBatch.GenesisPacket != nil &&
+				isCustomAnchorPsbt(c.pendingBatch.GenesisPacket.Pkt)
+			if _, ok := c.cultivators[batchKeySerial]; ok {
+				out <- stateErr[*MintingBatch](fmt.Errorf(
+					"batch recovery is in progress",
+				))
+				return
+			}
 			log.Infof("Finalizing batch %x", batchKeySerial)
 
 			cultivator, err := c.finalizeBatch(params)
@@ -2920,16 +4924,19 @@ func (c *ChainPlanter) FinalizeBatch(params FinalizeParams) (*MintingBatch,
 				// caller does can race the cultivator
 				// goroutine that shares the underlying
 				// batch.
-				batchCopy, err := cultivator.cfg.Batch.Copy()
-
-				// The batch has been broadcast, so we can
-				// remove the pending batch regardless of
-				// whether the snapshot above succeeded.
-				c.pendingBatch = nil
-
+				batchCopy, err := cultivator.batchCopy()
 				if err != nil {
+					// Snapshot failure cannot prove a signed custom
+					// transaction is safe to abandon. Keep the existing
+					// reservation and fail closed.
 					out <- stateErr[*MintingBatch](err)
 					return
+				}
+
+				if customAnchorPublicationPending(batchCopy) {
+					c.pendingBatch = batchCopy
+				} else {
+					c.pendingBatch = nil
 				}
 				out <- stateOk(batchCopy)
 
@@ -2965,7 +4972,9 @@ func (c *ChainPlanter) FinalizeBatch(params FinalizeParams) (*MintingBatch,
 					return
 				}
 
-				c.pendingBatch = nil
+				if !customBatch {
+					c.pendingBatch = nil
+				}
 
 			case <-c.Quit:
 				return
@@ -2978,6 +4987,15 @@ func (c *ChainPlanter) FinalizeBatch(params FinalizeParams) (*MintingBatch,
 func (c *ChainPlanter) CancelBatch() (*btcec.PublicKey, error) {
 	return dispatchStateReq(
 		c, func(out chan<- stateResult[*btcec.PublicKey]) {
+			if c.pendingBatch != nil {
+				key := asset.ToSerialized(c.pendingBatch.BatchKey.PubKey)
+				if _, ok := c.cultivators[key]; ok {
+					out <- stateErr[*btcec.PublicKey](fmt.Errorf(
+						"batch recovery is in progress",
+					))
+					return
+				}
+			}
 			batchKey, err := c.canCancelBatch()
 			if err != nil {
 				out <- stateErr[*btcec.PublicKey](err)
@@ -3013,6 +5031,15 @@ func (c *ChainPlanter) CancelBatch() (*btcec.PublicKey, error) {
 // either adds it to an existing pending batch or creates a new batch for it.
 func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 	req *Seedling) error {
+	// This must be the first operation. Once preparation freezes or commits
+	// the asset root, no request validation, key derivation or metadata
+	// assignment may run for an additional seedling.
+	if c.pendingBatch != nil &&
+		c.pendingBatch.State() != BatchStatePending {
+
+		return fmt.Errorf("batch in state %v cannot accept new seedlings",
+			c.pendingBatch.State())
+	}
 
 	// Refuse a new batch before the augmenter or planter derives any keys.
 	// This avoids burning key indices when a resumed or orphaned

@@ -124,6 +124,11 @@
 
 ## Functional Enhancements
 
+* [PR#2238](https://github.com/lightninglabs/taproot-assets/pull/2238)
+  adds a caller-controlled Bitcoin anchor PSBT flow for minting batches,
+  including a prepare/finalize signing boundary, durable restart recovery,
+  and wallet-input lease management.
+
 * [PR#2266](https://github.com/lightninglabs/taproot-assets/pull/2266)
   adds the 'watcher': a daemon-wide service that records each
   act of staking local state on a chain outcome as a durable
