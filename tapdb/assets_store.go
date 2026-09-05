@@ -298,6 +298,12 @@ type ActiveAssetsStore interface {
 	// FetchManagedUTXOs fetches all managed UTXOs.
 	FetchManagedUTXOs(context.Context) ([]ManagedUTXORow, error)
 
+	// FetchOrphanManagedUTXOs fetches candidate managed UTXOs that contain
+	// only tombstone, burn or unclassified assets.
+	FetchOrphanManagedUTXOs(context.Context,
+		sqlc.FetchOrphanManagedUTXOsParams) (
+		[]sqlc.FetchOrphanManagedUTXOsRow, error)
+
 	// ApplyPendingOutput applies a transfer output (new amount and script
 	// key) based on the existing script key of an asset.
 	ApplyPendingOutput(ctx context.Context, arg ApplyPendingOutput) (int64,
@@ -1488,20 +1494,25 @@ func (a *AssetStore) FetchManagedUTXOs(ctx context.Context) (
 func (a *AssetStore) FetchOrphanUTXOs(ctx context.Context) (
 	[]*tapfreighter.ZeroValueInput, error) {
 
-	// Strategy: fetch all managed UTXOs and filter in-memory.
-	//  A UTXO is a "zero-value anchor" if all assets are either tombstones
-	// (NUMS key with amount 0) or burns.
-	// We exclude leased and spent UTXOs.
-
 	var results []*tapfreighter.ZeroValueInput
 
 	readOpts := NewAssetStoreReadTx()
 	now := a.clock.Now().UTC()
 
 	dbErr := a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
-		utxos, err := q.FetchManagedUTXOs(ctx)
+		utxos, err := q.FetchOrphanManagedUTXOs(
+			ctx, sqlc.FetchOrphanManagedUTXOsParams{
+				UnknownKeyType: sqlInt16(
+					asset.ScriptKeyUnknown,
+				),
+				BurnKeyType: sqlInt16(asset.ScriptKeyBurn),
+				TombstoneKeyType: sqlInt16(
+					asset.ScriptKeyTombstone,
+				),
+			},
+		)
 		if err != nil {
-			return fmt.Errorf("failed to fetch managed "+
+			return fmt.Errorf("failed to fetch orphan managed "+
 				"utxos: %w", err)
 		}
 
@@ -1543,40 +1554,33 @@ func (a *AssetStore) FetchOrphanUTXOs(ctx context.Context) (
 					"outpoint: %w", err)
 			}
 
-			// Query all assets anchored at this outpoint.
-			// We include spent assets here because tombstones are
-			// marked as spent when created.
-			_, assetsAtAnchor, err := a.queryChainAssets(
-				ctx, q, QueryAssetFilters{
-					AnchorPoint: u.Outpoint,
-					Now:         sqlTime(now),
-				},
-			)
-			if err != nil {
-				return fmt.Errorf("failed to query chain "+
-					"assets at anchor: %w", err)
-			}
-
-			if len(assetsAtAnchor) == 0 {
-				continue
-			}
-
-			// Determine if all assets are tombstones or burns.
-			// A tombstone asset is marked as "spent" at the asset
-			// level but its anchor UTXO may still be unspent
-			// on-chain and available for sweeping.
-			allZeroValue := true
-			for _, chainAsset := range assetsAtAnchor {
-				aAsset := chainAsset.Asset
-
-				if !aAsset.IsTombstone() && !aAsset.IsBurn() {
-					allZeroValue = false
-					break
+			if u.NeedsAssetValidation {
+				_, assetsAtAnchor, err := a.queryChainAssets(
+					ctx, q, QueryAssetFilters{
+						AnchorPoint: u.Outpoint,
+						Now:         sqlTime(now),
+					},
+				)
+				if err != nil {
+					return fmt.Errorf(
+						"failed to query chain "+
+							"assets at anchor: %w",
+						err,
+					)
 				}
-			}
 
-			if !allZeroValue {
-				continue
+				allZeroValue := len(assetsAtAnchor) > 0
+				for _, chainAsset := range assetsAtAnchor {
+					if !chainAsset.Asset.IsTombstone() &&
+						!chainAsset.Asset.IsBurn() {
+
+						allZeroValue = false
+						break
+					}
+				}
+				if !allZeroValue {
+					continue
+				}
 			}
 
 			log.DebugS(ctx, "adding orphan utxo to sweep list",

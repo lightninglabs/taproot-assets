@@ -678,6 +678,32 @@ FROM managed_utxos utxos
 JOIN internal_keys keys
     ON utxos.internal_key_id = keys.key_id;
 
+-- name: FetchOrphanManagedUTXOs :many
+SELECT
+    utxos.*,
+    keys.*,
+    MAX(CASE
+        WHEN COALESCE(script_keys.key_type, 0) = @unknown_key_type
+        THEN 1 ELSE 0
+    END) = 1 AS needs_asset_validation
+FROM managed_utxos utxos
+JOIN internal_keys keys
+    ON utxos.internal_key_id = keys.key_id
+JOIN assets
+    ON assets.anchor_utxo_id = utxos.utxo_id
+JOIN script_keys
+    ON assets.script_key_id = script_keys.script_key_id
+GROUP BY utxos.utxo_id, keys.key_id
+HAVING SUM(CASE
+    WHEN COALESCE(script_keys.key_type, 0) = @unknown_key_type
+        OR script_keys.key_type = @burn_key_type
+        OR (
+            script_keys.key_type = @tombstone_key_type
+            AND assets.amount = 0
+        )
+    THEN 0 ELSE 1
+END) = 0;
+
 -- name: AnchorPendingAssets :exec
 WITH assets_to_update AS (
     SELECT script_key_id
