@@ -263,6 +263,14 @@ func (b *Cultivator) Cancel(respCh chan<- CancelResp) error {
 			)
 		}
 
+		// The batch is now cancelled on disk, so any wallet inputs
+		// leased when it was funded can be released.
+		if err == nil {
+			releaseBatchFundingInputs(
+				ctx, b.cfg.Wallet, b.cfg.Batch,
+			)
+		}
+
 		b.publishMintEvent(BatchStateSeedlingCancelled)
 
 		cancelResp = CancelResp{true, err}
@@ -279,6 +287,14 @@ func (b *Cultivator) Cancel(respCh chan<- CancelResp) error {
 
 			b.publishMintErrorEvent(
 				err, BatchStateSproutCancelled,
+			)
+		}
+
+		// The batch is now cancelled on disk, so any wallet inputs
+		// leased when it was funded can be released.
+		if err == nil {
+			releaseBatchFundingInputs(
+				ctx, b.cfg.Wallet, b.cfg.Batch,
 			)
 		}
 
