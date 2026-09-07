@@ -231,10 +231,35 @@ func testRfqAssetBuyHtlcIntercept(t *harnessTest) {
 	expectedAssetID := mintedAssetId
 	require.Equal(t.t, expectedAssetID, actualAssetID)
 
-	// Restart Bob's tapd to ensure the accepted quote policy survives a
-	// restart and is restored.
+	// When accepting the quote, Bob's tapd registered the quote's SCID
+	// alias with Bob's lnd node, mapping it to the Bob->Carol channel. The
+	// alias must resolve to that channel's base SCID.
+	bobCarolChan := t.lndHarness.QueryChannelByChanPoint(
+		ts.BobLnd, ts.BobCarolChannel,
+	)
+	assertQuoteAliasResolves := func() {
+		resp, err := ts.BobLnd.RPC.Router.XFindBaseLocalChanAlias(
+			ctx, &routerrpc.FindBaseAliasRequest{
+				Alias: acceptedQuote.Scid,
+			},
+		)
+		require.NoError(t.t, err)
+		require.Equal(t.t, bobCarolChan.ChanId, resp.Base)
+	}
+	assertQuoteAliasResolves()
+
+	// Restart both Bob's tapd and lnd. The accepted quote policy must be
+	// restored by tapd and the SCID alias mapping must be restored by lnd,
+	// as neither is re-created on startup.
 	require.NoError(t.t, ts.BobTapd.stop(false))
+	t.lndHarness.RestartNode(ts.BobLnd)
 	require.NoError(t.t, ts.BobTapd.start(false))
+
+	// Wait for Bob's channels to become active again before continuing.
+	t.lndHarness.EnsureConnected(ts.AliceLnd, ts.BobLnd)
+	t.lndHarness.EnsureConnected(ts.BobLnd, ts.CarolLnd)
+	t.lndHarness.AssertChannelActive(ts.BobLnd, ts.AliceBobChannel)
+	t.lndHarness.AssertChannelActive(ts.BobLnd, ts.BobCarolChannel)
 
 	// Carol should still see the accepted quote after Bob's restart.
 	acceptedQuotes, err = ts.CarolTapd.QueryPeerAcceptedQuotes(
@@ -243,6 +268,9 @@ func testRfqAssetBuyHtlcIntercept(t *harnessTest) {
 	require.NoError(t.t, err)
 	require.Len(t.t, acceptedQuotes.BuyQuotes, 1)
 	acceptedQuote = acceptedQuotes.BuyQuotes[0]
+
+	// The quote's SCID alias must still resolve on Bob's lnd node.
+	assertQuoteAliasResolves()
 
 	// Carol will now use the accepted quote (received from Bob) to create
 	// a lightning invoice which will be given to and settled by Alice.
