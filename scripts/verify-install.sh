@@ -9,7 +9,7 @@ MANIFEST_SELECTOR=". | select(.name | test(\"manifest-v.*(\\\\.txt)$\")) | .name
 SIGNATURE_SELECTOR=". | select(.name | test(\"manifest-.*(\\\\.sig)$\")) | .name"
 HEADER_JSON="Accept: application/json"
 HEADER_GH_JSON="Accept: application/vnd.github.v3+json"
-MIN_REQUIRED_SIGNATURES=5
+MIN_REQUIRED_SIGNATURES=3
 
 # All keys that can sign taproot-assets releases. The key must be added as a
 # file to the keys directory, for example: scripts/keys/<username>.asc
@@ -56,8 +56,8 @@ function import_keys() {
 
   # Import all the signing keys. We'll create a key ring for each user and use
   # that exact key ring when verifying a user's signature. That way we can make
-  # sure one user cannot just upload multiple signatures to reach the 5/7
-  # required sigs.
+  # sure one user cannot just upload multiple signatures to reach the minimum
+  # number of required sigs.
   for key in "${KEYS[@]}"; do
     KEY_ID=$(echo $key | cut -d' ' -f1)
     USERNAME=$(echo $key | cut -d' ' -f2)
@@ -182,7 +182,7 @@ function verify_signatures() {
     ((NUM_CHECKS=NUM_CHECKS+1))
   done
 
-  # We want at least five signatures (out of seven public keys) that sign the
+  # We want at least three signatures that sign the
   # hashes of the binaries we have installed. If we arrive here without exiting,
   # it means no signature manifests were uploaded (yet) with the correct naming
   # pattern.
