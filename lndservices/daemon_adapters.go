@@ -2,6 +2,8 @@ package lndservices
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -163,17 +165,23 @@ func (l *LndFsmDaemonAdapters) RegisterConfirmationsNtfn(
 		lndCliOpt = append(lndCliOpt, lndclient.WithIncludeBlock())
 	}
 
-	ctx, cancel := l.WithCtxQuitNoTimeout()
-	spendDetail, _, err := l.lnd.ChainNotifier.RegisterConfirmationsNtfn(
-		ctx, txid, pkScript, int32(numConfs), int32(heightHint),
-		lndCliOpt...,
+	confChan, cancel, err := subscribeWithReconnect(
+		&l.ContextGuard, l.retryConfig,
+		func(ctx context.Context) (chan *chainntnfs.TxConfirmation,
+			chan error, error) {
+
+			return l.lnd.ChainNotifier.RegisterConfirmationsNtfn(
+				ctx, txid, pkScript, int32(numConfs),
+				int32(heightHint), lndCliOpt...,
+			)
+		},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to register for conf: %w", err)
 	}
 
 	return &chainntnfs.ConfirmationEvent{
-		Confirmed:    spendDetail,
+		Confirmed:    confChan,
 		Updates:      make(chan chainntnfs.TxUpdateInfo),
 		NegativeConf: make(chan int32),
 		Done:         make(chan struct{}),
@@ -186,20 +194,134 @@ func (l *LndFsmDaemonAdapters) RegisterConfirmationsNtfn(
 func (l *LndFsmDaemonAdapters) RegisterSpendNtfn(outpoint *wire.OutPoint,
 	pkScript []byte, heightHint uint32) (*chainntnfs.SpendEvent, error) {
 
-	ctx, cancel := l.WithCtxQuitNoTimeout()
-	spendDetail, _, err := l.lnd.ChainNotifier.RegisterSpendNtfn(
-		ctx, outpoint, pkScript, int32(heightHint),
+	spendChan, cancel, err := subscribeWithReconnect(
+		&l.ContextGuard, l.retryConfig,
+		func(ctx context.Context) (chan *chainntnfs.SpendDetail,
+			chan error, error) {
+
+			return l.lnd.ChainNotifier.RegisterSpendNtfn(
+				ctx, outpoint, pkScript, int32(heightHint),
+			)
+		},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to register for spend: %w", err)
 	}
 
 	return &chainntnfs.SpendEvent{
-		Spend:  spendDetail,
+		Spend:  spendChan,
 		Reorg:  make(chan struct{}, 1),
 		Done:   make(chan struct{}, 1),
 		Cancel: cancel,
 	}, nil
+}
+
+// subscription bundles the event and error channels returned by a chain
+// notifier registration so they can be passed through fn.RetryFuncN as one
+// value.
+type subscription[T any] struct {
+	eventChan chan T
+	errChan   chan error
+}
+
+// subscribeWithReconnect drives a chain notifier subscription that survives a
+// dropped notifier stream. It performs the initial registration, then runs a
+// guard-managed goroutine that forwards the single event to the returned
+// channel. If the stream reports an error (or closes) before the event
+// arrives, it re-registers with the same parameters, using a bounded backoff;
+// reusing the original height hint makes the replay safe. The returned cancel
+// function, and the guard's quit signal, both stop the goroutine.
+func subscribeWithReconnect[T any](g *fn.ContextGuard, cfg fn.RetryConfig,
+	register func(context.Context) (chan T, chan error, error)) (chan T,
+	func(), error) {
+
+	ctx, cancel := g.WithCtxQuitNoTimeout()
+
+	eventChan, errChan, err := register(ctx)
+	if err != nil {
+		cancel()
+		return nil, nil, err
+	}
+
+	// The chainntnfs event channels must be buffered so a delivered event
+	// is never lost if the consumer is not yet selecting on it.
+	out := make(chan T, 1)
+
+	reRegister := func() error {
+		reg, regErr := fn.RetryFuncN(
+			ctx, cfg, func() (subscription[T], error) {
+				e, ec, rErr := register(ctx)
+				return subscription[T]{
+					eventChan: e,
+					errChan:   ec,
+				}, rErr
+			},
+		)
+		if regErr != nil {
+			return regErr
+		}
+
+		eventChan = reg.eventChan
+		errChan = reg.errChan
+
+		return nil
+	}
+
+	forward := func() error {
+		for {
+			select {
+			case event, ok := <-eventChan:
+				if ok {
+					select {
+					case out <- event:
+					case <-ctx.Done():
+					}
+
+					return nil
+				}
+
+				// The stream closed without delivering an
+				// event; re-register and keep waiting.
+				log.Warnf("Chain notifier event channel " +
+					"closed early, re-registering")
+
+				if err := reRegister(); err != nil {
+					return fmt.Errorf("unable to "+
+						"re-register notifier: %w", err)
+				}
+
+			case streamErr, ok := <-errChan:
+				if !ok {
+					errChan = nil
+
+					continue
+				}
+
+				log.Warnf("Chain notifier stream errored, "+
+					"re-registering: %v", streamErr)
+
+				if err := reRegister(); err != nil {
+					return fmt.Errorf("unable to "+
+						"re-register notifier: %w", err)
+				}
+
+			case <-ctx.Done():
+				return nil
+			}
+		}
+	}
+
+	g.Goroutine(forward, func(err error) {
+		// A cancelled context is a clean shutdown, not a failure to
+		// surface.
+		if errors.Is(err, context.Canceled) {
+			return
+		}
+
+		log.Errorf("Chain notifier subscription stopped: %v", err)
+	})
+
+	return out, cancel, nil
 }
 
 // Ensure LndFsmDaemonAdapters implements the protofsm.DaemonAdapters
