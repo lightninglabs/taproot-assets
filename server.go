@@ -264,6 +264,15 @@ func (s *Server) initialize(interceptorChain *rpcperms.InterceptorChain) error {
 		return fmt.Errorf("unable to start aux sweeper mgr: %w", err)
 	}
 
+	// Start the backup file updater last, so its initial reconcile sees
+	// the state all other subsystems settled into on startup.
+	if s.cfg.BackupUpdater != nil {
+		if err := s.cfg.BackupUpdater.Start(); err != nil {
+			return fmt.Errorf("unable to start backup file "+
+				"updater: %w", err)
+		}
+	}
+
 	// If the server is configured to sync all assets by default, we'll set
 	// the universe federation to allow public access.
 	if s.cfg.UniFedSyncAllAssets {
@@ -910,6 +919,15 @@ func (s *Server) Stop() error {
 	}
 	if err := s.cfg.AuxSweeper.Stop(); err != nil {
 		return err
+	}
+
+	// Every subsystem that changes wallet state has stopped, so the
+	// updater's final sync captures the complete state.
+	if s.cfg.BackupUpdater != nil {
+		if err := s.cfg.BackupUpdater.Stop(); err != nil {
+			return fmt.Errorf("unable to stop backup file "+
+				"updater: %w", err)
+		}
 	}
 
 	if s.macaroonService != nil {
