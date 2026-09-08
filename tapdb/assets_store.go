@@ -991,6 +991,29 @@ func (a *AssetStore) constraintsToDbFilter(
 		query.SortDirection.WhenSome(func(dir SortDirection) {
 			assetFilter.SortDirection = sqlInt32(int32(dir))
 		})
+
+		if len(query.PrevIDs) > 0 {
+			assetFilter.UsePrevIDFilter = 1
+			assetFilter.PrevIDAnchorPoints = make(
+				[][]byte, 0, len(query.PrevIDs),
+			)
+			for _, prevID := range query.PrevIDs {
+				anchorPoint, err := encodeOutpoint(
+					prevID.OutPoint,
+				)
+				if err != nil {
+					return QueryAssetFilters{}, fmt.Errorf(
+						"unable to encode previous ID "+
+							"outpoint: %w", err,
+					)
+				}
+
+				assetFilter.PrevIDAnchorPoints = append(
+					assetFilter.PrevIDAnchorPoints,
+					anchorPoint,
+				)
+			}
+		}
 	} else {
 		// Even when query is nil, use all non-channel script key
 		// types.
@@ -2409,9 +2432,9 @@ func (a *AssetStore) ListEligibleCoins(ctx context.Context,
 		return nil, fmt.Errorf("min amount overflow")
 	}
 
-	// The prev ID filter is applied after the query, so a bounded listing
-	// could return a page that holds none of the requested inputs. The two
-	// can't be combined.
+	// The exact prev ID filter is applied after the query, so a bounded
+	// listing could return a page containing only other assets from the
+	// requested anchors. The two can't be combined.
 	if constraints.CoinLimit > 0 && len(constraints.PrevIDs) > 0 {
 		return nil, fmt.Errorf("coin limit cannot be combined with " +
 			"specific prev IDs")
@@ -2455,7 +2478,9 @@ func (a *AssetStore) ListEligibleCoins(ctx context.Context,
 		return nil, fmt.Errorf("unable to query commitments: %w", err)
 	}
 
-	// If we want to restrict on specific inputs, we do the filtering now.
+	// The database limits the result to the requested anchor points.
+	// Apply the asset ID and script key components here to match the full
+	// prev ID.
 	if len(constraints.PrevIDs) > 0 {
 		selectedCommitments = filterCommitmentsByPrevIDs(
 			selectedCommitments, constraints.PrevIDs,
