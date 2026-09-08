@@ -129,6 +129,16 @@
   86400 second default instead of returning an error. Fixes
   [#2261](https://github.com/lightninglabs/taproot-assets/issues/2261).
 
+* [PR#2283](https://github.com/lightninglabs/taproot-assets/pull/2283)
+  fixes force-close resolution of an asset channel whose resolved
+  commitment output holds no assets, as when the whole asset balance
+  sits with the remote party. The aux sweeper tried to build sweep
+  packets from an empty input set, failed with `no inputs provided`,
+  and lnd treated that as a hard error, leaving the channel in
+  `pending_force_closing` and re-running the failing resolution on
+  every block. The sweeper now returns an empty resolution for such
+  outputs, so lnd sweeps them as plain BTC outputs.
+
 # New Features
 
 ## Functional Enhancements

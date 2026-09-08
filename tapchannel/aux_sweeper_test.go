@@ -6,11 +6,20 @@ import (
 	"net/url"
 	"testing"
 
+	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
+	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
+	cmsg "github.com/lightninglabs/taproot-assets/tapchannelmsg"
+	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tapnode"
+	lfn "github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
 )
@@ -343,4 +352,273 @@ func TestAuxSweeperStop(t *testing.T) {
 
 	// A second stop must be a no-op instead of a double close.
 	require.NoError(t, sweeper.Stop())
+}
+
+// scriptKeyStore is an address book store that accepts script key imports
+// and nothing else, which is all the resolution path asks of it.
+type scriptKeyStore struct {
+	address.Storage
+}
+
+func (s *scriptKeyStore) InsertScriptKey(context.Context, asset.ScriptKey,
+	asset.ScriptKeyType) error {
+
+	return nil
+}
+
+// recordingPorter records shipment requests. It knows no prior parcels, so
+// every commitment transaction it is asked about gets imported.
+type recordingPorter struct {
+	tapfreighter.Porter
+
+	shipped []tapfreighter.Parcel
+}
+
+func (p *recordingPorter) QueryParcels(context.Context,
+	fn.Option[chainhash.Hash], bool) ([]*tapfreighter.OutboundParcel,
+	error) {
+
+	return nil, nil
+}
+
+func (p *recordingPorter) RequestShipment(
+	parcel tapfreighter.Parcel) (*tapfreighter.OutboundParcel, error) {
+
+	p.shipped = append(p.shipped, parcel)
+	return nil, nil
+}
+
+// oneSidedChannel is an asset channel whose whole balance sits on one side:
+// a single funding asset and a single commitment output carrying all of it.
+// The funding input proof is served by the mock courier, so the sweeper's
+// commitment import can run against it.
+type oneSidedChannel struct {
+	fundingProof proof.Proof
+	fundingBlock wire.MsgBlock
+	assetOutput  *cmsg.AssetOutput
+	courier      *proof.MockProofCourier
+}
+
+func newOneSidedChannel(t *testing.T) *oneSidedChannel {
+	t.Helper()
+
+	ctx := context.Background()
+	genesis := asset.RandGenesis(t, asset.Normal)
+
+	// The funding input is a genesis output the courier can serve.
+	inputTx := wire.NewMsgTx(2)
+	inputTx.AddTxIn(&wire.TxIn{})
+	inputTx.AddTxOut(&wire.TxOut{Value: 1_000})
+	inputBlock := wire.MsgBlock{Transactions: []*wire.MsgTx{inputTx}}
+	inputProof := proof.RandProof(
+		t, genesis, test.RandPubKey(t), inputBlock, 0, 0,
+	)
+	prevID := asset.PrevID{
+		OutPoint: inputProof.OutPoint(),
+		ID:       inputProof.Asset.ID(),
+		ScriptKey: asset.ToSerialized(
+			inputProof.Asset.ScriptKey.PubKey,
+		),
+	}
+
+	// The funding output spends that input in full. Funding assets never
+	// carry time locks.
+	fundingTx := wire.NewMsgTx(2)
+	fundingTx.AddTxIn(&wire.TxIn{PreviousOutPoint: prevID.OutPoint})
+	fundingTx.AddTxOut(&wire.TxOut{Value: 1_000})
+	fundingBlock := wire.MsgBlock{Transactions: []*wire.MsgTx{fundingTx}}
+	fundingProof := proof.RandProof(
+		t, genesis, test.RandPubKey(t), fundingBlock, 0,
+		FundingOutputIndex,
+	)
+	fundingProof.Asset.GroupKey = inputProof.Asset.GroupKey
+	fundingProof.Asset.LockTime = 0
+	fundingProof.Asset.RelativeLockTime = 0
+	fundingProof.Asset.PrevWitnesses = []asset.Witness{{PrevID: &prevID}}
+	fundingProof.PrevOut = prevID.OutPoint
+	fundingProof.AdditionalInputs = nil
+
+	inputFile, err := proof.NewFile(proof.V0, inputProof)
+	require.NoError(t, err)
+	var inputFileBuf bytes.Buffer
+	require.NoError(t, inputFile.Encode(&inputFileBuf))
+
+	courier := proof.NewMockProofCourier()
+	err = courier.DeliverProof(
+		ctx, proof.Recipient{}, &proof.AnnotatedProof{
+			Locator: proof.Locator{
+				AssetID:   &prevID.ID,
+				ScriptKey: *inputProof.Asset.ScriptKey.PubKey,
+				OutPoint:  &prevID.OutPoint,
+			},
+			Blob:          inputFileBuf.Bytes(),
+			AssetSnapshot: &proof.AssetSnapshot{},
+		}, nil,
+	)
+	require.NoError(t, err)
+
+	// The commitment output moves the whole funding balance to a fresh
+	// script key.
+	outputProof := fundingProof
+	outputProof.Asset = *fundingProof.Asset.Copy()
+	outputProof.Asset.ScriptKey = asset.NewScriptKey(test.RandPubKey(t))
+
+	return &oneSidedChannel{
+		fundingProof: fundingProof,
+		fundingBlock: fundingBlock,
+		assetOutput: cmsg.NewAssetOutput(
+			outputProof.Asset.ID(), outputProof.Asset.Amount,
+			outputProof,
+		),
+		courier: courier,
+	}
+}
+
+// TestResolveContractNoAssetOutputs ensures that resolving an output that
+// carries no assets yields an empty resolution rather than an error, so lnd
+// sweeps the plain BTC output and the force close completes. That is a
+// commitment output whose side of the channel holds no assets, or a
+// sat-only HTLC, which has no entry in the commitment's HTLC asset maps.
+// The commitment transaction must still be imported and handed to the
+// porter, so its transfer is recorded.
+func TestResolveContractNoAssetOutputs(t *testing.T) {
+	t.Parallel()
+
+	// Each case places the whole asset balance on the side opposite to
+	// the output being resolved. The HTLC cases resolve an HTLC index the
+	// commitment knows no assets for.
+	testCases := []struct {
+		name        string
+		witnessType input.WitnessType
+		closeType   lnwallet.CloseType
+		assetsLocal bool
+		htlc        bool
+	}{{
+		name:        "local commit spend",
+		witnessType: input.TaprootLocalCommitSpend,
+		closeType:   lnwallet.LocalForceClose,
+	}, {
+		name:        "remote commit spend",
+		witnessType: input.TaprootRemoteCommitSpend,
+		closeType:   lnwallet.RemoteForceClose,
+		assetsLocal: true,
+	}, {
+		name:        "commitment revoke",
+		witnessType: input.TaprootCommitmentRevoke,
+		closeType:   lnwallet.Breach,
+	}, {
+		name:        "remote htlc timeout",
+		witnessType: input.TaprootHtlcOfferedRemoteTimeout,
+		closeType:   lnwallet.RemoteForceClose,
+		assetsLocal: true,
+		htlc:        true,
+	}, {
+		name:        "local htlc timeout",
+		witnessType: input.TaprootHtlcLocalOfferedTimeout,
+		closeType:   lnwallet.LocalForceClose,
+		htlc:        true,
+	}}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			channel := newOneSidedChannel(t)
+			assets := []*cmsg.AssetOutput{channel.assetOutput}
+			var localAssets, remoteAssets []*cmsg.AssetOutput
+			if tc.assetsLocal {
+				localAssets = assets
+			} else {
+				remoteAssets = assets
+			}
+			commit := cmsg.NewCommitment(
+				localAssets, remoteAssets, nil, nil,
+				lnwallet.CommitAuxLeaves{}, false,
+			)
+			fundingProof := channel.fundingProof
+			funding := cmsg.NewOpenChannel(
+				[]*cmsg.AssetOutput{cmsg.NewAssetOutput(
+					fundingProof.Asset.ID(),
+					fundingProof.Asset.Amount, fundingProof,
+				)}, 0, nil,
+			)
+
+			// The commitment transaction carries the asset output
+			// first and the BTC-only to-local output second.
+			keyRing := test.RandCommitmentKeyRing(t)
+			const csvDelay = 144
+			toLocalTree, err := input.NewLocalCommitScriptTree(
+				csvDelay, keyRing.ToLocalKey,
+				keyRing.RevocationKey, input.NoneTapLeaf(),
+			)
+			require.NoError(t, err)
+			toLocalScript, err := txscript.PayToTaprootScript(
+				toLocalTree.TaprootKey,
+			)
+			require.NoError(t, err)
+
+			commitTx := wire.NewMsgTx(2)
+			commitTx.AddTxIn(&wire.TxIn{
+				PreviousOutPoint: fundingProof.OutPoint(),
+			})
+			commitTx.AddTxOut(&wire.TxOut{
+				Value: 1_000,
+				PkScript: test.ComputeTaprootScript(
+					t, test.RandPubKey(t),
+				),
+			})
+			commitTx.AddTxOut(&wire.TxOut{
+				Value:    90_000,
+				PkScript: toLocalScript,
+			})
+
+			porter := &recordingPorter{}
+			sweeper := NewAuxSweeper(&AuxSweeperCfg{
+				AddrBook: address.NewBook(address.BookConfig{
+					Store: &scriptKeyStore{},
+				}),
+				ChainParams:        address.RegressionNetTap,
+				TxSender:           porter,
+				DefaultCourierAddr: &url.URL{},
+				ProofFetcher: &proof.MockProofCourierDispatcher{
+					Courier: channel.courier,
+				},
+				ProofArchive:   proof.NewMockProofArchive(),
+				HeaderVerifier: proof.MockHeaderVerifier,
+				GroupVerifier:  proof.MockGroupVerifier,
+				ChainBridge: &importProofChainBridge{
+					block: &channel.fundingBlock,
+				},
+			})
+
+			req := lnwallet.ResolutionReq{
+				ChanPoint:           fundingProof.OutPoint(),
+				CommitBlob:          lfn.Some(commit.Bytes()),
+				FundingBlob:         lfn.Some(funding.Bytes()),
+				Type:                tc.witnessType,
+				CloseType:           tc.closeType,
+				CommitTx:            commitTx,
+				CommitTxBlockHeight: 100,
+				KeyRing:             &keyRing,
+				CsvDelay:            csvDelay,
+			}
+			if tc.htlc {
+				req.HtlcID = lfn.Some(input.HtlcIndex(7))
+				req.PayHash = lfn.Some([32]byte{1})
+				req.CltvDelay = lfn.Some[uint32](500)
+			}
+
+			res := sweeper.resolveContract(req)
+			require.NoError(t, res.Err())
+			require.True(t, res.OkToSome().IsNone())
+
+			// The commitment transaction was still handed to the
+			// porter, anchored at its confirmation height.
+			require.Len(t, porter.shipped, 1)
+			shipped := porter.shipped[0]
+			parcel, ok := shipped.(*tapfreighter.PreAnchoredParcel)
+			require.True(t, ok)
+			require.Equal(
+				t, fn.Some[uint32](100), parcel.HeightHint(),
+			)
+		})
+	}
 }
