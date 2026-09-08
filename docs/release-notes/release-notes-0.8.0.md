@@ -399,12 +399,6 @@
   `universe.mbox-cleanup-check-timeout` to configure periodic cleanup of
   auth mailbox messages whose claimed outpoints have been spent on chain.
 
-## Performance Improvements
-
-- [PR#2265](https://github.com/lightninglabs/taproot-assets/pull/2265)
-  reduces orphan UTXO scan work by filtering normal funded anchors in a single
-  database query instead of materializing assets once per managed UTXO.
-
 # Tooling and Documentation
 
 - [PR#1962](https://github.com/lightninglabs/taproot-assets/pull/1962)

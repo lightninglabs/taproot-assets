@@ -1532,6 +1532,7 @@ func (a *AssetStore) FetchOrphanUTXOs(ctx context.Context) (
 				TombstoneKeyType: sqlInt16(
 					asset.ScriptKeyTombstone,
 				),
+				NumsKey: asset.NUMSCompressedKey[:],
 			},
 		)
 		if err != nil {

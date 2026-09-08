@@ -1924,6 +1924,7 @@ SELECT
     keys.key_id, keys.raw_key, keys.key_family, keys.key_index,
     MAX(CASE
         WHEN COALESCE(script_keys.key_type, 0) = $1
+            OR script_keys.key_type = $2
         THEN 1 ELSE 0
     END) = 1 AS needs_asset_validation
 FROM managed_utxos utxos
@@ -1939,6 +1940,7 @@ HAVING SUM(CASE
         OR script_keys.key_type = $2
         OR (
             script_keys.key_type = $3
+            AND script_keys.tweaked_script_key = $4
             AND assets.amount = 0
         )
     THEN 0 ELSE 1
@@ -1949,6 +1951,7 @@ type FetchOrphanManagedUTXOsParams struct {
 	UnknownKeyType   sql.NullInt16
 	BurnKeyType      sql.NullInt16
 	TombstoneKeyType sql.NullInt16
+	NumsKey          []byte
 }
 
 type FetchOrphanManagedUTXOsRow struct {
@@ -1972,7 +1975,12 @@ type FetchOrphanManagedUTXOsRow struct {
 }
 
 func (q *Queries) FetchOrphanManagedUTXOs(ctx context.Context, arg FetchOrphanManagedUTXOsParams) ([]FetchOrphanManagedUTXOsRow, error) {
-	rows, err := q.db.QueryContext(ctx, FetchOrphanManagedUTXOs, arg.UnknownKeyType, arg.BurnKeyType, arg.TombstoneKeyType)
+	rows, err := q.db.QueryContext(ctx, FetchOrphanManagedUTXOs,
+		arg.UnknownKeyType,
+		arg.BurnKeyType,
+		arg.TombstoneKeyType,
+		arg.NumsKey,
+	)
 	if err != nil {
 		return nil, err
 	}

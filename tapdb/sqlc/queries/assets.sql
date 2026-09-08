@@ -691,6 +691,7 @@ SELECT
     keys.*,
     MAX(CASE
         WHEN COALESCE(script_keys.key_type, 0) = @unknown_key_type
+            OR script_keys.key_type = @burn_key_type
         THEN 1 ELSE 0
     END) = 1 AS needs_asset_validation
 FROM managed_utxos utxos
@@ -706,6 +707,7 @@ HAVING SUM(CASE
         OR script_keys.key_type = @burn_key_type
         OR (
             script_keys.key_type = @tombstone_key_type
+            AND script_keys.tweaked_script_key = @nums_key
             AND assets.amount = 0
         )
     THEN 0 ELSE 1
