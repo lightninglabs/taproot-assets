@@ -187,7 +187,7 @@ func createAssetBackup(ctx context.Context,
 // will not be populated (only the public keys will be included).
 func collectAssetBackups(ctx context.Context,
 	assets []*asset.ChainAsset,
-	proofArchive proof.Archiver,
+	proofArchive proof.Exporter,
 	keyLookup KeyLocatorLookup) ([]*AssetBackup, error) {
 
 	backups := make([]*AssetBackup, 0, len(assets))
