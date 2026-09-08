@@ -276,6 +276,10 @@
   repeated unbounded before reporting insufficient funds, so that a coin
   the paged listing may have missed can't be mistaken for missing funds.
 
+* [PR#2264](https://github.com/lightninglabs/taproot-assets/pull/2264)
+  bounds pinned input coin selection to the requested anchor UTXOs
+  instead of materializing all eligible wallet assets.
+
 ## Deprecations
 
 # Technical and Architectural Updates
