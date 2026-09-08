@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"fmt"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btclog/v2"
 	"github.com/davecgh/go-spew/spew"
@@ -15,6 +16,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/authmailbox"
+	"github.com/lightninglabs/taproot-assets/backup"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/healthcheck"
 	"github.com/lightninglabs/taproot-assets/lndservices"
@@ -876,6 +878,92 @@ func genServerConfig(ctx context.Context, cfg *Config,
 			err)
 	}
 
+	assetMinter := tapgarden.NewChainPlanter(tapgarden.PlanterConfig{
+		// nolint: lll
+		GardenKit: tapgarden.GardenKit{
+			Wallet:       walletAnchor,
+			ChainBridge:  chainBridge,
+			BatchStore:   assetMintingStore,
+			MintingRefs:  assetMintingStore,
+			TreeStore:    assetMintingStore,
+			KeyRing:      keyRing,
+			GenSigner:    virtualTxSigner,
+			GenTxBuilder: &tapscript.GroupTxBuilder{},
+			TxValidator:  &tap.ValidatorV0{},
+			ProofFiles:   proofFileStore,
+			MintProofPublisher: mintpublish.NewPublisher(
+				universeFederation,
+				defaultUniverseSyncBatchSize,
+			),
+			ProofWatcher:       reOrgWatcher,
+			IgnoreChecker:      ignoreCheckerOpt,
+			GenesisTxAugmenter: genesisAugmenter,
+		},
+		ChainParams:  tapChainParams,
+		ProofUpdates: proofArchive,
+		ErrChan:      mainErrChan,
+	})
+
+	// The backup updater keeps an encrypted copy of the wallet's asset
+	// state on disk, in the same spirit as lnd's channel.backup file.
+	var backupUpdater *backup.Updater
+	if !cfg.Backup.Disable {
+		backupUpdater, err = backup.NewUpdater(&backup.UpdaterConfig{
+			FetchAssets: func(ctx context.Context) (
+				[]*asset.ChainAsset, error) {
+
+				// Leased leaves are still ours until their
+				// spend confirms, so they stay in the backup.
+				assets, err := assetStore.FetchAllAssets(
+					ctx, false, true, nil,
+				)
+				if err != nil {
+					return nil, err
+				}
+
+				// Leaves that fund asset channels belong to
+				// lnd's channel state and channel.backup, a
+				// fresh tapd cannot use them on their own.
+				return fn.Filter(assets, backupEligible), nil
+			},
+			LookupSpent: func(ctx context.Context,
+				scriptKey *btcec.PublicKey,
+				anchorPoint wire.OutPoint) (bool, error) {
+
+				leaves, err := assetStore.FetchAllAssets(
+					ctx, true, true,
+					&tapdb.AssetQueryFilters{
+						ScriptKey: &asset.ScriptKey{
+							PubKey: scriptKey,
+						},
+						AnchorPoint: &anchorPoint,
+					},
+				)
+				if err != nil {
+					return false, err
+				}
+
+				return fn.Any(leaves, func(
+					a *asset.ChainAsset) bool {
+
+					return a.IsSpent
+				}), nil
+			},
+			ProofArchive:  proofArchive,
+			KeyLookup:     tapdbAddrBook,
+			ProofNotifier: assetStore,
+			EventNotifiers: []backup.EventNotifier{
+				assetMinter, chainPorter,
+			},
+			KeyDeriver: lndServices.WalletKit,
+			Swapper:    backup.NewFile(cfg.Backup.FilePath),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("unable to create backup "+
+				"updater: %w", err)
+		}
+	}
+
 	// nolint: lll
 	return &tapconfig.Config{
 		DebugLevel:            cfg.DebugLevel,
@@ -887,31 +975,7 @@ func genServerConfig(ctx context.Context, cfg *Config,
 		ReOrgWatcher:          reOrgWatcher,
 		AnchoringWatcher:      anchoringWatcher,
 		AnchoringRegistry:     anchoringRegistry,
-		AssetMinter: tapgarden.NewChainPlanter(tapgarden.PlanterConfig{
-			// nolint: lll
-			GardenKit: tapgarden.GardenKit{
-				Wallet:       walletAnchor,
-				ChainBridge:  chainBridge,
-				BatchStore:   assetMintingStore,
-				MintingRefs:  assetMintingStore,
-				TreeStore:    assetMintingStore,
-				KeyRing:      keyRing,
-				GenSigner:    virtualTxSigner,
-				GenTxBuilder: &tapscript.GroupTxBuilder{},
-				TxValidator:  &tap.ValidatorV0{},
-				ProofFiles:   proofFileStore,
-				MintProofPublisher: mintpublish.NewPublisher(
-					universeFederation,
-					defaultUniverseSyncBatchSize,
-				),
-				ProofWatcher:       reOrgWatcher,
-				IgnoreChecker:      ignoreCheckerOpt,
-				GenesisTxAugmenter: genesisAugmenter,
-			},
-			ChainParams:  tapChainParams,
-			ProofUpdates: proofArchive,
-			ErrChan:      mainErrChan,
-		}),
+		AssetMinter:           assetMinter,
 		AssetCustodian: tapcustody.NewCustodian(&tapcustody.Config{
 			ChainParams:            &tapChainParams,
 			WalletAnchor:           walletAnchor,
@@ -974,8 +1038,21 @@ func genServerConfig(ctx context.Context, cfg *Config,
 			Multiverse:   multiverse,
 			FederationDB: federationDB,
 		},
-		Prometheus: cfg.Prometheus,
+		BackupUpdater: backupUpdater,
+		Prometheus:    cfg.Prometheus,
 	}, nil
+}
+
+// backupEligible reports whether a wallet leaf belongs in the asset wallet
+// backup file. Channel related leaves are excluded, they are covered by lnd's
+// channel state and cannot be used by a tapd restored on their own.
+func backupEligible(a *asset.ChainAsset) bool {
+	if a == nil || a.Asset == nil || a.ScriptKey.TweakedScriptKey == nil {
+		return true
+	}
+
+	return a.ScriptKey.TweakedScriptKey.Type !=
+		asset.ScriptKeyScriptPathChannel
 }
 
 // CreateServerFromConfig creates a new Taproot Asset server from the given CLI

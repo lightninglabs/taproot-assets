@@ -9,6 +9,7 @@ import (
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/authmailbox"
+	"github.com/lightninglabs/taproot-assets/backup"
 	"github.com/lightninglabs/taproot-assets/healthcheck"
 	"github.com/lightninglabs/taproot-assets/lndservices"
 	"github.com/lightninglabs/taproot-assets/monitoring"
@@ -311,6 +312,11 @@ type Config struct {
 	AuxChanCloser *tapchannel.AuxChanCloser
 
 	AuxSweeper *tapchannel.AuxSweeper
+
+	// BackupUpdater keeps the encrypted asset wallet backup file on disk
+	// in sync with the wallet state. It is nil if the backup file is
+	// disabled.
+	BackupUpdater *backup.Updater
 
 	// UniversePublicAccess is a field that indicates the status of public
 	// access (i.e. read/write) to the universe server.
