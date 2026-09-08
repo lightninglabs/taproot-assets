@@ -2747,10 +2747,17 @@ WHERE (
     $15 >= 0 AND
     COALESCE($16, 0) >= 0 AND
     COALESCE($17, 0) >= 0 AND
+    COALESCE($18, 0) >= 0 AND
     -- The script_key_type argument must NEVER be an empty slice, otherwise this
     -- query will return no results.
     COALESCE(script_keys.key_type, 0) IN
-      (/*SLICE:script_key_type*/?)
+      (/*SLICE:script_key_type*/?) AND
+    (
+        COALESCE($18, 0) = 0 OR
+        utxos.outpoint IN (
+            /*SLICE:prev_id_anchor_points*/?
+        )
+    )
 )
 ORDER BY
     CASE WHEN COALESCE($17, 0) = 1 THEN assets.amount END DESC,
@@ -2760,24 +2767,26 @@ LIMIT $14 OFFSET $15
 `
 
 type QueryAssetsParams struct {
-	AssetIDFilter    []byte
-	TweakedScriptKey []byte
-	AnchorPoint      []byte
-	Leased           interface{}
-	Now              sql.NullTime
-	MinAnchorHeight  sql.NullInt32
-	MinAmt           sql.NullInt64
-	MaxAmt           sql.NullInt64
-	Spent            sql.NullBool
-	KeyGroupFilter   []byte
-	AnchorUtxoID     sql.NullInt64
-	GenesisID        sql.NullInt64
-	ScriptKeyID      sql.NullInt64
-	NumLimit         int32
-	NumOffset        int32
-	SortDirection    interface{}
-	OrderByAmount    interface{}
-	ScriptKeyType    []sql.NullInt16
+	AssetIDFilter      []byte
+	TweakedScriptKey   []byte
+	AnchorPoint        []byte
+	Leased             interface{}
+	Now                sql.NullTime
+	MinAnchorHeight    sql.NullInt32
+	MinAmt             sql.NullInt64
+	MaxAmt             sql.NullInt64
+	Spent              sql.NullBool
+	KeyGroupFilter     []byte
+	AnchorUtxoID       sql.NullInt64
+	GenesisID          sql.NullInt64
+	ScriptKeyID        sql.NullInt64
+	NumLimit           int32
+	NumOffset          int32
+	SortDirection      interface{}
+	OrderByAmount      interface{}
+	UsePrevIDFilter    interface{}
+	ScriptKeyType      []sql.NullInt16
+	PrevIDAnchorPoints [][]byte
 }
 
 type QueryAssetsRow struct {
@@ -2851,6 +2860,7 @@ func (q *Queries) QueryAssets(ctx context.Context, arg QueryAssetsParams) ([]Que
 	queryParams = append(queryParams, arg.NumOffset)
 	queryParams = append(queryParams, arg.SortDirection)
 	queryParams = append(queryParams, arg.OrderByAmount)
+	queryParams = append(queryParams, arg.UsePrevIDFilter)
 	if len(arg.ScriptKeyType) > 0 {
 		for _, v := range arg.ScriptKeyType {
 			queryParams = append(queryParams, v)
@@ -2858,6 +2868,14 @@ func (q *Queries) QueryAssets(ctx context.Context, arg QueryAssetsParams) ([]Que
 		query = strings.Replace(query, "/*SLICE:script_key_type*/?", makeQueryParams(len(queryParams), len(arg.ScriptKeyType)), 1)
 	} else {
 		query = strings.Replace(query, "/*SLICE:script_key_type*/?", "NULL", 1)
+	}
+	if len(arg.PrevIDAnchorPoints) > 0 {
+		for _, v := range arg.PrevIDAnchorPoints {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:prev_id_anchor_points*/?", makeQueryParams(len(queryParams), len(arg.PrevIDAnchorPoints)), 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:prev_id_anchor_points*/?", "NULL", 1)
 	}
 	rows, err := q.db.QueryContext(ctx, query, queryParams...)
 	if err != nil {

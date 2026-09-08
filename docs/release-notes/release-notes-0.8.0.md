@@ -411,4 +411,3 @@
 - [PR#2056](https://github.com/lightninglabs/taproot-assets/pull/2056)
   expands the example portfolio pilot with constraint enforcement,
   configurable fill caps, and live CoinGecko pricing.
-
