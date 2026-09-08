@@ -195,6 +195,62 @@ func TestCustomAnchorLeaseMarkerValidation(t *testing.T) {
 	require.ErrorContains(t, err, "is not in the transaction")
 }
 
+// TestCancelledBatchFundingLeaseDispatch guards the merge with ordinary
+// wallet-funded cancellation: custom inputs keep their batch-scoped lease
+// owner and foreign inputs must never reach the wallet unlock fallback.
+func TestCancelledBatchFundingLeaseDispatch(t *testing.T) {
+	for _, owned := range []bool{false, true} {
+		t.Run(fmt.Sprintf("owned=%v", owned), func(t *testing.T) {
+			ctx := t.Context()
+			wallet := newTrackedCustomAnchorWallet()
+			pkt := testCustomAnchorPacket(t)
+			markCustomAnchorPsbt(pkt)
+			op := pkt.UnsignedTx.TxIn[0].PreviousOutPoint
+			foreign := op
+			foreign.Index++
+			pkt.UnsignedTx.AddTxIn(&wire.TxIn{
+				PreviousOutPoint: foreign,
+			})
+			pkt.Inputs = append(pkt.Inputs, psbt.PInput{})
+			_, key := btcec.PrivKeyFromBytes(
+				bytes.Repeat([]byte{2}, 32),
+			)
+			leaseID := customAnchorLeaseID(key)
+			var locked []wire.OutPoint
+			if owned {
+				_, err := wallet.LeaseInput(ctx, leaseID, op)
+				require.NoError(t, err)
+				locked = []wire.OutPoint{op}
+			}
+			SetCustomAnchorLockedUTXOs(pkt, locked)
+			batch := &MintingBatch{
+				BatchKey: keychain.KeyDescriptor{PubKey: key},
+				GenesisPacket: &FundedMintAnchorPsbt{
+					FundedPsbt: tapsend.FundedPsbt{
+						Pkt: pkt, LockedUTXOs: locked,
+					},
+				},
+			}
+			releaseBatchFundingInputs(ctx, wallet, batch)
+			require.Empty(t, wallet.leases)
+			require.Empty(t, batch.GenesisPacket.LockedUTXOs)
+			if owned {
+				require.Equal(t, []customAnchorLeaseRequest{{
+					leaseID: leaseID, op: op,
+				}}, wallet.releases)
+			} else {
+				require.Empty(t, wallet.releases)
+			}
+			select {
+			case unlocked := <-wallet.UnlockInputSignal:
+				t.Fatalf("custom input used ordinary unlock: %v",
+					unlocked)
+			default:
+			}
+		})
+	}
+}
+
 func TestLegacyCustomAnchorLeaseMarkerReacquiresOwnedInputs(t *testing.T) {
 	pkt := testCustomAnchorPacket(t)
 	markCustomAnchorPsbt(pkt)

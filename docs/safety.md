@@ -11,17 +11,21 @@ and BTC)!**
 
 ## How to avoid loss of funds (short version, tl;dr)
 
-In short, there is no recovery mechanism yet that allows easy asset recovery
-using only the `lnd` seed. If `tapd`'s database is lost or corrupted,
-access to all assets minted or received by that `tapd` **is lost**.
-Additionally, custody the BTC used to carry/anchor the assets would also be
-lost.
+In short, the `lnd` seed alone is not enough to recover assets. If `tapd`'s
+database is lost or corrupted and no backup exists, access to all assets minted
+or received by that `tapd` **is lost**. Additionally, custody of the BTC used
+to carry/anchor the assets would also be lost.
 
 **To avoid loss of funds:**
 1. **make sure the `/home/<user>/.tapd` directory is backed up regularly.**
-   If `tapd` is configured to use Postgres as the database backend, backups this
-   database is sufficient to preserve access to funds.
-2. `lnd`'s seed phrase has been securely backed up, as all `tapd` assets private
+   If `tapd` is configured to use Postgres as the database backend, backing up
+   this database is sufficient to preserve access to funds.
+2. **keep a copy of the asset wallet backup file** `tapd` maintains at
+   `<tapddir>/data/<network>/assets.backup`. It is encrypted with a key derived
+   from the `lnd` seed and, together with the seed, allows recovery of all
+   confirmed unspent assets into a fresh `tapd`. See
+   [backup-file.md](backup-file.md).
+3. `lnd`'s seed phrase has been securely backed up, as all `tapd` assets private
    keys are derived from it.
 
 ## How to avoid loss of funds (extended version)
@@ -59,6 +63,12 @@ users/transactions of a system):
 Optionally, instances of the proof files in `<tapddir>/data/<network>/proofs`
 can be backed up as well, but those are also all contained in the SQLite or
 Postgres database and are only on the filesystem for faster access.
+
+The asset wallet backup file `<tapddir>/data/<network>/assets.backup` is kept
+up to date by `tapd` itself and is safe to copy at any time. It covers the
+confirmed unspent assets only, not addresses, universe state or channel data,
+so it complements rather than replaces the database backup. See
+[backup-file.md](backup-file.md) for how to use it.
 
 ### Where are the private keys for assets stored?
 

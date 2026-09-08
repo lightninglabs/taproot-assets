@@ -21,6 +21,15 @@
 
 # Bug Fixes
 
+- [Importing an asset wallet
+  backup](https://github.com/lightninglabs/taproot-assets/pull/2277) into a
+  node whose database was wiped but whose proofs directory survived no longer
+  skips every asset as already present. The existence check now consults the
+  wallet database only. Backups also record the script key type, so assets
+  received on V2 addresses (unique Pedersen script keys) stay visible and
+  spendable after a restore instead of being filed as external script path
+  keys.
+
 * [PR#2190](https://github.com/lightninglabs/taproot-assets/pull/2190)
   fixes a bug that could cause minted assets to commit to the wrong
   address.
@@ -120,6 +129,16 @@
   86400 second default instead of returning an error. Fixes
   [#2261](https://github.com/lightninglabs/taproot-assets/issues/2261).
 
+* [PR#2283](https://github.com/lightninglabs/taproot-assets/pull/2283)
+  fixes force-close resolution of an asset channel whose resolved
+  commitment output holds no assets, as when the whole asset balance
+  sits with the remote party. The aux sweeper tried to build sweep
+  packets from an empty input set, failed with `no inputs provided`,
+  and lnd treated that as a hard error, leaving the channel in
+  `pending_force_closing` and re-running the failing resolution on
+  every block. The sweeper now returns an empty resolution for such
+  outputs, so lnd sweeps them as plain BTC outputs.
+
 # New Features
 
 ## Functional Enhancements
@@ -138,6 +157,16 @@
   runs alongside the existing re-org watcher; no subsystem registers
   anchorings with it yet, so no existing flow changes behaviour in
   this release.
+
+- [`tapd` now keeps an encrypted asset wallet backup
+  file](https://github.com/lightninglabs/taproot-assets/pull/2277)
+  (`assets.backup`, see [backup-file.md](../backup-file.md)) on disk that is updated
+  whenever the wallet state changes, in the same spirit as lnd's
+  `channel.backup`. The file holds a compact backup of every confirmed,
+  unspent asset and is encrypted with a key derived from the connected lnd
+  wallet. `ImportAssetsFromBackup` accepts the encrypted file directly, so a
+  fresh `tapd` connected to an lnd restored from the same seed can recover
+  its assets with `tapcli assets backup import`.
 
 ## RPC Additions
 
@@ -200,6 +229,11 @@
 
 ## Config Changes
 
+- The new [`--backup.filepath`
+  flag](https://github.com/lightninglabs/taproot-assets/pull/2277) sets the
+  location of the encrypted asset wallet backup file (default: `assets.backup` in the network data
+  directory) and `--backup.disable` turns the file off.
+
 - The new `--universe.no-delta-sync` flag forces the federation syncer
   to always use full enumeration sync, serving as a kill switch for
   the cursor-based delta sync mechanism.
@@ -256,6 +290,10 @@
   cannot be funded is somewhat slower than before, as the listing is
   repeated unbounded before reporting insufficient funds, so that a coin
   the paged listing may have missed can't be mistaken for missing funds.
+
+* [PR#2264](https://github.com/lightninglabs/taproot-assets/pull/2264)
+  bounds pinned input coin selection to the requested anchor UTXOs
+  instead of materializing all eligible wallet assets.
 
 ## Deprecations
 

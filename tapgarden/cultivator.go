@@ -393,6 +393,14 @@ func (b *Cultivator) Cancel(respCh chan<- CancelResp) error {
 			)
 		}
 
+		// The batch is now cancelled on disk, so any wallet inputs
+		// leased when it was funded can be released.
+		if err == nil {
+			releaseBatchFundingInputs(
+				ctx, b.cfg.Wallet, b.cfg.Batch,
+			)
+		}
+
 		b.publishMintEvent(BatchStateSeedlingCancelled)
 
 		cancelResp = CancelResp{true, err}
@@ -422,23 +430,12 @@ func (b *Cultivator) Cancel(respCh chan<- CancelResp) error {
 			)
 		}
 
-		// A custom batch can hold wallet input leases while it waits for
-		// external signatures. Release those leases only after cancellation
-		// is durable. A wallet RPC failure is best effort because retaining
-		// the active planter slot after the durable state transition would
-		// leave memory and disk inconsistent.
-		if err == nil && b.cfg.Batch.GenesisPacket != nil &&
-			isCustomAnchorPsbt(b.cfg.Batch.GenesisPacket.Pkt) {
-
-			releaseErr := releaseCustomAnchorLeases(
-				ctx, b.cfg.Wallet,
-				customAnchorLeaseID(b.cfg.Batch.BatchKey.PubKey),
-				b.cfg.Batch.GenesisPacket,
+		// The batch is now cancelled on disk, so any wallet inputs
+		// leased when it was funded can be released.
+		if err == nil {
+			releaseBatchFundingInputs(
+				ctx, b.cfg.Wallet, b.cfg.Batch,
 			)
-			if releaseErr != nil {
-				log.Warnf("Unable to release one or more cancelled "+
-					"custom anchor input leases: %v", releaseErr)
-			}
 		}
 
 		b.publishMintEvent(BatchStateSproutCancelled)

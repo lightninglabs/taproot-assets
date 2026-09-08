@@ -86,6 +86,10 @@ var allTestCases = []*testCase{
 		test: testBackupRestoreOptimistic,
 	},
 	{
+		name: "backup file updates",
+		test: testBackupFileUpdates,
+	},
+	{
 		name: "addresses",
 		test: testAddresses,
 	},
