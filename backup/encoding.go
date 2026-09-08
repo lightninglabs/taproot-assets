@@ -109,6 +109,10 @@ const (
 	ScriptKeyIndexType     tlv.Type = 2
 	ScriptKeyRawPubKeyType tlv.Type = 3
 	ScriptKeyTweakType     tlv.Type = 4
+
+	// ScriptKeyTypeType is the TLV type for the script key type. Odd so
+	// older decoders skip it.
+	ScriptKeyTypeType tlv.Type = 5
 )
 
 // TLV type constants for KeyDescriptorBackup fields.
@@ -590,6 +594,13 @@ func (sk *ScriptKeyBackup) Encode(w io.Writer) error {
 			ScriptKeyTweakType, &sk.Tweak))
 	}
 
+	// Add the script key type if known.
+	if sk.Type != asset.ScriptKeyUnknown {
+		keyType := uint8(sk.Type)
+		records = append(records, tlv.MakePrimitiveRecord(
+			ScriptKeyTypeType, &keyType))
+	}
+
 	stream, err := tlv.NewStream(records...)
 	if err != nil {
 		return err
@@ -606,6 +617,7 @@ func (sk *ScriptKeyBackup) Decode(r io.Reader) error {
 		family         uint32
 		index          uint32
 		tweak          []byte
+		keyType        uint8
 	)
 
 	// Records must be in ascending type order.
@@ -617,6 +629,7 @@ func (sk *ScriptKeyBackup) Decode(r io.Reader) error {
 			ScriptKeyRawPubKeyType, &rawPubKeyBytes,
 		),
 		tlv.MakePrimitiveRecord(ScriptKeyTweakType, &tweak),
+		tlv.MakePrimitiveRecord(ScriptKeyTypeType, &keyType),
 	}
 
 	stream, err := tlv.NewStream(records...)
@@ -656,6 +669,17 @@ func (sk *ScriptKeyBackup) Decode(r io.Reader) error {
 	// Decode tweak if present.
 	if _, ok := parsedTypes[ScriptKeyTweakType]; ok {
 		sk.Tweak = tweak
+	}
+
+	// Decode the script key type if present. A value this decoder does
+	// not know, from a newer exporter or a damaged blob, is treated as
+	// unknown so the importer classifies the key from its material
+	// instead of registering a type no filter will ever match.
+	if _, ok := parsedTypes[ScriptKeyTypeType]; ok {
+		decodedType := asset.ScriptKeyType(keyType)
+		if decodedType <= asset.ScriptKeyUniquePedersen {
+			sk.Type = decodedType
+		}
 	}
 
 	return nil

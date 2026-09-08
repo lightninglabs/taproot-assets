@@ -7,6 +7,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire/v2"
+	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -100,6 +101,14 @@ type ScriptKeyBackup struct {
 	// Tweak is the tweak applied to derive the final script key.
 	// If nil, a BIP-0086 tweak is assumed.
 	Tweak []byte
+
+	// Type is the script key type as known by the exporting wallet. It
+	// decides how the wallet treats the key after a restore, for example
+	// whether the asset shows up in default listings and coin selection.
+	// A tweaked key alone does not reveal the type: unique Pedersen keys
+	// carry a tweak too but are spent like BIP-0086 keys. Unknown if the
+	// backup predates this field.
+	Type asset.ScriptKeyType
 }
 
 // KeyDescriptorBackup contains the key derivation info for an internal key.
@@ -153,10 +162,12 @@ func createAssetBackup(ctx context.Context,
 
 	// Extract script key info if available.
 	if chainAsset.ScriptKey.TweakedScriptKey != nil {
+		assetID := chainAsset.ID()
 		backup.ScriptKeyInfo = &ScriptKeyBackup{
 			PubKey: chainAsset.ScriptKey.PubKey,
 			RawKey: chainAsset.ScriptKey.TweakedScriptKey.RawKey,
 			Tweak:  chainAsset.ScriptKey.TweakedScriptKey.Tweak,
+			Type:   chainAsset.ScriptKey.DetermineType(&assetID),
 		}
 	}
 
@@ -166,16 +177,27 @@ func createAssetBackup(ctx context.Context,
 			PubKey: chainAsset.AnchorInternalKey,
 		}
 
-		// Try to look up the key locator for full derivation info.
+		// Look up the key locator for full derivation info. A key the
+		// wallet does not know, for example the aggregated key of a
+		// channel funding output, has no locator and is stored with
+		// the public key only. Any other failure is transient and must
+		// not produce an entry with a wrong locator, since a restored
+		// anchor with a zero locator cannot be spent.
 		if keyLookup != nil {
 			keyLoc, err := keyLookup.FetchInternalKeyLocator(
 				ctx, chainAsset.AnchorInternalKey,
 			)
-			if err == nil {
+			switch {
+			case err == nil:
 				backup.AnchorInternalKeyInfo.KeyLocator = keyLoc
+
+			case errors.Is(err, ErrKeyLocatorNotFound),
+				errors.Is(err, address.ErrInternalKeyNotFound):
+
+			default:
+				return nil, fmt.Errorf("unable to look up "+
+					"anchor key locator: %w", err)
 			}
-			// If lookup fails, we still have the public key which
-			// may be sufficient for some recovery scenarios.
 		}
 	}
 
