@@ -1111,13 +1111,13 @@ func sendAssets(ctx *cli.Context) error {
 		return err
 	}
 
-	var (
-		network     = ctx.GlobalString("network")
-		chainParams = address.ParamsForChain(network)
-		rpcAddrs    []*taprpc.AddressWithAmount
-	)
+	var rpcAddrs []*taprpc.AddressWithAmount
 	for _, addrStr := range addrs {
-		addr, err := address.DecodeAddress(addrStr, &chainParams)
+		// The address carries its own network in its prefix, and the
+		// daemon is authoritative for the network, so we decode using
+		// the address' own network rather than the global --network
+		// flag (which defaults to testnet).
+		addr, err := address.DecodeAddressAnyNet(addrStr)
 		if err != nil {
 			return fmt.Errorf("unable to decode address %s: %w",
 				addrStr, err)
@@ -1143,7 +1143,7 @@ func sendAssets(ctx *cli.Context) error {
 				"amount: %s, expected a valid uint64", parts[1])
 		}
 
-		addr, err := address.DecodeAddress(addrStr, &chainParams)
+		addr, err := address.DecodeAddressAnyNet(addrStr)
 		if err != nil {
 			return fmt.Errorf("unable to decode address %s: %w",
 				addrStr, err)

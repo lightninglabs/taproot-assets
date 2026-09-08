@@ -634,9 +634,9 @@ func IsUnknownVersion(v Version) bool {
 	}
 }
 
-// DecodeAddress parses a bech32m encoded Taproot Asset address string and
-// returns the HRP and address TLV.
-func DecodeAddress(addr string, net *ChainParams) (*Tap, error) {
+// extractHRP returns the human-readable prefix of a bech32m encoded Taproot
+// Asset address, after validating that it is a prefix for a known network.
+func extractHRP(addr string) (string, error) {
 	// Bech32m encoded Taproot Asset addresses start with a human-readable
 	// part (hrp) followed by '1'. For Bitcoin mainnet the hrp is "tap",
 	// and for testnet it is "tapt". If the address string has a prefix
@@ -644,16 +644,43 @@ func DecodeAddress(addr string, net *ChainParams) (*Tap, error) {
 	// decode it as a Taproot Asset address.
 	oneIndex := strings.LastIndexByte(addr, '1')
 	if oneIndex <= 0 {
-		return nil, ErrInvalidBech32m
+		return "", ErrInvalidBech32m
 	}
 
 	prefix := addr[:oneIndex+1]
 	if !IsBech32MTapPrefix(prefix) {
-		return nil, ErrUnsupportedHRP
+		return "", ErrUnsupportedHRP
 	}
 
 	// The HRP is everything before the found '1'.
-	hrp := prefix[:len(prefix)-1]
+	return prefix[:len(prefix)-1], nil
+}
+
+// DecodeAddressAnyNet decodes a bech32m encoded Taproot Asset address using the
+// network taken from the address' own HRP, rather than a caller-supplied one.
+// Callers that must not impose their own network, such as tapcli where the
+// daemon is authoritative, should use this instead of DecodeAddress.
+func DecodeAddressAnyNet(addr string) (*Tap, error) {
+	hrp, err := extractHRP(addr)
+	if err != nil {
+		return nil, err
+	}
+
+	net, err := Net(hrp)
+	if err != nil {
+		return nil, err
+	}
+
+	return DecodeAddress(addr, net)
+}
+
+// DecodeAddress parses a bech32m encoded Taproot Asset address string and
+// returns the HRP and address TLV.
+func DecodeAddress(addr string, net *ChainParams) (*Tap, error) {
+	hrp, err := extractHRP(addr)
+	if err != nil {
+		return nil, err
+	}
 
 	// Ensure that the hrp we decoded matches the network we're trying to
 	// use the address on.
