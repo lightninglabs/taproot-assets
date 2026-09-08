@@ -2277,6 +2277,22 @@ func (a *AuxSweeper) resolveContract(
 			"skipping", req.CommitTx.TxHash())
 	}
 
+	// If the selected side holds no assets, the output being resolved is
+	// BTC only and there is nothing for us to sweep. The commitment
+	// transaction itself is still imported above, so its transfer is
+	// recorded and its proofs delivered as for any other close. We return
+	// an empty resolution, as we do without a commit blob, so lnd sweeps
+	// the output as a plain one. Building sweep packets from an empty
+	// input set would fail instead, and lnd treats that as a hard error
+	// that stalls the whole close.
+	if len(assetOutputs) == 0 {
+		log.Infof("No asset outputs to sweep for contract_type=%v, "+
+			"chan_point=%v, returning empty resolution", req.Type,
+			req.ChanPoint)
+
+		return lfn.Err[tlv.Blob](nil)
+	}
+
 	if req.CommitTx == nil {
 		return lfn.Errf[returnType]("no commitment transaction "+
 			"found for chan_point=%v", req.ChanPoint)

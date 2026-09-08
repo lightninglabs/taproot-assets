@@ -3035,8 +3035,27 @@ func (f *FundingController) validateWitness(outAsset asset.Asset,
 	}
 
 	newAsset := &outAsset
+	var splitAssets []*commitment.SplitAsset
 	if outAsset.HasSplitCommitmentWitness() {
 		newAsset = &outAsset.PrevWitnesses[0].SplitCommitment.RootAsset
+
+		// If the funding output is the result of a split, we also
+		// validate the split leaf itself against the split commitment
+		// root of the embedded root asset. This binds the claimed
+		// amount of the funding output to the split tree, whose sum
+		// the VM checks against the sum of the inputs. The funding
+		// output is always anchored at the funding output index.
+		//
+		// NOTE: The amount of the split's root asset cannot be
+		// validated here, as this message doesn't carry the root
+		// locator's inclusion proof into the split tree. That binding
+		// is established when the funding output proof suffixes are
+		// verified in validateFundingProofs, which runs the full proof
+		// verification, including the root locator proof check.
+		splitAssets = append(splitAssets, &commitment.SplitAsset{
+			Asset:       outAsset,
+			OutputIndex: FundingOutputIndex,
+		})
 	}
 
 	// We create a file out of the input proofs, even if they aren't a chain
@@ -3053,7 +3072,7 @@ func (f *FundingController) validateWitness(outAsset asset.Asset,
 	// transition for the asset funding output.
 	chainLookup := f.cfg.ChainBridge.GenFileChainLookup(proofFile)
 	verifyOpt := vm.WithChainLookup(chainLookup)
-	engine, err := vm.New(newAsset, nil, prevAssets, verifyOpt)
+	engine, err := vm.New(newAsset, splitAssets, prevAssets, verifyOpt)
 	if err != nil {
 		return fmt.Errorf("unable to create VM: %w", err)
 	}
