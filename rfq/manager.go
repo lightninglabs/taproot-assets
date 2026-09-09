@@ -1437,6 +1437,15 @@ func EstimateAssetUnits(ctx context.Context, oracle PriceOracle,
 	counterparty fn.Option[route.Vertex], metadata string,
 	intent PriceQueryIntent) (uint64, error) {
 
+	// The price oracle is optional, but there is no way to convert a
+	// satoshi denominated amount into asset units without a rate to
+	// convert it with.
+	if oracle == nil {
+		return 0, fmt.Errorf("no price oracle configured, cannot " +
+			"convert a satoshi denominated amount into asset " +
+			"units; specify the amount in asset units instead")
+	}
+
 	oracleRes, err := oracle.QueryBuyPrice(
 		ctx, specifier, fn.None[uint64](), fn.Some(amtMsat),
 		fn.None[rfqmsg.AssetRate](), counterparty, metadata, intent,
