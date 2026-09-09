@@ -48,3 +48,8 @@
 * [PR#2264](https://github.com/lightninglabs/taproot-assets/pull/2264)
   bounds pinned input coin selection to the requested anchor UTXOs
   instead of materializing all eligible wallet assets.
+
+* [PR#2265](https://github.com/lightninglabs/taproot-assets/pull/2265)
+  reduces orphan UTXO scan work by filtering normal funded anchors in a
+  single database query instead of materializing assets once per managed
+  UTXO.
