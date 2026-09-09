@@ -4046,14 +4046,16 @@ func TestFetchOrphanUTXOs(t *testing.T) {
 	t.Parallel()
 
 	testCases := []struct {
-		name          string
-		utxosToInsert [][2]int32
-		expectedCount int
-		checkFunc     func(t *testing.T,
+		name           string
+		utxosToInsert  [][2]int32
+		unknownKeyType bool
+		expectedCount  int
+		checkFunc      func(t *testing.T,
 			orphans []*tapfreighter.ZeroValueInput)
 	}{
 		{
-			name: "filters missing signing info",
+			name:           "filters missing signing info",
+			unknownKeyType: true,
 			utxosToInsert: [][2]int32{
 				{212, 5}, // Valid signing info.
 				{0, 0},   // Missing signing info.
@@ -4180,6 +4182,7 @@ func TestFetchOrphanUTXOs(t *testing.T) {
 				insertOrphanUTXO(
 					t, ctx, db, assetsStore,
 					keyInfo[0], keyInfo[1],
+					tc.unknownKeyType,
 				)
 			}
 
@@ -4196,10 +4199,134 @@ func TestFetchOrphanUTXOs(t *testing.T) {
 	}
 }
 
+// TestFetchOrphanUTXOsSkipsFundedAnchors verifies that funded anchors are
+// filtered before their assets are materialized.
+func TestFetchOrphanUTXOsSkipsFundedAnchors(t *testing.T) {
+	t.Parallel()
+
+	const numAssets = 64
+
+	db := NewTestDB(t)
+	_, assetsStore := newAssetStoreFromDB(db.BaseDB)
+	assetGen := newAssetGenerator(t, numAssets, 1)
+	descs := make([]assetDesc, numAssets)
+	for i := range descs {
+		descs[i] = assetDesc{
+			assetGen:    assetGen.assetGens[i],
+			anchorPoint: assetGen.anchorPoints[i],
+			amt:         1,
+			noGroupKey:  true,
+		}
+	}
+	assetGen.genAssets(t, assetsStore, descs)
+
+	ctx := context.Background()
+	_, err := db.ExecContext(ctx, `
+		UPDATE internal_keys
+		SET key_family = 1, key_index = 1
+		WHERE key_id IN (
+			SELECT internal_key_id FROM managed_utxos
+		)`,
+	)
+	require.NoError(t, err)
+
+	_, err = db.ExecContext(
+		ctx, `
+			UPDATE script_keys
+			SET tweaked_script_key = $1
+			WHERE script_key_id = (
+				SELECT MIN(script_key_id) FROM script_keys
+			)`,
+		make([]byte, 33),
+	)
+	require.NoError(t, err)
+
+	orphans, err := assetsStore.FetchOrphanUTXOs(ctx)
+	require.NoError(t, err)
+	require.Empty(t, orphans)
+}
+
+// TestFetchOrphanUTXOsRejectsMisclassifiedBurn verifies that a script key's
+// burn classification alone cannot make a funded asset eligible for sweeping.
+func TestFetchOrphanUTXOsRejectsMisclassifiedBurn(t *testing.T) {
+	t.Parallel()
+
+	db := NewTestDB(t)
+	_, assetsStore := newAssetStoreFromDB(db.BaseDB)
+	assetGen := newAssetGenerator(t, 1, 1)
+	assetGen.genAssets(t, assetsStore, []assetDesc{{
+		assetGen:    assetGen.assetGens[0],
+		anchorPoint: assetGen.anchorPoints[0],
+		amt:         1,
+		noGroupKey:  true,
+	}})
+
+	ctx := context.Background()
+	_, err := db.ExecContext(ctx, `
+		UPDATE internal_keys
+		SET key_family = 1, key_index = 1
+		WHERE key_id IN (
+			SELECT internal_key_id FROM managed_utxos
+		)`,
+	)
+	require.NoError(t, err)
+
+	_, err = db.ExecContext(
+		ctx, `
+			UPDATE script_keys
+			SET key_type = $1
+			WHERE script_key_id IN (
+				SELECT script_key_id FROM assets
+			)`,
+		sqlInt16(asset.ScriptKeyBurn),
+	)
+	require.NoError(t, err)
+
+	orphans, err := assetsStore.FetchOrphanUTXOs(ctx)
+	require.NoError(t, err)
+	require.Empty(t, orphans)
+}
+
+// TestFetchOrphanUTXOsRejectsMisclassifiedTombstone verifies that a
+// tombstone-classified asset must also use the NUMS script key.
+func TestFetchOrphanUTXOsRejectsMisclassifiedTombstone(t *testing.T) {
+	t.Parallel()
+
+	db := NewTestDB(t)
+	_, assetsStore := newAssetStoreFromDB(db.BaseDB)
+	ctx := context.Background()
+	outpoint := insertOrphanUTXO(
+		t, ctx, db, assetsStore, 1, 1, false,
+	)
+	outpointBytes, err := encodeOutpoint(outpoint)
+	require.NoError(t, err)
+
+	_, err = db.ExecContext(
+		ctx, `
+			UPDATE script_keys
+			SET tweaked_script_key = $1
+			WHERE script_key_id IN (
+				SELECT assets.script_key_id
+				FROM assets
+				JOIN managed_utxos
+					ON assets.anchor_utxo_id =
+						managed_utxos.utxo_id
+				WHERE managed_utxos.outpoint = $2
+			)`,
+		test.RandPubKey(t).SerializeCompressed(), outpointBytes,
+	)
+	require.NoError(t, err)
+
+	orphans, err := assetsStore.FetchOrphanUTXOs(ctx)
+	require.NoError(t, err)
+	require.Empty(t, orphans)
+}
+
 // insertOrphanUTXO inserts a managed UTXO with a tombstone asset and the
 // specified KeyFamily and KeyIndex values for the internal key.
 func insertOrphanUTXO(t *testing.T, ctx context.Context, db sqlc.Querier,
-	assetsStore *AssetStore, keyFamily, keyIndex int32) wire.OutPoint {
+	assetsStore *AssetStore, keyFamily, keyIndex int32,
+	unknownKeyType bool) wire.OutPoint {
 
 	internalKey := test.RandPubKey(t)
 
@@ -4294,6 +4421,20 @@ func insertOrphanUTXO(t *testing.T, ctx context.Context, db sqlc.Querier,
 		},
 	)
 	require.NoError(t, err)
+
+	if !unknownKeyType {
+		dbKey, err := db.FetchScriptKeyByTweakedKey(
+			ctx, asset.NUMSCompressedKey[:],
+		)
+		require.NoError(t, err)
+
+		_, err = db.UpsertScriptKey(ctx, sqlc.UpsertScriptKeyParams{
+			InternalKeyID:    dbKey.ScriptKey.InternalKeyID,
+			TweakedScriptKey: asset.NUMSCompressedKey[:],
+			KeyType:          sqlInt16(asset.ScriptKeyTombstone),
+		})
+		require.NoError(t, err)
+	}
 
 	return outpoint
 }
