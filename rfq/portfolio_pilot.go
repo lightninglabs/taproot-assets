@@ -2,6 +2,7 @@ package rfq
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -12,6 +13,11 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
+
+// ErrNoPriceOracle is returned when an operation needs a price oracle but none
+// is configured. A price oracle is optional, so for an end user's wallet this
+// is an expected condition rather than a failure.
+var ErrNoPriceOracle = errors.New("no price oracle configured")
 
 // AssetTransferDirection represents the direction of an asset transfer
 // from our perspective for pricing and rate queries.
@@ -180,8 +186,12 @@ type PortfolioPilot interface {
 // InternalPortfolioPilotConfig holds settings for the built-in pilot that uses
 // a price oracle for pricing decisions.
 type InternalPortfolioPilotConfig struct {
-	// PriceOracle supplies pricing data. If nil, the pilot rejects requests
-	// as the oracle is considered unavailable.
+	// PriceOracle supplies pricing data. It is optional: if nil, the pilot
+	// cannot price incoming quote requests from peers and rejects them, but
+	// it still verifies quotes accepted by a peer against the limit-order
+	// constraints of our own request. Running without an oracle is the
+	// expected configuration for an end user's wallet, which only requests
+	// quotes and never answers them.
 	PriceOracle PriceOracle
 
 	// ForwardPeerIDToOracle controls whether the requesting peer ID is sent
@@ -305,8 +315,14 @@ func (p *InternalPortfolioPilot) ResolveRequest(ctx context.Context,
 }
 
 // VerifyAcceptQuote verifies that an accepted quote from a peer meets
-// acceptable conditions. It validates the quote expiry and checks that the
-// peer's proposed rate falls within acceptable tolerance of the oracle price.
+// acceptable conditions. It validates the quote expiry, compares the peer's
+// proposed rate against the price oracle if one is configured, and enforces
+// the limit-order constraints of the original request.
+//
+// A price oracle is optional. When none is configured we have no independent
+// reference price to compare the peer's rate against, so the rate is accepted
+// as long as it satisfies the constraints that the user expressed in their own
+// request.
 func (p *InternalPortfolioPilot) VerifyAcceptQuote(ctx context.Context,
 	accept rfqmsg.Accept) (QuoteRespStatus, error) {
 
@@ -319,14 +335,49 @@ func (p *InternalPortfolioPilot) VerifyAcceptQuote(ctx context.Context,
 		return InvalidExpiryQuoteRespStatus, nil
 	}
 
-	if p.cfg.PriceOracle == nil {
-		return PriceOracleQueryErrQuoteRespStatus, nil
+	req := accept.OriginalRequest()
+
+	// Compare the peer's rate against our own view of the market, but only
+	// if we have a price oracle available to give us one.
+	if p.cfg.PriceOracle != nil {
+		status, err := p.checkRateAgainstOracle(
+			ctx, req, counterRate, accept.MsgPeer(),
+		)
+		if err != nil {
+			return status, err
+		}
+
+		if status != ValidAcceptQuoteRespStatus {
+			return status, nil
+		}
 	}
+
+	// Enforce all limit-order constraints (rate bound, min fill, FOK, and
+	// fill-vs-constraint compatibility). These are derived entirely from
+	// the locally stored request, so they are enforced with or without an
+	// oracle, and they are the only price protection that an oracle-less
+	// node has.
+	status := checkAllConstraints(
+		req, counterRate.Rate, accept.AcceptedFillAmount(),
+	)
+	if status != ValidAcceptQuoteRespStatus {
+		return status, nil
+	}
+
+	return ValidAcceptQuoteRespStatus, nil
+}
+
+// checkRateAgainstOracle queries the configured price oracle for our own view
+// of the rate, and checks that the peer's counter rate is within the
+// configured deviation tolerance of it.
+func (p *InternalPortfolioPilot) checkRateAgainstOracle(ctx context.Context,
+	req rfqmsg.Request, counterRate rfqmsg.AssetRate,
+	msgPeer route.Vertex) (QuoteRespStatus, error) {
 
 	// Build peer ID option based on config.
 	peerID := fn.None[route.Vertex]()
 	if p.cfg.ForwardPeerIDToOracle {
-		peerID = fn.Some(accept.MsgPeer())
+		peerID = fn.Some(msgPeer)
 	}
 
 	// Query the oracle based on the request type. For a buy request (peer
@@ -335,7 +386,6 @@ func (p *InternalPortfolioPilot) VerifyAcceptQuote(ctx context.Context,
 	var resp *OracleResponse
 	var err error
 
-	req := accept.OriginalRequest()
 	switch r := req.(type) {
 	case *rfqmsg.BuyRequest:
 		resp, err = p.cfg.PriceOracle.QueryBuyPrice(
@@ -389,15 +439,6 @@ func (p *InternalPortfolioPilot) VerifyAcceptQuote(ctx context.Context,
 		return InvalidAssetRatesQuoteRespStatus, nil
 	}
 
-	// Enforce all limit-order constraints (rate bound, min fill,
-	// FOK, and fill-vs-constraint compatibility).
-	status := checkAllConstraints(
-		req, counterRate.Rate, accept.AcceptedFillAmount(),
-	)
-	if status != ValidAcceptQuoteRespStatus {
-		return status, nil
-	}
-
 	return ValidAcceptQuoteRespStatus, nil
 }
 
@@ -417,7 +458,7 @@ func (p *InternalPortfolioPilot) QueryAssetRates(ctx context.Context,
 	var zero rfqmsg.AssetRate
 
 	if p.cfg.PriceOracle == nil {
-		return zero, fmt.Errorf("no price oracle found")
+		return zero, ErrNoPriceOracle
 	}
 
 	// Build peer ID option based on config.
