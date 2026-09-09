@@ -595,9 +595,12 @@ func genServerConfig(ctx context.Context, cfg *Config,
 		}
 
 	case "":
-		// Leave the price oracle as nil, which will cause the RFQ
-		// manager to reject all incoming RFQ requests. It will also
-		// skip setting suggested prices for outgoing quote requests.
+		// Leave the price oracle as nil. This is the expected
+		// configuration for an end user's wallet: quotes we request
+		// from a peer are still verified against the constraints of
+		// our own order, but we cannot price incoming RFQ requests
+		// from peers, so those are rejected. Suggested prices are also
+		// not set on outgoing quote requests.
 
 	default:
 		macaroonOpt, err := getPriceOracleMacaroonOpt(rfqCfg)

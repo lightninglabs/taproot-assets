@@ -1876,7 +1876,10 @@ func TestVerifyAcceptQuote(t *testing.T) {
 
 // TestResolveRequestWithoutPriceOracleRejects ensures that requests are
 // rejected during resolution if a price oracle is not configured for the
-// internal portfolio pilot.
+// internal portfolio pilot. Answering an incoming quote request requires us to
+// name a price, which we cannot do without an oracle. This is deliberately
+// asymmetric with verifying a quote that a peer accepted, which does not need
+// an oracle, see TestVerifyAcceptQuoteWithoutPriceOracle.
 func TestResolveRequestWithoutPriceOracleRejects(t *testing.T) {
 	t.Parallel()
 
@@ -1915,46 +1918,168 @@ func TestResolveRequestWithoutPriceOracleRejects(t *testing.T) {
 	require.True(t, called)
 }
 
-// TestVerifyAcceptQuoteWithoutPriceOracle ensures that quote accept messages
-// fail verification if a price oracle is not configured for the internal
-// portfolio pilot.
-func TestVerifyAcceptQuoteWithoutPriceOracle(t *testing.T) {
-	t.Parallel()
+// newNoOraclePilot returns an internal portfolio pilot that has no price
+// oracle configured, which is the expected configuration for an end user's
+// wallet.
+func newNoOraclePilot(t *testing.T) InternalPortfolioPilot {
+	t.Helper()
+
+	pilot, err := NewInternalPortfolioPilot(InternalPortfolioPilotConfig{
+		PriceOracle:                 nil,
+		ForwardPeerIDToOracle:       false,
+		AcceptPriceDeviationPpm:     50_000,
+		MinAssetRatesExpiryLifetime: 10,
+	})
+	require.NoError(t, err)
+
+	return pilot
+}
+
+// newNoOracleBuyAccept returns a buy accept message at the given rate, for a
+// buy request carrying the given expiry and optional rate limit.
+func newNoOracleBuyAccept(t *testing.T, acceptRate uint64, expiry time.Time,
+	rateLimit fn.Option[rfqmath.BigIntFixedPoint]) *rfqmsg.BuyAccept {
+
+	t.Helper()
 
 	assetSpec := asset.NewSpecifierFromId(asset.ID{0x01, 0x02, 0x03})
 	peerID := route.Vertex{0x0A, 0x0B, 0x0C}
-	expiry := time.Now().Add(30 * time.Second)
 
 	buyReq, err := rfqmsg.NewBuyRequest(
 		peerID, assetSpec, 100,
 		fn.None[uint64](),
-		fn.None[rfqmath.BigIntFixedPoint](),
+		rateLimit,
 		fn.None[rfqmsg.AssetRate](),
 		"metadata",
 		fn.None[rfqmsg.ExecutionPolicy](),
 	)
 	require.NoError(t, err)
 
-	accept := &rfqmsg.BuyAccept{
+	return &rfqmsg.BuyAccept{
 		Peer:    peerID,
 		Request: *buyReq,
 		AssetRate: rfqmsg.NewAssetRate(
-			rfqmath.NewBigIntFixedPoint(100, 0), expiry,
+			rfqmath.NewBigIntFixedPoint(acceptRate, 0), expiry,
 		),
 	}
+}
 
-	cfg := InternalPortfolioPilotConfig{
-		PriceOracle:                 nil,
-		ForwardPeerIDToOracle:       false,
-		AcceptPriceDeviationPpm:     50_000,
-		MinAssetRatesExpiryLifetime: 10,
-	}
-	pilot, err := NewInternalPortfolioPilot(cfg)
-	require.NoError(t, err)
+// TestVerifyAcceptQuoteWithoutPriceOracle ensures that a quote accepted by a
+// peer passes verification when no price oracle is configured. Without an
+// oracle we have no independent reference price, so the peer's rate is
+// accepted as long as it satisfies the constraints of our own request.
+func TestVerifyAcceptQuoteWithoutPriceOracle(t *testing.T) {
+	t.Parallel()
+
+	expiry := time.Now().Add(30 * time.Second)
+	accept := newNoOracleBuyAccept(
+		t, 100, expiry, fn.None[rfqmath.BigIntFixedPoint](),
+	)
+
+	pilot := newNoOraclePilot(t)
 
 	status, err := pilot.VerifyAcceptQuote(context.Background(), accept)
 	require.NoError(t, err)
-	require.Equal(t, PriceOracleQueryErrQuoteRespStatus, status)
+	require.Equal(t, ValidAcceptQuoteRespStatus, status)
+}
+
+// TestVerifyAcceptQuoteWithoutPriceOracleEnforcesRateBound ensures that the
+// user's own rate limit is still enforced when no price oracle is configured.
+// This is the wallet side sanity check that replaces the oracle comparison: a
+// buy request rejects any rate below the limit, so a peer cannot quote an
+// arbitrarily bad price just because we have no oracle.
+func TestVerifyAcceptQuoteWithoutPriceOracleEnforcesRateBound(t *testing.T) {
+	t.Parallel()
+
+	// We ask for at least 200 units per BTC, but the peer only offers 100.
+	rateLimit := fn.Some(rfqmath.NewBigIntFixedPoint(200, 0))
+	expiry := time.Now().Add(30 * time.Second)
+	accept := newNoOracleBuyAccept(t, 100, expiry, rateLimit)
+
+	pilot := newNoOraclePilot(t)
+
+	status, err := pilot.VerifyAcceptQuote(context.Background(), accept)
+	require.NoError(t, err)
+	require.Equal(t, RateBoundMissQuoteRespStatus, status)
+
+	// The same rate limit is satisfied by a rate at or above the limit.
+	accept = newNoOracleBuyAccept(t, 200, expiry, rateLimit)
+
+	status, err = pilot.VerifyAcceptQuote(context.Background(), accept)
+	require.NoError(t, err)
+	require.Equal(t, ValidAcceptQuoteRespStatus, status)
+}
+
+// TestVerifyAcceptQuoteWithoutPriceOracleEnforcesSellRateBound ensures that
+// the user's own rate limit is still enforced on the pay direction when no
+// price oracle is configured. For a sell request the limit is a ceiling on the
+// units given per BTC, the opposite direction from a buy request, and it is
+// the bound that caps how many asset units a payment can spend.
+func TestVerifyAcceptQuoteWithoutPriceOracleEnforcesSellRateBound(
+	t *testing.T) {
+
+	t.Parallel()
+
+	assetSpec := asset.NewSpecifierFromId(asset.ID{0x01, 0x02, 0x03})
+	peerID := route.Vertex{0x0A, 0x0B, 0x0C}
+	expiry := time.Now().Add(30 * time.Second)
+
+	// We are willing to give at most 100 units per BTC.
+	rateLimit := fn.Some(rfqmath.NewBigIntFixedPoint(100, 0))
+
+	sellReq, err := rfqmsg.NewSellRequest(
+		peerID, assetSpec, 100_000,
+		fn.None[lnwire.MilliSatoshi](),
+		rateLimit,
+		fn.None[rfqmsg.AssetRate](),
+		"metadata",
+		fn.None[rfqmsg.ExecutionPolicy](),
+	)
+	require.NoError(t, err)
+
+	newAccept := func(rate uint64) *rfqmsg.SellAccept {
+		return &rfqmsg.SellAccept{
+			Peer:    peerID,
+			Request: *sellReq,
+			AssetRate: rfqmsg.NewAssetRate(
+				rfqmath.NewBigIntFixedPoint(rate, 0), expiry,
+			),
+		}
+	}
+
+	pilot := newNoOraclePilot(t)
+
+	// The peer demands 200 units per BTC, twice what we said we would give.
+	status, err := pilot.VerifyAcceptQuote(
+		context.Background(), newAccept(200),
+	)
+	require.NoError(t, err)
+	require.Equal(t, RateBoundMissQuoteRespStatus, status)
+
+	// A rate at or below our ceiling is accepted.
+	status, err = pilot.VerifyAcceptQuote(
+		context.Background(), newAccept(50),
+	)
+	require.NoError(t, err)
+	require.Equal(t, ValidAcceptQuoteRespStatus, status)
+}
+
+// TestVerifyAcceptQuoteWithoutPriceOracleEnforcesExpiry ensures that the quote
+// expiry bound is still enforced when no price oracle is configured.
+func TestVerifyAcceptQuoteWithoutPriceOracleEnforcesExpiry(t *testing.T) {
+	t.Parallel()
+
+	// The pilot requires a minimum expiry lifetime of 10 seconds.
+	expiry := time.Now().Add(time.Second)
+	accept := newNoOracleBuyAccept(
+		t, 100, expiry, fn.None[rfqmath.BigIntFixedPoint](),
+	)
+
+	pilot := newNoOraclePilot(t)
+
+	status, err := pilot.VerifyAcceptQuote(context.Background(), accept)
+	require.NoError(t, err)
+	require.Equal(t, InvalidExpiryQuoteRespStatus, status)
 }
 
 // TestCheckRateBound exercises the checkRateBound helper directly.

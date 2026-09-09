@@ -1084,7 +1084,7 @@ The matrix:
 
 | Oracle set?   | Pilot set?      | Result                                                |
 |---------------|-----------------|-------------------------------------------------------|
-| No            | No              | All inbound RFQs rejected; no outbound hints.         |
+| No            | No              | Inbound RFQs rejected; no outbound hints. Quotes accepted by a peer are still verified against the constraints of our own order. |
 | Yes           | No              | Internal pilot driving the configured oracle.         |
 | No            | Yes             | External pilot, no internal oracle (pilot drives its own pricing). |
 | Yes           | Yes             | External pilot; oracle is unused by the manager but may be reused by the pilot through its own client. |

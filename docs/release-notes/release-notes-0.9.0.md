@@ -21,6 +21,13 @@
 
 # Bug Fixes
 
+- [A node with no price
+  oracle](https://github.com/lightninglabs/taproot-assets/pull/2296) configured
+  no longer panics when `AddInvoice` is called with a satoshi denominated
+  amount. Converting satoshis into asset units requires a rate, so this now
+  returns an error telling the caller to denominate the invoice in asset units
+  instead.
+
 - [Importing an asset wallet
   backup](https://github.com/lightninglabs/taproot-assets/pull/2277) into a
   node whose database was wiped but whose proofs directory survived no longer
@@ -224,6 +231,16 @@
 
 ## Config Changes
 
+- [`experimental.rfq.priceoracleaddress` is now
+  optional](https://github.com/lightninglabs/taproot-assets/pull/2296) for an
+  end user's wallet. A wallet only requests quotes and never has to answer one,
+  so it does not need to be able to name a price of its own. With no oracle
+  configured, a quote accepted by a peer is still verified against the quote
+  expiry and against the limit-order constraints of the wallet's own order
+  (`asset_rate_limit`, min/max amount, execution policy), which previously were
+  never reached in this configuration. An edge node that answers incoming quote
+  requests still requires an oracle.
+
 - The new [`--backup.filepath`
   flag](https://github.com/lightninglabs/taproot-assets/pull/2277) sets the
   location of the encrypted asset wallet backup file (default: `assets.backup` in the network data
@@ -302,6 +319,12 @@
 ## BIP/bLIP Spec Updates
 
 ## Testing
+
+* [PR#2296](https://github.com/lightninglabs/taproot-assets/pull/2296)
+  adds coverage for verifying quotes with no price oracle configured,
+  asserting that the quote expiry bound and the rate bound of the
+  node's own order are still enforced in both the buy and the sell
+  direction.
 
 ## Database
 

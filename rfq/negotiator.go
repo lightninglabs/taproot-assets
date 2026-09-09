@@ -190,13 +190,25 @@ func (n *Negotiator) getAssetRateHint(ctx context.Context, order Order,
 	}
 
 	assetRate, err := n.cfg.PortfolioPilot.QueryAssetRates(ctx, query)
-	if err != nil {
-		// If we fail to query the portfolio pilot for a rate, we
-		// will log a warning and continue without a rate since this
-		// is not a critical failure.
+	switch {
+	// A price oracle is optional, and running without one is the expected
+	// configuration for an end user's wallet. Since the rate hint is only
+	// a suggestion, this is not worth warning about on every order.
+	case errors.Is(err, ErrNoPriceOracle):
+		log.Debugf("Not setting a rate hint on outgoing request, no "+
+			"price oracle configured (direction=%s)",
+			direction.String())
+
+		return fn.None[rfqmsg.AssetRate]()
+
+	// If we fail to query the portfolio pilot for a rate, we will log a
+	// warning and continue without a rate since this is not a critical
+	// failure.
+	case err != nil:
 		log.Warnf("Failed to query rate from portfolio pilot "+
 			"for outgoing request: (direction=%s, err=%v)",
 			direction.String(), err)
+
 		return fn.None[rfqmsg.AssetRate]()
 	}
 
