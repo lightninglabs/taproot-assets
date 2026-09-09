@@ -139,6 +139,14 @@
   every block. The sweeper now returns an empty resolution for such
   outputs, so lnd sweeps them as plain BTC outputs.
 
+* [PR#2294](https://github.com/lightninglabs/taproot-assets/pull/2294)
+  fixes a bug in which a grouped receive holding several assets under
+  one script key at one outpoint could be imported but never completed.
+  Completing the address event looked each output's proof up by script
+  key and outpoint alone, so the lookup returned every asset's proof at
+  once and the event failed with `ErrMultipleProofs` on every attempt.
+  The proof is now looked up by asset as well.
+
 # New Features
 
 ## Functional Enhancements
