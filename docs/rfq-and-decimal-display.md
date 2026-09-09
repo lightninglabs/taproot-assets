@@ -422,8 +422,9 @@ Price Out Asset: 				1420000000000
 The price oracle is an important component in the RFQ system, as it provides the
 values for the exchange rates mentioned above.
 
-Both parties of an asset channel (the wallet end user and the edge node) might
-use a price oracle, but its role is different for those parties:
+An edge node requires a price oracle, because it has to name a price. For the
+wallet end user a price oracle is optional. Both parties of an asset channel
+might use one, but its role is different for those parties:
 * The **Price Oracle for the edge node** is responsible for putting a price tag
   on the service that is offered by the edge node, which is an atomic swap
   between two types of assets (often one of them being BTC). In other words,
@@ -441,6 +442,11 @@ use a price oracle, but its role is different for those parties:
 * The **Price Oracle for the wallet end user** on the other hand is simply
   tasked with validating exchange rates offered to them by the edge node, to
   make sure they aren't proposing absurd rates (by accident or on purpose).
+  This is optional, and it is a second opinion rather than a limit. A wallet
+  that instead states the worst rate it is willing to accept (using the
+  `asset_rate_limit` field of its buy or sell order) needs no oracle at all;
+  see [Wallet end user](#wallet-end-user) below for which bounds are
+  reachable on which RPC.
 
 **NOTE**: By default, the _minimum_ quote expiry at tapd node will accept is _10
 seconds_.
@@ -464,17 +470,66 @@ interface with Golang can be found in
 
 ## Wallet end user
 
-The wallet end user's price oracle implementation can be quite simple. All it
-needs to do is to query an exchange provider's API for the current exchange
-rate of an asset. Then the maximum deviation from that "official" market rate
+A price oracle is **optional** for the wallet end user. A wallet only ever
+_requests_ quotes, it never has to answer one, so it does not need to be able
+to name a price of its own. With no
+`experimental.rfq.priceoracleaddress` configured, a quote accepted by an edge
+node is still verified, but only against the limits that the wallet itself
+expressed in its order:
+
+* the quote expiry must be far enough in the future (see the note above),
+* the accepted rate must satisfy the order's `asset_rate_limit`, if one was
+  given,
+* the accepted fill amount must satisfy the order's min/max amount and
+  execution policy.
+
+The `asset_rate_limit` field on `AddAssetBuyOrder`/`AddAssetSellOrder` is the
+wallet side sanity check, and it is the one worth using: it is a hard bound the
+user names themselves ("I will not accept fewer than X units per BTC"), rather
+than a tolerance band around a third party's opinion of the price. Note that a
+bound that is not set is not enforced.
+
+How reachable that bound is depends on the direction:
+
+* **Receiving** (`tapchannelrpc.AddInvoice`): the request has an
+  `asset_rate_limit` field which is passed through to the buy order, so the
+  bound can be set directly on the call. The invoice's `asset_amount` also
+  caps the units involved.
+* **Paying** (`tapchannelrpc.SendPayment`): the request has **no**
+  `asset_rate_limit` field today, and the sell order that `SendPayment`
+  negotiates internally leaves the limit unset, so no rate bound is applied.
+  `payment_max_amt` caps the _satoshis_ sent, not the asset units spent, and
+  the units spent scale with whatever rate the peer quotes. To bound the rate
+  on a payment, negotiate the quote first with `rfqrpc.AddAssetSellOrder`
+  (setting `asset_rate_limit`) and then pass the resulting `rfq_id` to
+  `SendPayment`.
+
+Until `SendPayment` accepts a rate limit of its own, a wallet that pays over
+asset channels and configures neither an oracle nor a pre-negotiated quote has
+no bound on the rate it will accept. That is the one case where dropping the
+oracle removes a check without a wallet side replacement in the same call.
+
+If a wallet _does_ configure an oracle, the accepted rate is additionally
+compared against it, and the maximum deviation from that "official" market rate
 that is accepted from edge nodes can be configured using the
 `experimental.rfq.acceptpricedeviationppm=` configuration value (which is in
-parts per million and the default value is `50000` which is equal to `5%`).
+parts per million and the default value is `50000` which is equal to `5%`). Be
+aware that this is a comparison of two rates rather than a bound on one: an
+edge node whose spread exceeds the configured deviation has its quotes
+rejected, so a deviation that is tighter than the spreads in the market the
+wallet actually transacts in will cause otherwise fine quotes to be discarded.
 
+Such an oracle implementation can be quite simple. All it needs to do is to
+query an exchange provider's API for the current exchange rate of an asset.
 Because the API endpoints of public exchange platforms aren't standardized,
-there also isn't a default implementation of an end user price oracle available.
+there isn't a default implementation of an end user price oracle available.
 It is expected that third party developers (or at some point even the exchange
 platforms themselves) will offer a gRPC (`rfqrpc`) compatible price oracle
 endpoint that can directly be plugged into the
 `experimental.rfq.priceoracleaddress=rfqrpc://<hostname>:<port>` configuration
 value on the wallet end user side.
+
+**NOTE**: An amount denominated in satoshis cannot be converted into asset
+units without a rate, so a wallet with no oracle configured must denominate
+asset invoices in asset units (`asset_amount`) rather than in satoshis
+(`value`/`value_msat`).
