@@ -477,21 +477,37 @@ message ImportAssetsFromBackupResponse {
 #### Group key handling
 
 Assets with group keys require the importing node to know the
-group key. For backups that include the group anchor asset (the
-asset that created the group), the import process automatically
-extracts the group key from the genesis proof's `GroupKeyReveal`
-before verification. This means:
+group key. Before any proof is verified, the import learns groups
+from two sources:
 
-- **Group anchor present in backup:** import succeeds without
-  prior group key knowledge, for all backup modes (raw, compact,
-  optimistic).
+- **The `GroupKeyBackup` record of each grouped entry.** The
+  record is verified by re-deriving the tweaked group key from the
+  recorded raw key and anchor genesis. Accepted groups are inserted
+  into the wallet database with the anchor genesis and witness, the
+  same rows a universe sync of the group creates, so the restored
+  wallet knows the group from then on and its own backup describes
+  the group again.
 
-- **Reissuance-only backups:** if the group anchor is no longer
-  active (e.g. it was transferred) and the backup contains only
-  reissued or transferred group-member assets, the importing node
-  must have prior group key knowledge — typically from universe
-  federation sync or a previous import that included the anchor.
-  Without it, these assets are skipped during import.
+- **The genesis proof of a group anchor in the backup.** Its
+  `GroupKeyReveal` is extracted as before. This is the only source
+  for entries written by wallets that predate the group record.
+
+A group key reveal exists only on the genesis proof of the asset
+that created the group. Every tranche minted into the group later
+carries the group key without a reveal, so a wallet holding only
+such reissued leaves depends on the group record. Groups that
+neither source describes are logged once at warn level, and their
+entries are skipped unless the importing node already knows the
+group, typically from universe federation sync.
+
+The exporting wallet can only record a group whose raw key it
+knows, which is the case once the group anchor's proof has been
+seen (own mint or universe sync). A group learned through a
+reissuance proof alone is stored with the tweaked key in place of
+the raw key. Such a row is completed in place when the anchor's
+reveal is stored later, and the backup updater completes entries
+that were written without a group record as soon as the wallet can
+describe the group.
 
 #### Error handling
 

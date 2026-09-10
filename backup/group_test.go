@@ -6,14 +6,18 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
+	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
 )
@@ -115,6 +119,25 @@ func (m *mockGroupLookup) set(group *asset.AssetGroup, err error) {
 	defer m.mu.Unlock()
 
 	m.group, m.err = group, err
+}
+
+type mockGroupRegistrar struct {
+	geneses []*asset.Genesis
+	groups  []*asset.GroupKey
+	err     error
+}
+
+func (m *mockGroupRegistrar) InsertAssetGen(_ context.Context,
+	gen *asset.Genesis, group *asset.GroupKey) error {
+
+	if m.err != nil {
+		return m.err
+	}
+
+	m.geneses = append(m.geneses, gen)
+	m.groups = append(m.groups, group)
+
+	return nil
 }
 
 // noRoot is a group without a custom tapscript subtree.
@@ -311,4 +334,255 @@ func TestCreateAssetBackupRecordsGroup(t *testing.T) {
 		newGroupBackups(&mockGroupLookup{err: dbErr}),
 	)
 	require.ErrorIs(t, err, dbErr)
+}
+
+// TestRecordedGroups asserts that the import accepts a recorded group for
+// verification only if it derives the group key the entry claims, and that
+// the pre-pass writes nothing: a group is persisted by persistRecordedGroup
+// once a leaf of it imported, once per group, and registrar failures are
+// fatal.
+func TestRecordedGroups(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	for _, tc := range groupVersions {
+		t.Run(tc.name, func(t *testing.T) {
+			group := newTestGroup(t, tc.version, tc.customRoot)
+			gkb := newTestGroupKeyBackup(group)
+			first := newTestReissuance(t, group)
+			second := newTestReissuance(t, group)
+			entries := []*AssetBackup{
+				{Asset: first, GroupKeyInfo: gkb},
+				{Asset: second, GroupKeyInfo: gkb},
+				{Asset: newTestAsset(t)},
+			}
+
+			known := make(map[asset.SerializedKey]bool)
+			groups := recordedGroups(entries, known)
+
+			key := asset.ToSerialized(&group.GroupKey.GroupPubKey)
+			require.True(t, known[key])
+			require.Len(t, known, 1)
+			require.Len(t, groups, 1)
+			require.Equal(t, group.Genesis, groups[key].Genesis)
+			require.Equal(t, group.GroupKey, groups[key].GroupKey)
+
+			// Nothing has been imported yet, so nothing is
+			// persisted. The file's claim is only good for this
+			// import until a leaf corroborates it.
+			registrar := &mockGroupRegistrar{}
+			cfg := &ImportConfig{GroupRegistrar: registrar}
+			persisted := make(map[asset.SerializedKey]struct{})
+			require.Empty(t, registrar.groups)
+
+			// A leaf of the group imported: the group is persisted
+			// with the anchor genesis and the full group key.
+			err := persistRecordedGroup(
+				ctx, cfg, first, groups, persisted,
+			)
+			require.NoError(t, err)
+			require.Len(t, registrar.groups, 1)
+			require.Equal(t, group.Genesis, registrar.geneses[0])
+			require.Equal(t, group.GroupKey, registrar.groups[0])
+
+			// A second leaf of the same group does not persist it
+			// again, an ungrouped leaf persists nothing.
+			err = persistRecordedGroup(
+				ctx, cfg, second, groups, persisted,
+			)
+			require.NoError(t, err)
+			err = persistRecordedGroup(
+				ctx, cfg, newTestAsset(t), groups, persisted,
+			)
+			require.NoError(t, err)
+			require.Len(t, registrar.groups, 1)
+		})
+	}
+
+	t.Run("group not recorded", func(t *testing.T) {
+		// A leaf of a group the file did not describe, for example one
+		// whitelisted from a group anchor proof, persists nothing. The
+		// proof import itself stores what it knows about the group.
+		group := newTestGroup(t, asset.GroupKeyV0, noRoot)
+		registrar := &mockGroupRegistrar{}
+		err := persistRecordedGroup(
+			ctx, &ImportConfig{GroupRegistrar: registrar},
+			newTestReissuance(t, group), recordedGroupSet{},
+			make(map[asset.SerializedKey]struct{}),
+		)
+		require.NoError(t, err)
+		require.Empty(t, registrar.groups)
+	})
+
+	t.Run("no registrar", func(t *testing.T) {
+		group := newTestGroup(t, asset.GroupKeyV0, noRoot)
+		leaf := newTestReissuance(t, group)
+		entries := []*AssetBackup{{
+			Asset:        leaf,
+			GroupKeyInfo: newTestGroupKeyBackup(group),
+		}}
+
+		known := make(map[asset.SerializedKey]bool)
+		groups := recordedGroups(entries, known)
+		require.True(t, known[asset.ToSerialized(
+			&group.GroupKey.GroupPubKey,
+		)])
+
+		err := persistRecordedGroup(
+			ctx, &ImportConfig{}, leaf, groups,
+			make(map[asset.SerializedKey]struct{}),
+		)
+		require.NoError(t, err)
+	})
+
+	t.Run("registrar error", func(t *testing.T) {
+		group := newTestGroup(t, asset.GroupKeyV0, noRoot)
+		leaf := newTestReissuance(t, group)
+		entries := []*AssetBackup{{
+			Asset:        leaf,
+			GroupKeyInfo: newTestGroupKeyBackup(group),
+		}}
+		groups := recordedGroups(
+			entries, make(map[asset.SerializedKey]bool),
+		)
+
+		dbErr := errors.New("db locked")
+		err := persistRecordedGroup(
+			ctx, &ImportConfig{
+				GroupRegistrar: &mockGroupRegistrar{err: dbErr},
+			}, leaf, groups, make(map[asset.SerializedKey]struct{}),
+		)
+		require.ErrorIs(t, err, dbErr)
+	})
+
+	// Records that do not derive the claimed group key must not whitelist
+	// it, and since they are not collected they can never be persisted.
+	tamperCases := []struct {
+		name   string
+		tamper func(t *testing.T, gkb *GroupKeyBackup, a *asset.Asset)
+	}{{
+		name: "other raw key",
+		tamper: func(t *testing.T, gkb *GroupKeyBackup,
+			_ *asset.Asset) {
+
+			gkb.RawKey = test.RandPubKey(t)
+		},
+	}, {
+		name: "other anchor genesis",
+		tamper: func(t *testing.T, gkb *GroupKeyBackup,
+			_ *asset.Asset) {
+
+			gkb.AnchorGenesis = asset.RandGenesis(t, asset.Normal)
+		},
+	}, {
+		name: "other tapscript root",
+		tamper: func(t *testing.T, gkb *GroupKeyBackup,
+			_ *asset.Asset) {
+
+			gkb.TapscriptRoot = test.RandBytes(32)
+		},
+	}, {
+		name: "other version",
+		tamper: func(t *testing.T, gkb *GroupKeyBackup,
+			_ *asset.Asset) {
+
+			gkb.Version = asset.GroupKeyV1
+		},
+	}, {
+		name: "claimed key not derived",
+		tamper: func(t *testing.T, _ *GroupKeyBackup,
+			a *asset.Asset) {
+
+			a.GroupKey.GroupPubKey = *test.RandPubKey(t)
+		},
+	}, {
+		name: "no witness",
+		tamper: func(t *testing.T, gkb *GroupKeyBackup,
+			_ *asset.Asset) {
+
+			gkb.Witness = nil
+		},
+	}}
+	for _, tc := range tamperCases {
+		t.Run(tc.name, func(t *testing.T) {
+			group := newTestGroup(t, asset.GroupKeyV0, noRoot)
+			gkb := newTestGroupKeyBackup(group)
+			a := newTestReissuance(t, group)
+			tc.tamper(t, gkb, a)
+
+			known := make(map[asset.SerializedKey]bool)
+			groups := recordedGroups(
+				[]*AssetBackup{{Asset: a, GroupKeyInfo: gkb}},
+				known,
+			)
+			require.Empty(t, known)
+			require.Empty(t, groups)
+		})
+	}
+
+	t.Run("info on ungrouped asset ignored", func(t *testing.T) {
+		group := newTestGroup(t, asset.GroupKeyV0, noRoot)
+		known := make(map[asset.SerializedKey]bool)
+		groups := recordedGroups([]*AssetBackup{{
+			Asset:        newTestAsset(t),
+			GroupKeyInfo: newTestGroupKeyBackup(group),
+		}}, known)
+		require.Empty(t, known)
+		require.Empty(t, groups)
+	})
+}
+
+// unspentChecker is a SpendChecker that never reports a spend, so every
+// outpoint counts as unspent once the spend check times out.
+type unspentChecker struct{}
+
+func (unspentChecker) RegisterSpendNtfn(context.Context, *wire.OutPoint,
+	[]byte, int32, ...lndclient.NotifierOption) (
+	chan *chainntnfs.SpendDetail, chan error, error) {
+
+	return make(chan *chainntnfs.SpendDetail), make(chan error), nil
+}
+
+// TestImportBackupBadFileLeavesNoGroups asserts that a backup whose entries
+// describe a group correctly but whose proofs cannot be imported leaves no
+// group behind in the wallet. The group is accepted for verification, but
+// only a leaf that actually imports persists it.
+func TestImportBackupBadFileLeavesNoGroups(t *testing.T) {
+	// Not parallel, the spend check timeout is shortened globally.
+	prev := spendCheckTimeout
+	spendCheckTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { spendCheckTimeout = prev })
+
+	ctx := context.Background()
+	group := newTestGroup(t, asset.GroupKeyV1, noRoot)
+	gkb := newTestGroupKeyBackup(group)
+
+	// Two reissued leaves with a valid group record and garbage in place
+	// of their proof files, the shape of a truncated or corrupted file.
+	wb := &WalletBackup{Version: BackupVersionOriginal}
+	for i := 0; i < 2; i++ {
+		wb.Assets = append(wb.Assets, &AssetBackup{
+			Asset:          newTestReissuance(t, group),
+			AnchorOutpoint: randOutpoint(t),
+			GroupKeyInfo:   gkb,
+			ProofFileBlob:  []byte("not a proof file"),
+		})
+	}
+	blob, err := EncodeWalletBackup(wb)
+	require.NoError(t, err)
+
+	registrar := &mockGroupRegistrar{}
+	imported, skipped, err := ImportBackup(ctx, blob, &ImportConfig{
+		SpendChecker:   unspentChecker{},
+		WalletProofs:   &staticExporter{err: proof.ErrProofNotFound},
+		GroupRegistrar: registrar,
+	})
+	require.NoError(t, err)
+	require.Zero(t, imported)
+	require.EqualValues(t, 2, skipped)
+
+	// Nothing imported, so the group the file described was never
+	// written to the wallet.
+	require.Empty(t, registrar.groups)
 }
