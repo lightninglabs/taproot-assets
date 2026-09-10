@@ -2447,7 +2447,10 @@ func TestWatcherRapid(t *testing.T) {
 		}
 
 		// recordPossible captures the current chain state's
-		// terminal reading, if any; called after every action.
+		// terminal reading, if any. It must run after every
+		// chain state the notifier dispatched from, including
+		// states an action passes through on its way to its
+		// final one: sensing may have observed any of them.
 		recordPossible := func() {
 			kind, witness := oracle()
 			switch kind {
@@ -2747,6 +2750,12 @@ func TestWatcherRapid(t *testing.T) {
 					rt, label+".alsoReorg",
 				) {
 
+					// The notifier dispatched from the
+					// state the block just made, so a
+					// terminal it made sensible must be
+					// admitted even though the re-org
+					// erases it before the action ends.
+					recordPossible()
 					h.sim.Reorg(1)
 				}
 				h.sim.ReleaseDeliveries()
