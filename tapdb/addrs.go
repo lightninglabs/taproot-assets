@@ -1241,12 +1241,16 @@ func (t *TapAddressBook) CompleteEvent(ctx context.Context,
 			return fmt.Errorf("error updating addr event: %w", err)
 		}
 
-		for _, output := range event.Outputs {
+		// Each output is one asset; a grouped receive can hold
+		// several under one script key at this outpoint, so the
+		// proof is looked up by asset as well.
+		for assetID, output := range event.Outputs {
 			scriptPubKey := output.ScriptKey.PubKey
 			scriptPubKeyBytes := scriptPubKey.SerializeCompressed()
 			args := FetchAssetProof{
 				TweakedScriptKey: scriptPubKeyBytes,
 				Outpoint:         outpoint,
+				AssetID:          assetID[:],
 			}
 
 			proofData, err := db.FetchAssetProof(ctx, args)
@@ -1256,15 +1260,16 @@ func (t *TapAddressBook) CompleteEvent(ctx context.Context,
 			}
 
 			switch {
-			// We have no proof for this script key and outpoint.
+			// We have no proof for this asset at this script key
+			// and outpoint.
 			case len(proofData) == 0:
-				return fmt.Errorf("proof for script key %x "+
-					"and outpoint %v not found: %w",
-					args.TweakedScriptKey, anchorPoint,
-					proof.ErrProofNotFound)
+				return fmt.Errorf("proof for asset %x, script "+
+					"key %x and outpoint %v not found: %w",
+					assetID[:], args.TweakedScriptKey,
+					anchorPoint, proof.ErrProofNotFound)
 
 			// Something is quite wrong if we have multiple proofs
-			// for the same script key and outpoint.
+			// for the same asset, script key and outpoint.
 			case len(proofData) > 1:
 				return fmt.Errorf("expected exactly one "+
 					"proof, got %d: %w", len(proofData),

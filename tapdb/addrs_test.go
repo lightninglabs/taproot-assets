@@ -1,6 +1,7 @@
 package tapdb
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"math/rand"
@@ -13,6 +14,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -1069,4 +1071,133 @@ func TestAddrByScriptKeyAndVersion(t *testing.T) {
 	// Verify the returned address matches the inserted address.
 	require.Equal(t, addr.ScriptKey, result.ScriptKey)
 	require.Equal(t, addr.Version, result.Version)
+}
+
+// TestCompleteEventGroupedReceive follows the grouped-receive shape —
+// two assets under one script key at one outpoint, each with its own
+// proof — through address event completion: the event names each
+// asset it holds, and completion must find each asset's proof by
+// asset, not by the shared script key and outpoint alone.
+func TestCompleteEventGroupedReceive(t *testing.T) {
+	t.Parallel()
+
+	db := NewTestDB(t)
+	_, assetsStore := newAssetStoreFromDB(db.BaseDB)
+	ctx := context.Background()
+
+	sharedKey := asset.NewScriptKeyBip86(keychain.KeyDescriptor{
+		PubKey: test.RandPubKey(t),
+		KeyLocator: keychain.KeyLocator{
+			Family: test.RandInt[keychain.KeyFamily](),
+			Index:  uint32(test.RandInt[int32]()),
+		},
+	})
+
+	assetGen := newAssetGenerator(t, 2, 1)
+	assetGen.genAssets(t, assetsStore, []assetDesc{{
+		assetGen:    assetGen.assetGens[0],
+		anchorPoint: assetGen.anchorPoints[0],
+		scriptKey:   &sharedKey,
+		amt:         10,
+	}, {
+		assetGen:    assetGen.assetGens[1],
+		anchorPoint: assetGen.anchorPoints[0],
+		scriptKey:   &sharedKey,
+		amt:         20,
+	}})
+	anchorTx := assetGen.anchorTxs[0]
+	anchorPoint := assetGen.anchorPoints[0]
+
+	assets, err := assetsStore.FetchAllAssets(ctx, true, true, nil)
+	require.NoError(t, err)
+	require.Len(t, assets, 2)
+
+	// Each leaf's proof file, stored against its own asset row.
+	outputs := make(map[asset.ID]address.AssetOutput, 2)
+	for _, a := range assets {
+		tipProof := randProof(t, a.Asset)
+		tipProof.AnchorTx = *anchorTx
+		file, err := proof.NewFile(proof.V0, *tipProof)
+		require.NoError(t, err)
+		var buf bytes.Buffer
+		require.NoError(t, file.Encode(&buf))
+
+		var dbID int64
+		assetID := a.ID()
+		err = db.DB.QueryRowContext(
+			ctx, "SELECT assets.asset_id FROM assets "+
+				"JOIN genesis_assets ON assets.genesis_id = "+
+				"genesis_assets.gen_asset_id "+
+				"WHERE genesis_assets.asset_id = $1",
+			assetID[:],
+		).Scan(&dbID)
+		require.NoError(t, err)
+		require.NoError(t, db.UpsertAssetProofByID(
+			ctx, ProofUpdateByID{
+				AssetID:   dbID,
+				ProofFile: buf.Bytes(),
+			},
+		))
+
+		outputs[assetID] = address.AssetOutput{
+			Amount:    a.Amount,
+			ScriptKey: sharedKey,
+		}
+	}
+
+	// The address event names both assets at the shared script key:
+	// the shape a V2 grouped receive records. The V1 wallet-transaction
+	// constructor builds the same event from the outputs handed to it,
+	// without the block and fragment the V2 constructor wants.
+	testClock := clock.NewTestClock(time.Now())
+	addrTx := NewTransactionExecutor(
+		db, func(tx *sql.Tx) AddrBook {
+			return db.WithTx(tx)
+		},
+	)
+	addrBook := NewTapAddressBook(addrTx, chainParams, testClock)
+
+	proofCourierAddr := address.RandProofCourierAddrForVersion(
+		t, address.V1,
+	)
+	addr, addrGen, addrGroup := address.RandAddrWithVersion(
+		t, chainParams, proofCourierAddr, address.V1,
+	)
+	err = addrTx.ExecTx(
+		ctx, WriteTxOption(),
+		insertFullAssetGen(ctx, addrGen, addrGroup),
+	)
+	require.NoError(t, err)
+	require.NoError(t, addrBook.InsertAddrs(ctx, *addr))
+
+	transfer, err := address.NewTransferFromWalletTx(
+		addr, &lndclient.Transaction{
+			Tx:        anchorTx,
+			Timestamp: time.Now(),
+		}, anchorPoint.Index, outputs,
+	)
+	require.NoError(t, err)
+	event, err := addrBook.GetOrCreateEvent(
+		ctx, address.StatusProofReceived, transfer,
+	)
+	require.NoError(t, err)
+	require.Len(t, event.Outputs, 2)
+
+	// Completion finds each asset's proof and links both.
+	err = addrBook.CompleteEvent(
+		ctx, event, address.StatusCompleted, anchorPoint,
+	)
+	require.NoError(t, err)
+
+	completed, err := addrBook.QueryEvent(ctx, addr, anchorPoint)
+	require.NoError(t, err)
+	require.Equal(t, address.StatusCompleted, completed.Status)
+
+	var linked int
+	err = db.DB.QueryRowContext(
+		ctx, "SELECT COUNT(*) FROM addr_event_proofs "+
+			"WHERE addr_event_id = $1", event.ID,
+	).Scan(&linked)
+	require.NoError(t, err)
+	require.Equal(t, 2, linked)
 }
