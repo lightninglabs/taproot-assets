@@ -80,14 +80,17 @@ recognize them.
 | 6 | AnchorPkScript | no | `pk_script` of the anchor output (for spend detection) |
 | 7 | StrippedProofBlob | v2 only | Proof file with blockchain fields removed |
 | 9 | RehydrationHints | v2 only | Serialized `FileHints` needed to reconstruct stripped fields |
+| 11 | GroupKey | no | `GroupKeyBackup` — the asset group of a grouped leaf, see below |
 
-Types 7 and 9 are odd, so a v1-only decoder will safely skip them.
+Types 7, 9 and 11 are odd, so a decoder that does not know them will safely
+skip them.
 
-**v1 record order:** 0, 1, 2, [3], [4], 5, [6]
+**v1 record order:** 0, 1, 2, [3], [4], 5, [6], [11]
 
-**v2 record order:** 0, 1, 2, [3], [4], [6], 7, 9
+**v2 record order:** 0, 1, 2, [3], [4], [6], 7, 9, [11]
 
-**v3 record order:** 0, 1, 2, [3], [4], [6] (no proof data — types 5, 7, 9 absent)
+**v3 record order:** 0, 1, 2, [3], [4], [6], [11] (no proof data — types 5, 7,
+9 absent)
 
 ### ScriptKeyBackup TLV
 
@@ -107,6 +110,26 @@ Types 7 and 9 are odd, so a v1-only decoder will safely skip them.
 | 0 | PubKey | Public key (33 bytes, compressed) |
 | 1 | Family | Key family (`uint32`) |
 | 2 | Index | Key index (`uint32`) |
+
+### GroupKeyBackup TLV
+
+Present on entries whose asset carries a group key, if the exporting wallet
+knows the group well enough to describe it. It records the group anchor's
+genesis and the parameters the tweaked group key is derived from, so the
+importer can verify the group key without the anchor's proof.
+
+| Type | Name | Description |
+|------|------|-------------|
+| 0 | AnchorGenesis | `asset.Genesis` of the asset that created the group |
+| 1 | Version | Group key version (`uint8`), 0 or 1 |
+| 2 | RawKey | Untweaked internal key of the group (33 bytes, compressed) |
+| 3 | TapscriptRoot | Tapscript root committed to by the group key; absent if empty |
+| 4 | Witness | Group witness of the anchor's genesis (`wire.TxWitness`) |
+| 5 | CustomTapscriptRoot | Custom subtree root of a V1 group (32 bytes); optional |
+
+The importer rebuilds the group key reveal from these fields, derives the
+tweaked key with the anchor's asset ID and only accepts the record if the
+result equals the group key of the entry's asset.
 
 ### Decode safety limits
 

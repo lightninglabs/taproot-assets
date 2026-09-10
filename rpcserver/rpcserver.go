@@ -12613,7 +12613,7 @@ func (r *RPCServer) ExportAssetWalletBackup(ctx context.Context,
 	// Delegate to the backup package.
 	blob, err := backup.ExportBackup(
 		ctx, mode, confirmedAssets, r.cfg.ProofArchive,
-		r.cfg.TapAddrBook, fedURLs,
+		r.cfg.TapAddrBook, r.cfg.TapAddrBook, fedURLs,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to export backup: %w", err)
