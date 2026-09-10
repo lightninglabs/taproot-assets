@@ -155,6 +155,14 @@
   once and the event failed with `ErrMultipleProofs` on every attempt.
   The proof is now looked up by asset as well.
 
+* fixes a bug in which an RFQ quote's maximum amount only bounded
+  in-flight HTLCs: a settled payment released its reservation, and a
+  daemon restart reset the fill accounting, so a channel counterparty
+  could trade beyond the agreed maximum at the locked quote rate until
+  the quote expired. Settled payments now permanently consume quote
+  capacity, and the settled fill is restored from the persisted
+  forwarding events on startup.
+
 # New Features
 
 ## Functional Enhancements
