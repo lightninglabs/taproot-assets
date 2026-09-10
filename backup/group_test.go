@@ -117,6 +117,25 @@ func (m *mockGroupLookup) set(group *asset.AssetGroup, err error) {
 	m.group, m.err = group, err
 }
 
+type mockGroupRegistrar struct {
+	geneses []*asset.Genesis
+	groups  []*asset.GroupKey
+	err     error
+}
+
+func (m *mockGroupRegistrar) InsertAssetGen(_ context.Context,
+	gen *asset.Genesis, group *asset.GroupKey) error {
+
+	if m.err != nil {
+		return m.err
+	}
+
+	m.geneses = append(m.geneses, gen)
+	m.groups = append(m.groups, group)
+
+	return nil
+}
+
 // noRoot is a group without a custom tapscript subtree.
 var noRoot = fn.None[chainhash.Hash]()
 
@@ -311,4 +330,162 @@ func TestCreateAssetBackupRecordsGroup(t *testing.T) {
 		newGroupBackups(&mockGroupLookup{err: dbErr}),
 	)
 	require.ErrorIs(t, err, dbErr)
+}
+
+// TestRegisterRecordedGroups asserts that the import accepts a recorded group
+// only if it derives the group key the entry claims, registers each group
+// once and treats registrar failures as fatal.
+func TestRegisterRecordedGroups(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	for _, tc := range groupVersions {
+		t.Run(tc.name, func(t *testing.T) {
+			group := newTestGroup(t, tc.version, tc.customRoot)
+			gkb := newTestGroupKeyBackup(group)
+			first := newTestReissuance(t, group)
+			second := newTestReissuance(t, group)
+			entries := []*AssetBackup{
+				{Asset: first, GroupKeyInfo: gkb},
+				{Asset: second, GroupKeyInfo: gkb},
+				{Asset: newTestAsset(t)},
+			}
+
+			registrar := &mockGroupRegistrar{}
+			known := make(map[asset.SerializedKey]bool)
+			err := registerRecordedGroups(
+				ctx, &ImportConfig{GroupRegistrar: registrar},
+				entries, known,
+			)
+			require.NoError(t, err)
+
+			key := asset.ToSerialized(&group.GroupKey.GroupPubKey)
+			require.True(t, known[key])
+			require.Len(t, known, 1)
+
+			// The same group is registered once, with the anchor
+			// genesis and the full group key.
+			require.Len(t, registrar.groups, 1)
+			require.Equal(t, group.Genesis, registrar.geneses[0])
+			require.Equal(t, group.GroupKey, registrar.groups[0])
+		})
+	}
+
+	t.Run("no registrar", func(t *testing.T) {
+		group := newTestGroup(t, asset.GroupKeyV0, noRoot)
+		entries := []*AssetBackup{{
+			Asset:        newTestReissuance(t, group),
+			GroupKeyInfo: newTestGroupKeyBackup(group),
+		}}
+
+		known := make(map[asset.SerializedKey]bool)
+		err := registerRecordedGroups(
+			ctx, &ImportConfig{}, entries, known,
+		)
+		require.NoError(t, err)
+		require.True(t, known[asset.ToSerialized(
+			&group.GroupKey.GroupPubKey,
+		)])
+	})
+
+	t.Run("registrar error", func(t *testing.T) {
+		group := newTestGroup(t, asset.GroupKeyV0, noRoot)
+		entries := []*AssetBackup{{
+			Asset:        newTestReissuance(t, group),
+			GroupKeyInfo: newTestGroupKeyBackup(group),
+		}}
+
+		dbErr := errors.New("db locked")
+		err := registerRecordedGroups(
+			ctx, &ImportConfig{
+				GroupRegistrar: &mockGroupRegistrar{err: dbErr},
+			}, entries, make(map[asset.SerializedKey]bool),
+		)
+		require.ErrorIs(t, err, dbErr)
+	})
+
+	// Records that do not derive the claimed group key must neither
+	// whitelist it nor reach the database.
+	tamperCases := []struct {
+		name   string
+		tamper func(t *testing.T, gkb *GroupKeyBackup, a *asset.Asset)
+	}{{
+		name: "other raw key",
+		tamper: func(t *testing.T, gkb *GroupKeyBackup,
+			_ *asset.Asset) {
+
+			gkb.RawKey = test.RandPubKey(t)
+		},
+	}, {
+		name: "other anchor genesis",
+		tamper: func(t *testing.T, gkb *GroupKeyBackup,
+			_ *asset.Asset) {
+
+			gkb.AnchorGenesis = asset.RandGenesis(t, asset.Normal)
+		},
+	}, {
+		name: "other tapscript root",
+		tamper: func(t *testing.T, gkb *GroupKeyBackup,
+			_ *asset.Asset) {
+
+			gkb.TapscriptRoot = test.RandBytes(32)
+		},
+	}, {
+		name: "other version",
+		tamper: func(t *testing.T, gkb *GroupKeyBackup,
+			_ *asset.Asset) {
+
+			gkb.Version = asset.GroupKeyV1
+		},
+	}, {
+		name: "claimed key not derived",
+		tamper: func(t *testing.T, _ *GroupKeyBackup,
+			a *asset.Asset) {
+
+			a.GroupKey.GroupPubKey = *test.RandPubKey(t)
+		},
+	}, {
+		name: "no witness",
+		tamper: func(t *testing.T, gkb *GroupKeyBackup,
+			_ *asset.Asset) {
+
+			gkb.Witness = nil
+		},
+	}}
+	for _, tc := range tamperCases {
+		t.Run(tc.name, func(t *testing.T) {
+			group := newTestGroup(t, asset.GroupKeyV0, noRoot)
+			gkb := newTestGroupKeyBackup(group)
+			a := newTestReissuance(t, group)
+			tc.tamper(t, gkb, a)
+
+			registrar := &mockGroupRegistrar{}
+			known := make(map[asset.SerializedKey]bool)
+			err := registerRecordedGroups(
+				ctx, &ImportConfig{GroupRegistrar: registrar},
+				[]*AssetBackup{{Asset: a, GroupKeyInfo: gkb}},
+				known,
+			)
+			require.NoError(t, err)
+			require.Empty(t, known)
+			require.Empty(t, registrar.groups)
+		})
+	}
+
+	t.Run("info on ungrouped asset ignored", func(t *testing.T) {
+		group := newTestGroup(t, asset.GroupKeyV0, noRoot)
+		registrar := &mockGroupRegistrar{}
+		known := make(map[asset.SerializedKey]bool)
+		err := registerRecordedGroups(
+			ctx, &ImportConfig{GroupRegistrar: registrar},
+			[]*AssetBackup{{
+				Asset:        newTestAsset(t),
+				GroupKeyInfo: newTestGroupKeyBackup(group),
+			}}, known,
+		)
+		require.NoError(t, err)
+		require.Empty(t, known)
+		require.Empty(t, registrar.groups)
+	})
 }

@@ -87,6 +87,12 @@ type ImportConfig struct {
 	// whose proofs directory survived would otherwise skip every asset.
 	// If nil, ProofArchive is used.
 	WalletProofs proof.Exporter
+
+	// GroupRegistrar makes the asset groups recorded in the backup known
+	// to the wallet, the same way a universe sync of the group would.
+	// Without it the groups are only accepted for the duration of the
+	// import. Optional.
+	GroupRegistrar GroupRegistrar
 }
 
 // keyMaterialComplete reports whether the key info of an entry carries the
@@ -249,6 +255,127 @@ func extractGroupKeys(proofBlob []byte,
 		gk[:])
 }
 
+// recordedGroup verifies the group info recorded on a backup entry against
+// the group key the entry's asset claims to belong to and returns the group.
+// The tweaked group key is re-derived from the recorded raw key and anchor
+// genesis, so an entry cannot whitelist a group key its record does not
+// actually describe.
+func recordedGroup(ab *AssetBackup) (*asset.AssetGroup, error) {
+	if ab.GroupKeyInfo == nil || ab.Asset == nil ||
+		ab.Asset.GroupKey == nil {
+
+		return nil, nil
+	}
+
+	groupKey, err := ab.GroupKeyInfo.GroupKey()
+	if err != nil {
+		return nil, err
+	}
+
+	claimed := &ab.Asset.GroupKey.GroupPubKey
+	if !groupKey.GroupPubKey.IsEqual(claimed) {
+		return nil, fmt.Errorf("recorded group derives to %x, entry "+
+			"claims %x", asset.ToSerialized(&groupKey.GroupPubKey),
+			asset.ToSerialized(claimed))
+	}
+
+	if len(groupKey.Witness) == 0 {
+		return nil, fmt.Errorf("recorded group has no anchor witness")
+	}
+
+	anchorGenesis := ab.GroupKeyInfo.AnchorGenesis
+	return &asset.AssetGroup{
+		Genesis:  &anchorGenesis,
+		GroupKey: groupKey,
+	}, nil
+}
+
+// registerRecordedGroups collects the asset groups recorded in the backup,
+// adds their keys to the set of known group keys and, if a registrar is
+// configured, makes them known to the wallet. A record that does not verify
+// is logged and ignored, the entry then depends on the group being known
+// some other way. Registrar failures are infrastructure errors and fatal.
+func registerRecordedGroups(ctx context.Context, cfg *ImportConfig,
+	entries []*AssetBackup, known map[asset.SerializedKey]bool) error {
+
+	registered := make(map[asset.SerializedKey]struct{})
+	for i, ab := range entries {
+		group, err := recordedGroup(ab)
+		if err != nil {
+			assetID := ab.Asset.ID()
+			log.Warnf("Ignoring group info of asset %d (id=%x): "+
+				"%v", i, assetID[:], err)
+			continue
+		}
+		if group == nil {
+			continue
+		}
+
+		key := asset.ToSerialized(&group.GroupKey.GroupPubKey)
+		if _, done := registered[key]; done {
+			continue
+		}
+		registered[key] = struct{}{}
+		known[key] = true
+
+		if cfg.GroupRegistrar == nil {
+			continue
+		}
+
+		err = cfg.GroupRegistrar.InsertAssetGen(
+			ctx, group.Genesis, group.GroupKey,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to register group %x: %w",
+				key[:], err)
+		}
+
+		log.Debugf("Registered group %x from backup entry %d",
+			key[:], i)
+	}
+
+	if len(registered) > 0 {
+		log.Infof("Registered %d group(s) recorded in the backup",
+			len(registered))
+	}
+
+	return nil
+}
+
+// warnUnknownGroups logs, once per group, every group that neither the proof
+// data nor the group info of the backup entries describe. Entries of such a
+// group are only restored if the wallet knows the group already, or learns it
+// from a group anchor proof fetched during the import.
+func warnUnknownGroups(entries []*AssetBackup,
+	known map[asset.SerializedKey]bool) {
+
+	warned := make(map[asset.SerializedKey]struct{})
+	for i, ab := range entries {
+		if ab.Asset == nil || ab.Asset.GroupKey == nil {
+			continue
+		}
+
+		key := asset.ToSerialized(&ab.Asset.GroupKey.GroupPubKey)
+		if known[key] {
+			continue
+		}
+		if _, done := warned[key]; done {
+			continue
+		}
+		warned[key] = struct{}{}
+
+		reason := "the entry has no group info and its genesis " +
+			"proof carries no group key reveal"
+		if ab.GroupKeyInfo != nil {
+			reason = "the entry's group info did not verify"
+		}
+
+		log.Warnf("Group %x of asset %d is not described by the "+
+			"backup, %s. Its leaves are only restored if the "+
+			"wallet already knows the group", key[:], i, reason)
+	}
+}
+
 // ImportBackup decodes and imports assets from a backup blob.
 // Returns the number of newly imported assets and the number
 // skipped due to per-asset errors.
@@ -326,6 +453,18 @@ func ImportBackup(ctx context.Context, backupBlob []byte,
 		log.Infof("Pre-extracted %d group key(s) from "+
 			"backup proof data", len(knownGroupKeys))
 	}
+
+	// Groups recorded on the entries cover the leaves whose proofs carry
+	// no reveal, which is every tranche minted into a group after the
+	// group anchor.
+	err = registerRecordedGroups(
+		ctx, cfg, walletBackup.Assets, knownGroupKeys,
+	)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	warnUnknownGroups(walletBackup.Assets, knownGroupKeys)
 
 	// Build an augmented GroupVerifier that accepts
 	// pre-extracted group keys alongside the normal DB lookup.

@@ -12631,13 +12631,14 @@ func (r *RPCServer) ImportAssetsFromBackup(ctx context.Context,
 	*wrpc.ImportAssetsFromBackupResponse, error) {
 
 	cfg := &backup.ImportConfig{
-		SpendChecker:  r.cfg.Lnd.ChainNotifier,
-		ChainQuerier:  r.cfg.ChainBridge,
-		ProofArchive:  r.cfg.ProofArchive,
-		KeyRegistrar:  r.cfg.TapAddrBook,
-		ProofVerifier: r.ProofVerifierCtx(ctx),
-		KeyDeriver:    r.cfg.Lnd.WalletKit,
-		WalletProofs:  r.cfg.AssetStore,
+		SpendChecker:   r.cfg.Lnd.ChainNotifier,
+		ChainQuerier:   r.cfg.ChainBridge,
+		ProofArchive:   r.cfg.ProofArchive,
+		KeyRegistrar:   r.cfg.TapAddrBook,
+		ProofVerifier:  r.ProofVerifierCtx(ctx),
+		KeyDeriver:     r.cfg.Lnd.WalletKit,
+		WalletProofs:   r.cfg.AssetStore,
+		GroupRegistrar: r.cfg.TapAddrBook,
 	}
 
 	numImported, numSkipped, err := backup.ImportBackup(

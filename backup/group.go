@@ -24,6 +24,14 @@ type GroupLookup interface {
 		groupKey *btcec.PublicKey) (*asset.AssetGroup, error)
 }
 
+// GroupRegistrar makes an asset group known to the wallet.
+type GroupRegistrar interface {
+	// InsertAssetGen inserts the genesis of the asset that created a group
+	// together with the group key itself.
+	InsertAssetGen(ctx context.Context, gen *asset.Genesis,
+		group *asset.GroupKey) error
+}
+
 // GroupKeyBackup describes the asset group a backed up leaf belongs to. It
 // carries what a fresh wallet needs to verify that the group key of the leaf
 // is legitimate: the genesis of the group anchor and the group key parameters
