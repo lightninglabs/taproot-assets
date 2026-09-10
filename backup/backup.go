@@ -69,6 +69,12 @@ type AssetBackup struct {
 	// internal key used in the anchor taproot output.
 	AnchorInternalKeyInfo *KeyDescriptorBackup
 
+	// GroupKeyInfo describes the asset group of a grouped leaf, so a fresh
+	// wallet can verify the group key without having seen the group
+	// anchor's proof. Nil for ungrouped leaves and for entries written by
+	// a wallet that could not describe the group.
+	GroupKeyInfo *GroupKeyBackup
+
 	// ProofFileBlob contains the complete encoded proof file for
 	// this asset. This preserves the full proof chain and all
 	// proof data without needing to reconstruct anything.
@@ -138,7 +144,8 @@ type WalletBackup struct {
 // for spending.
 func createAssetBackup(ctx context.Context,
 	chainAsset *asset.ChainAsset, proofBlob proof.Blob,
-	keyLookup KeyLocatorLookup) (*AssetBackup, error) {
+	keyLookup KeyLocatorLookup, groups *groupBackups) (*AssetBackup,
+	error) {
 
 	if chainAsset == nil || chainAsset.Asset == nil {
 		return nil, fmt.Errorf("chain asset is nil")
@@ -201,18 +208,35 @@ func createAssetBackup(ctx context.Context,
 		}
 	}
 
+	// Record the asset group of a grouped leaf. Only the genesis proof of
+	// the group anchor carries a group key reveal, so a restore cannot
+	// learn the group from the proof of a reissued leaf.
+	if chainAsset.GroupKey != nil {
+		gkb, err := groups.forGroup(
+			ctx, &chainAsset.GroupKey.GroupPubKey,
+		)
+		if err != nil {
+			return nil, err
+		}
+		backup.GroupKeyInfo = gkb
+	}
+
 	return backup, nil
 }
 
 // collectAssetBackups collects backup data for all provided assets.
 // The keyLookup parameter is optional - if nil, anchor internal key locators
-// will not be populated (only the public keys will be included).
+// will not be populated (only the public keys will be included). The
+// groupLookup parameter is optional as well - if nil, the asset groups of
+// grouped leaves are not recorded.
 func collectAssetBackups(ctx context.Context,
 	assets []*asset.ChainAsset,
 	proofArchive proof.Exporter,
-	keyLookup KeyLocatorLookup) ([]*AssetBackup, error) {
+	keyLookup KeyLocatorLookup,
+	groupLookup GroupLookup) ([]*AssetBackup, error) {
 
 	backups := make([]*AssetBackup, 0, len(assets))
+	groups := newGroupBackups(groupLookup)
 
 	for _, chainAsset := range assets {
 		if chainAsset == nil || chainAsset.Asset == nil {
@@ -238,7 +262,7 @@ func collectAssetBackups(ctx context.Context,
 
 		// Create the backup for this asset using the raw proof blob.
 		assetBackup, err := createAssetBackup(
-			ctx, chainAsset, proofBlob, keyLookup,
+			ctx, chainAsset, proofBlob, keyLookup, groups,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create backup for "+
@@ -257,9 +281,11 @@ func collectAssetBackups(ctx context.Context,
 // in the backup.
 func collectAssetBackupsOptimistic(ctx context.Context,
 	assets []*asset.ChainAsset,
-	keyLookup KeyLocatorLookup) ([]*AssetBackup, error) {
+	keyLookup KeyLocatorLookup,
+	groupLookup GroupLookup) ([]*AssetBackup, error) {
 
 	backups := make([]*AssetBackup, 0, len(assets))
+	groups := newGroupBackups(groupLookup)
 
 	for _, chainAsset := range assets {
 		if chainAsset == nil || chainAsset.Asset == nil {
@@ -268,7 +294,7 @@ func collectAssetBackupsOptimistic(ctx context.Context,
 
 		// Create the backup with no proof blob.
 		assetBackup, err := createAssetBackup(
-			ctx, chainAsset, nil, keyLookup,
+			ctx, chainAsset, nil, keyLookup, groups,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create backup for "+
