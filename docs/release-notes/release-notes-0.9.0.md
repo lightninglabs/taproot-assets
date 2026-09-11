@@ -303,6 +303,14 @@
   single database query instead of materializing assets once per managed
   UTXO.
 
+* [PR#2299](https://github.com/lightninglabs/taproot-assets/pull/2299)
+  encodes nested TLV records once. The TLV stream asks each record for
+  its size before writing it, and the size functions of nested records
+  serialized their value to measure it, so every level of nesting
+  doubled the encoding work below it. Encoding a single proof is now
+  roughly seven times faster, and encoding a channel commitment blob
+  carrying proofs for a dozen outputs roughly nineteen times faster.
+
 * [PR#2300](https://github.com/lightninglabs/taproot-assets/pull/2300)
   avoids deep-copying the split commitment proof when the VM validates
   a split asset, cutting the allocations of split validation by roughly
