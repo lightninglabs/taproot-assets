@@ -254,6 +254,12 @@ func SetNodeUTXOs(t *harnessTest, wallet *node.HarnessNode,
 
 	minerAddr := t.lndHarness.Miner().NewMinerAddress()
 
+	// The send-all below only spends confirmed outputs, and the wallet
+	// counts confirmations against its own synced height rather than the
+	// chain notifier's. Make sure it has caught up first, or coins that
+	// were confirmed in the most recent block are invisible to the sweep.
+	t.lndHarness.WaitForBlockchainSync(wallet)
+
 	// Drain any funds held by the node.
 	wallet.RPC.SendCoins(&lnrpc.SendCoinsRequest{
 		Addr:        minerAddr.EncodeAddress(),
