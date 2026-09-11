@@ -3232,6 +3232,49 @@ func (q *Queries) UpsertAssetGroupKey(ctx context.Context, arg UpsertAssetGroupK
 	return group_id, err
 }
 
+const UpsertAssetGroupKeyFull = `-- name: UpsertAssetGroupKeyFull :one
+INSERT INTO asset_groups (
+    version, tweaked_group_key, tapscript_root, internal_key_id,
+    genesis_point_id, custom_subtree_root_id
+) VALUES (
+    $1, $2, $3, $4, $5, $6
+) ON CONFLICT (tweaked_group_key)
+    -- The caller knows the group's raw key, so it also knows the version and
+    -- roots the tweaked key is derived from. Replace whatever an earlier
+    -- import of a reissuance stored, which had none of that and used the
+    -- tweaked key in place of the raw key.
+    DO UPDATE SET
+        version = EXCLUDED.version,
+        tapscript_root = EXCLUDED.tapscript_root,
+        internal_key_id = EXCLUDED.internal_key_id,
+        genesis_point_id = EXCLUDED.genesis_point_id,
+        custom_subtree_root_id = EXCLUDED.custom_subtree_root_id
+RETURNING group_id
+`
+
+type UpsertAssetGroupKeyFullParams struct {
+	Version             int32
+	TweakedGroupKey     []byte
+	TapscriptRoot       []byte
+	InternalKeyID       int64
+	GenesisPointID      int64
+	CustomSubtreeRootID sql.NullInt32
+}
+
+func (q *Queries) UpsertAssetGroupKeyFull(ctx context.Context, arg UpsertAssetGroupKeyFullParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, UpsertAssetGroupKeyFull,
+		arg.Version,
+		arg.TweakedGroupKey,
+		arg.TapscriptRoot,
+		arg.InternalKeyID,
+		arg.GenesisPointID,
+		arg.CustomSubtreeRootID,
+	)
+	var group_id int64
+	err := row.Scan(&group_id)
+	return group_id, err
+}
+
 const UpsertAssetGroupWitness = `-- name: UpsertAssetGroupWitness :one
 INSERT INTO asset_group_witnesses (
     witness_stack, gen_asset_id, group_key_id

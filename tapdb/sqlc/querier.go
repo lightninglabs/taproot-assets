@@ -416,6 +416,7 @@ type Querier interface {
 	UpsertAddrEventProof(ctx context.Context, arg UpsertAddrEventProofParams) (int64, error)
 	UpsertAsset(ctx context.Context, arg UpsertAssetParams) (int64, error)
 	UpsertAssetGroupKey(ctx context.Context, arg UpsertAssetGroupKeyParams) (int64, error)
+	UpsertAssetGroupKeyFull(ctx context.Context, arg UpsertAssetGroupKeyFullParams) (int64, error)
 	UpsertAssetGroupWitness(ctx context.Context, arg UpsertAssetGroupWitnessParams) (int64, error)
 	UpsertAssetMeta(ctx context.Context, arg UpsertAssetMetaParams) (int64, error)
 	UpsertAssetProofByID(ctx context.Context, arg UpsertAssetProofByIDParams) error
