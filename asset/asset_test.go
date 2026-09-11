@@ -720,6 +720,25 @@ func TestAssetType(t *testing.T) {
 	collectible, err := New(collectibleGen, 1, 0, 0, scriptKey, nil)
 	require.NoError(t, err)
 	require.EqualValues(t, 1, collectible.Amount)
+	require.NoError(t, collectible.Validate())
+
+	// Decoded assets do not pass through New, so Validate enforces the
+	// same issuance invariant.
+	collectible.Amount = 2
+	err = collectible.Validate()
+	wantErr := "amount must be 1 for genesis asset of type Collectible"
+	require.ErrorContains(
+		t, err, wantErr,
+	)
+
+	normal.Genesis.Type = Type(2)
+	require.ErrorContains(t, normal.Validate(), "unknown asset type: 2")
+
+	normal.Genesis.Type = Normal
+	normal.ScriptVersion = ScriptVersion(1)
+	require.ErrorContains(
+		t, normal.Validate(), "unknown asset script version: 1",
+	)
 }
 
 // TestAssetID makes sure that the asset ID is derived correctly.

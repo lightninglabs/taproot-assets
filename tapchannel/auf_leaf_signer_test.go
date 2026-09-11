@@ -251,7 +251,7 @@ var _ VirtualPacketSigner = (*mockVirtualSigner)(nil)
 
 // randProof returns a random proof that contains all information required for
 // it to be successfully serialized.
-func randProof(t *testing.T) proof.Proof {
+func randProof(t testing.TB) proof.Proof {
 	oddTxBlockHex, err := os.ReadFile(oddTxBlockHexFileName)
 	require.NoError(t, err)
 

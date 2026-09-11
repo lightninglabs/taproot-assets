@@ -829,6 +829,17 @@ func TestProofFileVerification(t *testing.T) {
 	require.ErrorIs(t, err, ErrUnknownVersion)
 }
 
+// TestEmptyProofFileVerification ensures an empty proof file cannot verify an
+// asset state.
+func TestEmptyProofFileVerification(t *testing.T) {
+	t.Parallel()
+
+	f := NewEmptyFile(V0)
+	snapshot, err := f.Verify(context.Background(), MockVerifierCtx)
+	require.Nil(t, snapshot)
+	require.ErrorIs(t, err, ErrEmptyProofFile)
+}
+
 // TestProofVerification ensures that the proof encoding and decoding works as
 // expected.
 func TestProofVerification(t *testing.T) {

@@ -2101,19 +2101,9 @@ func (a *Asset) EncodeRecords() []tlv.Record {
 //
 // NOTE: This is part of the tlv.RecordProducer interface.
 func (a *Asset) Record() tlv.Record {
-	sizeFunc := func() uint64 {
-		var buf bytes.Buffer
-		if err := a.Encode(&buf); err != nil {
-			panic(err)
-		}
-		return uint64(len(buf.Bytes()))
-	}
-
 	// We pass 0 here as the type will be overridden when used along with
 	// the tlv.RecordT type.
-	return tlv.MakeDynamicRecord(
-		0, a, sizeFunc, LeafEncoder, LeafDecoder,
-	)
+	return EncodeOnceRecord(0, a, LeafEncoder, LeafDecoder)
 }
 
 // DecodeRecords provides all records known for an asset witness for proper
@@ -2208,6 +2198,29 @@ func (a *Asset) Validate() error {
 	// TODO(ffranr): Add validation check for remaining fields.
 	if a.ScriptKey.PubKey == nil {
 		return fmt.Errorf("asset script key is missing")
+	}
+
+	switch a.Genesis.Type {
+	case Normal, Collectible:
+
+	default:
+		return fmt.Errorf("unknown asset type: %d", a.Genesis.Type)
+	}
+
+	if a.ScriptVersion != ScriptV0 {
+		return fmt.Errorf("unknown asset script version: %d",
+			a.ScriptVersion)
+	}
+
+	// The amount restriction enforced during local asset construction is
+	// also a proof validity rule. Proofs are decoded directly into Asset
+	// values, so constructor validation alone cannot enforce it for assets
+	// received from another node.
+	if a.IsGenesisAsset() && a.Genesis.Type == Collectible &&
+		a.Amount != 1 {
+
+		return fmt.Errorf("amount must be 1 for genesis asset of "+
+			"type %v", a.Genesis.Type)
 	}
 
 	return ValidateAssetName(a.Genesis.Tag)

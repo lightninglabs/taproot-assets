@@ -1,7 +1,6 @@
 package address
 
 import (
-	"bytes"
 	"net/url"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -95,18 +94,9 @@ func newAddressInternalKeyRecord(internalKey *btcec.PublicKey) tlv.Record {
 func newAddressTapscriptSiblingRecord(
 	tapscriptSibling **commitment.TapscriptPreimage) tlv.Record {
 
-	sizeFunc := func() uint64 {
-		var buf bytes.Buffer
-		err := commitment.TapscriptPreimageEncoder(
-			&buf, tapscriptSibling, &[8]byte{},
-		)
-		if err != nil {
-			panic(err)
-		}
-		return uint64(len(buf.Bytes()))
-	}
-	return tlv.MakeDynamicRecord(
-		addrTapscriptSiblingType, tapscriptSibling, sizeFunc,
+	return asset.EncodeOnceRecord(
+		addrTapscriptSiblingType,
+		tapscriptSibling,
 		commitment.TapscriptPreimageEncoder,
 		commitment.TapscriptPreimageDecoder,
 	)

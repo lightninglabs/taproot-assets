@@ -42,6 +42,16 @@ func genTaprootKeySpend(t testing.TB, privKey btcec.PrivateKey,
 	return wire.TxWitness{sig.Serialize()}
 }
 
+// TestDefaultGenConfig verifies that new proofs use STXO-capable V1
+// transitions unless a legacy caller selects V0 explicitly.
+func TestDefaultGenConfig(t *testing.T) {
+	t.Parallel()
+
+	cfg := DefaultGenConfig()
+	require.Equal(t, TransitionV1, cfg.TransitionVersion)
+	require.False(t, cfg.NoSTXOProofs)
+}
+
 // TestAppendTransition tests that a proof can be appended to an existing proof
 // for an asset transition.
 func TestAppendTransition(t *testing.T) {
@@ -321,6 +331,87 @@ func TestVerifyProofSuffix(t *testing.T) {
 	})
 }
 
+// TestFullFileAnchorInputs checks that full-file verification binds each asset
+// input to the anchor transaction.
+func TestFullFileAnchorInputs(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name            string
+		sharedAnchorOut bool
+		omitInput       bool
+		expectErr       bool
+	}{
+		{
+			name: "separate anchor outputs",
+		},
+		{
+			name:      "anchor omits additional input",
+			omitInput: true,
+			expectErr: true,
+		},
+		{
+			name:            "inputs share anchor output",
+			sharedAnchorOut: true,
+		},
+	}
+
+	for _, testCase := range testCases {
+		testCase := testCase
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			suffix, inputFiles := buildMergeSuffix(
+				t, testCase.sharedAnchorOut,
+			)
+			primaryPrevID, err := suffix.Asset.PrimaryPrevID()
+			require.NoError(t, err)
+			require.NotNil(t, primaryPrevID)
+
+			var primaryFile, additionalFile *File
+			for prevID, inputFile := range inputFiles {
+				if prevID == *primaryPrevID {
+					primaryFile = inputFile
+				} else {
+					additionalFile = inputFile
+				}
+			}
+			require.NotNil(t, primaryFile)
+			require.NotNil(t, additionalFile)
+
+			suffix.AdditionalInputs = []File{*additionalFile}
+			if testCase.omitInput {
+				require.Len(t, suffix.AnchorTx.TxIn, 2)
+				suffix.AnchorTx.TxIn = suffix.AnchorTx.TxIn[:1]
+			}
+
+			numProofs := uint32(primaryFile.NumProofs())
+			proofs := make([]Proof, 0, numProofs+1)
+			for idx := uint32(0); idx < numProofs; idx++ {
+				inputProof, err := primaryFile.ProofAt(idx)
+				require.NoError(t, err)
+				proofs = append(proofs, *inputProof)
+			}
+			proofs = append(proofs, *suffix)
+
+			fullFile, err := NewFile(V0, proofs...)
+			require.NoError(t, err)
+
+			_, err = fullFile.Verify(
+				context.Background(), MockVerifierCtx,
+			)
+			if testCase.expectErr {
+				require.ErrorContains(
+					t, err, "does not spend input",
+				)
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
 // TestMalformedProofNoPanic ensures that structurally incomplete proofs,
 // such as those decoded without mandatory records, are rejected with errors
 // instead of crashing verification or encoding.
@@ -528,6 +619,11 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 	split2Asset := &splitCommitment.SplitAssets[*split2Locator].Asset
 	split3Asset := &splitCommitment.SplitAssets[*split3Locator].Asset
 
+	// The root locator's inclusion proof into the split tree is retained
+	// in the root locator split asset's split commitment witness.
+	rootLocatorProof := splitCommitment.SplitAssets[*rootLocator].
+		PrevWitnesses[0].SplitCommitment.Proof
+
 	split2AssetNoSplitProof := split2Asset.Copy()
 	split2AssetNoSplitProof.PrevWitnesses[0].SplitCommitment = nil
 
@@ -713,7 +809,8 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 				},
 			}},
 		},
-		NewAsset: split1Asset,
+		NewAsset:         split1Asset,
+		RootLocatorProof: &rootLocatorProof,
 	}
 
 	split1Blob, split1Proof, err := AppendTransition(
@@ -757,6 +854,7 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 		RootInternalKey:      internalKey1,
 		RootOutputIndex:      0,
 		RootTaprootAssetTree: tap1Commitment,
+		RootLocatorProof:     &rootLocatorProof,
 	}
 
 	split2Blob, split2Proof, err := AppendTransition(
@@ -801,6 +899,7 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 		RootInternalKey:      internalKey1,
 		RootOutputIndex:      0,
 		RootTaprootAssetTree: tap1Commitment,
+		RootLocatorProof:     &rootLocatorProof,
 	}
 
 	split3Blob, split3Proof, err := AppendTransition(
@@ -920,6 +1019,15 @@ func buildTransitionProofFile(t *testing.T, lockTime,
 func buildMergeSuffix(t *testing.T, sharedAnchorOut bool) (*Proof,
 	map[asset.PrevID]*File) {
 
+	suffix, inputFiles, _ := buildMergeSuffixWithKeys(t, sharedAnchorOut)
+	return suffix, inputFiles
+}
+
+// buildMergeSuffixWithKeys also returns the private key controlling each
+// input so tests can construct ownership proofs for those input states.
+func buildMergeSuffixWithKeys(t *testing.T, sharedAnchorOut bool) (*Proof,
+	map[asset.PrevID]*File, map[asset.PrevID]*btcec.PrivateKey) {
+
 	t.Helper()
 
 	amt := uint64(100)
@@ -973,6 +1081,11 @@ func buildMergeSuffix(t *testing.T, sharedAnchorOut bool) (*Proof,
 	leafAsset := &splitCommitment.SplitAssets[*leafLocator].Asset
 	leafAssetNoSplitProof := leafAsset.Copy()
 	leafAssetNoSplitProof.PrevWitnesses[0].SplitCommitment = nil
+
+	// The root locator's inclusion proof into the split tree is retained
+	// in the root locator split asset's split commitment witness.
+	rootLocatorProof := splitCommitment.SplitAssets[*rootLocator].
+		PrevWitnesses[0].SplitCommitment.Proof
 
 	signAssetTransfer(
 		t, &genesisProof, rootAsset, senderPrivKey,
@@ -1096,7 +1209,8 @@ func buildMergeSuffix(t *testing.T, sharedAnchorOut bool) (*Proof,
 			TaprootAssetRoot: rootTap,
 			ExclusionProofs:  rootExclusions,
 		},
-		NewAsset: rootAsset,
+		NewAsset:         rootAsset,
+		RootLocatorProof: &rootLocatorProof,
 	}
 	rootBlob, _, err := AppendTransition(
 		genesisBlob, rootParams, MockVerifierCtx,
@@ -1118,6 +1232,7 @@ func buildMergeSuffix(t *testing.T, sharedAnchorOut bool) (*Proof,
 		RootInternalKey:      rootInternalKey,
 		RootOutputIndex:      0,
 		RootTaprootAssetTree: rootTap,
+		RootLocatorProof:     &rootLocatorProof,
 	}
 	leafBlob, _, err := AppendTransition(
 		genesisBlob, leafParams, MockVerifierCtx,
@@ -1228,9 +1343,12 @@ func buildMergeSuffix(t *testing.T, sharedAnchorOut bool) (*Proof,
 	require.NoError(t, leafFile.Decode(bytes.NewReader(leafBlob)))
 
 	return suffix, map[asset.PrevID]*File{
-		*rootPrevID: rootFile,
-		*leafPrevID: leafFile,
-	}
+			*rootPrevID: rootFile,
+			*leafPrevID: leafFile,
+		}, map[asset.PrevID]*btcec.PrivateKey{
+			*rootPrevID: rootPrivKey,
+			*leafPrevID: leafPrivKey,
+		}
 }
 
 // signAssetTransfer creates a virtual transaction for an asset transfer and

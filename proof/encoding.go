@@ -13,6 +13,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -198,6 +199,54 @@ func SplitRootProofDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 		return nil
 	}
 	return tlv.NewTypeForEncodingErr(val, "TaprootProof")
+}
+
+// RootLocatorProofEncoder encodes the MS-SMT Merkle proof of the root
+// locator's split leaf as a compressed MS-SMT proof.
+func RootLocatorProofEncoder(w io.Writer, val any, buf *[8]byte) error {
+	if t, ok := val.(**mssmt.Proof); ok {
+		var proof bytes.Buffer
+		if err := (*t).Compress().Encode(&proof); err != nil {
+			return err
+		}
+		proofBytes := proof.Bytes()
+		return asset.InlineVarBytesEncoder(w, &proofBytes, buf)
+	}
+	return tlv.NewTypeForEncodingErr(val, "*mssmt.Proof")
+}
+
+// RootLocatorProofDecoder decodes the MS-SMT Merkle proof of the root
+// locator's split leaf.
+func RootLocatorProofDecoder(r io.Reader, val any, buf *[8]byte,
+	l uint64) error {
+
+	if l > tlv.MaxRecordSize {
+		return tlv.ErrRecordTooLarge
+	}
+
+	if typ, ok := val.(**mssmt.Proof); ok {
+		var proofBytes []byte
+		err := asset.InlineVarBytesDecoder(r, &proofBytes, buf, l)
+		if err != nil {
+			return err
+		}
+
+		var proof mssmt.CompressedProof
+		err = proof.Decode(bytes.NewReader(proofBytes))
+		if err != nil {
+			return err
+		}
+
+		fullProof, err := proof.Decompress()
+		if err != nil {
+			return err
+		}
+
+		*typ = fullProof
+
+		return nil
+	}
+	return tlv.NewTypeForDecodingErr(val, "*mssmt.Proof", l, l)
 }
 
 func TaprootProofsEncoder(w io.Writer, val any, buf *[8]byte) error {

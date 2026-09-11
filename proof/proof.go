@@ -13,6 +13,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -282,6 +283,19 @@ type Proof struct {
 	// asset of the split.
 	SplitRootProof *TaprootProof
 
+	// RootLocatorProof is an optional MS-SMT Merkle proof that proves the
+	// inclusion of the root locator's split leaf within the split
+	// commitment tree rooted at the root asset's SplitCommitmentRoot. The
+	// root locator leaf commits to the same amount, script key and anchor
+	// output index as the root asset itself, which binds the root asset's
+	// amount to the split tree sum that the asset VM enforces against the
+	// input amount.
+	//
+	// The field is set for every split transition, both for the proof of
+	// the root asset itself and for the proof of any split asset, and is
+	// verified whenever present.
+	RootLocatorProof *mssmt.Proof
+
 	// MetaReveal is the set of bytes that were revealed to prove the
 	// derivation of the meta data hash contained in the genesis asset.
 	//
@@ -386,6 +400,11 @@ func (p *Proof) EncodeRecords() []tlv.Record {
 	if len(p.AltLeaves) > 0 {
 		records = append(records, AltLeavesRecord(&p.AltLeaves))
 	}
+	if p.RootLocatorProof != nil {
+		records = append(records, RootLocatorProofRecord(
+			&p.RootLocatorProof,
+		))
+	}
 
 	// Add any unknown odd types that were encountered during decoding.
 	return asset.CombineRecords(records, p.UnknownOddTypes)
@@ -410,6 +429,7 @@ func (p *Proof) DecodeRecords() []tlv.Record {
 		GenesisRevealRecord(&p.GenesisReveal),
 		GroupKeyRevealRecord(&p.GroupKeyReveal),
 		AltLeavesRecord(&p.AltLeaves),
+		RootLocatorProofRecord(&p.RootLocatorProof),
 	}
 }
 
@@ -482,17 +502,9 @@ func (p *Proof) Bytes() ([]byte, error) {
 //
 // NOTE: This is part of the tlv.RecordProducer interface.
 func (p *Proof) Record() tlv.Record {
-	sizeFunc := func() uint64 {
-		proofBytes, err := p.Bytes()
-		if err != nil {
-			panic(err)
-		}
-		return uint64(len(proofBytes))
-	}
-
 	// Note that we set the type here as zero, as when used with a
 	// tlv.RecordT, the type param will be used as the type.
-	return tlv.MakeDynamicRecord(0, p, sizeFunc, Encoder, Decoder)
+	return asset.EncodeOnceRecord(0, p, Encoder, Decoder)
 }
 
 // IsUnknownVersion returns true if a proof has a version that is not recognized

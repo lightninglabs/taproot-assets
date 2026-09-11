@@ -26,6 +26,16 @@ type Engine struct {
 
 	// splitAssets represents zero or more asset splits committed to within
 	// the newAsset's SplitCommitmentRoot.
+	//
+	// NOTE: The VM only validates the split assets it is given. If
+	// newAsset carries a SplitCommitmentRoot, the non-inflation check
+	// only compares the sum of the inputs against the split tree's sum;
+	// it does NOT verify that the tree contains a root locator leaf
+	// matching newAsset's amount, script key and anchor output index.
+	// Callers verifying a split transition are responsible for supplying
+	// that root locator split asset themselves (the proof package does
+	// this via the proof's RootLocatorProof field), otherwise the root
+	// asset's amount is not bound to the split tree.
 	splitAssets []*commitment.SplitAsset
 
 	// prevAssets maps newAsset's inputs by the hash of their PrevID to
@@ -90,6 +100,12 @@ func WithSkipTimeLockValidation() NewEngineOpt {
 
 // New returns a new virtual machine capable of executing and verifying Taproot
 // Asset state transitions.
+//
+// NOTE: For a split transition (newAsset carries a SplitCommitmentRoot), the
+// caller must supply all split assets relevant to the verification via
+// splitAssets, including the canonical root locator split asset. The VM's
+// non-inflation check alone does not bind newAsset's amount to the split
+// tree; see the comment on Engine.splitAssets.
 func New(newAsset *asset.Asset, splitAssets []*commitment.SplitAsset,
 	prevAssets commitment.InputSet, opts ...NewEngineOpt) (*Engine, error) {
 

@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/mssmt"
 )
 
 // GenConfig is a struct that holds the configuration for creating Taproot Asset
@@ -26,8 +27,26 @@ type GenConfig struct {
 // DefaultGenConfig returns a default proof generation configuration.
 func DefaultGenConfig() GenConfig {
 	return GenConfig{
-		TransitionVersion: TransitionV0,
+		TransitionVersion: TransitionV1,
 	}
+}
+
+// NewGenConfig applies the given options to the default proof generation
+// configuration. A version 1 transfer proof must carry STXO proofs, so
+// omitting them selects transition version 0 regardless of any version
+// option, and no caller can produce a proof whose version promises data
+// it does not carry.
+func NewGenConfig(opts ...GenOption) GenConfig {
+	cfg := DefaultGenConfig()
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+
+	if cfg.NoSTXOProofs {
+		cfg.TransitionVersion = TransitionV0
+	}
+
+	return cfg
 }
 
 // GenOption is a function type that can be used to modify the proof generation
@@ -43,7 +62,9 @@ func WithVersion(v TransitionVersion) GenOption {
 }
 
 // WithNoSTXOProofs is an option that can be used to skip the generation of
-// STXO inclusion and exclusion proofs for the transition proof.
+// STXO inclusion and exclusion proofs for the transition proof. A version 1
+// transfer proof must carry them, so omitting them also selects transition
+// version 0.
 func WithNoSTXOProofs() GenOption {
 	return func(cfg *GenConfig) {
 		cfg.NoSTXOProofs = true
@@ -74,6 +95,15 @@ type TransitionParams struct {
 	// RootTapscriptSibling is the tapscript sibling of the output at
 	// commits to the asset split root.
 	RootTapscriptSibling *commitment.TapscriptPreimage
+
+	// RootLocatorProof is the MS-SMT Merkle proof for the root locator's
+	// split leaf within the split commitment tree. It must be set whenever
+	// the transition is a split, meaning the new asset is either the split
+	// root asset (carrying a split commitment root) or a split asset
+	// (carrying a split commitment witness). The proof binds the root
+	// asset's amount, script key and anchor output index to the split
+	// tree.
+	RootLocatorProof *mssmt.Proof
 }
 
 // AppendTransition appends a new proof for a state transition to the given
@@ -164,10 +194,7 @@ func (p *Proof) UpdateTransitionProof(params *BaseProofParams) error {
 func CreateTransitionProof(prevOut wire.OutPoint, params *TransitionParams,
 	opts ...GenOption) (*Proof, error) {
 
-	cfg := DefaultGenConfig()
-	for _, opt := range opts {
-		opt(&cfg)
-	}
+	cfg := NewGenConfig(opts...)
 
 	proof, err := baseProof(
 		&params.BaseProofParams, prevOut, cfg.TransitionVersion,
@@ -329,6 +356,20 @@ func CreateTransitionProof(prevOut wire.OutPoint, params *TransitionParams,
 				TapSiblingPreimage: params.RootTapscriptSibling,
 			},
 		}
+	}
+
+	// If this transition is a split, we also include the MS-SMT inclusion
+	// proof of the root locator's split leaf, so a verifier can validate
+	// the root leaf like any other split leaf.
+	isSplit := proof.Asset.HasSplitCommitmentWitness() ||
+		proof.Asset.SplitCommitmentRoot != nil
+	if isSplit {
+		if params.RootLocatorProof == nil {
+			return nil, fmt.Errorf("missing root locator proof " +
+				"for split transition")
+		}
+
+		proof.RootLocatorProof = params.RootLocatorProof
 	}
 
 	return proof, nil
