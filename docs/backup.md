@@ -80,14 +80,17 @@ recognize them.
 | 6 | AnchorPkScript | no | `pk_script` of the anchor output (for spend detection) |
 | 7 | StrippedProofBlob | v2 only | Proof file with blockchain fields removed |
 | 9 | RehydrationHints | v2 only | Serialized `FileHints` needed to reconstruct stripped fields |
+| 11 | GroupKey | no | `GroupKeyBackup` — the asset group of a grouped leaf, see below |
 
-Types 7 and 9 are odd, so a v1-only decoder will safely skip them.
+Types 7, 9 and 11 are odd, so a decoder that does not know them will safely
+skip them.
 
-**v1 record order:** 0, 1, 2, [3], [4], 5, [6]
+**v1 record order:** 0, 1, 2, [3], [4], 5, [6], [11]
 
-**v2 record order:** 0, 1, 2, [3], [4], [6], 7, 9
+**v2 record order:** 0, 1, 2, [3], [4], [6], 7, 9, [11]
 
-**v3 record order:** 0, 1, 2, [3], [4], [6] (no proof data — types 5, 7, 9 absent)
+**v3 record order:** 0, 1, 2, [3], [4], [6], [11] (no proof data — types 5, 7,
+9 absent)
 
 ### ScriptKeyBackup TLV
 
@@ -107,6 +110,26 @@ Types 7 and 9 are odd, so a v1-only decoder will safely skip them.
 | 0 | PubKey | Public key (33 bytes, compressed) |
 | 1 | Family | Key family (`uint32`) |
 | 2 | Index | Key index (`uint32`) |
+
+### GroupKeyBackup TLV
+
+Present on entries whose asset carries a group key, if the exporting wallet
+knows the group well enough to describe it. It records the group anchor's
+genesis and the parameters the tweaked group key is derived from, so the
+importer can verify the group key without the anchor's proof.
+
+| Type | Name | Description |
+|------|------|-------------|
+| 0 | AnchorGenesis | `asset.Genesis` of the asset that created the group |
+| 1 | Version | Group key version (`uint8`), 0 or 1 |
+| 2 | RawKey | Untweaked internal key of the group (33 bytes, compressed) |
+| 3 | TapscriptRoot | Tapscript root committed to by the group key; absent if empty |
+| 4 | Witness | Group witness of the anchor's genesis (`wire.TxWitness`) |
+| 5 | CustomTapscriptRoot | Custom subtree root of a V1 group (32 bytes); optional |
+
+The importer rebuilds the group key reveal from these fields, derives the
+tweaked key with the anchor's asset ID and only accepts the record if the
+result equals the group key of the entry's asset.
 
 ### Decode safety limits
 
@@ -454,21 +477,37 @@ message ImportAssetsFromBackupResponse {
 #### Group key handling
 
 Assets with group keys require the importing node to know the
-group key. For backups that include the group anchor asset (the
-asset that created the group), the import process automatically
-extracts the group key from the genesis proof's `GroupKeyReveal`
-before verification. This means:
+group key. Before any proof is verified, the import learns groups
+from two sources:
 
-- **Group anchor present in backup:** import succeeds without
-  prior group key knowledge, for all backup modes (raw, compact,
-  optimistic).
+- **The `GroupKeyBackup` record of each grouped entry.** The
+  record is verified by re-deriving the tweaked group key from the
+  recorded raw key and anchor genesis. Accepted groups are inserted
+  into the wallet database with the anchor genesis and witness, the
+  same rows a universe sync of the group creates, so the restored
+  wallet knows the group from then on and its own backup describes
+  the group again.
 
-- **Reissuance-only backups:** if the group anchor is no longer
-  active (e.g. it was transferred) and the backup contains only
-  reissued or transferred group-member assets, the importing node
-  must have prior group key knowledge — typically from universe
-  federation sync or a previous import that included the anchor.
-  Without it, these assets are skipped during import.
+- **The genesis proof of a group anchor in the backup.** Its
+  `GroupKeyReveal` is extracted as before. This is the only source
+  for entries written by wallets that predate the group record.
+
+A group key reveal exists only on the genesis proof of the asset
+that created the group. Every tranche minted into the group later
+carries the group key without a reveal, so a wallet holding only
+such reissued leaves depends on the group record. Groups that
+neither source describes are logged once at warn level, and their
+entries are skipped unless the importing node already knows the
+group, typically from universe federation sync.
+
+The exporting wallet can only record a group whose raw key it
+knows, which is the case once the group anchor's proof has been
+seen (own mint or universe sync). A group learned through a
+reissuance proof alone is stored with the tweaked key in place of
+the raw key. Such a row is completed in place when the anchor's
+reveal is stored later, and the backup updater completes entries
+that were written without a group record as soon as the wallet can
+describe the group.
 
 #### Error handling
 

@@ -12613,7 +12613,7 @@ func (r *RPCServer) ExportAssetWalletBackup(ctx context.Context,
 	// Delegate to the backup package.
 	blob, err := backup.ExportBackup(
 		ctx, mode, confirmedAssets, r.cfg.ProofArchive,
-		r.cfg.TapAddrBook, fedURLs,
+		r.cfg.TapAddrBook, r.cfg.TapAddrBook, fedURLs,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to export backup: %w", err)
@@ -12631,13 +12631,14 @@ func (r *RPCServer) ImportAssetsFromBackup(ctx context.Context,
 	*wrpc.ImportAssetsFromBackupResponse, error) {
 
 	cfg := &backup.ImportConfig{
-		SpendChecker:  r.cfg.Lnd.ChainNotifier,
-		ChainQuerier:  r.cfg.ChainBridge,
-		ProofArchive:  r.cfg.ProofArchive,
-		KeyRegistrar:  r.cfg.TapAddrBook,
-		ProofVerifier: r.ProofVerifierCtx(ctx),
-		KeyDeriver:    r.cfg.Lnd.WalletKit,
-		WalletProofs:  r.cfg.AssetStore,
+		SpendChecker:   r.cfg.Lnd.ChainNotifier,
+		ChainQuerier:   r.cfg.ChainBridge,
+		ProofArchive:   r.cfg.ProofArchive,
+		KeyRegistrar:   r.cfg.TapAddrBook,
+		ProofVerifier:  r.ProofVerifierCtx(ctx),
+		KeyDeriver:     r.cfg.Lnd.WalletKit,
+		WalletProofs:   r.cfg.AssetStore,
+		GroupRegistrar: r.cfg.TapAddrBook,
 	}
 
 	numImported, numSkipped, err := backup.ImportBackup(

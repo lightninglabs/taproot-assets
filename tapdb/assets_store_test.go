@@ -3982,6 +3982,42 @@ func TestRestoreGroupWitness(t *testing.T) {
 	err = restoreGroupWitness(transferredAsset, proofBuf.Bytes())
 	require.NoError(t, err)
 	require.Equal(t, expectedWitness, transferredAsset.GroupKey.Witness)
+
+	// The genesis proof of a group anchor carries the group key reveal.
+	// The raw key, version and roots of the group are taken from it, so
+	// the wallet can re-derive the group later.
+	internalKey := test.RandPubKey(t)
+	customRoot := fn.Some(chainhash.Hash(test.RandBytes(32)))
+	reveal, err := asset.NewGroupKeyRevealV1(
+		asset.PedersenVersion, *internalKey,
+		genesisProof.Asset.Genesis.ID(), customRoot,
+	)
+	require.NoError(t, err)
+	genesisProof.GroupKeyReveal = &reveal
+
+	proofFile, err = proof.NewFile(proof.V0, genesisProof)
+	require.NoError(t, err)
+	proofBuf.Reset()
+	require.NoError(t, proofFile.Encode(&proofBuf))
+
+	transferredAsset = genesisProof.Asset.Copy()
+	transferredAsset.GroupKey.Witness = nil
+	transferredAsset.PrevWitnesses = []asset.Witness{{}}
+
+	err = restoreGroupWitness(transferredAsset, proofBuf.Bytes())
+	require.NoError(t, err)
+	require.Equal(t, expectedWitness, transferredAsset.GroupKey.Witness)
+	require.True(t, transferredAsset.GroupKey.RawKey.PubKey.IsEqual(
+		internalKey,
+	))
+	require.Equal(t, asset.GroupKeyV1, transferredAsset.GroupKey.Version)
+	require.Equal(
+		t, customRoot, transferredAsset.GroupKey.CustomTapscriptRoot,
+	)
+	require.Equal(
+		t, reveal.TapscriptRoot(),
+		transferredAsset.GroupKey.TapscriptRoot,
+	)
 }
 
 // TestFetchOrphanUTXOs tests that FetchOrphanUTXOs:
@@ -4382,4 +4418,114 @@ func insertOrphanUTXO(t *testing.T, ctx context.Context, db sqlc.Querier,
 	}
 
 	return outpoint
+}
+
+// TestAssetGroupKeyRepair asserts that a group first stored from a
+// reissuance proof, which knows neither the raw key nor the derivation
+// parameters of the group, is completed once the group anchor's key reveal
+// is stored, and that a V1 reveal keeps its version and custom subtree root.
+func TestAssetGroupKeyRepair(t *testing.T) {
+	t.Parallel()
+
+	_, _, db := newAssetStore(t)
+	ctx := context.Background()
+
+	anchorGen := asset.RandGenesis(t, asset.Normal)
+	anchorID := anchorGen.ID()
+	internalKey := test.RandPubKey(t)
+	customRoot := fn.Some(chainhash.Hash(test.RandBytes(32)))
+
+	reveal, err := asset.NewGroupKeyRevealV1(
+		asset.PedersenVersion, *internalKey, anchorID, customRoot,
+	)
+	require.NoError(t, err)
+	groupPubKey, err := reveal.GroupPubKey(anchorID)
+	require.NoError(t, err)
+
+	// A reissuance into the group arrives first. Its proof carries the
+	// tweaked key and a witness only.
+	reissueGen := asset.RandGenesis(t, asset.Normal)
+	reissuePointID, err := upsertGenesisPoint(
+		ctx, db, reissueGen.FirstPrevOut,
+	)
+	require.NoError(t, err)
+	reissueAssetID, err := upsertGenesis(
+		ctx, db, reissuePointID, reissueGen,
+	)
+	require.NoError(t, err)
+
+	_, err = upsertGroupKey(ctx, &asset.GroupKey{
+		GroupPubKey: *groupPubKey,
+		Witness:     wire.TxWitness{test.RandBytes(64)},
+	}, db, reissuePointID, reissueAssetID)
+	require.NoError(t, err)
+
+	// The stored group is incomplete: the tweaked key stands in for the
+	// raw key, the version and roots are unknown.
+	stored, err := fetchGroupByGroupKey(ctx, db, groupPubKey)
+	require.NoError(t, err)
+	require.True(t, stored.GroupKey.RawKey.PubKey.IsEqual(groupPubKey))
+	require.Equal(t, asset.GroupKeyV0, stored.GroupKey.Version)
+	require.Empty(t, stored.GroupKey.TapscriptRoot)
+
+	// Now the group anchor's genesis proof is ingested, the way a
+	// universe sync does it, with the derivation parameters taken from the
+	// key reveal.
+	anchorGroupKey := &asset.GroupKey{
+		GroupPubKey: *groupPubKey,
+		Witness:     wire.TxWitness{test.RandBytes(64)},
+	}
+	require.NoError(t, applyGroupKeyReveal(anchorGroupKey, &reveal))
+	require.Equal(t, asset.GroupKeyV1, anchorGroupKey.Version)
+	require.Equal(t, customRoot, anchorGroupKey.CustomTapscriptRoot)
+	require.True(t, anchorGroupKey.RawKey.PubKey.IsEqual(internalKey))
+
+	anchorPointID, err := upsertGenesisPoint(
+		ctx, db, anchorGen.FirstPrevOut,
+	)
+	require.NoError(t, err)
+	anchorAssetID, err := upsertGenesis(ctx, db, anchorPointID, anchorGen)
+	require.NoError(t, err)
+	_, err = upsertGroupKey(
+		ctx, anchorGroupKey, db, anchorPointID, anchorAssetID,
+	)
+	require.NoError(t, err)
+
+	// The row was repaired in place and now re-derives the group key.
+	repaired, err := fetchGroupByGroupKey(ctx, db, groupPubKey)
+	require.NoError(t, err)
+	require.True(t, repaired.GroupKey.RawKey.PubKey.IsEqual(internalKey))
+	require.Equal(t, asset.GroupKeyV1, repaired.GroupKey.Version)
+	require.Equal(t, customRoot, repaired.GroupKey.CustomTapscriptRoot)
+	require.Equal(
+		t, reveal.TapscriptRoot(), repaired.GroupKey.TapscriptRoot,
+	)
+
+	rederived, err := asset.NewGroupKeyReveal(*repaired.GroupKey, anchorID)
+	require.NoError(t, err)
+	rederivedKey, err := rederived.GroupPubKey(anchorID)
+	require.NoError(t, err)
+	require.True(t, rederivedKey.IsEqual(groupPubKey))
+
+	// A later reissuance without the raw key does not undo the repair.
+	_, err = upsertGroupKey(ctx, &asset.GroupKey{
+		GroupPubKey: *groupPubKey,
+		Witness:     wire.TxWitness{test.RandBytes(64)},
+	}, db, reissuePointID, reissueAssetID)
+	require.NoError(t, err)
+
+	kept, err := fetchGroupByGroupKey(ctx, db, groupPubKey)
+	require.NoError(t, err)
+	require.True(t, kept.GroupKey.RawKey.PubKey.IsEqual(internalKey))
+	require.Equal(t, asset.GroupKeyV1, kept.GroupKey.Version)
+
+	// A V0 reveal leaves the version alone.
+	v0Key := &asset.GroupKey{GroupPubKey: *groupPubKey}
+	v0Reveal := asset.NewGroupKeyRevealV0(
+		asset.ToSerialized(internalKey), test.RandBytes(32),
+	)
+	require.NoError(t, applyGroupKeyReveal(v0Key, v0Reveal))
+	require.Equal(t, asset.GroupKeyV0, v0Key.Version)
+	require.True(t, v0Key.CustomTapscriptRoot.IsNone())
+	require.Equal(t, v0Reveal.TapscriptRoot(), v0Key.TapscriptRoot)
 }

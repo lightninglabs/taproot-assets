@@ -80,6 +80,12 @@ type UpsertAssetStore interface {
 	UpsertAssetGroupKey(ctx context.Context, arg AssetGroupKey) (int64,
 		error)
 
+	// UpsertAssetGroupKeyFull inserts a new or updates an existing group
+	// key on disk, replacing all of its fields. Used when the raw key of
+	// the group is known.
+	UpsertAssetGroupKeyFull(ctx context.Context,
+		arg AssetGroupKeyFull) (int64, error)
+
 	// QueryAssets fetches a filtered set of fully confirmed assets.
 	QueryAssets(context.Context, QueryAssetFilters) ([]ConfirmedAsset,
 		error)
@@ -399,15 +405,28 @@ func upsertGroupKey(ctx context.Context, groupKey *asset.GroupKey,
 			"root: %w", err)
 	}
 
-	// Upsert the group key itself.
-	groupID, err := q.UpsertAssetGroupKey(ctx, AssetGroupKey{
+	// Upsert the group key itself. A caller that knows the raw key of the
+	// group, because it minted the group or saw the group anchor's key
+	// reveal, also knows the version and roots. Such a call replaces the
+	// row a reissuance proof may have created earlier with the tweaked key
+	// standing in for the raw key and the derivation parameters unknown.
+	// Without the raw key we only ever fill in the genesis point.
+	groupRow := AssetGroupKey{
 		Version:             int32(groupKey.Version),
 		TweakedGroupKey:     tweakedKeyBytes,
 		TapscriptRoot:       groupKey.TapscriptRoot,
 		InternalKeyID:       keyID,
 		GenesisPointID:      genesisPointID,
 		CustomSubtreeRootID: rootID,
-	})
+	}
+	var groupID int64
+	if groupKey.RawKey.PubKey != nil {
+		groupID, err = q.UpsertAssetGroupKeyFull(
+			ctx, AssetGroupKeyFull(groupRow),
+		)
+	} else {
+		groupID, err = q.UpsertAssetGroupKey(ctx, groupRow)
+	}
 	if err != nil {
 		return nullID, fmt.Errorf("%w: %w", ErrUpsertGroupKey, err)
 	}

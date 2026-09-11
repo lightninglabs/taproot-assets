@@ -15,11 +15,12 @@ import (
 // non-empty.
 func ExportBackup(ctx context.Context, mode ExportMode,
 	assets []*asset.ChainAsset, proofArchive proof.Exporter,
-	keyLookup KeyLocatorLookup,
+	keyLookup KeyLocatorLookup, groupLookup GroupLookup,
 	federationURLs []string) ([]byte, error) {
 
 	assetBackups, backupVersion, err := CollectBackups(
-		ctx, mode, assets, proofArchive, keyLookup, federationURLs,
+		ctx, mode, assets, proofArchive, keyLookup, groupLookup,
+		federationURLs,
 	)
 	if err != nil {
 		return nil, err
@@ -51,7 +52,7 @@ func ExportBackup(ctx context.Context, mode ExportMode,
 // they must be encoded with.
 func CollectBackups(ctx context.Context, mode ExportMode,
 	assets []*asset.ChainAsset, proofArchive proof.Exporter,
-	keyLookup KeyLocatorLookup,
+	keyLookup KeyLocatorLookup, groupLookup GroupLookup,
 	federationURLs []string) ([]*AssetBackup, uint32, error) {
 
 	var (
@@ -72,7 +73,7 @@ func CollectBackups(ctx context.Context, mode ExportMode,
 
 		// v3: Collect asset backups without fetching proofs.
 		assetBackups, err = collectAssetBackupsOptimistic(
-			ctx, assets, keyLookup,
+			ctx, assets, keyLookup, groupLookup,
 		)
 		if err != nil {
 			return nil, 0, fmt.Errorf("failed to collect "+
@@ -84,7 +85,7 @@ func CollectBackups(ctx context.Context, mode ExportMode,
 	case ExportModeCompact:
 		// v2: Collect backups with proofs, then strip them.
 		assetBackups, err = collectAssetBackups(
-			ctx, assets, proofArchive, keyLookup,
+			ctx, assets, proofArchive, keyLookup, groupLookup,
 		)
 		if err != nil {
 			return nil, 0, fmt.Errorf("failed to collect "+
@@ -103,7 +104,7 @@ func CollectBackups(ctx context.Context, mode ExportMode,
 	default:
 		// v1 (RAW): Full backup with complete proof data.
 		assetBackups, err = collectAssetBackups(
-			ctx, assets, proofArchive, keyLookup,
+			ctx, assets, proofArchive, keyLookup, groupLookup,
 		)
 		if err != nil {
 			return nil, 0, fmt.Errorf("failed to collect "+
