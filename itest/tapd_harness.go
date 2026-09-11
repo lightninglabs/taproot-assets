@@ -630,14 +630,22 @@ func (hs *tapdHarness) start(expectErrExit bool) error {
 		hs.cmd.Process.Pid)
 
 	// Wait for the process to exit in the background. If it exits
-	// unexpectedly, log the error. Signal processDone when complete
+	// unexpectedly, record the error. Signal processDone when complete
 	// so stop() can wait for the process to fully exit.
 	hs.processDone = make(chan struct{})
 	go func() {
 		err := hs.cmd.Wait()
-		if err != nil && !expectErrExit {
-			hs.ht.t.Logf("tapd process (name=%v) exited with "+
-				"error: %v", hs.cfg.LndNode.Cfg.Name, err)
+
+		// This goroutine outlives the subtest, so it must not use
+		// t.Logf: a process exit after the test has completed panics
+		// the testing framework and aborts the whole tranche. Write to
+		// the node's log file instead, where the process' own output
+		// already goes; stop() closes that file only after processDone,
+		// so it is still open here.
+		if err != nil && !expectErrExit && hs.logFile != nil {
+			_, _ = fmt.Fprintf(hs.logFile, "tapd process (name=%v) "+
+				"exited with error: %v\n",
+				hs.cfg.LndNode.Cfg.Name, err)
 		}
 		close(hs.processDone)
 	}()
