@@ -1,8 +1,6 @@
 package commitment
 
 import (
-	"bytes"
-
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
@@ -41,31 +39,15 @@ var KnownProofTypes = fn.NewSet(
 )
 
 func ProofAssetProofRecord(proof **AssetProof) tlv.Record {
-	sizeFunc := func() uint64 {
-		var buf bytes.Buffer
-		err := AssetProofEncoder(&buf, proof, &[8]byte{})
-		if err != nil {
-			panic(err)
-		}
-		return uint64(len(buf.Bytes()))
-	}
-	return tlv.MakeDynamicRecord(
-		ProofAssetProofType, proof, sizeFunc,
+	return asset.EncodeOnceRecord(
+		ProofAssetProofType, proof,
 		AssetProofEncoder, AssetProofDecoder,
 	)
 }
 
 func ProofTaprootAssetProofRecord(proof *TaprootAssetProof) tlv.Record {
-	sizeFunc := func() uint64 {
-		var buf bytes.Buffer
-		err := TaprootAssetProofEncoder(&buf, proof, &[8]byte{})
-		if err != nil {
-			panic(err)
-		}
-		return uint64(len(buf.Bytes()))
-	}
-	return tlv.MakeDynamicRecord(
-		ProofTaprootAssetProofType, proof, sizeFunc,
+	return asset.EncodeOnceRecord(
+		ProofTaprootAssetProofType, proof,
 		TaprootAssetProofEncoder, TaprootAssetProofDecoder,
 	)
 }
@@ -82,16 +64,8 @@ func AssetProofAssetIDRecord(assetID *[32]byte) tlv.Record {
 }
 
 func AssetProofRecord(proof *mssmt.Proof) tlv.Record {
-	sizeFunc := func() uint64 {
-		var buf bytes.Buffer
-		if err := proof.Compress().Encode(&buf); err != nil {
-			panic(err)
-		}
-		return uint64(len(buf.Bytes()))
-	}
-	return tlv.MakeDynamicRecord(
-		AssetProofType, proof, sizeFunc, TreeProofEncoder,
-		TreeProofDecoder,
+	return asset.EncodeOnceRecord(
+		AssetProofType, proof, TreeProofEncoder, TreeProofDecoder,
 	)
 }
 
@@ -103,15 +77,8 @@ func TaprootAssetProofVersionRecord(version *TapCommitmentVersion) tlv.Record {
 }
 
 func TaprootAssetProofRecord(proof *mssmt.Proof) tlv.Record {
-	sizeFunc := func() uint64 {
-		var buf bytes.Buffer
-		if err := proof.Compress().Encode(&buf); err != nil {
-			panic(err)
-		}
-		return uint64(len(buf.Bytes()))
-	}
-	return tlv.MakeDynamicRecord(
-		TaprootAssetProofType, proof, sizeFunc, TreeProofEncoder,
-		TreeProofDecoder,
+	return asset.EncodeOnceRecord(
+		TaprootAssetProofType, proof,
+		TreeProofEncoder, TreeProofDecoder,
 	)
 }

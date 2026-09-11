@@ -482,17 +482,9 @@ func (p *Proof) Bytes() ([]byte, error) {
 //
 // NOTE: This is part of the tlv.RecordProducer interface.
 func (p *Proof) Record() tlv.Record {
-	sizeFunc := func() uint64 {
-		proofBytes, err := p.Bytes()
-		if err != nil {
-			panic(err)
-		}
-		return uint64(len(proofBytes))
-	}
-
 	// Note that we set the type here as zero, as when used with a
 	// tlv.RecordT, the type param will be used as the type.
-	return tlv.MakeDynamicRecord(0, p, sizeFunc, Encoder, Decoder)
+	return asset.EncodeOnceRecord(0, p, Encoder, Decoder)
 }
 
 // IsUnknownVersion returns true if a proof has a version that is not recognized
