@@ -311,7 +311,14 @@ func (vm *Engine) validateSplit(splitAsset *commitment.SplitAsset) error {
 		ScriptKey:   asset.ToSerialized(splitAsset.ScriptKey.PubKey),
 		Amount:      splitAsset.Amount,
 	}
-	splitNoWitness := splitAsset.Copy()
+	// The leaf excludes only the split commitment witness, so a shallow
+	// copy with a fresh witness slice suffices. Asset.Copy would deep-copy
+	// the whole split commitment proof just for it to be dropped again.
+	splitNoWitness := splitAsset.Asset
+	splitNoWitness.PrevWitnesses = make(
+		[]asset.Witness, len(splitAsset.PrevWitnesses),
+	)
+	copy(splitNoWitness.PrevWitnesses, splitAsset.PrevWitnesses)
 	splitNoWitness.PrevWitnesses[0].SplitCommitment = nil
 
 	// Lock times should not invalidate the split commitment proof.
@@ -448,11 +455,19 @@ func (vm *Engine) validateStateTransition() error {
 	if err != nil {
 		return err
 	}
-	if treeRoot.NodeSum() !=
-		uint64(virtualTx.TxOut[0].Value) {
+	inputAmount := treeRoot.NodeSum()
 
+	// A split virtual output commits to the split tree sum instead of the
+	// root asset's plain amount. Bound that amount by the inputs
+	// separately.
+	if vm.newAsset.Amount > inputAmount {
+		return newErrInner(ErrAmountMismatch, fmt.Errorf("asset "+
+			"amount=%v exceeds input amount=%v",
+			vm.newAsset.Amount, inputAmount))
+	}
+	if inputAmount != uint64(virtualTx.TxOut[0].Value) {
 		return newErrInner(ErrAmountMismatch, fmt.Errorf("expected "+
-			"output value=%v, got=%v", treeRoot.NodeSum(),
+			"output value=%v, got=%v", inputAmount,
 			virtualTx.TxOut[0].Value))
 	}
 

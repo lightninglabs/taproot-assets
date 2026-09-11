@@ -61,3 +61,8 @@
   reduces orphan UTXO scan work by filtering normal funded anchors in a
   single database query instead of materializing assets once per managed
   UTXO.
+
+* [PR#2300](https://github.com/lightninglabs/taproot-assets/pull/2300)
+  avoids deep-copying the split commitment proof when the VM validates
+  a split asset, cutting the allocations of split validation by roughly
+  three quarters.
