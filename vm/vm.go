@@ -311,7 +311,14 @@ func (vm *Engine) validateSplit(splitAsset *commitment.SplitAsset) error {
 		ScriptKey:   asset.ToSerialized(splitAsset.ScriptKey.PubKey),
 		Amount:      splitAsset.Amount,
 	}
-	splitNoWitness := splitAsset.Copy()
+	// The leaf excludes only the split commitment witness, so a shallow
+	// copy with a fresh witness slice suffices. Asset.Copy would deep-copy
+	// the whole split commitment proof just for it to be dropped again.
+	splitNoWitness := splitAsset.Asset
+	splitNoWitness.PrevWitnesses = make(
+		[]asset.Witness, len(splitAsset.PrevWitnesses),
+	)
+	copy(splitNoWitness.PrevWitnesses, splitAsset.PrevWitnesses)
 	splitNoWitness.PrevWitnesses[0].SplitCommitment = nil
 
 	// Lock times should not invalidate the split commitment proof.
