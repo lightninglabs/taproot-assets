@@ -2171,6 +2171,11 @@ func (a *AssetStore) importAssetFromProof(ctx context.Context,
 // the genesis asset's previous witness, so it isn't present in the final asset
 // snapshot of a transferred asset. The database needs it to associate the
 // imported asset with its group.
+//
+// If the genesis proof is that of the group anchor, it also carries the group
+// key reveal, and the raw key, version and roots of the group are taken from
+// it. Without them the group is stored with the tweaked key in place of the
+// raw key and cannot be re-derived, which the asset wallet backup needs.
 func restoreGroupWitness(a *asset.Asset, proofBlob proof.Blob) error {
 	if a.GroupKey == nil || len(a.GroupKey.Witness) > 0 {
 		return nil
@@ -2190,6 +2195,7 @@ func restoreGroupWitness(a *asset.Asset, proofBlob proof.Blob) error {
 	err = proof.SparseDecode(
 		bytes.NewReader(rawGenesis),
 		proof.AssetLeafRecord(&genesisProof.Asset),
+		proof.GroupKeyRevealRecord(&genesisProof.GroupKeyReveal),
 	)
 	if err != nil {
 		return fmt.Errorf("unable to decode genesis asset: %w", err)
@@ -2201,6 +2207,18 @@ func restoreGroupWitness(a *asset.Asset, proofBlob proof.Blob) error {
 		) {
 
 		return fmt.Errorf("genesis and final asset group keys differ")
+	}
+
+	// The proof file was verified before it got here, so a reveal it
+	// carries is known to derive the group key.
+	if genesisProof.GroupKeyReveal != nil {
+		err := applyGroupKeyReveal(
+			a.GroupKey, genesisProof.GroupKeyReveal,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to apply group key "+
+				"reveal: %w", err)
+		}
 	}
 
 	if !genesisProof.Asset.HasGenesisWitnessForGroup() {

@@ -196,6 +196,25 @@ INSERT INTO asset_groups (
     DO UPDATE SET genesis_point_id = EXCLUDED.genesis_point_id
 RETURNING group_id;
 
+-- name: UpsertAssetGroupKeyFull :one
+INSERT INTO asset_groups (
+    version, tweaked_group_key, tapscript_root, internal_key_id,
+    genesis_point_id, custom_subtree_root_id
+) VALUES (
+    $1, $2, $3, $4, $5, $6
+) ON CONFLICT (tweaked_group_key)
+    -- The caller knows the group's raw key, so it also knows the version and
+    -- roots the tweaked key is derived from. Replace whatever an earlier
+    -- import of a reissuance stored, which had none of that and used the
+    -- tweaked key in place of the raw key.
+    DO UPDATE SET
+        version = EXCLUDED.version,
+        tapscript_root = EXCLUDED.tapscript_root,
+        internal_key_id = EXCLUDED.internal_key_id,
+        genesis_point_id = EXCLUDED.genesis_point_id,
+        custom_subtree_root_id = EXCLUDED.custom_subtree_root_id
+RETURNING group_id;
+
 -- name: UpsertAssetGroupWitness :one
 INSERT INTO asset_group_witnesses (
     witness_stack, gen_asset_id, group_key_id
@@ -428,6 +447,22 @@ WHERE (
 -- Sort and limit to return the genesis ID for initial genesis of the group.
 ORDER BY key_group_info_view.witness_id
 LIMIT 1;
+
+-- name: FetchGroupWitnessesByGroupKey :many
+SELECT
+    key_group_info_view.version AS version,
+    key_group_info_view.gen_asset_id AS gen_asset_id,
+    key_group_info_view.raw_key AS raw_key,
+    key_group_info_view.key_index AS key_index,
+    key_group_info_view.key_family AS key_family,
+    key_group_info_view.tapscript_root AS tapscript_root,
+    key_group_info_view.witness_stack AS witness_stack,
+    key_group_info_view.custom_subtree_root AS custom_subtree_root
+FROM key_group_info_view
+WHERE (
+    key_group_info_view.tweaked_group_key = @group_key
+)
+ORDER BY key_group_info_view.witness_id;
 
 -- name: FetchGroupByGenesis :one
 SELECT

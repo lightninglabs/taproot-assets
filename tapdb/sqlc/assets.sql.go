@@ -1500,6 +1500,66 @@ func (q *Queries) FetchGroupByGroupKey(ctx context.Context, groupKey []byte) (Fe
 	return i, err
 }
 
+const FetchGroupWitnessesByGroupKey = `-- name: FetchGroupWitnessesByGroupKey :many
+SELECT
+    key_group_info_view.version AS version,
+    key_group_info_view.gen_asset_id AS gen_asset_id,
+    key_group_info_view.raw_key AS raw_key,
+    key_group_info_view.key_index AS key_index,
+    key_group_info_view.key_family AS key_family,
+    key_group_info_view.tapscript_root AS tapscript_root,
+    key_group_info_view.witness_stack AS witness_stack,
+    key_group_info_view.custom_subtree_root AS custom_subtree_root
+FROM key_group_info_view
+WHERE (
+    key_group_info_view.tweaked_group_key = $1
+)
+ORDER BY key_group_info_view.witness_id
+`
+
+type FetchGroupWitnessesByGroupKeyRow struct {
+	Version           int32
+	GenAssetID        int64
+	RawKey            []byte
+	KeyIndex          int32
+	KeyFamily         int32
+	TapscriptRoot     []byte
+	WitnessStack      []byte
+	CustomSubtreeRoot []byte
+}
+
+func (q *Queries) FetchGroupWitnessesByGroupKey(ctx context.Context, groupKey []byte) ([]FetchGroupWitnessesByGroupKeyRow, error) {
+	rows, err := q.db.QueryContext(ctx, FetchGroupWitnessesByGroupKey, groupKey)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FetchGroupWitnessesByGroupKeyRow
+	for rows.Next() {
+		var i FetchGroupWitnessesByGroupKeyRow
+		if err := rows.Scan(
+			&i.Version,
+			&i.GenAssetID,
+			&i.RawKey,
+			&i.KeyIndex,
+			&i.KeyFamily,
+			&i.TapscriptRoot,
+			&i.WitnessStack,
+			&i.CustomSubtreeRoot,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const FetchGroupedAssets = `-- name: FetchGroupedAssets :many
 SELECT
     assets.asset_id AS asset_primary_key,
@@ -3220,6 +3280,49 @@ type UpsertAssetGroupKeyParams struct {
 
 func (q *Queries) UpsertAssetGroupKey(ctx context.Context, arg UpsertAssetGroupKeyParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, UpsertAssetGroupKey,
+		arg.Version,
+		arg.TweakedGroupKey,
+		arg.TapscriptRoot,
+		arg.InternalKeyID,
+		arg.GenesisPointID,
+		arg.CustomSubtreeRootID,
+	)
+	var group_id int64
+	err := row.Scan(&group_id)
+	return group_id, err
+}
+
+const UpsertAssetGroupKeyFull = `-- name: UpsertAssetGroupKeyFull :one
+INSERT INTO asset_groups (
+    version, tweaked_group_key, tapscript_root, internal_key_id,
+    genesis_point_id, custom_subtree_root_id
+) VALUES (
+    $1, $2, $3, $4, $5, $6
+) ON CONFLICT (tweaked_group_key)
+    -- The caller knows the group's raw key, so it also knows the version and
+    -- roots the tweaked key is derived from. Replace whatever an earlier
+    -- import of a reissuance stored, which had none of that and used the
+    -- tweaked key in place of the raw key.
+    DO UPDATE SET
+        version = EXCLUDED.version,
+        tapscript_root = EXCLUDED.tapscript_root,
+        internal_key_id = EXCLUDED.internal_key_id,
+        genesis_point_id = EXCLUDED.genesis_point_id,
+        custom_subtree_root_id = EXCLUDED.custom_subtree_root_id
+RETURNING group_id
+`
+
+type UpsertAssetGroupKeyFullParams struct {
+	Version             int32
+	TweakedGroupKey     []byte
+	TapscriptRoot       []byte
+	InternalKeyID       int64
+	GenesisPointID      int64
+	CustomSubtreeRootID sql.NullInt32
+}
+
+func (q *Queries) UpsertAssetGroupKeyFull(ctx context.Context, arg UpsertAssetGroupKeyFullParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, UpsertAssetGroupKeyFull,
 		arg.Version,
 		arg.TweakedGroupKey,
 		arg.TapscriptRoot,

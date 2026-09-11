@@ -135,6 +135,7 @@ type Querier interface {
 	FetchGroupByGenesis(ctx context.Context, genesisID int64) (FetchGroupByGenesisRow, error)
 	// Sort and limit to return the genesis ID for initial genesis of the group.
 	FetchGroupByGroupKey(ctx context.Context, groupKey []byte) (FetchGroupByGroupKeyRow, error)
+	FetchGroupWitnessesByGroupKey(ctx context.Context, groupKey []byte) ([]FetchGroupWitnessesByGroupKeyRow, error)
 	FetchGroupedAssets(ctx context.Context) ([]FetchGroupedAssetsRow, error)
 	FetchInternalKeyByID(ctx context.Context, keyID int64) (FetchInternalKeyByIDRow, error)
 	FetchInternalKeyLocator(ctx context.Context, rawKey []byte) (FetchInternalKeyLocatorRow, error)
@@ -416,6 +417,7 @@ type Querier interface {
 	UpsertAddrEventProof(ctx context.Context, arg UpsertAddrEventProofParams) (int64, error)
 	UpsertAsset(ctx context.Context, arg UpsertAssetParams) (int64, error)
 	UpsertAssetGroupKey(ctx context.Context, arg UpsertAssetGroupKeyParams) (int64, error)
+	UpsertAssetGroupKeyFull(ctx context.Context, arg UpsertAssetGroupKeyFullParams) (int64, error)
 	UpsertAssetGroupWitness(ctx context.Context, arg UpsertAssetGroupWitnessParams) (int64, error)
 	UpsertAssetMeta(ctx context.Context, arg UpsertAssetMetaParams) (int64, error)
 	UpsertAssetProofByID(ctx context.Context, arg UpsertAssetProofByIDParams) error

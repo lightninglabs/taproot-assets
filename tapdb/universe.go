@@ -538,6 +538,29 @@ func (t *treeStoreWrapperTx) View(ctx context.Context,
 	return view(viewTx)
 }
 
+// applyGroupKeyReveal fills in the derivation parameters of a group key from
+// the group anchor's key reveal: the raw key, the tapscript root and, for a V1
+// reveal, the version and custom subtree root. Storing a V1 group without its
+// version would read it back as V0 and no longer derive the tweaked key.
+func applyGroupKeyReveal(groupKey *asset.GroupKey,
+	reveal asset.GroupKeyReveal) error {
+
+	rawKey, err := reveal.RawKey().ToPubKey()
+	if err != nil {
+		return err
+	}
+
+	groupKey.RawKey = keychain.KeyDescriptor{PubKey: rawKey}
+	groupKey.TapscriptRoot = reveal.TapscriptRoot()
+
+	if v1, ok := reveal.(*asset.GroupKeyRevealV1); ok {
+		groupKey.Version = asset.GroupKeyV1
+		groupKey.CustomTapscriptRoot = v1.CustomSubtreeRoot()
+	}
+
+	return nil
+}
+
 // upsertAssetGen attempts to insert an asset genesis if it doesn't already
 // exist. Otherwise, the primary key of the existing asset ID is returned.
 func upsertAssetGen(ctx context.Context, db UpsertAssetStore,
@@ -573,16 +596,12 @@ func upsertAssetGen(ctx context.Context, db UpsertAssetStore,
 		// anchor and we must insert extra information about the group
 		// key.
 		if genesisProof.GroupKeyReveal != nil {
-			reveal := genesisProof.GroupKeyReveal
-			rawKey, err := reveal.RawKey().ToPubKey()
+			err := applyGroupKeyReveal(
+				fullGroupKey, genesisProof.GroupKeyReveal,
+			)
 			if err != nil {
 				return 0, err
 			}
-
-			fullGroupKey.RawKey = keychain.KeyDescriptor{
-				PubKey: rawKey,
-			}
-			fullGroupKey.TapscriptRoot = reveal.TapscriptRoot()
 		}
 		_, err = upsertGroupKey(
 			ctx, fullGroupKey, db, genPointID, genAssetID,

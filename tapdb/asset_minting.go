@@ -64,6 +64,10 @@ type (
 	// AssetGroupKey is used to insert a new asset key group into the DB.
 	AssetGroupKey = sqlc.UpsertAssetGroupKeyParams
 
+	// AssetGroupKeyFull is the set of fields of an asset group key that
+	// are all replaced on conflict.
+	AssetGroupKeyFull = sqlc.UpsertAssetGroupKeyFullParams
+
 	// BatchTapSiblingUpdate is used to update a batch with the root hash
 	// of a tapscript sibling associated with it.
 	BatchTapSiblingUpdate = sqlc.BindMintingBatchWithTapSiblingParams
