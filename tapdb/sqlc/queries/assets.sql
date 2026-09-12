@@ -367,20 +367,50 @@ GROUP BY assets.genesis_id, genesis_info_view.asset_id,
          genesis_info_view.prev_out, key_group_info_view.tweaked_group_key;
 
 -- name: QueryAssetBalancesByGroup :many
+WITH group_anchor AS (
+    -- Select the representative genesis for each group using MIN(witness_id)
+    -- for deterministic ordering (matches FetchGroupByGroupKey pattern).
+    -- This ensures we always pick the same genesis even when multiple
+    -- tranches share a genesis point.
+    SELECT
+        kgiv.tweaked_group_key,
+        kgiv.gen_asset_id as anchor_gen_id
+    FROM key_group_info_view kgiv
+    WHERE kgiv.witness_id = (
+        SELECT MIN(kgiv2.witness_id)
+        FROM key_group_info_view kgiv2
+        WHERE kgiv2.tweaked_group_key = kgiv.tweaked_group_key
+    )
+)
 SELECT
-    key_group_info_view.tweaked_group_key, SUM(amount) balance
+    groups.tweaked_group_key,
+    SUM(amount) balance,
+    genesis_info_view.asset_id,
+    genesis_info_view.asset_tag,
+    genesis_info_view.meta_hash,
+    genesis_info_view.asset_type,
+    genesis_info_view.output_index,
+    genesis_info_view.prev_out
 FROM assets
-JOIN key_group_info_view
-    ON assets.genesis_id = key_group_info_view.gen_asset_id AND
-      (key_group_info_view.tweaked_group_key = sqlc.narg('key_group_filter') OR
+JOIN asset_group_witnesses wit
+    ON assets.genesis_id = wit.gen_asset_id
+JOIN asset_groups groups
+    ON wit.group_key_id = groups.group_id AND
+      (groups.tweaked_group_key = sqlc.narg('key_group_filter') OR
         sqlc.narg('key_group_filter') IS NULL)
+-- LEFT JOIN so groups without a representative genesis (no witness yet)
+-- still return a balance row with NULL genesis fields.
+LEFT JOIN group_anchor
+    ON groups.tweaked_group_key = group_anchor.tweaked_group_key
+LEFT JOIN genesis_info_view
+    ON group_anchor.anchor_gen_id = genesis_info_view.gen_asset_id
 JOIN managed_utxos utxos
     ON assets.anchor_utxo_id = utxos.utxo_id AND
        CASE
            WHEN sqlc.narg('leased') = true THEN
                (utxos.lease_owner IS NOT NULL AND utxos.lease_expiry > @now)
            WHEN sqlc.narg('leased') = false THEN
-               (utxos.lease_owner IS NULL OR 
+               (utxos.lease_owner IS NULL OR
                 utxos.lease_expiry IS NULL OR
                 utxos.lease_expiry <= @now)
            ELSE TRUE
@@ -392,7 +422,10 @@ WHERE spent = FALSE AND
   -- query will return no results.
     COALESCE(script_keys.key_type, 0) IN
       (sqlc.slice('script_key_type')/*SLICE:script_key_type*/)
-GROUP BY key_group_info_view.tweaked_group_key;
+GROUP BY groups.tweaked_group_key,
+         genesis_info_view.asset_id, genesis_info_view.asset_tag,
+         genesis_info_view.meta_hash, genesis_info_view.asset_type,
+         genesis_info_view.output_index, genesis_info_view.prev_out;
 
 -- name: FetchGroupedAssets :many
 SELECT

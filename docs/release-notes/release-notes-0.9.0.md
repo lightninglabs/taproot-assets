@@ -224,6 +224,12 @@
 
 ## RPC Updates
 
+* [PR#2130](https://github.com/lightninglabs/taproot-assets/pull/2130)
+  adds `asset_genesis` and `decimal_display` fields to `AssetGroupBalance`
+  in `ListBalances`. When using `group_by=group_key` mode, clients now
+  receive asset metadata (name, type, decimal display) alongside grouped
+  balances without requiring additional RPC calls.
+
 * [PR#2226](https://github.com/lightninglabs/taproot-assets/pull/2226)
   lets `CommitVirtualPsbts` select the transition proof version and adds
   BIP-371 tapscript sibling exclusion proofs for version 1 proofs.

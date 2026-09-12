@@ -436,11 +436,20 @@ type AssetBalance struct {
 	GroupKey     []byte
 }
 
-// AssetGroupBalance holds abalance query result for a particular asset group
-// or all asset groups tracked by this daemon.
+// AssetGroupBalance holds a balance query result for a particular asset group
+// or all asset groups tracked by this daemon. It includes the genesis info of
+// a representative issuance in the group.
 type AssetGroupBalance struct {
 	GroupKey *btcec.PublicKey
 	Balance  uint64
+
+	// Genesis info fields for the representative issuance.
+	ID           asset.ID
+	Tag          string
+	MetaHash     [asset.MetaHashLen]byte
+	Type         asset.Type
+	GenesisPoint wire.OutPoint
+	OutputIndex  uint32
 }
 
 // cacheableTimestamp is a wrapper around an int32 that can be used as a
@@ -1307,11 +1316,46 @@ func (a *AssetStore) QueryAssetBalancesByGroup(ctx context.Context,
 				}
 			}
 
-			serializedKey := asset.ToSerialized(groupKey)
-			balances[serializedKey] = AssetGroupBalance{
+			assetGroupBalance := AssetGroupBalance{
 				GroupKey: groupKey,
 				Balance:  uint64(groupBalance.Balance),
 			}
+
+			// The genesis info columns come from a LEFT JOIN, so
+			// they'll be NULL for groups that don't yet have a
+			// representative issuance known to this node (e.g. a
+			// received grouped asset without a local anchor).
+			// Leave the genesis fields at their zero values in
+			// that case.
+			if groupBalance.AssetType.Valid {
+				assetGroupBalance.Tag =
+					groupBalance.AssetTag.String
+				assetGroupBalance.Type = asset.Type(
+					groupBalance.AssetType.Int16,
+				)
+				assetGroupBalance.OutputIndex = uint32(
+					groupBalance.OutputIndex.Int32,
+				)
+
+				// Parse the genesis point from the raw
+				// bytes.
+				err = readOutPoint(
+					bytes.NewReader(groupBalance.PrevOut),
+					0, 0, &assetGroupBalance.GenesisPoint,
+				)
+				if err != nil {
+					return err
+				}
+
+				// Copy the asset ID and meta hash.
+				copy(assetGroupBalance.ID[:],
+					groupBalance.AssetID)
+				copy(assetGroupBalance.MetaHash[:],
+					groupBalance.MetaHash)
+			}
+
+			serializedKey := asset.ToSerialized(groupKey)
+			balances[serializedKey] = assetGroupBalance
 		}
 
 		return err

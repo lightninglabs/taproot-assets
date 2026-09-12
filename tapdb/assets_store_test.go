@@ -3510,7 +3510,7 @@ func TestQueryAssetBalances(t *testing.T) {
 			amt:         4,
 		},
 	}
-	assetGen.genAssets(t, assetsStore, assetDesc)
+	genAssets, _ := assetGen.genAssets(t, assetsStore, assetDesc)
 
 	// Loop through assetDesc and sum the amt values
 	totalBalances := uint64(0)
@@ -3543,6 +3543,51 @@ func TestQueryAssetBalances(t *testing.T) {
 		balanceByGroupSum += balance.Balance
 	}
 	require.Equal(t, totalGroupedBalances, balanceByGroupSum)
+
+	// Verify that the new genesis info fields are populated correctly for
+	// each group balance. The genesis info should match the group anchor
+	// genesis (the first asset minted in each group).
+	//
+	// Build expected maps using the actual tweaked group keys from the
+	// generated assets (not the raw internal keys from assetGen.groupKeys).
+	// Assets 0 and 1 are the anchors for groups 0 and 1 respectively.
+	group0Key := asset.ToSerialized(&genAssets[0].GroupKey.GroupPubKey)
+	group1Key := asset.ToSerialized(&genAssets[1].GroupKey.GroupPubKey)
+
+	expectedAnchorGenesis := map[asset.SerializedKey]asset.Genesis{
+		group0Key: genAssets[0].Genesis,
+		group1Key: genAssets[1].Genesis,
+	}
+	expectedAnchorPoints := map[asset.SerializedKey]wire.OutPoint{
+		group0Key: assetGen.anchorPoints[0],
+		group1Key: assetGen.anchorPoints[0],
+	}
+
+	for groupKey, balance := range balancesByGroup {
+		// Verify genesis info fields are populated.
+		require.NotEqual(t, asset.ID{}, balance.ID,
+			"group %x missing asset ID", groupKey)
+		require.NotEmpty(t, balance.Tag,
+			"group %x missing asset tag", groupKey)
+		require.NotEqual(t, wire.OutPoint{}, balance.GenesisPoint,
+			"group %x missing genesis point", groupKey)
+
+		// Verify the genesis info matches the expected anchor genesis.
+		expectedGen := expectedAnchorGenesis[groupKey]
+		require.Equal(t, expectedGen.ID(), balance.ID,
+			"group %x has wrong asset ID", groupKey)
+		require.Equal(t, expectedGen.Tag, balance.Tag,
+			"group %x has wrong asset tag", groupKey)
+		require.Equal(t, expectedGen.Type, balance.Type,
+			"group %x has wrong asset type", groupKey)
+		require.Equal(t, expectedGen.OutputIndex, balance.OutputIndex,
+			"group %x has wrong output index", groupKey)
+
+		// Verify the genesis point matches the expected anchor point.
+		expectedPoint := expectedAnchorPoints[groupKey]
+		require.Equal(t, expectedPoint, balance.GenesisPoint,
+			"group %x has wrong genesis point", groupKey)
+	}
 
 	// Now we lease the first asset for 1 hour. This will cause the second
 	// one also to be leased, since it's on the same anchor transaction. The
@@ -3711,6 +3756,149 @@ func TestQueryAssetBalancesCustomChannelFunding(t *testing.T) {
 		balanceByGroupSum += balance.Balance
 	}
 	require.Equal(t, assetDesc[0].amt, balanceByGroupSum)
+}
+
+// TestQueryAssetBalancesByGroupNoWitnessAnchor tests that a group's balance
+// is still reported when its genesis_point_id points at a genesis with no
+// locally known witness, e.g. after an address registers a new, unreceived
+// tranche of the group.
+func TestQueryAssetBalancesByGroupNoWitnessAnchor(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	_, assetsStore, db := newAssetStore(t)
+
+	assetGen := newAssetGenerator(t, 1, 1)
+	groupPriv := assetGen.groupKeys[0]
+
+	const witnessedAmt = uint64(1000)
+	descs := []assetDesc{
+		{
+			assetGen:    assetGen.assetGens[0],
+			anchorPoint: assetGen.anchorPoints[0],
+			keyGroup:    groupPriv,
+			amt:         witnessedAmt,
+		},
+	}
+	newAssets, _ := assetGen.genAssets(t, assetsStore, descs)
+	require.Len(t, newAssets, 1)
+	witnessedGenesis := newAssets[0].Genesis
+	groupKey := newAssets[0].GroupKey
+	require.NotNil(t, groupKey)
+
+	balances, err := assetsStore.QueryAssetBalancesByGroup(
+		ctx, nil, false, fn.None[asset.ScriptKeyType](),
+	)
+	require.NoError(t, err)
+	require.Len(t, balances, 1)
+
+	// Register an address for a new, unreceived tranche of the same
+	// group. This repoints genesis_point_id at a genesis with no
+	// witness, via the ON CONFLICT DO UPDATE main already relies on.
+	unreceivedPointBytes, err := encodeOutpoint(test.RandOp(t))
+	require.NoError(t, err)
+	unreceivedPointID, err := db.UpsertGenesisPoint(
+		ctx, unreceivedPointBytes,
+	)
+	require.NoError(t, err)
+
+	internalKeyID, err := db.UpsertInternalKey(ctx, InternalKey{
+		RawKey: groupKey.GroupPubKey.SerializeCompressed(),
+	})
+	require.NoError(t, err)
+
+	_, err = db.UpsertAssetGroupKey(ctx, AssetGroupKey{
+		Version: int32(groupKey.Version),
+		TweakedGroupKey: groupKey.GroupPubKey.
+			SerializeCompressed(),
+		InternalKeyID:  internalKeyID,
+		GenesisPointID: unreceivedPointID,
+	})
+	require.NoError(t, err)
+
+	// The balance and representative genesis should still come from the
+	// witnessed tranche, not the witness-less anchor pointer.
+	balances, err = assetsStore.QueryAssetBalancesByGroup(
+		ctx, nil, false, fn.None[asset.ScriptKeyType](),
+	)
+	require.NoError(t, err)
+	require.Len(t, balances, 1)
+
+	for _, balance := range balances {
+		require.Equal(t, witnessedAmt, balance.Balance)
+		require.Equal(t, witnessedGenesis.Tag, balance.Tag)
+		require.Equal(t, witnessedGenesis.Type, balance.Type)
+	}
+}
+
+// TestQueryAssetBalancesByGroupSharedGenesisPoint tests that when multiple
+// tranches of a group share a genesis point (e.g. a multi-asset-group mint),
+// the representative genesis is picked deterministically rather than
+// whichever row the backend happens to return last.
+func TestQueryAssetBalancesByGroupSharedGenesisPoint(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	_, assetsStore, _ := newAssetStore(t)
+
+	assetGen := newAssetGenerator(t, 2, 1)
+	groupPriv := assetGen.groupKeys[0]
+	sharedAnchor := assetGen.anchorPoints[0]
+
+	const (
+		firstAmt  = uint64(1000)
+		secondAmt = uint64(2500)
+	)
+	descs := []assetDesc{
+		{
+			assetGen:    assetGen.assetGens[0],
+			anchorPoint: sharedAnchor,
+			keyGroup:    groupPriv,
+			amt:         firstAmt,
+		},
+		{
+			assetGen:    assetGen.assetGens[1],
+			anchorPoint: sharedAnchor,
+
+			// Pin the group-key tweak to tranche 0's genesis so
+			// both tranches land in the same group despite having
+			// distinct genesis identities.
+			groupAnchorGen:      &assetGen.assetGens[0],
+			groupAnchorGenPoint: &sharedAnchor,
+			keyGroup:            groupPriv,
+			amt:                 secondAmt,
+		},
+	}
+	newAssets, _ := assetGen.genAssets(t, assetsStore, descs)
+	require.Len(t, newAssets, 2)
+	require.Equal(
+		t, newAssets[0].Genesis.FirstPrevOut,
+		newAssets[1].Genesis.FirstPrevOut,
+	)
+
+	balances, err := assetsStore.QueryAssetBalancesByGroup(
+		ctx, nil, false, fn.None[asset.ScriptKeyType](),
+	)
+	require.NoError(t, err)
+	require.Len(t, balances, 1)
+
+	for _, balance := range balances {
+		require.Equal(t, firstAmt+secondAmt, balance.Balance)
+
+		// Representative genesis should be the first-witnessed
+		// tranche.
+		require.Equal(t, newAssets[0].Genesis.Tag, balance.Tag)
+		require.Equal(t, newAssets[0].Genesis.Type, balance.Type)
+	}
+
+	// The pick must stay stable across repeated calls.
+	balancesAgain, err := assetsStore.QueryAssetBalancesByGroup(
+		ctx, nil, false, fn.None[asset.ScriptKeyType](),
+	)
+	require.NoError(t, err)
+	for key, balance := range balances {
+		require.Equal(t, balance.Tag, balancesAgain[key].Tag)
+	}
 }
 
 // TestShouldSkipAssetCreation tests the behavior of the shouldSkipAssetCreation
