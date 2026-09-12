@@ -682,6 +682,21 @@ func (c *Chain) TxHeight(txid chainhash.Hash) (uint32, bool) {
 	return loc.height, true
 }
 
+// SpendSubscribed reports whether a live spend subscription is open
+// for the outpoint.
+func (c *Chain) SpendSubscribed(op wire.OutPoint) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for _, sub := range c.spendSubs {
+		if sub.op == op && sub.ctx.Err() == nil {
+			return true
+		}
+	}
+
+	return false
+}
+
 // RegisterConfirmationsNtfn implements tapreorg.ChainNotifier.
 func (c *Chain) RegisterConfirmationsNtfn(ctx context.Context,
 	txid *chainhash.Hash, pkScript []byte, numConfs, heightHint uint32,

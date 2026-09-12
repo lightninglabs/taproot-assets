@@ -297,6 +297,13 @@ WHERE
 -- Fetch unspent supply pre-commitment outputs. Each pre-commitment output
 -- comes from a mint anchor transaction and relates to an asset issuance
 -- where the local node acted as the issuer.
+--
+-- Cancelled batches are excluded. A batch whose genesis transaction lost
+-- to a buried conflicting spender is cancelled by the mint site's
+-- abandonment, but its pre-commitment row survives to keep the
+-- issuance record. That outpoint does not exist on the surviving
+-- chain, so offering it here would build a commitment transaction that
+-- can never be broadcast, and whose own anchoring would never witness.
 SELECT
     mac.tx_output_index,
     sqlc.embed(ik),
@@ -312,6 +319,8 @@ LEFT JOIN supply_commitments sc ON mac.spent_by = sc.commit_id
 LEFT JOIN chain_txns commit_txn ON sc.chain_txn_id = commit_txn.txn_id
 WHERE
     mac.group_key = @group_key AND
+    -- BatchStateSeedlingCancelled (6) and BatchStateSproutCancelled (7).
+    amb.batch_state NOT IN (6, 7) AND
     (mac.spent_by IS NULL OR commit_txn.block_hash IS NULL);
 
 -- name: MarkMintPreCommitSpentByOutpoint :exec
@@ -362,3 +371,25 @@ WHERE key_id = @key_id;
 SELECT raw_tx, block_height -- Include block_height needed by FetchState
 FROM chain_txns
 WHERE txn_id = @txn_id;
+
+-- name: QuerySupplyCommitmentByTxid :one
+SELECT sc.*
+FROM supply_commitments sc
+JOIN chain_txns ct
+    ON sc.chain_txn_id = ct.txn_id
+WHERE sc.group_key = @group_key
+    AND ct.txid = @txid;
+
+-- name: UnbindSupplyUpdateEvents :exec
+UPDATE supply_update_events
+SET transition_id = NULL
+WHERE transition_id = @transition_id;
+
+-- name: DeleteSupplyCommitment :exec
+DELETE FROM supply_commitments
+WHERE commit_id = @commit_id;
+
+-- name: QuerySupplyCommitTransitionByNewCommitment :one
+SELECT sqlc.embed(t)
+FROM supply_commit_transitions t
+WHERE t.new_commitment_id = @new_commitment_id;

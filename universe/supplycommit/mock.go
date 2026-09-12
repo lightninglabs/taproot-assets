@@ -14,6 +14,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/tapnode"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -321,6 +322,13 @@ func (m *mockStateMachineStore) InsertSignedCommitTx(ctx context.Context,
 	spec asset.Specifier, tx SupplyCommitTxn) error {
 
 	args := m.Called(ctx, spec, tx)
+	return args.Error(0)
+}
+
+func (m *mockStateMachineStore) ApplyCommitTxStake(ctx context.Context,
+	q *sqlc.Queries, spec asset.Specifier, tx SupplyCommitTxn) error {
+
+	args := m.Called(ctx, q, spec, tx)
 	return args.Error(0)
 }
 

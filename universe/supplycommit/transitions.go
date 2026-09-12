@@ -16,6 +16,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
+	"github.com/lightninglabs/taproot-assets/tapreorg"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
@@ -197,10 +198,47 @@ func (u *UpdatesPendingState) ProcessEvent(event Event, env *Environment) (
 	// the new set of supply commitments. We'll emit the CreateTxEvent to
 	// the next state will begin the process of making the new commitment.
 	case *CommitTickEvent:
+		ctx := context.Background()
+
+		// A machine resumed from disk rests here with no in-memory
+		// updates; the durable record is authoritative, so re-derive
+		// the batch from it before committing.
+		updatesToCommit := u.pendingUpdates
+		if len(updatesToCommit) == 0 {
+			_, diskTransition, err := env.StateLog.FetchState(
+				ctx, env.AssetSpec,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("unable to fetch "+
+					"durable state: %w", err)
+			}
+			diskTransition.WhenSome(
+				func(t SupplyStateTransition) {
+					updatesToCommit = t.PendingUpdates
+				},
+			)
+		}
+
+		// With still nothing to commit, ticking is vacuous: return
+		// to the default state rather than committing an empty
+		// batch.
+		if len(updatesToCommit) == 0 {
+			err := env.StateLog.CommitState(
+				ctx, env.AssetSpec, &DefaultState{},
+			)
+			if err != nil {
+				return nil, fmt.Errorf("unable to commit "+
+					"state transition: %w", err)
+			}
+
+			return &StateTransition{
+				NextState: &DefaultState{},
+			}, nil
+		}
+
 		// Before we transition, we'll freeze the current pending
 		// transition. This ensures that no new updates can be added
 		// to this batch.
-		ctx := context.Background()
 		err := env.StateLog.FreezePendingTransition(ctx, env.AssetSpec)
 		if err != nil {
 			return nil, fmt.Errorf("unable to freeze "+
@@ -208,13 +246,13 @@ func (u *UpdatesPendingState) ProcessEvent(event Event, env *Environment) (
 		}
 
 		prefixedLog.Infof("Received tick event, committing %d "+
-			"supply updates", len(u.pendingUpdates))
+			"supply updates", len(updatesToCommit))
 
 		return &StateTransition{
 			NextState: &CommitTreeCreateState{},
 			NewEvents: lfn.Some(FsmEvent{
 				InternalEvent: []Event{&CreateTreeEvent{
-					updatesToCommit: u.pendingUpdates,
+					updatesToCommit: updatesToCommit,
 				}},
 			}),
 		}, nil
@@ -910,12 +948,43 @@ func (s *CommitTxSignState) ProcessEvent(event Event,
 			OutputKey:   newCommit.OutputKey,
 			OutputIndex: newCommit.TxOutIdx,
 		}
-		err = env.StateLog.InsertSignedCommitTx(
-			ctx, env.AssetSpec, commitTxnDetails,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("unable to commit "+
-				"state transition: %w", err)
+		// On the anchoring path the signed transaction is persisted
+		// by the phase-1 write of the re-org watcher's registration,
+		// so the durable broadcast state and the anchoring that
+		// watches over it commit together: a crash leaves neither
+		// or both, never a broadcast state without its stake. The
+		// legacy path persists it alone and subscribes for the
+		// confirmation at broadcast.
+		if env.AnchoringWatcher != nil {
+			spec, err := commitAnchoringSpec(
+				ctx, env, &stateTransition,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("unable to build "+
+					"commit anchoring: %w", err)
+			}
+			stake := func(ctx context.Context,
+				tx tapreorg.RegistryTx,
+				_ tapreorg.AnchoringID) error {
+
+				return env.StateLog.ApplyCommitTxStake(
+					ctx, tx.Queries(), env.AssetSpec,
+					commitTxnDetails,
+				)
+			}
+			_, err = env.AnchoringWatcher.Register(ctx, spec, stake)
+			if err != nil {
+				return nil, fmt.Errorf("unable to stake "+
+					"commit anchoring: %w", err)
+			}
+		} else {
+			err = env.StateLog.InsertSignedCommitTx(
+				ctx, env.AssetSpec, commitTxnDetails,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("unable to commit "+
+					"state transition: %w", err)
+			}
 		}
 
 		return &StateTransition{
@@ -973,6 +1042,74 @@ func (c *CommitBroadcastState) ProcessEvent(event Event,
 			NextState: c,
 		}, nil
 
+	// On the anchoring path the re-org watcher finalizes or abandons
+	// the transition out-of-band, in its delivery transaction; a tick
+	// is the hint (the push dispatcher's nudge, the abandonment
+	// handler's nudge effect, or any later caller) to re-derive our
+	// position from the durable record. If the record has moved on,
+	// adopt it; otherwise keep resting.
+	case *CommitTickEvent:
+		if env.AnchoringWatcher == nil {
+			return nil, fmt.Errorf("%w: received %T while in %T",
+				ErrInvalidStateTransition, newEvent, c)
+		}
+
+		ctx := context.Background()
+		diskState, diskTransition, err := env.StateLog.FetchState(
+			ctx, env.AssetSpec,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to fetch durable "+
+				"state: %w", err)
+		}
+
+		switch diskState.(type) {
+		// Not yet finalized: keep resting.
+		case *CommitBroadcastState:
+			return &StateTransition{NextState: c}, nil
+
+		// Finalized, nothing dangling: come to rest.
+		case *DefaultState:
+			prefixedLog.Infof("Commitment finalized by the " +
+				"watcher, returning to the default state")
+
+			return &StateTransition{
+				NextState: &DefaultState{},
+			}, nil
+
+		// The record moved on with a fresh batch bound: dangling
+		// updates bound by the finalizer, or a foreclosed
+		// commitment's updates rebound by the compensator. Adopt it
+		// and re-tick so the next commitment cycle begins.
+		case *UpdatesPendingState:
+			var updates []SupplyUpdateEvent
+			diskTransition.WhenSome(
+				func(t SupplyStateTransition) {
+					updates = t.PendingUpdates
+				},
+			)
+
+			prefixedLog.Infof("Watcher moved the durable record "+
+				"on with %d updates bound, starting the next "+
+				"cycle", len(updates))
+
+			return &StateTransition{
+				NextState: &UpdatesPendingState{
+					pendingUpdates: updates,
+				},
+				NewEvents: lfn.Some(FsmEvent{
+					InternalEvent: []Event{
+						&CommitTickEvent{},
+					},
+				}),
+			}, nil
+
+		// Anything else is the machine's own in-flight progress;
+		// leave it alone and rest.
+		default:
+			return &StateTransition{NextState: c}, nil
+		}
+
 	// We're at the final step of the state machine. We'll broadcast the
 	// signed commit tx, then register for a confirmation for when it
 	// confirms.
@@ -1018,6 +1155,41 @@ func (c *CommitBroadcastState) ProcessEvent(event Event,
 		}
 
 		ctx := context.Background()
+
+		// On the anchoring path the re-org watcher is the sole
+		// sensor: the commitment was staked as a speculative
+		// anchoring when it was signed, and the confirmation event
+		// arrives through the watcher's outbox once the transaction
+		// is *buried* — the machine's finalization publishes
+		// irrevocably to remote universes, so it is act-gated
+		// rather than firing at a single confirmation. The
+		// registration here is the safety net for a record that
+		// lacks its anchoring.
+		if env.AnchoringWatcher != nil {
+			registered, err := registerCommitAnchoring(
+				ctx, env, &c.SupplyTransition,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("unable to register "+
+					"commit anchoring: %w", err)
+			}
+			if registered {
+				prefixedLog.Infof("Registered missing commit "+
+					"anchoring for txid=%v at broadcast",
+					commitTxid)
+			}
+
+			return &StateTransition{
+				NextState: &CommitBroadcastState{
+					SupplyTransition: c.SupplyTransition,
+				},
+				NewEvents: lfn.Some(FsmEvent{
+					ExternalEvents: protofsm.DaemonEventSet{
+						&broadcastReq,
+					}}),
+			}, nil
+		}
+
 		currentHeight, err := env.Chain.CurrentHeight(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("unable to get current "+

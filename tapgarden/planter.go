@@ -23,6 +23,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapnode"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
+	"github.com/lightninglabs/taproot-assets/tapreorg"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
@@ -76,6 +77,29 @@ type GardenKit struct {
 
 	// ProofFiles stores the set of flat proof files.
 	ProofFiles proof.Archiver
+
+	// ProofArchive is the read surface for dispatching a buried
+	// batch's emissions: it includes the database proof store, whose
+	// proofs the re-org watcher's site handlers re-stamp on
+	// re-confirmation. The flat-file mirror alone can go stale across
+	// a re-org.
+	ProofArchive proof.Archiver
+
+	// AnchoringWatcher is the re-org watcher batches register their
+	// genesis transactions with as speculative anchorings. When set,
+	// confirmation flows through the watcher's registry instead of a
+	// cultivator-owned subscription, and universe publication plus
+	// supply-commit events are act-gated on burial. Implemented by
+	// the watcher; unit tests use tapreorg.MockRegistrar.
+	AnchoringWatcher tapreorg.Registrar
+
+	// MintAnchoringLog is the transaction-scoped persistence surface
+	// the mint site drives from its watcher handlers.
+	MintAnchoringLog MintAnchoringLog
+
+	// AnchoringThreshold is the confirmation depth at which a batch
+	// is act-confirmed (buried).
+	AnchoringThreshold uint32
 
 	// MintProofPublisher ships freshly-minted (or re-organized) proofs
 	// to a downstream distributor (e.g. a local/remote universe). If
@@ -375,6 +399,10 @@ type ChainPlanter struct {
 	// progress the batch through the final phases.
 	cultivators map[BatchKey]*Cultivator
 
+	// waiters tracks the cultivators waiting on anchoring outcomes,
+	// nudged by the re-org watcher's delivery listener.
+	waiters *tapreorg.DeliveryWaiters
+
 	// completionSignals is a channel used to allow the cultivators to
 	// signal that the batch is fully final, allowing garbage collection of
 	// any relevant resources.
@@ -402,6 +430,7 @@ func NewChainPlanter(cfg PlanterConfig) *ChainPlanter {
 	return &ChainPlanter{
 		cfg:         cfg,
 		cultivators: make(map[BatchKey]*Cultivator),
+		waiters:     tapreorg.NewDeliveryWaiters(),
 		// Buffer size 1 is a fast path only: it lets a single
 		// cultivator that finishes while the gardener is inside a
 		// stateReq closure hand off its signal inline. Exit never
@@ -486,6 +515,7 @@ func (c *ChainPlanter) newCultivatorForBatch(batch *MintingBatch,
 		UpdateMintingProofs: c.updateMintingProofs,
 		PublishMintEvent:    c.publishSubscriberEvent,
 		ErrChan:             c.cfg.ErrChan,
+		AnchoringWaiters:    c.waiters,
 	}
 	if feeRate != nil {
 		batchConfig.BatchFeeRate = feeRate

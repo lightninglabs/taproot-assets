@@ -109,20 +109,62 @@ var allTestCases = []*testCase{
 	// if the re-org tests run last. So we run them toward the beginning to
 	// reduce the flakiness of the Postgres itest.
 	{
-		name: "re-org mint",
-		test: testReOrgMint,
+		name:           "re-org mint",
+		test:           testReOrgMint,
+		reOrgSafeDepth: 6,
 	},
 	{
-		name: "re-org send",
-		test: testReOrgSend,
+		name:           "re-org send",
+		test:           testReOrgSend,
+		reOrgSafeDepth: 6,
 	},
 	{
-		name: "re-org send v2 address",
-		test: testReOrgSendV2Address,
+		name:           "re-org send v2 address",
+		test:           testReOrgSendV2Address,
+		reOrgSafeDepth: 6,
 	},
 	{
-		name: "re-org mint and send",
-		test: testReOrgMintAndSend,
+		name:           "re-org mint and send",
+		test:           testReOrgMintAndSend,
+		reOrgSafeDepth: 6,
+	},
+	// The same re-organizations against the legacy path. The kill
+	// switch is presented as a rollback mechanism, but every re-org
+	// case above now runs on the anchoring watcher, leaving the
+	// legacy proof watcher's re-org handling — the thing a rollback
+	// would fall back onto — without end-to-end coverage.
+	{
+		name:                    "re-org mint watcher disabled",
+		test:                    testReOrgMint,
+		reOrgSafeDepth:          6,
+		disableAnchoringWatcher: true,
+	},
+	{
+		name:                    "re-org send watcher disabled",
+		test:                    testReOrgSend,
+		reOrgSafeDepth:          6,
+		disableAnchoringWatcher: true,
+	},
+	// The act gate itself, at a depth where it is not vacuous: the
+	// rest of the suite runs at depth 1, where burial coincides with
+	// the first confirmation.
+	{
+		name:           "act gated mint publication",
+		test:           testActGatedMintPublication,
+		reOrgSafeDepth: 6,
+	},
+	{
+		name:           "act gated supply emissions",
+		test:           testActGatedSupplyEmissions,
+		reOrgSafeDepth: 6,
+	},
+	// The kill-switch rollback path: mint, send and receive must
+	// work end to end with the anchoring watcher disabled, riding
+	// the legacy confirmation and proof-watcher paths instead.
+	{
+		name:                    "basic send anchoring watcher disabled",
+		test:                    testBasicSendUnidirectional,
+		disableAnchoringWatcher: true,
 	},
 	{
 		name:             "basic send unidirectional hashmail courier",

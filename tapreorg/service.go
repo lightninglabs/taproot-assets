@@ -44,6 +44,13 @@ const (
 	// daemon's default --reorgsafedepth.
 	DefaultActThreshold = 6
 
+	// DefaultDispatchTimeout is the default deadline on a single
+	// outbox effect dispatch attempt. All effects share one serial
+	// dispatcher, so an attempt that never returned would block
+	// every effect behind it; the deadline converts a hang into an
+	// ordinary failure that backs off and retries.
+	DefaultDispatchTimeout = time.Minute
+
 	// outboxBatchSize bounds how many effects one dispatch pass
 	// claims.
 	outboxBatchSize = 32
@@ -51,8 +58,41 @@ const (
 
 // EffectHandler dispatches one kind of outbox effect. Handlers must
 // be idempotent: an effect can be dispatched more than once if the
-// process dies between the dispatch and the bookkeeping write.
-type EffectHandler func(ctx context.Context, payload VersionedBlob) error
+// process dies between the dispatch and the bookkeeping write. A
+// handler whose inputs the owning subsystem has not materialized yet
+// returns ErrEffectNotReady, which leaves the effect pending without
+// failure bookkeeping. The anchoring the effect was enqueued for, if
+// any, is passed along.
+type EffectHandler func(ctx context.Context,
+	anchoring fn.Option[AnchoringID], payload VersionedBlob) error
+
+// effectHandler is a registered effect handler with its dispatch
+// policy.
+type effectHandler struct {
+	handler EffectHandler
+
+	// timeout bounds one dispatch attempt of this handler when
+	// set, zero meaning unbounded. Unset defers to the watcher's
+	// configured DispatchTimeout.
+	timeout fn.Option[time.Duration]
+}
+
+// EffectHandlerOption configures a handler's registration.
+type EffectHandlerOption func(*effectHandler)
+
+// WithDispatchTimeout bounds a single dispatch attempt of the handler
+// with its own deadline instead of the watcher's configured default.
+// Zero leaves the attempt unbounded: a handler whose work is entirely
+// local and grows with its payload — a large minted batch's universe
+// publication — would otherwise fail every attempt at the capped
+// backoff, forever. Only a handler that reaches no remote party
+// should run unbounded, since the deadline is what keeps a hung
+// remote call from parking the serial dispatcher.
+func WithDispatchTimeout(timeout time.Duration) EffectHandlerOption {
+	return func(h *effectHandler) {
+		h.timeout = fn.Some(timeout)
+	}
+}
 
 // WatcherConfig houses the watcher's dependencies and policy knobs.
 type WatcherConfig struct {
@@ -71,6 +111,11 @@ type WatcherConfig struct {
 	// ScanInterval is the cadence of the delivery and outbox
 	// reconciliation scans.
 	ScanInterval time.Duration
+
+	// DispatchTimeout bounds a single outbox effect dispatch
+	// attempt. On expiry the attempt fails into the ordinary
+	// backoff bookkeeping rather than blocking the dispatcher.
+	DispatchTimeout time.Duration
 
 	// DefaultThreshold is the act-confirmation depth given to
 	// registrations that leave RegistrationSpec.Threshold zero. It
@@ -108,6 +153,9 @@ func (c *WatcherConfig) fillDefaults() {
 	if c.ScanInterval == 0 {
 		c.ScanInterval = DefaultScanInterval
 	}
+	if c.DispatchTimeout == 0 {
+		c.DispatchTimeout = DefaultDispatchTimeout
+	}
 	if c.DefaultThreshold == 0 {
 		c.DefaultThreshold = DefaultActThreshold
 	}
@@ -136,7 +184,7 @@ type Watcher struct {
 	cfg *WatcherConfig
 
 	sites          map[SiteID]Site
-	effectHandlers map[EffectKind]EffectHandler
+	effectHandlers map[EffectKind]effectHandler
 	listeners      []DeliveryListener
 
 	bestHeight atomic.Uint32
@@ -163,7 +211,7 @@ func NewWatcher(cfg *WatcherConfig) *Watcher {
 	return &Watcher{
 		cfg:            cfg,
 		sites:          make(map[SiteID]Site),
-		effectHandlers: make(map[EffectKind]EffectHandler),
+		effectHandlers: make(map[EffectKind]effectHandler),
 		events:         make(chan any),
 		deliveryKick:   make(chan struct{}, 1),
 		outboxKick:     make(chan struct{}, 1),
@@ -216,10 +264,11 @@ func (w *Watcher) RegisterDeliveryListener(
 }
 
 // RegisterEffectHandler installs the dispatch handler for one effect
-// kind. All handlers are registered before Start; late registration
-// is refused, as with RegisterSite.
+// kind, under the watcher's dispatch policy unless the options say
+// otherwise. All handlers are registered before Start; late
+// registration is refused, as with RegisterSite.
 func (w *Watcher) RegisterEffectHandler(kind EffectKind,
-	handler EffectHandler) error {
+	handler EffectHandler, opts ...EffectHandlerOption) error {
 
 	if w.started.Load() {
 		return fmt.Errorf("effect handler %v registered after Start",
@@ -229,7 +278,12 @@ func (w *Watcher) RegisterEffectHandler(kind EffectKind,
 		return fmt.Errorf("effect handler %v already registered",
 			kind)
 	}
-	w.effectHandlers[kind] = handler
+
+	entry := effectHandler{handler: handler}
+	for _, opt := range opts {
+		opt(&entry)
+	}
+	w.effectHandlers[kind] = entry
 
 	return nil
 }
@@ -306,11 +360,23 @@ func (w *Watcher) Stop() error {
 // edge derivation and the site's phase-1 write commit in one
 // transaction, and sensing begins immediately after. The site must
 // have been registered with the watcher.
+//
+// A registration whose (site, match key) identity already exists
+// attaches to the existing anchoring instead: trigger outpoints the
+// existing set lacks are unioned in, and the anchoring's delivered
+// phase is re-delivered to the site inside the registration
+// transaction, so state materialized before this registration lands
+// on the phase the anchoring's earlier stakes already reflect. A
+// registration carrying a seed candidate is born delivered on the
+// phase the seed derives, delivered to the site in the same
+// transaction, for the same reason: the site's materialized state
+// then starts on a phase that says what the site already knows.
 func (w *Watcher) Register(ctx context.Context, spec RegistrationSpec,
 	phase1 func(context.Context, RegistryTx,
 		AnchoringID) error) (AnchoringID, error) {
 
-	if _, ok := w.sites[spec.Site]; !ok {
+	site, ok := w.sites[spec.Site]
+	if !ok {
 		return 0, fmt.Errorf("unknown site %v", spec.Site)
 	}
 
@@ -320,8 +386,48 @@ func (w *Watcher) Register(ctx context.Context, spec RegistrationSpec,
 		spec.Threshold = w.cfg.DefaultThreshold
 	}
 
+	// The reconcile callback lands the site's materialized state on
+	// an anchoring's delivered phase inside the registration
+	// transaction. For a registration that finds its identity
+	// already registered, that phase is what the anchoring's earlier
+	// stakes already reflect, re-delivered atomically with the
+	// lookup that found the anchoring so a concurrent delivery
+	// cannot slip between them. Handlers are convergent by contract,
+	// which is what makes the re-delivery safe, and it is what
+	// attaches late-arriving state to a resting or terminal
+	// anchoring that will never be delivered again. That includes a
+	// delivered Unwitnessed after a soft re-org at rest — such an
+	// anchoring may likewise see no further delivery, and an
+	// exemption would let state imported with a confirmation the
+	// re-org discarded outlive the rollback. For a seeded
+	// registration the callback runs at birth, against the phase the
+	// seed derives, so a site that materialized confirmed state
+	// before registering is never handed the registry's default
+	// Unwitnessed by a later attach: the birth phase already says
+	// what the site knows. Sites that register before their
+	// transaction confirms are born Unwitnessed with nothing to
+	// withdraw.
+	var triggersAdded bool
+	reconcile := func(ctx context.Context, tx RegistryTx,
+		anchoring *Anchoring, added []TriggerOutPoint) error {
+
+		if len(added) > 0 {
+			triggersAdded = true
+		}
+
+		delivered := anchoring.DeliveredPhase
+		reconciled := *anchoring
+		reconciled.Phase = delivered
+
+		return capturePanic("site handler", func() error {
+			return dispatchPhase(
+				ctx, site, tx, &reconciled, delivered,
+			)
+		})
+	}
+
 	id, err := w.cfg.Registry.Register(
-		ctx, spec, w.bestHeight.Load(), phase1,
+		ctx, spec, w.bestHeight.Load(), phase1, reconcile,
 	)
 	if err != nil {
 		return 0, err
@@ -331,8 +437,24 @@ func (w *Watcher) Register(ctx context.Context, spec RegistrationSpec,
 	// sensing hand-off is best-effort: a live anchoring without a
 	// sensor is adopted by the reconciliation sweep, and an error
 	// returned now would misreport a committed registration as
-	// failed.
-	if err := w.sendEvent(ctx, evSense{id: id}); err != nil {
+	// failed. The hand-off runs under the watcher's own lifetime
+	// rather than the caller's: a caller that departs once its
+	// registration has committed (an RPC client disconnecting) must
+	// not be able to skip it. A union that added triggers tears the
+	// running sensor down first, so the adoption reopens spend
+	// subscriptions over the enlarged set.
+	handOffCtx, cancel := w.WithCtxQuit()
+	defer cancel()
+
+	if triggersAdded {
+		err := w.sendEvent(handOffCtx, evStopSensing{id: id})
+		if err != nil {
+			log.Warnf("Anchoring %d: sensor teardown "+
+				"hand-off failed, reconciliation sweep "+
+				"will adopt: %v", id, err)
+		}
+	}
+	if err := w.sendEvent(handOffCtx, evSense{id: id}); err != nil {
 		log.Warnf("Anchoring %d: sensing hand-off failed, "+
 			"reconciliation sweep will adopt: %v", id, err)
 	}
@@ -359,6 +481,64 @@ func (w *Watcher) Withdraw(ctx context.Context, id AnchoringID,
 	}
 
 	return nil
+}
+
+// Anchoring reads one anchoring, live or terminal, from the registry.
+func (w *Watcher) Anchoring(ctx context.Context,
+	id AnchoringID) (*Anchoring, error) {
+
+	return w.cfg.Registry.GetAnchoring(ctx, id)
+}
+
+// Anchorings reads the live anchorings registered by one site.
+func (w *Watcher) Anchorings(ctx context.Context,
+	site SiteID) ([]*Anchoring, error) {
+
+	live, err := w.cfg.Registry.LiveAnchorings(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]*Anchoring, 0, len(live))
+	for _, anchoring := range live {
+		if anchoring.Site == site {
+			out = append(out, anchoring)
+		}
+	}
+
+	return out, nil
+}
+
+// LookupByMatchKey reads a site's anchoring by its per-site identity
+// key. See Registrar.LookupByMatchKey for the contract.
+func (w *Watcher) LookupByMatchKey(ctx context.Context, site SiteID,
+	matchKey []byte) (*Anchoring, error) {
+
+	return w.cfg.Registry.LookupByMatchKey(ctx, site, matchKey)
+}
+
+// AllAnchorings reads one site's anchorings across every phase,
+// settled ones included. Identity lookups — a resumed subsystem
+// re-finding its stake, a registration deduplicating by payload —
+// must span the full history: an anchoring leaves the live set the
+// moment it is buried, which is precisely when a restarted consumer
+// comes looking for it.
+func (w *Watcher) AllAnchorings(ctx context.Context,
+	site SiteID) ([]*Anchoring, error) {
+
+	all, err := w.cfg.Registry.AllAnchorings(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]*Anchoring, 0, len(all))
+	for _, anchoring := range all {
+		if anchoring.Site == site {
+			out = append(out, anchoring)
+		}
+	}
+
+	return out, nil
 }
 
 // sendEvent delivers an event to the sensing loop, respecting
@@ -477,6 +657,29 @@ type sensor struct {
 
 	// pending holds discovered spenders not yet located.
 	pending map[chainhash.Hash]*pendingCandidate
+
+	// watched records the trigger outpoints this sensor opened
+	// spend subscriptions for. The registry's trigger set can grow
+	// after the sensor started (a registration attaching to the
+	// anchoring unions in outpoints it lacked) and the cached
+	// anchoring is refreshed on every re-derivation, so the set the
+	// subscriptions actually span is recorded separately.
+	watched map[wire.OutPoint]struct{}
+}
+
+// covers reports whether the sensor's spend subscriptions span the
+// given trigger set.
+func (s *sensor) covers(triggers TriggerSet) bool {
+	if triggers.Len() != len(s.watched) {
+		return false
+	}
+	for _, trigger := range triggers.OutPoints() {
+		if _, ok := s.watched[trigger.OutPoint]; !ok {
+			return false
+		}
+	}
+
+	return true
 }
 
 // sensingLoop owns all chain subscriptions and the registry's sensed
@@ -637,8 +840,11 @@ func (w *Watcher) resense(id AnchoringID) {
 }
 
 // reconcileSensors adopts live anchorings that have no sensor —
-// however they came to be missed. Sensing must never depend on any
-// single hand-off succeeding.
+// however they came to be missed — and rebuilds sensors whose
+// subscriptions no longer span their anchoring's trigger set. Sensing
+// must never depend on any single hand-off succeeding: a union whose
+// teardown hand-off was lost would otherwise leave the added
+// outpoints unwatched until restart.
 func (w *Watcher) reconcileSensors(ctx context.Context) {
 	live, err := w.cfg.Registry.LiveAnchorings(ctx)
 	if err != nil {
@@ -650,12 +856,22 @@ func (w *Watcher) reconcileSensors(ctx context.Context) {
 	}
 
 	for _, anchoring := range live {
-		if _, ok := w.sensors[anchoring.ID]; ok {
+		s, ok := w.sensors[anchoring.ID]
+		switch {
+		case ok && s.covers(anchoring.Triggers):
 			continue
-		}
 
-		log.Infof("Anchoring %d (site=%v): adopted by "+
-			"reconciliation sweep", anchoring.ID, anchoring.Site)
+		case ok:
+			log.Infof("Anchoring %d (site=%v): trigger set grew "+
+				"past its sensor, rebuilt by reconciliation "+
+				"sweep", anchoring.ID, anchoring.Site)
+			w.stopSensor(anchoring.ID)
+
+		default:
+			log.Infof("Anchoring %d (site=%v): adopted by "+
+				"reconciliation sweep", anchoring.ID,
+				anchoring.Site)
+		}
 
 		if err := w.adopt(ctx, anchoring); err != nil {
 			log.Warnf("Unable to start sensor, next sweep "+
@@ -763,6 +979,7 @@ func (w *Watcher) startSensor(ctx context.Context,
 		actSubs:         make(map[chainhash.Hash]struct{}),
 		foreclosureSubs: make(map[chainhash.Hash]struct{}),
 		pending:         make(map[chainhash.Hash]*pendingCandidate),
+		watched:         make(map[wire.OutPoint]struct{}),
 	}
 
 	for _, trigger := range anchoring.Triggers.OutPoints() {
@@ -771,6 +988,7 @@ func (w *Watcher) startSensor(ctx context.Context,
 			return fmt.Errorf("anchoring %d: %w", anchoring.ID,
 				err)
 		}
+		s.watched[trigger.OutPoint] = struct{}{}
 	}
 
 	// Known candidates re-subscribe so their re-confirmations and
@@ -2187,22 +2405,40 @@ func (w *Watcher) dispatchEffects(ctx context.Context) {
 // dispatchOne dispatches a single effect and applies the failure
 // policy. It reports whether the effect's bookkeeping advanced (the
 // effect was marked dispatched, or its failure was recorded with a
-// backoff): an effect whose bookkeeping did not advance would be
-// re-fetched, and re-dispatched, by an immediate rescan.
+// backoff): an effect whose bookkeeping did not advance — a not-ready
+// effect included — would be re-fetched, and re-dispatched, by an
+// immediate rescan.
 func (w *Watcher) dispatchOne(ctx context.Context,
 	effect *StoredEffect) bool {
 
 	var dispatchErr error
-	handler, ok := w.effectHandlers[effect.Effect.Kind]
+	entry, ok := w.effectHandlers[effect.Effect.Kind]
 	if !ok {
 		dispatchErr = fmt.Errorf("no handler for effect kind %v",
 			effect.Effect.Kind)
 	} else {
 		// A panicking handler fails this one dispatch, entering
-		// the ordinary backoff-and-retry bookkeeping.
+		// the ordinary backoff-and-retry bookkeeping. The
+		// deadline does the same for a handler that would not
+		// return: effects share one serial dispatcher, so a
+		// single hung remote call — the push handlers reach
+		// universe servers — would otherwise block every effect
+		// behind it for as long as the connection stays open. A
+		// handler registered with its own timeout overrides the
+		// configured default; one registered unbounded runs to
+		// completion.
+		attemptCtx, cancel := ctx, func() {}
+		timeout := entry.timeout.UnwrapOr(w.cfg.DispatchTimeout)
+		if timeout > 0 {
+			attemptCtx, cancel = context.WithTimeout(ctx, timeout)
+		}
 		dispatchErr = capturePanic("effect handler", func() error {
-			return handler(ctx, effect.Effect.Payload)
+			return entry.handler(
+				attemptCtx, effect.Effect.Anchoring,
+				effect.Effect.Payload,
+			)
 		})
+		cancel()
 	}
 
 	if dispatchErr == nil {
@@ -2213,6 +2449,17 @@ func (w *Watcher) dispatchOne(ctx context.Context,
 			return false
 		}
 		return true
+	}
+
+	// The effect's inputs are not there yet: this is not a failure
+	// of the handler, so nothing is recorded and no backoff applies.
+	// The effect stays pending for the next pass, which the owning
+	// subsystem kicks once the inputs exist.
+	if errors.Is(dispatchErr, ErrEffectNotReady) {
+		log.Debugf("Effect %d (kind=%v): not ready, awaiting "+
+			"its inputs: %v", effect.ID, effect.Effect.Kind,
+			dispatchErr)
+		return false
 	}
 
 	attempts := effect.Attempts + 1
@@ -2231,6 +2478,11 @@ func (w *Watcher) dispatchOne(ctx context.Context,
 	}
 
 	return true
+}
+
+// KickOutbox wakes the outbox dispatcher ahead of its scan.
+func (w *Watcher) KickOutbox() {
+	w.kick(w.outboxKick)
 }
 
 // kick wakes a loop ahead of its ticker.

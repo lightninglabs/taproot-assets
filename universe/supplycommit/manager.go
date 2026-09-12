@@ -41,6 +41,15 @@ type DaemonAdapters interface {
 // Manager. It contains all the dependencies needed to
 // manage multiple supply commitment state machines, one for each asset group.
 type ManagerCfg struct {
+	// AnchoringWatcher is the re-org watcher broadcast commitments
+	// register with as speculative anchorings; finalization is then
+	// act-gated on burial.
+	AnchoringWatcher AnchoringRegistrar
+
+	// AnchoringThreshold is the depth at which a commitment is
+	// act-confirmed (buried).
+	AnchoringThreshold uint32
+
 	// TreeView is the interface that allows the state machine to obtain an
 	// up-to-date snapshot of the root supply tree, and the relevant set of
 	// subtrees.
@@ -164,13 +173,54 @@ func (m *Manager) startAssetSM(ctx context.Context,
 		CommitConfTarget:   DefaultCommitConfTarget,
 		ChainParams:        m.cfg.ChainParams,
 		IgnoreCheckerCache: m.cfg.IgnoreCheckerCache,
+		AnchoringWatcher:   m.cfg.AnchoringWatcher,
+		AnchoringThreshold: m.cfg.AnchoringThreshold,
 	}
 
 	// Before we start the state machine, we'll need to fetch the current
 	// state from disk, to see if we need to emit any new events.
-	initialState, _, err := m.cfg.StateLog.FetchState(ctx, assetSpec)
+	initialState, initialTransition, err := m.cfg.StateLog.FetchState(
+		ctx, assetSpec,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to fetch current state: %w", err)
+	}
+
+	// The durable record keeps the state name and the pending
+	// transition apart. A resumed state that carries the transition in
+	// memory is rehydrated from it; its handlers would otherwise run
+	// against an empty transition, and a broadcast state's first event
+	// would kill the machine over a nil commitment transaction.
+	initialTransition.WhenSome(func(transition SupplyStateTransition) {
+		switch state := initialState.(type) {
+		case *CommitBroadcastState:
+			state.SupplyTransition = transition
+
+		case *CommitFinalizeState:
+			state.SupplyTransition = transition
+		}
+	})
+
+	// On the anchoring path a restored broadcast state must hold its
+	// anchoring before the machine resumes and rests on it. A record
+	// persisted before the watcher existed has none; adopt it now.
+	// The state it watches over is already durable, so the
+	// registration stakes nothing.
+	if broadcast, ok := initialState.(*CommitBroadcastState); ok &&
+		env.AnchoringWatcher != nil &&
+		broadcast.SupplyTransition.NewCommitment.Txn != nil {
+
+		registered, err := registerCommitAnchoring(
+			ctx, env, &broadcast.SupplyTransition,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to adopt commit "+
+				"anchoring: %w", err)
+		}
+		if registered {
+			log.Infof("Registered missing commit anchoring for "+
+				"group %v on restart", assetSpec)
+		}
 	}
 
 	// Create a new error reporter for the state machine.
@@ -200,10 +250,18 @@ func (m *Manager) startAssetSM(ctx context.Context,
 	// events to the state machine to ensure it begins ticking as expected.
 	switch initialState.(type) {
 	// Once we write the commitment transaction to disk in CommitTxSign,
-	// then on restart, we'll be in the broadcast state. From this point,
-	// we'll trigger the broadcast event so we can resume the state machine.
+	// then on restart, we'll be in the broadcast state. On the
+	// anchoring path the re-org watcher already holds the commitment
+	// and finalizes it out of band, so a tick lets the resting handler
+	// re-derive the machine's position from the durable record. On the
+	// legacy path we trigger the broadcast event so the machine
+	// re-broadcasts and re-subscribes for the confirmation.
 	case *CommitBroadcastState:
-		newSm.SendEvent(ctx, &BroadcastEvent{})
+		if env.AnchoringWatcher != nil {
+			newSm.SendEvent(ctx, &CommitTickEvent{})
+		} else {
+			newSm.SendEvent(ctx, &BroadcastEvent{})
+		}
 
 	// Once we get a confirmation, then we'll transition to the
 	// CommitFinalizeState. If we crashed right after that, then
@@ -211,6 +269,15 @@ func (m *Manager) startAssetSM(ctx context.Context,
 	// everything, and transition back to the normal default state.
 	case *CommitFinalizeState:
 		newSm.SendEvent(ctx, &FinalizeEvent{})
+
+	// On the anchoring path the watcher's finalizer and compensator
+	// park bound updates here for the machine to pick up, so a tick
+	// resumes the interrupted cycle. The legacy path leaves the batch
+	// to the operator's publish call, as before.
+	case *UpdatesPendingState:
+		if env.AnchoringWatcher != nil {
+			newSm.SendEvent(ctx, &CommitTickEvent{})
+		}
 	}
 
 	return &newSm, nil

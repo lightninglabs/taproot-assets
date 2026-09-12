@@ -16,6 +16,7 @@ import (
 	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/tapreorg"
@@ -173,6 +174,19 @@ type faultRegistry struct {
 	mu       sync.Mutex
 	failures int
 	method   string
+
+	// detach, while set, runs registration transactions detached
+	// from the caller's context: the model of a caller that
+	// departs once its registration has committed, so that only
+	// the watcher's post-commit hand-off sees the cancelled
+	// context.
+	detach atomic.Bool
+}
+
+// DetachContexts sets whether registrations run detached from the
+// caller's context.
+func (f *faultRegistry) DetachContexts(detach bool) {
+	f.detach.Store(detach)
 }
 
 // FailNextCalls arms the next n registry calls to fail; a non-empty
@@ -203,13 +217,19 @@ func (f *faultRegistry) failNext(method string) error {
 func (f *faultRegistry) Register(ctx context.Context,
 	spec tapreorg.RegistrationSpec, createdHeight uint32,
 	phase1 func(context.Context, tapreorg.RegistryTx,
-		tapreorg.AnchoringID) error) (tapreorg.AnchoringID, error) {
+		tapreorg.AnchoringID) error,
+	reconcile tapreorg.ReconcileFunc) (tapreorg.AnchoringID, error) {
 
 	if err := f.failNext("Register"); err != nil {
 		return 0, err
 	}
+	if f.detach.Load() {
+		ctx = context.WithoutCancel(ctx)
+	}
 
-	return f.Registry.Register(ctx, spec, createdHeight, phase1)
+	return f.Registry.Register(
+		ctx, spec, createdHeight, phase1, reconcile,
+	)
 }
 
 func (f *faultRegistry) GetAnchoring(ctx context.Context,
@@ -450,11 +470,14 @@ func (h *harness) newWatcher() *tapreorg.Watcher {
 		MaxDeliveryBackoff:     40 * time.Millisecond,
 		StuckAfterAttempts:     2,
 		ScanInterval:           20 * time.Millisecond,
+		DispatchTimeout:        100 * time.Millisecond,
 		ErrChan:                h.errChan,
 	})
 	require.NoError(h.t, w.RegisterSite(h.site))
 	require.NoError(h.t, w.RegisterEffectHandler(
-		"test", func(context.Context, tapreorg.VersionedBlob) error {
+		"test", func(context.Context, fn.Option[tapreorg.AnchoringID],
+			tapreorg.VersionedBlob) error {
+
 			h.effects.Add(1)
 			return nil
 		},
@@ -584,14 +607,35 @@ func (h *harness) register(threshold uint32, satisfying []*wire.MsgTx,
 		})
 	}
 
+	return h.registerSpec(spec, phase1)
+}
+
+// registerSpec registers the spec with retry and read-back, shared by
+// the trigger-set and seed-candidate registration helpers.
+func (h *harness) registerSpec(spec tapreorg.RegistrationSpec,
+	phase1 func(context.Context, tapreorg.RegistryTx,
+		tapreorg.AnchoringID) error) tapreorg.AnchoringID {
+
+	return h.registerSpecCtx( //nolint:contextcheck
+		context.Background(), spec, phase1,
+	)
+}
+
+// registerSpecCtx is registerSpec under the caller's context.
+func (h *harness) registerSpecCtx(ctx context.Context,
+	spec tapreorg.RegistrationSpec,
+	phase1 func(context.Context, tapreorg.RegistryTx,
+		tapreorg.AnchoringID) error) tapreorg.AnchoringID {
+
 	// Registration is retried through transient database
 	// contention: the harness's polling load can exhaust SQLite's
 	// busy-retry budget, which is a load artifact, not a defect.
-	var id tapreorg.AnchoringID
+	var (
+		id  tapreorg.AnchoringID
+		err error
+	)
 	for attempt := 0; attempt < 50; attempt++ {
-		id, err = h.watcher.Register( //nolint:contextcheck
-			context.Background(), spec, phase1,
-		)
+		id, err = h.watcher.Register(ctx, spec, phase1)
 		if !errors.Is(err, tapdb.ErrRetriesExceeded) {
 			break
 		}
@@ -617,6 +661,82 @@ func (h *harness) register(threshold uint32, satisfying []*wire.MsgTx,
 	}
 
 	return id
+}
+
+// registerSeed stakes an anchoring on an already-confirmed seed
+// transaction with no trigger set: the genesis-shape registration.
+// The seed's chain location and enrichment are read back from the
+// sim, mirroring a receive site building its seed from a proof tip.
+func (h *harness) registerSeed(threshold uint32,
+	seedTx *wire.MsgTx) tapreorg.AnchoringID {
+
+	return h.registerSpec(h.seedSpec(threshold, seedTx), nil)
+}
+
+// seedSpec builds a seeded registration for a transaction currently
+// on the sim's chain, at its current location, keyed on its txid. The
+// trigger outpoints, if any, are watched alongside the seed.
+func (h *harness) seedSpec(threshold uint32, seedTx *wire.MsgTx,
+	triggers ...wire.OutPoint) tapreorg.RegistrationSpec {
+
+	ctx := context.Background()
+	txid := seedTx.TxHash()
+
+	height, ok := h.sim.TxHeight(txid)
+	require.True(h.t, ok, "seed tx not on chain")
+	blockHash, err := h.sim.GetBlockHash(ctx, int64(height))
+	require.NoError(h.t, err)
+	block, err := h.sim.GetBlock(ctx, blockHash)
+	require.NoError(h.t, err)
+
+	txIndex := -1
+	for i, tx := range block.Transactions {
+		if tx.TxHash() == txid {
+			txIndex = i
+			break
+		}
+	}
+	require.GreaterOrEqual(h.t, txIndex, 0, "seed tx not in its block")
+
+	witness, err := tapreorg.NewWitness(
+		seedTx, blockHash, height, uint32(txIndex),
+	)
+	require.NoError(h.t, err)
+
+	header := block.Header
+	spec := tapreorg.RegistrationSpec{
+		Site: testSiteID,
+		MatchData: tapreorg.VersionedBlob{
+			Version: 1,
+			Data:    txid[:],
+		},
+		Payload:   tapreorg.VersionedBlob{Version: 1},
+		Threshold: threshold,
+		MatchKey:  txid[:],
+		SeedCandidate: &tapreorg.CandidateSpend{
+			Verdict:     tapreorg.VerdictSatisfies,
+			W:           witness,
+			OnChain:     true,
+			BlockHeader: &header,
+			MerkleProof: &proof.TxMerkleProof{},
+		},
+	}
+
+	if len(triggers) > 0 {
+		points := make([]tapreorg.TriggerOutPoint, len(triggers))
+		for i, op := range triggers {
+			points[i] = tapreorg.TriggerOutPoint{
+				OutPoint:   op,
+				PkScript:   stdScript(0x02),
+				HeightHint: 1,
+			}
+		}
+		triggerSet, err := tapreorg.NewTriggerSet(points)
+		require.NoError(h.t, err)
+		spec.Triggers = triggerSet
+	}
+
+	return spec
 }
 
 // settleWhere waits until the anchoring satisfies the condition.
@@ -744,6 +864,164 @@ func TestWatcherHappyPath(t *testing.T) {
 
 	// The pure predicate ran exactly once for the candidate.
 	require.Equal(t, 1, h.site.evaluations(satTx.TxHash()))
+}
+
+// TestWatcherSeedCandidate drives the genesis-shape registration — no
+// trigger set, the already-confirmed seed transaction is the witness —
+// through the re-org cycle: witnessed at registration without any
+// spend-side discovery, honestly downgraded when the seed's block
+// re-orgs away with no successor, re-witnessed at the new location on
+// re-confirmation, and buried at threshold.
+func TestWatcherSeedCandidate(t *testing.T) {
+	t.Parallel()
+
+	h := newHarness(t)
+	h.start()
+
+	op := wire.OutPoint{Hash: chainhash.Hash{15}, Index: 0}
+	seedTx := h.spendTx(op)
+	h.sim.MineBlock(seedTx)
+
+	id := h.registerSeed(testThreshold, seedTx)
+
+	// A seeded registration is born delivered: the site's witnessed
+	// handler ran inside the registration transaction, before any
+	// sensing.
+	require.Equal(t, "witnessed", phaseKind(h.site.appliedPhase(id)))
+	require.Equal(t, []string{"witnessed"}, h.site.deliveries(id))
+
+	// The seed is already on-chain, so the anchoring witnesses
+	// directly from the registered candidate.
+	h.settleWhere(id, func(a *tapreorg.Anchoring) bool {
+		w, ok := a.Phase.(tapreorg.Witnessed)
+		return ok && w.W.TxHash() == seedTx.TxHash() &&
+			tapreorg.PhaseEqual(a.DeliveredPhase, a.Phase)
+	})
+
+	// The seed's block re-orgs away with no successor. There is no
+	// trigger outpoint (and hence no foreign spender) to say
+	// anything else: the only honest phase is unwitnessed.
+	h.sim.Reorg(1, nil)
+	h.settleConverged(id, tapreorg.Unwitnessed{})
+	require.Equal(t, "unwitnessed", phaseKind(h.site.appliedPhase(id)))
+
+	// The seed re-confirms in a new block: re-witnessed, with the
+	// refreshed location.
+	newHeight := h.sim.MineBlock(seedTx)
+	h.settleWhere(id, func(a *tapreorg.Anchoring) bool {
+		w, ok := a.Phase.(tapreorg.Witnessed)
+		return ok && w.W.TxHash() == seedTx.TxHash() &&
+			w.W.Height() == newHeight &&
+			tapreorg.PhaseEqual(a.DeliveredPhase, a.Phase)
+	})
+
+	// Burial at threshold: act-confirmed, sensing ends.
+	h.sim.MineBlocks(int(testThreshold) - 1)
+	h.settleWhere(id, func(a *tapreorg.Anchoring) bool {
+		b, ok := a.Phase.(tapreorg.Buried)
+		return ok && b.W.TxHash() == seedTx.TxHash() &&
+			tapreorg.PhaseEqual(a.DeliveredPhase, a.Phase)
+	})
+	require.Equal(t, "buried", phaseKind(h.site.appliedPhase(id)))
+
+	live, err := h.store.LiveAnchorings(context.Background())
+	require.NoError(t, err)
+	require.Empty(t, live)
+}
+
+// TestWatcherSeedStaleAtRegistration drives a seed whose location
+// went stale between the caller's verification and the registration:
+// the anchoring is still born delivered Witnessed on the caller's
+// evidence, and the sensor's adoption-time verification of the
+// recorded location downgrades it through the ordinary delivery
+// path, so the site's state does not outlive the block.
+func TestWatcherSeedStaleAtRegistration(t *testing.T) {
+	t.Parallel()
+
+	h := newHarness(t)
+	h.start()
+
+	op := wire.OutPoint{Hash: chainhash.Hash{0x51}, Index: 0}
+	seedTx := h.spendTx(op)
+	h.sim.MineBlock(seedTx)
+
+	// The seed is built while the block stands, then the block
+	// re-orgs away with no successor before the registration.
+	spec := h.seedSpec(testThreshold, seedTx)
+	h.sim.Reorg(1, nil)
+
+	// The birth delivery is synchronous with the registration; the
+	// sensor's downgrade may follow at any moment after it, so the
+	// history is what pins the order.
+	id := h.registerSpec(spec, nil)
+	require.Equal(t, "witnessed", h.site.deliveries(id)[0])
+
+	h.settleConverged(id, tapreorg.Unwitnessed{})
+	require.Equal(t, "unwitnessed", phaseKind(h.site.appliedPhase(id)))
+	require.Equal(
+		t, []string{"witnessed", "unwitnessed"},
+		h.site.deliveries(id),
+	)
+
+	// The seed re-confirms: re-witnessed at the fresh location.
+	newHeight := h.sim.MineBlock(seedTx)
+	h.settleWhere(id, func(a *tapreorg.Anchoring) bool {
+		w, ok := a.Phase.(tapreorg.Witnessed)
+		return ok && w.W.Height() == newHeight &&
+			tapreorg.PhaseEqual(a.DeliveredPhase, a.Phase)
+	})
+}
+
+// TestWatcherSeedWithTriggers drives a seed registered alongside its
+// trigger set — the receive shape. A second registration for the
+// same identity attaches and reconciles against the birth phase, so
+// the site never sees an Unwitnessed for state it imported confirmed;
+// and the trigger set is watched all the same, so a foreign spender
+// that replaces the seed still forecloses the anchoring.
+func TestWatcherSeedWithTriggers(t *testing.T) {
+	t.Parallel()
+
+	h := newHarness(t)
+	h.start()
+
+	op := wire.OutPoint{Hash: chainhash.Hash{0x52}, Index: 0}
+	seedTx := h.spendTx(op)
+	foreignTx := h.spendTx(op)
+	h.sim.MineBlock(seedTx)
+
+	spec := h.seedSpec(testThreshold, seedTx, op)
+	id := h.registerSpec(spec, nil)
+	require.Equal(t, "witnessed", phaseKind(h.site.appliedPhase(id)))
+
+	// Sensing is handed off after the registration commits; the
+	// trigger set is watched alongside the seed once it lands.
+	require.Eventually(t, func() bool {
+		return h.sim.SpendSubscribed(op)
+	}, 5*time.Second, settleTick)
+
+	// A second registration attaches to the seeded anchoring and
+	// re-delivers its birth phase: witnessed, not the registry's
+	// Unwitnessed default.
+	again := h.registerSpec(spec, nil)
+	require.Equal(t, id, again)
+	require.NotContains(t, h.site.deliveries(id), "unwitnessed")
+	require.Equal(t, "witnessed", phaseKind(h.site.appliedPhase(id)))
+
+	// The trigger's foreign spender replaces the seed after a re-org
+	// and buries: the chain decided against the seed, and the
+	// anchoring is foreclosed through the watched trigger.
+	h.sim.Reorg(1, []*wire.MsgTx{foreignTx})
+	h.sim.MineBlocks(int(testThreshold) - 1)
+	h.settleWhere(id, func(a *tapreorg.Anchoring) bool {
+		abandoned, ok := a.Phase.(tapreorg.Abandoned)
+		if !ok {
+			return false
+		}
+		cause, ok := abandoned.Cause.(tapreorg.ForeignBurial)
+		return ok && cause.Spend.W.TxHash() == foreignTx.TxHash() &&
+			tapreorg.PhaseEqual(a.DeliveredPhase, a.Phase)
+	})
+	require.Equal(t, "abandoned", phaseKind(h.site.appliedPhase(id)))
 }
 
 // TestWatcherConflictAbandon drives the adverse side: a foreign spend
@@ -1659,6 +1937,227 @@ func TestWatcherPartialSpendForeign(t *testing.T) {
 	require.NoError(t, h.escalation())
 }
 
+// TestWatcherRegisterExistingReconciles pins the attach path of an
+// identity-keyed registration: a second registration under the same
+// (site, match key) returns the existing anchoring, re-delivers its
+// delivered phase to the site inside the registration transaction,
+// and unions trigger outpoints the first registration lacked — after
+// which a foreign spend of an outpoint only the second registration
+// revealed can still foreclose the stake. Without the union such an
+// anchoring sat unwitnessed forever: the omitted outpoint had no
+// spend subscription, so its foreign spend was invisible. A union a
+// recorded satisfying candidate does not cover is refused instead of
+// retroactively breaking the whole-set rule.
+func TestWatcherRegisterExistingReconciles(t *testing.T) {
+	t.Parallel()
+
+	h := newHarness(t)
+	h.start()
+	ctx := context.Background()
+
+	// The satisfying transaction spends two outpoints, but the
+	// first registration only knows about one of them.
+	opA := wire.OutPoint{Hash: chainhash.Hash{0xf6}, Index: 0}
+	opB := wire.OutPoint{Hash: chainhash.Hash{0xf6}, Index: 1}
+	opC := wire.OutPoint{Hash: chainhash.Hash{0xf6}, Index: 2}
+	sat := h.spendTx(opA, opB)
+	satTxid := sat.TxHash()
+
+	matchKey := []byte("shared-anchor-identity")
+	spec := func(ops ...wire.OutPoint) tapreorg.RegistrationSpec {
+		points := make([]tapreorg.TriggerOutPoint, len(ops))
+		for i, op := range ops {
+			points[i] = tapreorg.TriggerOutPoint{
+				OutPoint:   op,
+				PkScript:   stdScript(0x02),
+				HeightHint: 1,
+			}
+		}
+		triggers, err := tapreorg.NewTriggerSet(points)
+		require.NoError(t, err)
+
+		return tapreorg.RegistrationSpec{
+			Site:     testSiteID,
+			Triggers: triggers,
+			MatchData: tapreorg.VersionedBlob{
+				Version: 1,
+				Data:    satTxid[:],
+			},
+			Payload:   tapreorg.VersionedBlob{Version: 1},
+			MatchKey:  matchKey,
+			Threshold: 2,
+		}
+	}
+
+	id := h.registerSpec(spec(opA), nil)
+
+	// A duplicate registration before anything has been delivered
+	// re-delivers the birth phase. The attach rule admits no
+	// exemption: a delivered Unwitnessed is ambiguous between birth
+	// and a soft re-org already delivered and at rest, and only the
+	// unconditional re-delivery keeps state imported with a
+	// confirmation a re-org discarded from outliving the rollback.
+	require.Equal(t, id, h.registerSpec(spec(opA), nil))
+	require.Equal(t, []string{"unwitnessed"}, h.site.deliveries(id))
+
+	// Witness and deliver through the watched outpoint.
+	h.sim.MineBlock(sat)
+	h.settleWhere(id, func(a *tapreorg.Anchoring) bool {
+		return phaseKind(a.Phase) == "witnessed" &&
+			tapreorg.PhaseEqual(a.DeliveredPhase, a.Phase)
+	})
+	delivered := len(h.site.deliveries(id))
+
+	// A union the recorded satisfying candidate does not cover is
+	// refused: the candidate would no longer spend the whole set.
+	_, err := h.watcher.Register(ctx, spec(opA, opC), nil)
+	require.ErrorIs(t, err, tapreorg.ErrIncompleteSpend)
+
+	// The second registration reveals the satisfying transaction's
+	// other input. Attaching re-delivers the delivered phase and
+	// unions the revealed outpoint into the watched set.
+	require.Equal(t, id, h.registerSpec(spec(opA, opB), nil))
+	history := h.site.deliveries(id)
+	require.Greater(t, len(history), delivered)
+	require.Equal(t, "witnessed", history[len(history)-1])
+
+	a, err := h.store.GetAnchoring(ctx, id)
+	require.NoError(t, err)
+	require.True(t, a.Triggers.Contains(opB))
+
+	// The satisfying transaction re-orgs out and a foreign spend of
+	// only the revealed outpoint replaces it. The union's spend
+	// subscription observes it; at threshold depth the partial
+	// foreign spend certifies and the stake is abandoned — exactly
+	// the outcome an un-unioned trigger set could never reach.
+	foreign := h.spendTx(opB)
+	h.sim.Reorg(1, []*wire.MsgTx{foreign}, nil)
+	h.settleWhere(id, func(a *tapreorg.Anchoring) bool {
+		abandoned, ok := a.Phase.(tapreorg.Abandoned)
+		if !ok {
+			return false
+		}
+		cause, ok := abandoned.Cause.(tapreorg.ForeignBurial)
+
+		return ok && cause.Spend.W.TxHash() == foreign.TxHash() &&
+			tapreorg.PhaseEqual(a.DeliveredPhase, a.Phase)
+	})
+	require.NoError(t, h.escalation())
+}
+
+// identitySpec builds a registration spec under a fixed match key,
+// satisfied by sat, over the given trigger outpoints: the shape of
+// registrations that attach to one another.
+func (h *harness) identitySpec(sat *wire.MsgTx, matchKey []byte,
+	ops ...wire.OutPoint) tapreorg.RegistrationSpec {
+
+	points := make([]tapreorg.TriggerOutPoint, len(ops))
+	for i, op := range ops {
+		points[i] = tapreorg.TriggerOutPoint{
+			OutPoint:   op,
+			PkScript:   stdScript(0x02),
+			HeightHint: 1,
+		}
+	}
+	triggers, err := tapreorg.NewTriggerSet(points)
+	require.NoError(h.t, err)
+
+	satTxid := sat.TxHash()
+
+	return tapreorg.RegistrationSpec{
+		Site:     testSiteID,
+		Triggers: triggers,
+		MatchData: tapreorg.VersionedBlob{
+			Version: 1,
+			Data:    satTxid[:],
+		},
+		Payload:   tapreorg.VersionedBlob{Version: 1},
+		MatchKey:  matchKey,
+		Threshold: 2,
+	}
+}
+
+// TestWatcherRegisterUnionOutlivesCaller pins that a union's sensing
+// hand-off does not depend on its caller: a registration whose
+// context is cancelled by the time its transaction has committed —
+// an RPC client that disconnects — still leaves the enlarged trigger
+// set subscribed, without waiting for a restart.
+func TestWatcherRegisterUnionOutlivesCaller(t *testing.T) {
+	t.Parallel()
+
+	h := newHarness(t)
+	h.start()
+
+	opA := wire.OutPoint{Hash: chainhash.Hash{0xf7}, Index: 0}
+	opB := wire.OutPoint{Hash: chainhash.Hash{0xf7}, Index: 1}
+	sat := h.spendTx(opA, opB)
+	matchKey := []byte("departing-caller")
+
+	id := h.registerSpec(h.identitySpec(sat, matchKey, opA), nil)
+	require.Eventually(t, func() bool {
+		return h.sim.SpendSubscribed(opA)
+	}, settleTimeout, settleTick)
+	require.False(t, h.sim.SpendSubscribed(opB))
+
+	// The caller is gone by the time the union commits.
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	h.registry.DetachContexts(true)
+	require.Equal(t, id, h.registerSpecCtx(
+		cancelled, h.identitySpec(sat, matchKey, opA, opB), nil,
+	))
+	h.registry.DetachContexts(false)
+
+	require.Eventually(t, func() bool {
+		return h.sim.SpendSubscribed(opB)
+	}, settleTimeout, settleTick)
+	require.NoError(t, h.escalation())
+}
+
+// TestWatcherSweepRebuildsGrownSensor pins the reconciliation sweep's
+// second duty: a live anchoring whose registry trigger set has grown
+// past what its sensor subscribed to is rebuilt over the enlarged
+// set. A union the sensing loop never heard of — here one written
+// through the registry directly, as a lost hand-off leaves it —
+// would otherwise stay under-sensed until restart.
+func TestWatcherSweepRebuildsGrownSensor(t *testing.T) {
+	t.Parallel()
+
+	h := newHarness(t)
+	h.start()
+	ctx := context.Background()
+
+	opA := wire.OutPoint{Hash: chainhash.Hash{0xf8}, Index: 0}
+	opB := wire.OutPoint{Hash: chainhash.Hash{0xf8}, Index: 1}
+	sat := h.spendTx(opA, opB)
+	matchKey := []byte("lost-hand-off")
+
+	id := h.registerSpec(h.identitySpec(sat, matchKey, opA), nil)
+	require.Eventually(t, func() bool {
+		return h.sim.SpendSubscribed(opA)
+	}, settleTimeout, settleTick)
+
+	again, err := h.store.Register(
+		ctx, h.identitySpec(sat, matchKey, opA, opB),
+		h.sim.BestHeight(), nil, nil,
+	)
+	require.NoError(t, err)
+	require.Equal(t, id, again)
+
+	require.Eventually(t, func() bool {
+		return h.sim.SpendSubscribed(opB)
+	}, settleTimeout, settleTick)
+
+	// The rebuilt sensor is whole: the satisfying spend of the full
+	// set witnesses through it.
+	h.sim.MineBlock(sat)
+	h.settleWhere(id, func(a *tapreorg.Anchoring) bool {
+		return phaseKind(a.Phase) == "witnessed" &&
+			tapreorg.PhaseEqual(a.DeliveredPhase, a.Phase)
+	})
+	require.NoError(t, h.escalation())
+}
+
 // TestWatcherNonStandardSpenderScripts pins candidate subscription
 // against spenders carrying output scripts the notifier rejects —
 // for a foreign spend, the counterparty's choice. A spender whose
@@ -1776,7 +2275,9 @@ func TestWatcherCallbackPanicsContained(t *testing.T) {
 	effectPanic.Store(true)
 	require.NoError(t, h.watcher.RegisterEffectHandler(
 		"boom",
-		func(context.Context, tapreorg.VersionedBlob) error {
+		func(context.Context, fn.Option[tapreorg.AnchoringID],
+			tapreorg.VersionedBlob) error {
+
 			if effectPanic.Load() {
 				panic("effect boom")
 			}
@@ -1884,6 +2385,227 @@ func TestWatcherCallbackPanicsContained(t *testing.T) {
 	require.NoError(t, h.escalation())
 }
 
+// TestWatcherEffectDispatchDeadline pins the dispatch deadline: all
+// effects share one serial dispatcher, so a dispatch attempt that
+// never returns — a remote push against a connection that stays open
+// without answering — must be cut off at the deadline and fail into
+// the ordinary backoff bookkeeping, leaving the effects behind it
+// dispatchable.
+func TestWatcherEffectDispatchDeadline(t *testing.T) {
+	t.Parallel()
+
+	h := newHarness(t)
+	ctx := context.Background()
+
+	// A handler that returns only when its context is cancelled:
+	// the shape of a hung remote call.
+	var hangAttempts atomic.Int32
+	require.NoError(t, h.watcher.RegisterEffectHandler(
+		"hang",
+		func(ctx context.Context, _ fn.Option[tapreorg.AnchoringID],
+			_ tapreorg.VersionedBlob) error {
+
+			<-ctx.Done()
+			hangAttempts.Add(1)
+
+			return ctx.Err()
+		},
+	))
+
+	h.start()
+
+	// Enqueue a hanging effect with a well-behaved effect behind it
+	// in dispatch order.
+	op := wire.OutPoint{Hash: chainhash.Hash{0xee}, Index: 0}
+	id := h.register(2, nil, op)
+	require.NoError(t, h.watcher.Withdraw(
+		ctx, id,
+		func(ctx context.Context, tx tapreorg.RegistryTx) error {
+			err := tx.EnqueueEffect(ctx, tapreorg.OutboxEffect{
+				Kind:      "hang",
+				Anchoring: fn.Some(id),
+				Payload:   tapreorg.VersionedBlob{Version: 1},
+			})
+			if err != nil {
+				return err
+			}
+
+			return tx.EnqueueEffect(ctx, tapreorg.OutboxEffect{
+				Kind:      "test",
+				Anchoring: fn.Some(id),
+				Payload:   tapreorg.VersionedBlob{Version: 1},
+			})
+		},
+	))
+
+	// The deadline converts the hang into failed attempts that back
+	// off and retry rather than parking the dispatcher.
+	require.Eventually(t, func() bool {
+		return hangAttempts.Load() >= 2
+	}, settleTimeout, settleTick)
+
+	// The effect queued behind the hanging one still dispatches
+	// (registration's own phase-1 effect is the first of the two).
+	require.Eventually(t, func() bool {
+		return h.effects.Load() == 2
+	}, settleTimeout, settleTick)
+	require.NoError(t, h.escalation())
+}
+
+// TestWatcherEffectNotReady pins the not-ready dispatch policy: a
+// handler that reports ErrEffectNotReady leaves its effect pending
+// exactly as enqueued — no failure recorded, no backoff — and the
+// effect dispatches once the handler finds its inputs, after the
+// owning subsystem kicks the outbox.
+func TestWatcherEffectNotReady(t *testing.T) {
+	t.Parallel()
+
+	h := newHarness(t)
+	ctx := context.Background()
+
+	var (
+		ready               atomic.Bool
+		attempts, completed atomic.Int32
+	)
+	require.NoError(t, h.watcher.RegisterEffectHandler(
+		"gated",
+		func(context.Context, fn.Option[tapreorg.AnchoringID],
+			tapreorg.VersionedBlob) error {
+
+			attempts.Add(1)
+			if !ready.Load() {
+				return fmt.Errorf("inputs pending: %w",
+					tapreorg.ErrEffectNotReady)
+			}
+			completed.Add(1)
+
+			return nil
+		},
+	))
+
+	h.start()
+
+	op := wire.OutPoint{Hash: chainhash.Hash{0xed}, Index: 0}
+	id := h.register(2, nil, op)
+	require.NoError(t, h.watcher.Withdraw(
+		ctx, id,
+		func(ctx context.Context, tx tapreorg.RegistryTx) error {
+			return tx.EnqueueEffect(ctx, tapreorg.OutboxEffect{
+				Kind:      "gated",
+				Anchoring: fn.Some(id),
+				Payload:   tapreorg.VersionedBlob{Version: 1},
+			})
+		},
+	))
+
+	pendingGated := func() []*tapreorg.StoredEffect {
+		pending, err := h.store.PendingEffects(ctx, time.Now(), 10)
+		require.NoError(t, err)
+
+		var gated []*tapreorg.StoredEffect
+		for _, effect := range pending {
+			if effect.Effect.Kind == "gated" {
+				gated = append(gated, effect)
+			}
+		}
+
+		return gated
+	}
+
+	// Every pass re-runs the handler, and every run leaves the effect
+	// as it was enqueued: pending, with no attempt on record.
+	require.Eventually(t, func() bool {
+		return attempts.Load() >= 3
+	}, settleTimeout, settleTick)
+	gated := pendingGated()
+	require.Len(t, gated, 1)
+	require.Zero(t, gated[0].Attempts)
+	require.Zero(t, completed.Load())
+
+	// The inputs land: the owning subsystem kicks the outbox and the
+	// effect dispatches.
+	ready.Store(true)
+	h.watcher.KickOutbox()
+	require.Eventually(t, func() bool {
+		return completed.Load() == 1
+	}, settleTimeout, settleTick)
+	require.Eventually(t, func() bool {
+		return len(pendingGated()) == 0
+	}, settleTimeout, settleTick)
+	require.NoError(t, h.escalation())
+}
+
+// TestWatcherEffectDispatchPerHandlerDeadline pins the per-handler
+// dispatch policy: a handler registered unbounded, and one registered
+// with its own longer deadline, both outlive the configured default
+// and complete in a single attempt. The default still bounds every
+// other handler (TestWatcherEffectDispatchDeadline).
+func TestWatcherEffectDispatchPerHandlerDeadline(t *testing.T) {
+	t.Parallel()
+
+	h := newHarness(t)
+	ctx := context.Background()
+
+	// Each handler works well past the harness's 100ms default and
+	// records whether the attempt was cut short by its context.
+	const work = 300 * time.Millisecond
+	var attempts, cutShort, completed atomic.Int32
+	slow := func(ctx context.Context, _ fn.Option[tapreorg.AnchoringID],
+		_ tapreorg.VersionedBlob) error {
+
+		attempts.Add(1)
+		select {
+		case <-time.After(work):
+			completed.Add(1)
+			return nil
+
+		case <-ctx.Done():
+			cutShort.Add(1)
+			return ctx.Err()
+		}
+	}
+	require.NoError(t, h.watcher.RegisterEffectHandler(
+		"unbounded", slow, tapreorg.WithDispatchTimeout(0),
+	))
+	require.NoError(t, h.watcher.RegisterEffectHandler(
+		"long", slow, tapreorg.WithDispatchTimeout(time.Second),
+	))
+
+	h.start()
+
+	op := wire.OutPoint{Hash: chainhash.Hash{0xef}, Index: 0}
+	id := h.register(2, nil, op)
+	require.NoError(t, h.watcher.Withdraw(
+		ctx, id,
+		func(ctx context.Context, tx tapreorg.RegistryTx) error {
+			for _, kind := range []tapreorg.EffectKind{
+				"unbounded", "long",
+			} {
+				effect := tapreorg.OutboxEffect{
+					Kind:      kind,
+					Anchoring: fn.Some(id),
+					Payload: tapreorg.VersionedBlob{
+						Version: 1,
+					},
+				}
+				err := tx.EnqueueEffect(ctx, effect)
+				if err != nil {
+					return err
+				}
+			}
+
+			return nil
+		},
+	))
+
+	require.Eventually(t, func() bool {
+		return completed.Load() == 2
+	}, settleTimeout, settleTick)
+	require.EqualValues(t, 2, attempts.Load())
+	require.Zero(t, cutShort.Load())
+	require.NoError(t, h.escalation())
+}
+
 // TestWatcherLateRegistrationRefused pins the registration window:
 // sites, listeners and effect handlers register strictly before
 // Start, which is what lets the loops read their tables without
@@ -1897,7 +2619,9 @@ func TestWatcherLateRegistrationRefused(t *testing.T) {
 	require.Error(t, h.watcher.RegisterSite(newTestSite("late")))
 	require.Error(t, h.watcher.RegisterEffectHandler(
 		"late",
-		func(context.Context, tapreorg.VersionedBlob) error {
+		func(context.Context, fn.Option[tapreorg.AnchoringID],
+			tapreorg.VersionedBlob) error {
+
 			return nil
 		},
 	))
@@ -2746,6 +3470,13 @@ func TestWatcherRapid(t *testing.T) {
 			case 8:
 				h.sim.HoldDeliveries()
 				h.sim.MineBlocks(1)
+
+				// The block may have buried a candidate that
+				// the re-org below unburies again. The held
+				// act report still arrives, stale, and act
+				// certification is sticky, so that transient
+				// reading is a legitimate terminal too.
+				recordPossible()
 				if h.sim.Length() > 0 && rapid.Bool().Draw(
 					rt, label+".alsoReorg",
 				) {

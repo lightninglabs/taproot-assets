@@ -2,7 +2,9 @@ package itest
 
 import (
 	"context"
+	"os"
 	"testing"
+	"time"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/lightninglabs/taproot-assets/taprpc"
@@ -55,7 +57,12 @@ func testReOrgMint(t *harnessTest) {
 	// Now that we have the asset created, we'll make a new node that'll
 	// serve as the node which'll receive the assets. The existing tapd
 	// node will be used to synchronize universe state.
-	secondTapd := setupTapdHarness(t.t, t, lndBob, t.universeServer)
+	secondTapd := setupTapdHarness(
+		t.t, t, lndBob, t.universeServer,
+		func(params *tapdHarnessParams) {
+			params.reOrgSafeDepth = 6
+		},
+	)
 	defer func() {
 		require.NoError(t.t, secondTapd.stop(!*noDelete))
 	}()
@@ -99,6 +106,11 @@ func testReOrgMint(t *harnessTest) {
 	// watcher to stop watching the TX.
 	t.lndHarness.MineBlocks(8)
 
+	// Burial releases the act-gated universe publication through the
+	// watcher's outbox; wait for the re-stamped issuance leaves to
+	// land before comparing universe states.
+	WaitForMintUniverseLeaves(t.t, t.tapd, assetList)
+
 	// The second tapd instance should now have a different universe state
 	// since we only updated the issuance proofs in the first tapd instance.
 	AssertUniverseRootEquality(t.t, t.tapd, secondTapd, false)
@@ -125,8 +137,15 @@ func testReOrgSend(t *harnessTest) {
 	}
 	lndMiner := t.lndHarness.Miner()
 	assetList := MintAssetsConfirmBatch(
-		t.t, lndMiner, t.tapd, mintRequests,
+		t.t, lndMiner, t.tapd, mintRequests, WithNoUniverseLeafWait(),
 	)
+
+	// At the re-org tests' burial depth of 6 the universe publication
+	// is act-gated, so downstream nodes cannot discover the minted
+	// assets yet. Bury the mint first; the re-org scenario under test
+	// targets the send transaction, not the mint.
+	t.lndHarness.MineBlocks(6)
+	WaitForMintUniverseLeaves(t.t, t.tapd, assetList)
 
 	ctx := context.Background()
 
@@ -134,7 +153,12 @@ func testReOrgSend(t *harnessTest) {
 	// serve as the node which'll receive the assets. The existing tapd
 	// node will be used to synchronize universe state.
 	lndBob := t.lndHarness.NewNodeWithCoins("Bob", nil)
-	secondTapd := setupTapdHarness(t.t, t, lndBob, t.universeServer)
+	secondTapd := setupTapdHarness(
+		t.t, t, lndBob, t.universeServer,
+		func(params *tapdHarnessParams) {
+			params.reOrgSafeDepth = 6
+		},
+	)
 	defer func() {
 		require.NoError(t.t, secondTapd.stop(!*noDelete))
 	}()
@@ -180,33 +204,35 @@ func testReOrgSend(t *harnessTest) {
 
 	// At this point, the all asset proofs should be invalid, since the send
 	// TX was re-organized out, and it also contained passive assets.
+	// The send transaction was re-organized out, and it anchored
+	// passive assets too. The re-org watcher's potency-tier downgrade
+	// reflects that honestly: the transfer and everything it anchors
+	// are unconfirmed until the transaction confirms again, so no
+	// confirmed assets or balances are reported in the meantime. The
+	// legacy proof watcher has no such tier: the sender keeps listing
+	// the transfer's outputs, with proofs that no longer verify.
 	listAssetRequest := &taprpc.ListAssetRequest{}
 	aliceAssets, err := t.tapd.ListAssets(ctx, listAssetRequest)
 	require.NoError(t.t, err)
+	if t.tapd.anchoringWatcherDisabled {
+		require.NotEmpty(t.t, aliceAssets.Assets)
+	} else {
+		// The downgrade is delivered once the watcher senses the
+		// re-org, asynchronously to the node's chain sync, so it
+		// is awaited rather than asserted at once.
+		require.Eventually(t.t, func() bool {
+			aliceAssets, err = t.tapd.ListAssets(
+				ctx, listAssetRequest,
+			)
+
+			return err == nil && len(aliceAssets.Assets) == 0 &&
+				aliceAssets.UnconfirmedTransfers == 1
+		}, defaultWaitTimeout, 200*time.Millisecond)
+	}
+
 	bobAssets, err := secondTapd.ListAssets(ctx, listAssetRequest)
 	require.NoError(t.t, err)
-
-	AssertBalances(
-		t.t, t.tapd, sendAsset.Amount-sendAmount,
-		WithAssetID(sendAssetGen.AssetId), WithNumUtxos(1),
-	)
-	AssertBalances(
-		t.t, t.tapd, assetList[1].Amount,
-		WithAssetID(assetList[1].AssetGenesis.AssetId), WithNumUtxos(1),
-	)
-	for idx := range aliceAssets.Assets {
-		a := aliceAssets.Assets[idx]
-		AssertAssetProofsInvalid(t.t, t.tapd, a)
-	}
-
-	AssertBalances(
-		t.t, secondTapd, sendAmount, WithAssetID(sendAssetGen.AssetId),
-		WithNumUtxos(1),
-	)
-	for idx := range bobAssets.Assets {
-		a := bobAssets.Assets[idx]
-		AssertAssetProofsInvalid(t.t, secondTapd, a)
-	}
+	require.Empty(t.t, bobAssets.Assets)
 
 	// Cleanup by mining the minting tx again.
 	newBlock := t.lndHarness.MineBlocksAndAssertNumTxes(1, 1)[0]
@@ -214,6 +240,17 @@ func testReOrgSend(t *harnessTest) {
 	_, newBlockHeight := lndMiner.GetBestBlock()
 	lndMiner.AssertTxInBlock(newBlock, *sendTXID)
 	t.Logf("Send TX %v re-mined in block %v", sendTXID, newBlockHash)
+
+	// With the send re-confirmed, the assets return to their
+	// confirmed shape on both nodes.
+	require.Eventually(t.t, func() bool {
+		aliceAssets, err = t.tapd.ListAssets(ctx, listAssetRequest)
+		return err == nil && len(aliceAssets.Assets) > 0
+	}, defaultWaitTimeout, 200*time.Millisecond)
+	require.Eventually(t.t, func() bool {
+		bobAssets, err = secondTapd.ListAssets(ctx, listAssetRequest)
+		return err == nil && len(bobAssets.Assets) > 0
+	}, defaultWaitTimeout, 200*time.Millisecond)
 
 	// Let's wait until we see that the proof for the first asset was
 	// updated to the new block height.
@@ -263,8 +300,15 @@ func testReOrgSendV2Address(t *harnessTest) {
 	}
 	lndMiner := t.lndHarness.Miner()
 	assetList := MintAssetsConfirmBatch(
-		t.t, lndMiner, t.tapd, mintRequests,
+		t.t, lndMiner, t.tapd, mintRequests, WithNoUniverseLeafWait(),
 	)
+
+	// At the re-org tests' burial depth of 6 the universe publication
+	// is act-gated, so downstream nodes cannot discover the minted
+	// assets yet. Bury the mint first; the re-org scenario under test
+	// targets the send transaction, not the mint.
+	t.lndHarness.MineBlocks(6)
+	WaitForMintUniverseLeaves(t.t, t.tapd, assetList)
 
 	ctx := context.Background()
 
@@ -272,7 +316,12 @@ func testReOrgSendV2Address(t *harnessTest) {
 	// serve as the node which'll receive the assets. The existing tapd
 	// node will be used to synchronize universe state.
 	lndBob := t.lndHarness.NewNodeWithCoins("Bob", nil)
-	secondTapd := setupTapdHarness(t.t, t, lndBob, t.universeServer)
+	secondTapd := setupTapdHarness(
+		t.t, t, lndBob, t.universeServer,
+		func(params *tapdHarnessParams) {
+			params.reOrgSafeDepth = 6
+		},
+	)
 	defer func() {
 		require.NoError(t.t, secondTapd.stop(!*noDelete))
 	}()
@@ -320,33 +369,35 @@ func testReOrgSendV2Address(t *harnessTest) {
 
 	// At this point, the all asset proofs should be invalid, since the send
 	// TX was re-organized out, and it also contained passive assets.
+	// The send transaction was re-organized out, and it anchored
+	// passive assets too. The re-org watcher's potency-tier downgrade
+	// reflects that honestly: the transfer and everything it anchors
+	// are unconfirmed until the transaction confirms again, so no
+	// confirmed assets or balances are reported in the meantime. The
+	// legacy proof watcher has no such tier: the sender keeps listing
+	// the transfer's outputs, with proofs that no longer verify.
 	listAssetRequest := &taprpc.ListAssetRequest{}
 	aliceAssets, err := t.tapd.ListAssets(ctx, listAssetRequest)
 	require.NoError(t.t, err)
+	if t.tapd.anchoringWatcherDisabled {
+		require.NotEmpty(t.t, aliceAssets.Assets)
+	} else {
+		// The downgrade is delivered once the watcher senses the
+		// re-org, asynchronously to the node's chain sync, so it
+		// is awaited rather than asserted at once.
+		require.Eventually(t.t, func() bool {
+			aliceAssets, err = t.tapd.ListAssets(
+				ctx, listAssetRequest,
+			)
+
+			return err == nil && len(aliceAssets.Assets) == 0 &&
+				aliceAssets.UnconfirmedTransfers == 1
+		}, defaultWaitTimeout, 200*time.Millisecond)
+	}
+
 	bobAssets, err := secondTapd.ListAssets(ctx, listAssetRequest)
 	require.NoError(t.t, err)
-
-	AssertBalances(
-		t.t, t.tapd, sendAsset.Amount-sendAmount,
-		WithAssetID(sendAssetGen.AssetId), WithNumUtxos(1),
-	)
-	AssertBalances(
-		t.t, t.tapd, assetList[1].Amount,
-		WithAssetID(assetList[1].AssetGenesis.AssetId), WithNumUtxos(1),
-	)
-	for idx := range aliceAssets.Assets {
-		a := aliceAssets.Assets[idx]
-		AssertAssetProofsInvalid(t.t, t.tapd, a)
-	}
-
-	AssertBalances(
-		t.t, secondTapd, sendAmount, WithAssetID(sendAssetGen.AssetId),
-		WithNumUtxos(1),
-	)
-	for idx := range bobAssets.Assets {
-		a := bobAssets.Assets[idx]
-		AssertAssetProofsInvalid(t.t, secondTapd, a)
-	}
+	require.Empty(t.t, bobAssets.Assets)
 
 	// Cleanup by mining the minting tx again.
 	newBlock := t.lndHarness.MineBlocksAndAssertNumTxes(1, 1)[0]
@@ -354,6 +405,17 @@ func testReOrgSendV2Address(t *harnessTest) {
 	_, newBlockHeight := lndMiner.GetBestBlock()
 	lndMiner.AssertTxInBlock(newBlock, *sendTXID)
 	t.Logf("Send TX %v re-mined in block %v", sendTXID, newBlockHash)
+
+	// With the send re-confirmed, the assets return to their
+	// confirmed shape on both nodes.
+	require.Eventually(t.t, func() bool {
+		aliceAssets, err = t.tapd.ListAssets(ctx, listAssetRequest)
+		return err == nil && len(aliceAssets.Assets) > 0
+	}, defaultWaitTimeout, 200*time.Millisecond)
+	require.Eventually(t.t, func() bool {
+		bobAssets, err = secondTapd.ListAssets(ctx, listAssetRequest)
+		return err == nil && len(bobAssets.Assets) > 0
+	}, defaultWaitTimeout, 200*time.Millisecond)
 
 	// Let's wait until we see that the proof for the first asset was
 	// updated to the new block height.
@@ -394,8 +456,14 @@ func testReOrgSendV2Address(t *harnessTest) {
 	)
 }
 
-// testReOrgMintAndSend tests that when a re-org occurs, minted and directly
-// sent asset proofs are updated accordingly.
+// testReOrgMintAndSend tests that when a re-org occurs shortly after a
+// mint, sent asset proofs are updated accordingly — including for a
+// receiver that was offline during the re-org and catches up on
+// restart. The mint itself is buried before the send: under act-gated
+// publication a receiver cannot learn of an unburied issuance, and
+// re-organizing a buried mint would contradict its act-level
+// certification — a distinct operator-attention condition by design,
+// not the re-confirmation cycle exercised here.
 func testReOrgMintAndSend(t *harnessTest) {
 	ctx := context.Background()
 
@@ -404,9 +472,6 @@ func testReOrgMintAndSend(t *harnessTest) {
 	// temporary miner.
 	lndBob := t.lndHarness.NewNodeWithCoins("Bob", nil)
 
-	// Before we do anything, we spawn a miner. This is where the fork in
-	// the chain starts.
-	tempMiner := spawnTempMiner(t.t, t, ctx)
 	lndMiner := t.lndHarness.Miner()
 
 	// Then, we'll mint a few assets and confirm the batch TX.
@@ -414,19 +479,35 @@ func testReOrgMintAndSend(t *harnessTest) {
 		issuableAssets[0], issuableAssets[1],
 	}
 	assetList := MintAssetsConfirmBatch(
-		t.t, lndMiner, t.tapd, mintRequests,
+		t.t, lndMiner, t.tapd, mintRequests, WithNoUniverseLeafWait(),
 	)
+
+	// At the re-org tests' burial depth of 6 the universe publication
+	// is act-gated, so downstream nodes cannot discover the minted
+	// assets yet. Bury the mint first; the re-org scenario under test
+	// targets the send transaction, not the mint.
+	t.lndHarness.MineBlocks(6)
+	WaitForMintUniverseLeaves(t.t, t.tapd, assetList)
+
+	// The fork under test starts here: past the mint's burial, so the
+	// re-org targets only the send transaction.
+	tempMiner := spawnTempMiner(t.t, t, ctx)
 
 	// Now that we have the asset created, we'll make a new node that'll
 	// serve as the node which'll receive the assets. The existing tapd
 	// node will be used to synchronize universe state.
-	secondTapd := setupTapdHarness(t.t, t, lndBob, t.universeServer)
+	secondTapd := setupTapdHarness(
+		t.t, t, lndBob, t.universeServer,
+		func(params *tapdHarnessParams) {
+			params.reOrgSafeDepth = 6
+		},
+	)
 	defer func() {
 		require.NoError(t.t, secondTapd.stop(!*noDelete))
 	}()
 
 	// We'll send an asset to Bob, and then re-org the chain, which should
-	// cause both the minting TX and the send TX to be un-confirmed.
+	// un-confirm the send TX.
 	sendAsset := assetList[0]
 	sendAssetGen := sendAsset.AssetGenesis
 	sendAmount := uint64(500)
@@ -450,32 +531,48 @@ func testReOrgMintAndSend(t *harnessTest) {
 	lndMiner.AssertTxInBlock(initialBlock, *sendTXID)
 	t.Logf("Send TX %v mined in block %v", sendTXID, initialBlockHash)
 
-	// We now generate the re-org. That should put the minting and send TX
-	// back into the mempool.
-	generateReOrg(t.t, t.lndHarness, tempMiner, 4, 2)
-	lndMiner.AssertNumTxsInMempool(2)
+	// Both nodes list the assets while the send is confirmed. These
+	// are the listings the re-org hides, and whose stored proofs it
+	// invalidates.
+	listAssetRequest := &taprpc.ListAssetRequest{}
+	aliceAssets, err := t.tapd.ListAssets(ctx, listAssetRequest)
+	require.NoError(t.t, err)
+	require.NotEmpty(t.t, aliceAssets.Assets)
+
+	bobAssets, err := secondTapd.ListAssets(ctx, listAssetRequest)
+	require.NoError(t.t, err)
+	require.NotEmpty(t.t, bobAssets.Assets)
+
+	// We now generate the re-org. That should put the send TX back
+	// into the mempool.
+	generateReOrg(t.t, t.lndHarness, tempMiner, 3, 2)
+	lndMiner.AssertNumTxsInMempool(1)
 
 	// This should have caused a reorg, and Alice should sync to the longer
 	// chain, where the funding transaction is not confirmed.
 	_, tempMinerHeight := tempMiner.GetBestBlock()
 	t.lndHarness.WaitForNodeBlockHeight(t.tapd.cfg.LndNode, tempMinerHeight)
 
-	// At this point, the all asset proofs should be invalid, since the send
-	// TX was re-organized out, and it also contained passive assets.
-	listAssetRequest := &taprpc.ListAssetRequest{}
-	aliceAssets, err := t.tapd.ListAssets(ctx, listAssetRequest)
-	require.NoError(t.t, err)
-	bobAssets, err := secondTapd.ListAssets(ctx, listAssetRequest)
-	require.NoError(t.t, err)
-
+	// The send transaction was re-organized out, and it anchored a
+	// passive asset too. The stored proofs still attest the discarded
+	// block, so they no longer verify against the chain.
 	for idx := range aliceAssets.Assets {
-		a := aliceAssets.Assets[idx]
-		AssertAssetProofsInvalid(t.t, t.tapd, a)
+		AssertAssetProofsInvalid(t.t, t.tapd, aliceAssets.Assets[idx])
 	}
 	for idx := range bobAssets.Assets {
-		a := bobAssets.Assets[idx]
-		AssertAssetProofsInvalid(t.t, secondTapd, a)
+		AssertAssetProofsInvalid(t.t, secondTapd, bobAssets.Assets[idx])
 	}
+
+	// The potency-tier downgrade leaves the transfer and everything
+	// it anchors unconfirmed until the transaction confirms again, so
+	// neither node lists a confirmed asset in the meantime.
+	aliceAssets, err = t.tapd.ListAssets(ctx, listAssetRequest)
+	require.NoError(t.t, err)
+	require.Empty(t.t, aliceAssets.Assets)
+
+	bobAssets, err = secondTapd.ListAssets(ctx, listAssetRequest)
+	require.NoError(t.t, err)
+	require.Empty(t.t, bobAssets.Assets)
 
 	// We now also stop Bob to make sure he can still detect the re-org and
 	// update the proofs once it comes back up.
@@ -483,7 +580,7 @@ func testReOrgMintAndSend(t *harnessTest) {
 	require.NoError(t.t, secondTapd.stop(false))
 
 	// Cleanup by mining the minting tx again.
-	newBlock := t.lndHarness.MineBlocksAndAssertNumTxes(1, 2)[0]
+	newBlock := t.lndHarness.MineBlocksAndAssertNumTxes(1, 1)[0]
 	newBlockHash := newBlock.BlockHash()
 	_, newBlockHeight := lndMiner.GetBestBlock()
 	lndMiner.AssertTxInBlock(newBlock, *sendTXID)
@@ -493,11 +590,42 @@ func testReOrgMintAndSend(t *harnessTest) {
 	t.t.Logf("Re-starting Bob's daemon so as to complete transfer")
 	require.NoError(t.t, secondTapd.start(false))
 
-	// Let's wait until we see that the proof for the mint, first and sent
+	// With the send re-confirmed, the assets return to their
+	// confirmed shape on both nodes (Bob catches up after the
+	// restart).
+	require.Eventually(t.t, func() bool {
+		aliceAssets, err = t.tapd.ListAssets(ctx, listAssetRequest)
+		return err == nil && len(aliceAssets.Assets) > 0
+	}, defaultWaitTimeout, 200*time.Millisecond)
+	require.Eventually(t.t, func() bool {
+		bobAssets, err = secondTapd.ListAssets(ctx, listAssetRequest)
+		return err == nil && len(bobAssets.Assets) > 0
+	}, defaultWaitTimeout, 200*time.Millisecond)
+
+	// Let's wait until we see that the proofs of the change and sent
 	// assets were updated to the new block height.
-	WaitForProofUpdate(t.t, t.tapd, assetList[0], newBlockHeight)
 	WaitForProofUpdate(t.t, t.tapd, aliceAssets.Assets[0], newBlockHeight)
 	WaitForProofUpdate(t.t, secondTapd, bobAssets.Assets[0], newBlockHeight)
+
+	// Let's now bury the proofs under sufficient blocks to allow the re-org
+	// watcher to stop watching the TX.
+	t.lndHarness.MineBlocks(8)
+
+	// With the send buried, both nodes report the balances the
+	// transfer produced: Alice's change and her passively re-anchored
+	// asset, and Bob's received amount.
+	AssertBalances(
+		t.t, t.tapd, sendAsset.Amount-sendAmount,
+		WithAssetID(sendAssetGen.AssetId), WithNumUtxos(1),
+	)
+	AssertBalances(
+		t.t, t.tapd, assetList[1].Amount,
+		WithAssetID(assetList[1].AssetGenesis.AssetId), WithNumUtxos(1),
+	)
+	AssertBalances(
+		t.t, secondTapd, sendAmount, WithAssetID(sendAssetGen.AssetId),
+		WithNumUtxos(1),
+	)
 
 	// We now try to validate the send proofs of the delivered, change and
 	// passive assets. The re-org watcher should have updated the proofs and
@@ -513,10 +641,6 @@ func testReOrgMintAndSend(t *harnessTest) {
 		a := bobAssets.Assets[idx]
 		AssertAssetProofs(t.t, secondTapd, bobChainClient, a)
 	}
-
-	// Let's now bury the proofs under sufficient blocks to allow the re-org
-	// watcher to stop watching the TX.
-	t.lndHarness.MineBlocks(8)
 }
 
 // spawnTempMiner creates a temporary miner that uses the same chain backend
@@ -524,7 +648,19 @@ func testReOrgMintAndSend(t *harnessTest) {
 func spawnTempMiner(t *testing.T, ht *harnessTest,
 	ctx context.Context) *miner.HarnessMiner {
 
-	return ht.lndHarness.Miner().SpawnTempMiner()
+	tempMiner := ht.lndHarness.Miner().SpawnTempMiner()
+
+	// Every temporary miner in the tranche saves logs from — and then
+	// removes — the same shared directory when it stops, so the first
+	// stop breaks the ones after it. The stops are cleanups on the
+	// root harness T and run in LIFO order: registering this after
+	// the spawn re-creates the directory just before this miner's own
+	// stop reads it.
+	ht.lndHarness.Cleanup(func() {
+		_ = os.MkdirAll("regtest/.tempminerlogs/regtest", 0755)
+	})
+
+	return tempMiner
 }
 
 // generateReOrg generates a re-org by mining a longer chain with a temporary

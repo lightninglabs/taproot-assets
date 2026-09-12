@@ -116,8 +116,11 @@ type TriggerOutPoint struct {
 // to one outpoint per anchoring unless they control the spending
 // transaction.
 //
-// The zero value is invalid; values in circulation originate from
-// NewTriggerSet and are therefore well-formed by provenance.
+// Non-empty values in circulation originate from NewTriggerSet and
+// are therefore well-formed by provenance. The zero value is the
+// empty set, valid only for seed-candidate registrations (see
+// RegistrationSpec.SeedCandidate): the seed is the witnessing
+// transaction itself, and there is no prior outpoint to watch.
 type TriggerSet struct {
 	outpoints []TriggerOutPoint
 }
@@ -260,6 +263,62 @@ func (w Witness) Tx() *wire.MsgTx {
 	return w.tx.Copy()
 }
 
+// WitnessContext extracts the given phase's witness candidate from the
+// anchoring's Spends, with its block enrichment attached. The witness
+// used is the phase's (current location), but the enrichment comes
+// from the recorded candidate — the phase carries the witness
+// identity, and the candidate carries the block header and merkle
+// proof sensing enriched into it.
+//
+// Every site's Buried and Witnessed handler needs the same
+// combination: mint reconfirmation, porter proof rebuilding, receive
+// tip patching, supply-commit finalization. The pattern extracts here
+// so the four sites don't each maintain their own copy of the same
+// enrichment-lookup logic.
+//
+// Returns an error if the phase is not a witness-bearing phase, if
+// the phase's witness is not among the anchoring's candidates, or if
+// the matching candidate is missing block enrichment (a wiring
+// invariant sensing is expected to have upheld).
+func WitnessContext(anchoring *Anchoring,
+	phase Phase) (*CandidateSpend, error) {
+
+	var witness Witness
+	switch p := phase.(type) {
+	case Witnessed:
+		witness = p.W
+
+	case Buried:
+		witness = p.W
+
+	default:
+		return nil, fmt.Errorf("no witness in phase %v", phase)
+	}
+
+	for idx := range anchoring.Spends {
+		candidate := &anchoring.Spends[idx]
+		if candidate.W.TxHash() != witness.TxHash() {
+			continue
+		}
+		if candidate.BlockHeader == nil ||
+			candidate.MerkleProof == nil {
+
+			return nil, fmt.Errorf("witness %v lacks block "+
+				"enrichment", witness.TxHash())
+		}
+
+		// Use the phase's witness location (the current one) with
+		// the candidate's enrichment.
+		enriched := *candidate
+		enriched.W = witness
+
+		return &enriched, nil
+	}
+
+	return nil, fmt.Errorf("witness %v not among candidates",
+		witness.TxHash())
+}
+
 // ForeignSpend is an observed foreign spend of a trigger outpoint: the
 // spent outpoint plus the located spending transaction.
 type ForeignSpend struct {
@@ -313,6 +372,42 @@ type RegistrationSpec struct {
 	// only for sites that genuinely want single-confirmation
 	// finality.
 	Threshold uint32
+
+	// MatchKey is the site's per-registration identity key. Two
+	// registrations by the same site with the same MatchKey refer
+	// to the same essential fact; the registry enforces this via a
+	// unique index and sites use it to look up their own existing
+	// anchorings in O(1) via LookupByMatchKey. Sites use the
+	// anchor/genesis/commit txid as the key; empty is allowed for
+	// tests and legacy rows and disables the uniqueness constraint.
+	MatchKey []byte
+
+	// SeedCandidate, when set, is a fully-enriched candidate spend
+	// the caller already knows about (e.g. a received proof file's
+	// tip anchor tx): the satisfying, not yet act-certified witness
+	// at the location the caller's own evidence attests. The
+	// registry inserts it at registration, derives the anchoring's
+	// phase from it and delivers that phase to the site in the
+	// registration transaction, so the anchoring is born on the
+	// phase the caller's materialized state already reflects; the
+	// sensor then subscribes to the seed's conf events for
+	// act-certification and re-org detection, and verifies its
+	// location on adoption, downgrading a seed that has gone stale.
+	// A seed may accompany a trigger set or stand alone: a
+	// registration without triggers watches no prior outpoint, so
+	// the seed IS the witnessing transaction and there is nothing
+	// for a foreign spender to foreclose against.
+	SeedCandidate *CandidateSpend
+
+	// Phase1OnAttach runs the phase-1 write when the registration
+	// attaches to an existing anchoring as well. By default an
+	// attach skips it: a porter's second form of one transfer must
+	// not stake its parcel twice. A site whose phase-1 write stakes
+	// state that is this registration's own — a received proof
+	// file, which a second output of the same send carries
+	// separately — sets it, so the stake and the custody covering it
+	// commit together whether the anchoring is new or shared.
+	Phase1OnAttach bool
 }
 
 // Validate checks the spec's value-level invariants.
@@ -320,12 +415,34 @@ func (s *RegistrationSpec) Validate() error {
 	if s.Site == "" {
 		return errors.New("registration requires a site ID")
 	}
-	if s.Triggers.Len() == 0 {
+	if s.Triggers.Len() == 0 && s.SeedCandidate == nil {
 		return ErrEmptyTriggerSet
 	}
 	if s.Threshold == 0 {
 		return errors.New("registration requires a threshold " +
 			"of at least one confirmation")
+	}
+	if s.SeedCandidate != nil {
+		if !s.SeedCandidate.OnChain {
+			return errors.New("seed candidate must be on-chain")
+		}
+		if s.SeedCandidate.Verdict != VerdictSatisfies {
+			return errors.New("seed candidate must be the " +
+				"satisfying witness")
+		}
+		if s.SeedCandidate.ActCertified {
+			return errors.New("seed candidate must not be " +
+				"act-certified: certification is the " +
+				"notifier's")
+		}
+		if s.SeedCandidate.BlockHeader == nil {
+			return errors.New("seed candidate must carry its " +
+				"block header")
+		}
+		if s.SeedCandidate.MerkleProof == nil {
+			return errors.New("seed candidate must carry its " +
+				"merkle proof")
+		}
 	}
 
 	// The notifier rejects deeper subscriptions outright; an
@@ -372,6 +489,10 @@ type Anchoring struct {
 
 	// Payload is the site's opaque repair/finalize data.
 	Payload VersionedBlob
+
+	// MatchKey is the site's per-registration identity key; see
+	// RegistrationSpec.MatchKey.
+	MatchKey []byte
 
 	// Threshold is the act-confirmation depth for this anchoring.
 	Threshold uint32
