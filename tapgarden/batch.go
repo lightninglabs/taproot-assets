@@ -1,3 +1,4 @@
+//nolint:lll
 package tapgarden
 
 import (
@@ -7,12 +8,14 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightningnetwork/lnd/keychain"
 )
@@ -76,6 +79,21 @@ type MintingBatch struct {
 	// combined with the Taproot Asset commitment to derive the
 	// MintingOutputKey.
 	tapSibling *chainhash.Hash
+
+	// CustomAnchorLeaseError is the latest prepared-phase lease renewal
+	// degradation. It is transient status: Finalize still reacquires every
+	// recorded wallet-owned input and fails closed if that cannot succeed.
+	CustomAnchorLeaseError string
+
+	// CustomAnchorPublishError is the latest ambiguous wallet publication
+	// error for a byte-identical transaction that remains watched and
+	// retried.
+	CustomAnchorPublishError string
+
+	// CustomAnchorKeyError describes an historical custom-anchor managed
+	// UTXO whose internal key couldn't be repaired automatically. This is
+	// startup audit health, not a minting state transition.
+	CustomAnchorKeyError string
 }
 
 // VerboseBatch is a MintingBatch that includes seedlings with their pending
@@ -146,12 +164,15 @@ func (m *MintingBatch) Copy() (*MintingBatch, error) {
 	}
 
 	batchCopy := &MintingBatch{
-		CreationTime:      m.CreationTime,
-		HeightHint:        m.HeightHint,
-		BatchKey:          asset.CopyKeyDescriptor(m.BatchKey),
-		SupplyCommitments: m.SupplyCommitments,
-		Seedlings:         copySeedlings(m.Seedlings),
-		AssetMetas:        copyAssetMetas(m.AssetMetas),
+		CreationTime:             m.CreationTime,
+		HeightHint:               m.HeightHint,
+		BatchKey:                 asset.CopyKeyDescriptor(m.BatchKey),
+		SupplyCommitments:        m.SupplyCommitments,
+		Seedlings:                copySeedlings(m.Seedlings),
+		AssetMetas:               copyAssetMetas(m.AssetMetas),
+		CustomAnchorLeaseError:   m.CustomAnchorLeaseError,
+		CustomAnchorPublishError: m.CustomAnchorPublishError,
+		CustomAnchorKeyError:     m.CustomAnchorKeyError,
 	}
 	batchCopy.setState(m.State())
 
@@ -243,11 +264,58 @@ func (m *MintingBatch) MintingOutputKey(sibling *commitment.TapscriptPreimage) (
 		siblingHash,
 	)
 
+	internalKey, err := m.MintingInternalKey()
+	if err != nil {
+		return nil, nil, err
+	}
+
 	mintingPubKey := txscript.ComputeTaprootOutputKey(
-		m.BatchKey.PubKey, taprootAssetScriptRoot[:],
+		internalKey, taprootAssetScriptRoot[:],
 	)
 
 	return mintingPubKey, taprootAssetScriptRoot[:], nil
+}
+
+// MintingInternalKey returns the internal key used for the asset anchor. A
+// caller-authored anchor carries this key in the selected PSBT output; legacy
+// batches continue to use the batch key.
+func (m *MintingBatch) MintingInternalKey() (*btcec.PublicKey, error) {
+	if m.GenesisPacket == nil ||
+		!isCustomAnchorPsbt(m.GenesisPacket.Pkt) {
+
+		return m.BatchKey.PubKey, nil
+	}
+
+	pkt := m.GenesisPacket.Pkt
+	anchorIdx := m.GenesisPacket.AssetAnchorOutIdx
+	if pkt == nil || int(anchorIdx) >= len(pkt.Outputs) {
+		return nil, fmt.Errorf("custom anchor PSBT is missing the asset " +
+			"anchor output map")
+	}
+
+	pOut := pkt.Outputs[anchorIdx]
+	if len(pOut.Bip32Derivation) == 1 {
+		keyDesc, err := tappsbt.KeyDescFromBip32Derivation(
+			pOut.Bip32Derivation[0],
+		)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"invalid custom anchor key derivation: %w", err,
+			)
+		}
+
+		return keyDesc.PubKey, nil
+	}
+
+	// Retain compatibility with custom batches prepared by earlier builds,
+	// which persisted only the BIP-371 internal-key field.
+	internalKey, err := schnorr.ParsePubKey(pOut.TaprootInternalKey)
+	if err != nil {
+		return nil, fmt.Errorf("invalid custom anchor internal key: %w",
+			err)
+	}
+
+	return internalKey, nil
 }
 
 // VerifyOutputScript recomputes a batch genesis output script from a batch key,

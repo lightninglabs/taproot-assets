@@ -208,6 +208,12 @@ func (m *mockChainBridge) PublishTransaction(ctx context.Context,
 	return args.Error(0)
 }
 
+func (m *mockChainBridge) ValidateAndPublishTransaction(_ context.Context,
+	_ *wire.MsgTx, _ string) error {
+
+	return nil
+}
+
 func (m *mockChainBridge) EstimateFee(ctx context.Context,
 	confTarget uint32) (chainfee.SatPerKWeight, error) {
 

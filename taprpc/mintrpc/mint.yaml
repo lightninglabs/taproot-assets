@@ -15,6 +15,10 @@ http:
       post: "/v1/taproot-assets/assets/mint/seal"
       body: "*"
 
+    - selector: mintrpc.Mint.PrepareBatch
+      post: "/v1/taproot-assets/assets/mint/prepare"
+      body: "*"
+
     - selector: mintrpc.Mint.FinalizeBatch
       post: "/v1/taproot-assets/assets/mint/finalize"
       body: "*"
