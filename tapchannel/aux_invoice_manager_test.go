@@ -425,6 +425,116 @@ func TestAuxInvoiceManager(t *testing.T) {
 			},
 		},
 		{
+			name: "asset invoice, available rfq ids only",
+			requests: []lndclient.InvoiceHtlcModifyRequest{
+				{
+					CircuitKey: randCircuitKey(),
+					Invoice: &lnrpc.Invoice{
+						RouteHints:  testRouteHints(),
+						PaymentAddr: []byte{1, 1, 1},
+					},
+					WireCustomRecords: rfqIDListRecords(t),
+					ExitHtlcAmt:       1234,
+				},
+			},
+			responses: []lndclient.InvoiceHtlcModifyResponse{
+				{
+					CancelSet: true,
+				},
+			},
+			buyQuotes: map[rfq.SerialisedScid]rfqmsg.BuyAccept{
+				testScid: {
+					Peer: testNodeID,
+				},
+			},
+		},
+		{
+			name: "asset invoice, rfq id without balances",
+			requests: []lndclient.InvoiceHtlcModifyRequest{
+				{
+					CircuitKey: randCircuitKey(),
+					Invoice: &lnrpc.Invoice{
+						RouteHints:  testRouteHints(),
+						PaymentAddr: []byte{1, 1, 1},
+					},
+					WireCustomRecords: newWireCustomRecords(
+						t, nil, fn.Some(testRfqID),
+					),
+					ExitHtlcAmt: 1234,
+				},
+			},
+			responses: []lndclient.InvoiceHtlcModifyResponse{
+				{
+					CancelSet: true,
+				},
+			},
+			buyQuotes: rfq.BuyAcceptMap{
+				testScid: {
+					Peer: testNodeID,
+					AssetRate: rfqmsg.NewAssetRate(
+						testAssetRate, time.Now(),
+					),
+					Request: rfqmsg.BuyRequest{
+						AssetSpecifier: assetSpecifier,
+					},
+				},
+			},
+		},
+		{
+			name: "asset invoice, zero asset balance",
+			requests: []lndclient.InvoiceHtlcModifyRequest{
+				{
+					CircuitKey: randCircuitKey(),
+					Invoice: &lnrpc.Invoice{
+						RouteHints:  testRouteHints(),
+						PaymentAddr: []byte{1, 1, 1},
+					},
+					WireCustomRecords: newWireCustomRecords(
+						t, []*rfqmsg.AssetBalance{
+							rfqmsg.NewAssetBalance(
+								assetID, 0,
+							),
+						}, fn.Some(testRfqID),
+					),
+					ExitHtlcAmt: 1234,
+				},
+			},
+			responses: []lndclient.InvoiceHtlcModifyResponse{
+				{
+					CancelSet: true,
+				},
+			},
+			buyQuotes: rfq.BuyAcceptMap{
+				testScid: {
+					Peer: testNodeID,
+					AssetRate: rfqmsg.NewAssetRate(
+						testAssetRate, time.Now(),
+					),
+					Request: rfqmsg.BuyRequest{
+						AssetSpecifier: assetSpecifier,
+					},
+				},
+			},
+		},
+		{
+			name: "asset keysend, available rfq ids only",
+			requests: []lndclient.InvoiceHtlcModifyRequest{
+				{
+					CircuitKey: randCircuitKey(),
+					Invoice: &lnrpc.Invoice{
+						IsKeysend: true,
+					},
+					WireCustomRecords: rfqIDListRecords(t),
+					ExitHtlcAmt:       1234,
+				},
+			},
+			responses: []lndclient.InvoiceHtlcModifyResponse{
+				{
+					AmtPaid: 1234,
+				},
+			},
+		},
+		{
 			name: "asset invoice, custom records",
 			requests: []lndclient.InvoiceHtlcModifyRequest{
 				{
@@ -1134,6 +1244,18 @@ func newWireCustomRecords(t *testing.T, amounts []*rfqmsg.AssetBalance,
 	htlc := rfqmsg.NewHtlc(amounts, rfqID, fn.None[[]rfqmsg.ID]())
 
 	customRecords, err := lnwire.ParseCustomRecords(htlc.Bytes())
+	require.NoError(t, err)
+
+	return customRecords
+}
+
+func rfqIDListRecords(t *testing.T) lnwire.CustomRecords {
+	htlc := rfqmsg.NewHtlc(
+		nil, fn.None[rfqmsg.ID](),
+		fn.Some([]rfqmsg.ID{dummyRfqID(99)}),
+	)
+
+	customRecords, err := htlc.ToCustomRecords()
 	require.NoError(t, err)
 
 	return customRecords

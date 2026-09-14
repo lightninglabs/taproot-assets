@@ -249,10 +249,15 @@ func (s *AuxInvoiceManager) handleInvoiceAccept(ctx context.Context,
 
 	iLog.Debugf("received htlc: %v", limitSpewer.Sdump(htlc))
 
-	// If we don't have an RFQ ID, then this is likely a keysend payment,
-	// and we don't modify the amount (since the invoice amount will match
-	// the HTLC amount).
+	// If we don't have an RFQ ID, then this must be a keysend payment. For
+	// regular invoices, accepting the HTLC would allow asset custom records
+	// without any asset balances to bypass strict forwarding.
 	if htlc.RfqID.ValOpt().IsNone() {
+		if !req.Invoice.IsKeysend {
+			iLog.Debugf("asset HTLC has no RFQ ID, canceling HTLCs")
+			resp.CancelSet = true
+		}
+
 		return resp, nil
 	}
 
@@ -547,6 +552,18 @@ func (s *AuxInvoiceManager) GetAllBuyQuotesFromRouteHints(
 func (s *AuxInvoiceManager) validateAssetHTLC(ctx context.Context,
 	htlc *rfqmsg.Htlc, circuitKey invoices.CircuitKey) error {
 
+	balances := htlc.Balances()
+	hasPositiveBalance := false
+	for _, balance := range balances {
+		if balance.Amount.Val > 0 {
+			hasPositiveBalance = true
+			break
+		}
+	}
+	if !hasPositiveBalance {
+		return fmt.Errorf("asset HTLC has no positive asset balance")
+	}
+
 	rfqID := htlc.RfqID.ValOpt().UnsafeFromSome()
 
 	// Retrieve the asset identifier from the RFQ quote.
@@ -559,7 +576,7 @@ func (s *AuxInvoiceManager) validateAssetHTLC(ctx context.Context,
 	// Check for each of the asset balances of the HTLC that the identifier
 	// matches that of the RFQ quote.
 	assetIDs := fn.NewSet[asset.ID]()
-	for _, v := range htlc.Balances() {
+	for _, v := range balances {
 		match, err := s.cfg.RfqManager.AssetMatchesSpecifier(
 			ctx, identifier, v.AssetID.Val,
 		)
