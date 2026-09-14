@@ -139,6 +139,14 @@
   every block. The sweeper now returns an empty resolution for such
   outputs, so lnd sweeps them as plain BTC outputs.
 
+* [PR#2294](https://github.com/lightninglabs/taproot-assets/pull/2294)
+  fixes a bug in which a grouped receive holding several assets under
+  one script key at one outpoint could be imported but never completed.
+  Completing the address event looked each output's proof up by script
+  key and outpoint alone, so the lookup returned every asset's proof at
+  once and the event failed with `ErrMultipleProofs` on every attempt.
+  The proof is now looked up by asset as well.
+
 # New Features
 
 ## Functional Enhancements
@@ -300,6 +308,19 @@
   single database query instead of materializing assets once per managed
   UTXO.
 
+* [PR#2299](https://github.com/lightninglabs/taproot-assets/pull/2299)
+  encodes nested TLV records once. The TLV stream asks each record for
+  its size before writing it, and the size functions of nested records
+  serialized their value to measure it, so every level of nesting
+  doubled the encoding work below it. Encoding a single proof is now
+  roughly seven times faster, and encoding a channel commitment blob
+  carrying proofs for a dozen outputs roughly nineteen times faster.
+
+* [PR#2300](https://github.com/lightninglabs/taproot-assets/pull/2300)
+  avoids deep-copying the split commitment proof when the VM validates
+  a split asset, cutting the allocations of split validation by roughly
+  three quarters.
+
 ## Deprecations
 
 # Technical and Architectural Updates
@@ -307,6 +328,11 @@
 ## BIP/bLIP Spec Updates
 
 ## Testing
+
+* [PR#2177](https://github.com/lightninglabs/taproot-assets/pull/2177)
+  adds an integration test that force closes an asset channel right after
+  the funding transaction confirms, before any commitment update, and
+  asserts the swept assets remain spendable.
 
 ## Database
 
