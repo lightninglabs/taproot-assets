@@ -23,6 +23,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/tapnode"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
+	"github.com/lightninglabs/taproot-assets/tapreorg"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightninglabs/taproot-assets/universe"
@@ -112,6 +113,24 @@ type ChainPorterConfig struct {
 	// a proof courier address.
 	ProofCourierDispatcher proof.CourierDispatch
 
+	// AnchoringWatcher is the re-org watcher the porter registers its
+	// transfers with as speculative anchorings. When set, the porter
+	// stakes and converges transfer state through the watcher's
+	// registry instead of subscribing to confirmations itself.
+	//
+	// NOTE: this is an interface field; a disabled watcher must be
+	// wired as an explicit interface nil, never as a nil concrete
+	// pointer.
+	AnchoringWatcher tapreorg.Registrar
+
+	// AnchoringLog is the transaction-scoped persistence surface the
+	// porter site drives from its watcher handlers.
+	AnchoringLog AnchoringLog
+
+	// AnchoringThreshold is the confirmation depth at which the
+	// porter considers a transfer act-confirmed (buried).
+	AnchoringThreshold uint32
+
 	// ProofWatcher is used to watch new proofs for their anchor transaction
 	// to be confirmed safely with a minimum number of confirmations.
 	ProofWatcher proof.Watcher
@@ -153,6 +172,10 @@ type ChainPorter struct {
 	// events, keyed by their subscription ID.
 	subscribers map[uint64]*fn.EventReceiver[fn.Event]
 
+	// waiters tracks parcels waiting on anchoring outcomes, nudged
+	// by the re-org watcher's delivery listener.
+	waiters *tapreorg.DeliveryWaiters
+
 	// subscriberMtx guards the subscribers map.
 	subscriberMtx sync.Mutex
 
@@ -169,11 +192,18 @@ func NewChainPorter(cfg *ChainPorterConfig) *ChainPorter {
 		cfg:             cfg,
 		outboundParcels: make(chan Parcel),
 		subscribers:     subscribers,
+		waiters:         tapreorg.NewDeliveryWaiters(),
 		ContextGuard: &fn.ContextGuard{
 			DefaultTimeout: tapgarden.DefaultTimeout,
 			Quit:           make(chan struct{}),
 		},
 	}
+}
+
+// anchoringEnabled reports whether the porter runs on the re-org
+// watcher's anchoring path.
+func (p *ChainPorter) anchoringEnabled() bool {
+	return p.cfg.AnchoringWatcher != nil
 }
 
 // Start kicks off the chain porter and any goroutines it needs to carry out
@@ -2050,10 +2080,27 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		// transaction ID, transfer outputs and inputs) to the database.
 		// This will also extend the leases for both asset inputs and
 		// zero-value UTXOs to prevent them from being used elsewhere.
-		err = p.cfg.ExportLog.LogPendingParcel(
-			ctx, parcel, defaultWalletLeaseIdentifier,
-			time.Now().Add(defaultBroadcastCoinLeaseDuration),
-		)
+		//
+		// On the anchoring path the same write commits atomically
+		// with the transfer's registration as a speculative
+		// anchoring: there is no instant at which the stake exists
+		// without the watcher knowing it.
+		if p.anchoringEnabled() {
+			var anchoringID tapreorg.AnchoringID
+			anchoringID, err = p.registerParcelAnchoring(
+				ctx, &currentPkg,
+			)
+			if err == nil {
+				currentPkg.AnchoringID = anchoringID
+			}
+		} else {
+			err = p.cfg.ExportLog.LogPendingParcel(
+				ctx, parcel, defaultWalletLeaseIdentifier,
+				time.Now().Add(
+					defaultBroadcastCoinLeaseDuration,
+				),
+			)
+		}
 		if err != nil {
 			p.unlockInputs(ctx, &currentPkg)
 
@@ -2140,6 +2187,44 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		// caller's send request.
 		currentPkg.deliverOutboundPkgResp()
 
+		// On the anchoring path the re-org watcher is the sole
+		// sensor: we wait for the registry's delivered phase rather
+		// than subscribing to confirmations ourselves.
+		if p.anchoringEnabled() {
+			ctx, cancel := p.WithCtxQuitNoTimeout()
+			defer cancel()
+
+			outcome, err := p.waitForAnchoringOutcome(
+				ctx, &currentPkg,
+			)
+			if err != nil {
+				return nil, err
+			}
+			if outcome.abandoned {
+				return nil, fmt.Errorf("transfer %v "+
+					"abandoned: its anchor inputs were "+
+					"claimed by a buried conflicting "+
+					"transaction",
+					currentPkg.OutboundPkg.AnchorTx.
+						TxHash())
+			}
+
+			currentPkg.ConfWitness = outcome.witness
+
+			// Send-event subscribers read the anchor block
+			// context off the outbound package, as the legacy
+			// confirmation path set it from its notification.
+			currentPkg.OutboundPkg.AnchorTxBlockHash = fn.Some(
+				outcome.witness.W.BlockHash(),
+			)
+			currentPkg.OutboundPkg.AnchorTxBlockHeight =
+				outcome.witness.W.Height()
+
+			currentPkg.SendState = SendStateStorePostAnchorTxConf
+
+			return &currentPkg, nil
+		}
+
 		err := p.waitForTransferTxConf(&currentPkg)
 		return &currentPkg, err
 
@@ -2160,6 +2245,38 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		log.Infof("Created %d send fragment manifests for transfer",
 			len(manifests))
 		currentPkg.SendManifests = manifests
+
+		// On the anchoring path the watcher's delivery already
+		// applied the confirmation to the database (atomically with
+		// the registry advance); what remains here is mirroring the
+		// final proof files into the archive for couriers and
+		// archive readers. Burn supply-commit events are act-gated
+		// and dispatched from the site's Buried handler via the
+		// outbox — never here.
+		if p.anchoringEnabled() {
+			ctx, cancel := p.CtxBlocking()
+			defer cancel()
+
+			err := enrichSendManifests(
+				&currentPkg, currentPkg.ConfWitness,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("unable to enrich "+
+					"send manifests: %w", err)
+			}
+
+			err = p.importConfirmedProofFiles(
+				ctx, &currentPkg, currentPkg.ConfWitness,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("unable to import "+
+					"proof files: %w", err)
+			}
+
+			currentPkg.SendState = SendStateTransferProofs
+
+			return &currentPkg, nil
+		}
 
 		err = p.storeProofs(&currentPkg)
 		if err != nil {

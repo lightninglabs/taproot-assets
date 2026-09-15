@@ -81,6 +81,15 @@ type testCase struct {
 	name             string
 	test             func(t *harnessTest)
 	proofCourierType proof.CourierType
+
+	// reOrgSafeDepth, if non-zero, overrides the itest default burial
+	// depth of 1 for the test's primary tapd node.
+	reOrgSafeDepth int32
+
+	// disableAnchoringWatcher runs the test's primary tapd node
+	// with the anchoring watcher disabled, exercising the legacy
+	// re-org protection paths the kill switch falls back to.
+	disableAnchoringWatcher bool
 }
 
 // harnessTest wraps a regular testing.T providing enhanced error detection
@@ -108,6 +117,10 @@ type harnessTest struct {
 
 	tapd *tapdHarness
 
+	// nodes indexes every tapd harness the test run created, by RPC
+	// host, so helpers can reach a node's federation members.
+	nodes map[string]*tapdHarness
+
 	logWriter *build.RotatingLogWriter
 	logMgr    *build.SubLoggerManager
 
@@ -126,6 +139,7 @@ func (h *harnessTest) newHarnessTest(t *testing.T, net *lntest.HarnessTest,
 		lndHarness:     net,
 		universeServer: universeServer,
 		tapd:           tapd,
+		nodes:          h.nodes,
 		logWriter:      h.logWriter,
 		logMgr:         h.logMgr,
 		interceptor:    h.interceptor,
@@ -274,7 +288,8 @@ func (h *harnessTest) addFederationServer(host string, target *tapdHarness) {
 // to each other through an in-memory gRPC connection.
 func setupHarnesses(t *testing.T, ht *harnessTest,
 	lndHarness *lntest.HarnessTest, uniServerLndHarness *node.HarnessNode,
-	proofCourierType proof.CourierType) (*tapdHarness,
+	proofCourierType proof.CourierType, reOrgSafeDepth int32,
+	disableAnchoringWatcher bool) (*tapdHarness,
 	*universeServerHarness, proof.CourierHarness) {
 
 	// Create a new universe server harness and start it.
@@ -360,6 +375,8 @@ func setupHarnesses(t *testing.T, ht *harnessTest,
 	tapdHarness := setupTapdHarness(
 		t, ht, alice, universeServer, func(params *tapdHarnessParams) {
 			params.proofCourier = proofCourier
+			params.reOrgSafeDepth = reOrgSafeDepth
+			params.disableAnchoringWatcher = disableAnchoringWatcher
 		},
 	)
 	return tapdHarness, universeServer, proofCourier
@@ -408,6 +425,14 @@ type tapdHarnessParams struct {
 	// noDefaultUniverseSync indicates whether the default universe server
 	// should be added as a federation server or not.
 	noDefaultUniverseSync bool
+
+	// reOrgSafeDepth, if non-zero, overrides the itest default burial
+	// depth of 1.
+	reOrgSafeDepth int32
+
+	// disableAnchoringWatcher runs the tapd node with the anchoring
+	// watcher disabled.
+	disableAnchoringWatcher bool
 
 	// sqliteDatabaseFilePath is the path to the SQLite database file to
 	// use.
@@ -530,6 +555,8 @@ func setupTapdHarness(t *testing.T, ht *harnessTest,
 		ho.portfolioPilotAddress = params.portfolioPilotAddress
 		ho.sendPriceHint = params.sendPriceHint
 		ho.disableSweepOrphanUtxos = !params.sweepOrphanUtxos
+		ho.reOrgSafeDepth = params.reOrgSafeDepth
+		ho.disableAnchoringWatcher = params.disableAnchoringWatcher
 	}
 
 	tapdCfg := tapdConfig{

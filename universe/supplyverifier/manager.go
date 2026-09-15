@@ -2,6 +2,7 @@ package supplyverifier
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -29,6 +30,12 @@ const (
 	// submit the new commitment to the universe server and for it to be
 	// available for retrieval
 	DefaultSpendSyncDelay = 5 * time.Second
+
+	// DefaultMaxSyncRetries is the default bound on re-pulling a supply
+	// commitment that a detected spend proves must exist but that the
+	// issuer has not yet published, with DefaultSpendSyncDelay between
+	// attempts.
+	DefaultMaxSyncRetries = 12
 )
 
 // DaemonAdapters is a wrapper around the protofsm.DaemonAdapters interface
@@ -444,6 +451,7 @@ func (m *Manager) startAssetSM(ctx context.Context,
 		GroupFetcher:     m.cfg.GroupFetcher,
 		SupplySyncer:     m.cfg.SupplySyncer,
 		SpendSyncDelay:   DefaultSpendSyncDelay,
+		MaxSyncRetries:   DefaultMaxSyncRetries,
 		ErrChan:          m.cfg.ErrChan,
 		QuitChan:         m.Quit,
 	}
@@ -549,6 +557,28 @@ func (m *Manager) InsertSupplyCommit(ctx context.Context,
 	log.Infof("Inserting supply commitment for asset: %s, "+
 		"commitment_outpoint=%s", assetSpec.String(),
 		commitment.CommitPoint().String())
+
+	// A commitment already stored under its outpoint is a re-push:
+	// the sender retries its dispatch whenever any one target server
+	// fails, so a server that already accepted can see the same
+	// commitment again. Absorb it. Re-verifying instead would apply
+	// the leaves against the already-updated supply tree and fail,
+	// turning every retry into a spurious error.
+	_, err := m.cfg.SupplyCommitView.FetchCommitmentByOutpoint(
+		ctx, assetSpec, commitment.CommitPoint(),
+	)
+	switch {
+	case err == nil:
+		log.Infof("Supply commitment already stored, absorbing "+
+			"re-push (asset=%s, commitment_outpoint=%s)",
+			assetSpec.String(), commitment.CommitPoint().String())
+
+		return nil
+
+	case !errors.Is(err, ErrCommitmentNotFound):
+		return fmt.Errorf("unable to check for existing supply "+
+			"commitment: %w", err)
+	}
 
 	// Fetch all known unspent pre-commitment outputs for the asset group.
 	preCommits, err := FetchPreCommits(ctx,

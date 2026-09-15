@@ -19,6 +19,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapnode"
+	"github.com/lightninglabs/taproot-assets/tapreorg"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -127,6 +128,11 @@ type CultivatorConfig struct {
 	// ErrChan is the main error channel the cultivator will report back
 	// critical errors to the main server.
 	ErrChan chan<- error
+
+	// AnchoringWaiters is the planter's waiter set, which its delivery
+	// listener nudges; the cultivator's wait on its anchoring blocks
+	// on it. Required whenever AnchoringWatcher is set.
+	AnchoringWaiters *tapreorg.DeliveryWaiters
 }
 
 // Cultivator is the cultivator for a MintingBatch. It'll handle validating
@@ -145,6 +151,13 @@ type Cultivator struct {
 
 	// confInfo is used to store a delivered confirmation event.
 	confInfo *chainntnfs.TxConfirmation
+
+	// abandonEvent reports that the anchoring watcher abandoned the
+	// batch's genesis transaction: a conflicting spend of its inputs
+	// was buried, and the mint site's compensation has already
+	// cancelled the batch. The main loop winds the cultivator down
+	// on it.
+	abandonEvent chan struct{}
 
 	// done is closed once the assetCultivator goroutine has exited.
 	// The planter selects on this in cancelMintingBatch so a cancel
@@ -184,10 +197,11 @@ func (b *Cultivator) augmenter() GenesisTxAugmenter {
 // config.
 func NewCultivator(cfg *CultivatorConfig) *Cultivator {
 	return &Cultivator{
-		batchKey:  asset.ToSerialized(cfg.Batch.BatchKey.PubKey),
-		cfg:       cfg,
-		confEvent: make(chan *chainntnfs.TxConfirmation, 1),
-		done:      make(chan struct{}),
+		batchKey:     asset.ToSerialized(cfg.Batch.BatchKey.PubKey),
+		cfg:          cfg,
+		confEvent:    make(chan *chainntnfs.TxConfirmation, 1),
+		abandonEvent: make(chan struct{}, 1),
+		done:         make(chan struct{}),
 		ContextGuard: &fn.ContextGuard{
 			DefaultTimeout: DefaultTimeout,
 			Quit:           make(chan struct{}),
@@ -560,6 +574,24 @@ func (b *Cultivator) assetCultivator() {
 			b.cfg.SignalCompletion()
 			return
 
+		// The chain decided against the genesis transaction with
+		// act-level finality. The mint site's compensation
+		// already deleted the minted assets and moved the batch
+		// to the sprout-cancelled state on disk; mirror that in
+		// memory, tell subscribers, and hand the finished
+		// cultivator back to the planter.
+		case <-b.abandonEvent:
+			log.Errorf("MintingBatch(%x): genesis transaction "+
+				"abandoned, its inputs were claimed by a "+
+				"buried conflicting transaction; batch "+
+				"cancelled", b.batchKey[:])
+
+			b.cfg.Batch.setState(BatchStateSproutCancelled)
+			b.publishMintEvent(BatchStateSproutCancelled)
+
+			b.cfg.SignalCompletion()
+			return
+
 		case req := <-b.cfg.CancelReqChan:
 			cancelErr := b.Cancel(req.resp)
 			if cancelErr == nil {
@@ -763,7 +795,8 @@ func (b *Cultivator) stateStep(currentState BatchState) (BatchState, error) {
 			return 0, err
 		}
 
-		// First, we'll turn all the seedlings into actual taproot assets.
+		// First, we'll turn all the seedlings into actual taproot
+		// assets.
 		tapCommitment, err := b.seedlingsToAssetSprouts(
 			ctx, genesisPoint, genesisPkt.AssetAnchorOutIdx,
 		)
@@ -1053,6 +1086,68 @@ func (b *Cultivator) stateStep(currentState BatchState) (BatchState, error) {
 				"transaction: %w", err)
 		}
 
+		// On the anchoring path, the re-org watcher is the sole
+		// sensor: the batch registers its genesis transaction as a
+		// speculative anchoring (idempotently), and a goroutine waits
+		// on the registry's delivered phase instead of a
+		// cultivator-owned confirmation subscription.
+		if b.cfg.AnchoringWatcher != nil {
+			regCtx, regCancel := b.WithCtxQuitNoTimeout()
+
+			err := b.registerMintAnchoring(regCtx, signedTx)
+			if err != nil {
+				regCancel()
+
+				return 0, fmt.Errorf("unable to register "+
+					"mint anchoring: %w", err)
+			}
+
+			txHash := signedTx.TxHash()
+			b.Wg.Add(1)
+			go func() {
+				defer regCancel()
+				defer b.Wg.Done()
+
+				outcome, err := b.waitForMintAnchoring(
+					regCtx, txHash,
+				)
+				if err != nil {
+					if !fn.IsCanceled(err) {
+						b.cfg.ErrChan <- err
+					}
+
+					return
+				}
+
+				// Abandonment is a handled outcome, not a
+				// fault: the site's compensation already
+				// cancelled the batch inside the delivery
+				// transaction, so the main loop only has to
+				// wind the cultivator down.
+				if outcome.abandoned {
+					select {
+					case b.abandonEvent <- struct{}{}:
+					case <-regCtx.Done():
+					case <-b.Quit:
+					}
+
+					return
+				}
+
+				select {
+				case b.confEvent <- outcome.confirmation:
+				case <-regCtx.Done():
+				case <-b.Quit:
+				}
+			}()
+
+			log.Infof("Cultivator(%x): transition states: %v -> "+
+				"%v", b.batchKey[:], BatchStateBroadcast,
+				BatchStateBroadcast)
+
+			return BatchStateBroadcast, nil
+		}
+
 		// Now we'll wait for a confirmation as we reach our terminal
 		// state that requires an on-chain event to shift from. We make
 		// sure to request that the block is included as well, since we
@@ -1063,10 +1158,11 @@ func (b *Cultivator) stateStep(currentState BatchState) (BatchState, error) {
 		heightHint := b.cfg.Batch.HeightHint
 		txHash := signedTx.TxHash()
 		confCtx, confCancel := b.WithCtxQuitNoTimeout()
-		confNtfn, errChan, err := b.cfg.ChainBridge.RegisterConfirmationsNtfn(
-			confCtx, &txHash, signedTx.TxOut[0].PkScript, 1,
-			heightHint, true, nil,
-		)
+		confNtfn, errChan, err := b.cfg.ChainBridge.
+			RegisterConfirmationsNtfn(
+				confCtx, &txHash, signedTx.TxOut[0].PkScript, 1,
+				heightHint, true, nil,
+			)
 		if err != nil {
 			return 0, fmt.Errorf("unable to register for "+
 				"minting tx conf: %w", err)
@@ -1105,13 +1201,13 @@ func (b *Cultivator) stateStep(currentState BatchState) (BatchState, error) {
 					return
 
 				case <-confCtx.Done():
-					log.Debugf("Skipping TX confirmation, " +
-						"context done")
+					log.Debugf("Skipping TX " +
+						"confirmation, context done")
 					confRecv = true
 
 				case <-b.Quit:
-					log.Debugf("Skipping TX confirmation, " +
-						"exiting")
+					log.Debugf("Skipping TX " +
+						"confirmation, exiting")
 					return
 				}
 			}
@@ -1136,13 +1232,13 @@ func (b *Cultivator) stateStep(currentState BatchState) (BatchState, error) {
 					return
 
 				case <-confCtx.Done():
-					log.Debugf("Skipping TX confirmation, " +
-						"context done")
+					log.Debugf("Skipping TX " +
+						"confirmation, context done")
 					return
 
 				case <-b.Quit:
-					log.Debugf("Skipping TX confirmation, " +
-						"exiting")
+					log.Debugf("Skipping TX " +
+						"confirmation, exiting")
 					return
 				}
 			}
@@ -1293,7 +1389,16 @@ func (b *Cultivator) stateStep(currentState BatchState) (BatchState, error) {
 		// configured, ship the batch out now. Publishing is extrinsic
 		// to tapgarden's end (a verifiable asset in the local store);
 		// the publisher owns retry and batching semantics.
-		if b.cfg.MintProofPublisher != nil {
+		//
+		// On the anchoring path, publication and the augmenter's
+		// supply-commit events are act-gated: the mint site's Buried
+		// handler enqueues them on the watcher's outbox once the
+		// genesis transaction reaches the anchoring threshold, and
+		// the re-org lifecycle (re-confirmation patching, conflict
+		// downgrades, abandonment compensation) is owned by the
+		// site's handlers rather than a per-proof callback.
+		anchoringPath := b.cfg.AnchoringWatcher != nil
+		if !anchoringPath && b.cfg.MintProofPublisher != nil {
 			publishAssets := make(
 				[]*asset.Asset, 0,
 				len(anchorAssets)+len(nonAnchorAssets),
@@ -1331,13 +1436,15 @@ func (b *Cultivator) stateStep(currentState BatchState) (BatchState, error) {
 		// index (migration 64, backfilled by 65) makes the
 		// augmenter side idempotent, and MarkBatchConfirmed is
 		// the last write below -- so retry is safe.
-		err = b.augmenter().OnBatchConfirmed(
-			ctx, b.cfg.Batch, anchorAssets, nonAnchorAssets,
-			mintingProofs,
-		)
-		if err != nil {
-			return 0, fmt.Errorf("augmenter OnBatchConfirmed: %w",
-				err)
+		if !anchoringPath {
+			err = b.augmenter().OnBatchConfirmed(
+				ctx, b.cfg.Batch, anchorAssets,
+				nonAnchorAssets, mintingProofs,
+			)
+			if err != nil {
+				return 0, fmt.Errorf("augmenter "+
+					"OnBatchConfirmed: %w", err)
+			}
 		}
 
 		// Register the batch's proofs with the re-org watcher
@@ -1359,7 +1466,7 @@ func (b *Cultivator) stateStep(currentState BatchState) (BatchState, error) {
 		// proofsWatched). The proofs are deterministic given the
 		// same batch and confirmation, so the registration that
 		// already succeeded covers every retry.
-		if !b.proofsWatched {
+		if !anchoringPath && !b.proofsWatched {
 			err := b.cfg.ProofWatcher.WatchProofs(
 				maps.Values(mintingProofs),
 				b.cfg.UpdateMintingProofs,
@@ -1390,6 +1497,15 @@ func (b *Cultivator) stateStep(currentState BatchState) (BatchState, error) {
 		)
 		if err != nil {
 			return 0, fmt.Errorf("unable to confirm batch: %w", err)
+		}
+
+		// The minted proofs now exist. The publication the mint
+		// site enqueued at burial may already be waiting on them
+		// (at a threshold of one, burial is this very
+		// confirmation), so wake the outbox rather than leave the
+		// effect to the next scan.
+		if anchoringPath {
+			b.cfg.AnchoringWatcher.KickOutbox()
 		}
 
 		log.Infof("Cultivator(%x): transition states: %v -> %v",

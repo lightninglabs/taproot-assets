@@ -64,6 +64,14 @@ var tapdArgsTemplateNoOracle = []string{
 	"--universerpccourier.initialbackoff=300ms",
 	"--universerpccourier.maxbackoff=600ms",
 	"--custodianproofretrievaldelay=500ms",
+
+	// Act-gated emissions (universe publication among them) fire at
+	// the anchoring burial depth. Like the main itest harness, run at
+	// depth one — act coincides with first confirmation — so helpers
+	// like MintAssetsConfirmBatch see universe leaves land right
+	// after mining a single block. Re-org tests override this on the
+	// nodes whose anchorings they exercise.
+	"--reorgsafedepth=1",
 }
 
 // tapdArgsTemplate includes the default mock price oracle configuration on

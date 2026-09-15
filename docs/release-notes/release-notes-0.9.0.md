@@ -156,10 +156,34 @@
   act of staking local state on a chain outcome as a durable
   "anchoring", senses the chain into per-anchoring evidence, derives
   phases from that evidence, and converges the owning subsystem
-  through handlers that run atomically with the registry advance. It
-  runs alongside the existing re-org watcher; no subsystem registers
-  anchorings with it yet, so no existing flow changes behaviour in
-  this release.
+  through handlers that run atomically with the registry advance.
+
+* [PR#2287](https://github.com/lightninglabs/taproot-assets/pull/2287)
+  moves the transfer, receive, minting, auxiliary-sweep, and
+  supply-commit paths onto the watcher: each registers its
+  chain-dependent state as an anchoring and converges it from the
+  phases the watcher delivers.
+  When a shallow re-org removes a transaction, the watcher withdraws
+  its confirmation state and refreshes the stored chain and proof
+  context when it reconfirms. If a competing transaction reaches the
+  configured re-org-safe depth, the watcher abandons the original
+  anchoring and compensates the local state tied to the losing
+  transaction.
+
+  A received proof is imported and registered with the watcher in one
+  transaction, so the receiver never holds an asset the watcher does
+  not: a registration that fails rolls the import back with it. The
+  receive's triggers are derived from the anchor transaction's own
+  inputs, so a verified proof file cannot be refused, and a file that
+  cannot be watched at all is rejected rather than imported.
+
+  Irreversible effects now wait until the winning transaction reaches
+  `--reorgsafedepth`. These include mint universe publication, mint
+  and burn supply-update events, and supply-commit finalization and
+  publication. The default is six confirmations, or 120 on testnet
+  unless overridden. Operators should therefore expect new issuance
+  and supply updates to become externally visible only after that
+  threshold; lowering it reduces the corresponding re-org protection.
 
 - [`tapd` now keeps an encrypted asset wallet backup
   file](https://github.com/lightninglabs/taproot-assets/pull/2277)
@@ -228,6 +252,17 @@
   lets `CommitVirtualPsbts` select the transition proof version and adds
   BIP-371 tapscript sibling exclusion proofs for version 1 proofs.
 
+* [PR#2287](https://github.com/lightninglabs/taproot-assets/pull/2287)
+  makes `RegisterTransfer` safe to retry. It previously failed with
+  "proof already exists for this transfer" when the proof was already
+  in the local archive, which left no way to re-drive a call that had
+  imported the proof but failed before registering the transfer with
+  the re-org watcher. The RPC now imports the proof and registers the
+  transfer in one transaction: a failed call leaves nothing behind, and
+  a repeated call finds the proof held, imports nothing twice, and
+  attaches to the existing registration. A proof file the watcher
+  cannot stake is rejected.
+
 ## tapcli Updates
 
 ## Config Changes
@@ -247,10 +282,24 @@
   24h).
 
 - The new `--disable-anchoring-watcher` flag disables the anchoring
-  watcher service, serving as a kill switch while no subsystem yet
-  registers anchorings with it. The registry's read surfaces (the
+  watcher service, serving as a kill switch for anchoring-based
+  processing in the migrated transfer, receive, minting, and
+  supply-commit paths. The registry's read surfaces (the
   `ListAnchorings` RPC and the Prometheus collector) stay available
   with the watcher disabled.
+
+- [PR#2287](https://github.com/lightninglabs/taproot-assets/pull/2287)
+  validates `--reorgsafedepth` at startup. It must be at least
+  one, and — while the anchoring watcher is running — at most 144, the
+  chain notifier's maximum confirmation depth, since the depth doubles
+  as every anchoring's confirmation threshold. A larger value
+  previously passed startup and then failed every registration after
+  its transaction had already broadcast. The upper bound does not
+  apply with `--disable-anchoring-watcher` set: the legacy watcher
+  subscribes for a single confirmation and counts depth itself, so a
+  node rolling back onto it still starts on a depth the anchoring path
+  would refuse. Nodes configured above 144 that keep the watcher
+  enabled will refuse to start; lower the value before upgrading.
 
 ## Code Health
 
@@ -330,6 +379,25 @@
   asserts the swept assets remain spendable.
 
 ## Database
+
+* [PR#2287](https://github.com/lightninglabs/taproot-assets/pull/2287)
+  adds database migration 69, an opaque per-site match key and a
+  unique partial index on the anchoring registry. This lets subsystems recover
+  their anchorings by transaction identity across every phase without
+  scanning the registry history. Existing rows retain a null key and
+  remain valid; no backfill or operator action is required.
+
+* [PR#2287](https://github.com/lightninglabs/taproot-assets/pull/2287)
+  adds database migration 70, an `abandoned` column on
+  `asset_transfers` recording that a transfer was superseded because
+  a buried foreign transaction claimed its inputs, as opposed to
+  losing a race against a rival local form. Only the latter is
+  revivable when the winning transfer is itself abandoned. The two
+  were previously indistinguishable, so abandoning one transfer could
+  revive a permanently dead sibling that shared an input, which was
+  then resumed at startup and rebroadcast an anchor that can never
+  confirm. Existing rows default to `false`; no backfill or operator
+  action is required.
 
 ## Code Health
 
