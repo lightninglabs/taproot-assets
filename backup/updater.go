@@ -90,6 +90,11 @@ type UpdaterConfig struct {
 	// KeyLookup is used to resolve anchor internal key locators.
 	KeyLookup KeyLocatorLookup
 
+	// GroupLookup is used to record the asset group of grouped leaves.
+	// Optional, without it reissued leaves can only be restored on a
+	// wallet that already knows their group.
+	GroupLookup GroupLookup
+
 	// ProofNotifier publishes proof import events that signal wallet
 	// state changes.
 	ProofNotifier ProofNotifier
@@ -568,20 +573,36 @@ func (u *Updater) reconcile(ctx context.Context, force bool) (int, error) {
 	var numAdded, numFailed int
 	for key, chainAsset := range current {
 		existing, ok := u.entries[key]
-		if ok && existing.blockHash == chainAsset.AnchorBlockHash {
+		unchanged := ok &&
+			existing.blockHash == chainAsset.AnchorBlockHash
+
+		// An entry of a grouped leaf may have been written before the
+		// wallet could describe the group, for example before the
+		// group anchor was synced from a universe. Keep trying to
+		// complete such entries, the leaf itself has not changed.
+		wantGroup := unchanged && u.cfg.GroupLookup != nil &&
+			chainAsset.GroupKey != nil &&
+			existing.backup.GroupKeyInfo == nil
+
+		if unchanged && !wantGroup {
 			continue
 		}
 
 		backups, _, err := CollectBackups(
 			ctx, ExportModeCompact,
 			[]*asset.ChainAsset{chainAsset}, u.cfg.ProofArchive,
-			u.cfg.KeyLookup, nil,
+			u.cfg.KeyLookup, u.cfg.GroupLookup, nil,
 		)
 		if err != nil || len(backups) != 1 {
 			log.Warnf("Unable to build backup entry for asset "+
 				"%x at %v: %v", key.assetID[:], key.outpoint,
 				err)
 			numFailed++
+			continue
+		}
+
+		// The group is still unknown, the existing entry stands.
+		if wantGroup && backups[0].GroupKeyInfo == nil {
 			continue
 		}
 

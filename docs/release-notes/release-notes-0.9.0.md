@@ -30,6 +30,14 @@
   spendable after a restore instead of being filed as external script path
   keys.
 
+- [Backup entries of grouped assets now record the asset
+  group](https://github.com/lightninglabs/taproot-assets/pull/2298) (the
+  group anchor's genesis and the group key parameters), and the import makes
+  the recorded groups known to the wallet before verifying any proof. Assets
+  minted into an existing group carry no group key reveal in their proofs, so
+  a restore onto a fresh node previously skipped every such asset with `group
+  key not known` while the import still reported success.
+
 * [PR#2190](https://github.com/lightninglabs/taproot-assets/pull/2190)
   fixes a bug that could cause minted assets to commit to the wrong
   address.

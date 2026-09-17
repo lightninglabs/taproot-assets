@@ -187,7 +187,7 @@ func TestCreateAssetBackupKeyLookupErrors(t *testing.T) {
 		ErrKeyLocatorNotFound, address.ErrInternalKeyNotFound,
 	} {
 		ab, err := createAssetBackup(
-			ctx, chainAsset, nil, lookupErr{err: notFound},
+			ctx, chainAsset, nil, lookupErr{err: notFound}, nil,
 		)
 		require.NoError(t, err)
 		require.True(t, chainAsset.AnchorInternalKey.IsEqual(
@@ -198,7 +198,8 @@ func TestCreateAssetBackupKeyLookupErrors(t *testing.T) {
 	}
 
 	_, err := createAssetBackup(
-		ctx, chainAsset, nil, lookupErr{err: errors.New("db locked")},
+		ctx, chainAsset, nil,
+		lookupErr{err: errors.New("db locked")}, nil,
 	)
 	require.ErrorContains(t, err, "db locked")
 }
@@ -217,8 +218,9 @@ func TestCreateAssetBackupRecordsType(t *testing.T) {
 	a := newTestAsset(t)
 	a.ScriptKey = asset.NewScriptKeyBip86(rawKey)
 	a.ScriptKey.TweakedScriptKey.Type = asset.ScriptKeyUniquePedersen
+	chainAsset := &asset.ChainAsset{Asset: a}
 	ab, err := createAssetBackup(
-		context.Background(), &asset.ChainAsset{Asset: a}, nil, nil,
+		context.Background(), chainAsset, nil, nil, nil,
 	)
 	require.NoError(t, err)
 	require.Equal(t, asset.ScriptKeyUniquePedersen, ab.ScriptKeyInfo.Type)
@@ -226,7 +228,7 @@ func TestCreateAssetBackupRecordsType(t *testing.T) {
 	// Unknown stored type is derived from the key material.
 	a.ScriptKey.TweakedScriptKey.Type = asset.ScriptKeyUnknown
 	ab, err = createAssetBackup(
-		context.Background(), &asset.ChainAsset{Asset: a}, nil, nil,
+		context.Background(), chainAsset, nil, nil, nil,
 	)
 	require.NoError(t, err)
 	require.Equal(t, asset.ScriptKeyBip86, ab.ScriptKeyInfo.Type)

@@ -82,6 +82,18 @@ var allTestCases = []*testCase{
 		test: testBackupFileUpdates,
 	},
 	{
+		name: "backup file reissuance",
+		test: testBackupFileReissuance,
+	},
+	{
+		name: "backup file reissuance v1",
+		test: testBackupFileReissuanceV1,
+	},
+	{
+		name: "backup file legacy anchor",
+		test: testBackupFileLegacyAnchor,
+	},
+	{
 		name: "addresses",
 		test: testAddresses,
 	},

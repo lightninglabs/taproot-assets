@@ -1157,6 +1157,7 @@ func genServerConfig(ctx context.Context, cfg *Config,
 			},
 			ProofArchive:  proofArchive,
 			KeyLookup:     tapdbAddrBook,
+			GroupLookup:   tapdbAddrBook,
 			ProofNotifier: assetStore,
 			EventNotifiers: []backup.EventNotifier{
 				assetMinter, chainPorter,
