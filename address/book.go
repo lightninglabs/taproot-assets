@@ -482,7 +482,7 @@ func (b *Book) DecDisplayForAssetID(ctx context.Context,
 		allMeta, err := b.cfg.Store.FetchAllAssetMeta(ctx)
 		if err != nil {
 			return fn.None[uint32](), fmt.Errorf("unable to fetch "+
-				"all asset meta: %v", err)
+				"all asset meta: %w", err)
 		}
 
 		for assetID, meta := range allMeta {
@@ -494,7 +494,7 @@ func (b *Book) DecDisplayForAssetID(ctx context.Context,
 			if err != nil {
 				return fn.None[uint32](), fmt.Errorf("unable "+
 					"to extract decimal display option "+
-					"for asset %v: %v", assetID, err)
+					"for asset %v: %w", assetID, err)
 			}
 
 			b.decimalDisplayCache[assetID] = displayOpt
@@ -512,13 +512,13 @@ func (b *Book) DecDisplayForAssetID(ctx context.Context,
 	meta, err := b.FetchAssetMetaForAsset(ctx, id)
 	if err != nil {
 		return fn.None[uint32](), fmt.Errorf("unable to fetch asset "+
-			"meta for asset_id=%v :%v", id, err)
+			"meta for asset_id=%v: %w", id, err)
 	}
 
 	opt, err := meta.DecDisplayOption()
 	if err != nil {
 		return fn.None[uint32](), fmt.Errorf("unable to extract "+
-			"decimal display option for asset %v: %v", id, err)
+			"decimal display option for asset %v: %w", id, err)
 	}
 
 	// Store the value in the cache for future lookups.
