@@ -245,6 +245,10 @@ message AssetRootRequest {
     // The direction of the page.
     taprpc.SortDirection direction = 4;
 
+    // An optional filter to only return roots of the given proof type. If left
+    // unspecified, roots of all proof types are returned.
+    ProofType proof_type = 5;
+
     // TODO(roasbeef): filter by asset ID, etc?
 }
 
