@@ -386,6 +386,10 @@
   the funding transaction confirms, before any commitment update, and
   asserts the swept assets remain spendable.
 
+* [PR#2271](https://github.com/lightninglabs/taproot-assets/pull/2271)
+  places the aperture sqlite database used by the integration tests in the
+  per-test temp directory instead of the machine-global default path.
+
 ## Database
 
 * [PR#2287](https://github.com/lightninglabs/taproot-assets/pull/2287)
