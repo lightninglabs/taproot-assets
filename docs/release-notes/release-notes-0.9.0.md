@@ -386,6 +386,11 @@
   the funding transaction confirms, before any commitment update, and
   asserts the swept assets remain spendable.
 
+* [PR#2282](https://github.com/lightninglabs/taproot-assets/pull/2282)
+  stops the integration test harness from logging an unexpected tapd exit
+  from a background goroutine, which panicked the test binary when the
+  exit came after the test had completed.
+
 ## Database
 
 * [PR#2287](https://github.com/lightninglabs/taproot-assets/pull/2287)
