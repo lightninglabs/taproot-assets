@@ -19,6 +19,10 @@ import (
 )
 
 const (
+	// DefaultTimeout is the default timeout used for RPC and database
+	// operations issued by the watcher.
+	DefaultTimeout = 30 * time.Second
+
 	// DefaultInitialDeliveryBackoff is the default backoff after a
 	// first failed delivery or dispatch attempt.
 	DefaultInitialDeliveryBackoff = 30 * time.Second
@@ -50,6 +54,14 @@ const (
 	// every effect behind it; the deadline converts a hang into an
 	// ordinary failure that backs off and retries.
 	DefaultDispatchTimeout = time.Minute
+
+	// DefaultTerminalAuditWindow is how long after its terminal
+	// delivery an anchoring stays in the terminal audit's working
+	// set. A re-org deeper than the act threshold contradicts a
+	// terminal's recorded evidence; the audit surfaces such
+	// contradictions via the Stuck flag while the terminal is
+	// recent enough for one to plausibly occur.
+	DefaultTerminalAuditWindow = 24 * time.Hour
 
 	// outboxBatchSize bounds how many effects one dispatch pass
 	// claims.
@@ -125,6 +137,10 @@ type WatcherConfig struct {
 	// their own.
 	DefaultThreshold uint32
 
+	// TerminalAuditWindow is how long after its terminal delivery
+	// an anchoring stays in the terminal audit's working set.
+	TerminalAuditWindow time.Duration
+
 	// Clock is the time source for backoff bookkeeping.
 	Clock clock.Clock
 
@@ -158,6 +174,9 @@ func (c *WatcherConfig) fillDefaults() {
 	}
 	if c.DefaultThreshold == 0 {
 		c.DefaultThreshold = DefaultActThreshold
+	}
+	if c.TerminalAuditWindow == 0 {
+		c.TerminalAuditWindow = DefaultTerminalAuditWindow
 	}
 	if c.Clock == nil {
 		c.Clock = clock.NewDefaultClock()
@@ -462,9 +481,11 @@ func (w *Watcher) Register(ctx context.Context, spec RegistrationSpec,
 	return id, nil
 }
 
-// Withdraw revokes a live stake: the site's withdrawal write and the
+// Withdraw revokes a stake: the site's withdrawal write and the
 // terminal registry advance commit in one transaction, and sensing
-// stops.
+// stops. Live anchorings withdraw freely (absent live dependents);
+// terminal ones only when flagged stuck — the operator disposal of a
+// contradicted terminal. See Registry.Withdraw for the refusals.
 func (w *Watcher) Withdraw(ctx context.Context, id AnchoringID,
 	onWithdraw func(context.Context, RegistryTx) error) error {
 
@@ -720,6 +741,7 @@ func (w *Watcher) sensingLoop(ctx context.Context,
 
 		case <-ticker.C:
 			w.reconcileSensors(ctx)
+			w.auditTerminals(ctx)
 
 		case height, ok := <-epochChan:
 			if !ok {
@@ -897,6 +919,83 @@ func (w *Watcher) adopt(ctx context.Context, anchoring *Anchoring) error {
 	}
 
 	return nil
+}
+
+// terminalChainEvidence returns the chain evidence a terminal phase
+// rests on: the buried witness, or the buried foreign spend or
+// foreclosing witness behind an abandonment. Withdrawn is
+// site-initiated and rests on no chain evidence.
+func terminalChainEvidence(p Phase) (Witness, bool) {
+	switch phase := p.(type) {
+	case Buried:
+		return phase.W, true
+
+	case Abandoned:
+		switch cause := phase.Cause.(type) {
+		case ForeignBurial:
+			return cause.Spend.W, true
+
+		case Foreclosed:
+			return cause.W, true
+		}
+	}
+
+	return Witness{}, false
+}
+
+// auditTerminals verifies recent terminal anchorings' recorded
+// evidence blocks against the dominant chain. Terminal phases are
+// absorbing — a re-org deeper than the act threshold does not reopen
+// them, and any state emitted under act-level finality is out of the
+// watcher's reach to reverse — so a contradiction is surfaced rather
+// than recovered: the anchoring is flagged stuck, feeding
+// ListAnchorings and the stuck-count gauge, and the operator takes
+// case-by-case action (see the package doc's terminal-absorption
+// policy).
+func (w *Watcher) auditTerminals(ctx context.Context) {
+	cutoff := w.cfg.Clock.Now().Add(-w.cfg.TerminalAuditWindow)
+	terminals, err := w.cfg.Registry.RecentTerminals(ctx, cutoff)
+	if err != nil {
+		log.Warnf("Unable to audit terminals, sweep will "+
+			"retry: %v", err)
+		return
+	}
+
+	for _, anchoring := range terminals {
+		witness, ok := terminalChainEvidence(anchoring.Phase)
+		if !ok {
+			continue
+		}
+
+		// A hash lookup error is transient (or the chain has
+		// shrunk below the recorded height, which the next
+		// sweep re-checks); skip rather than guess.
+		hash, err := w.cfg.Notifier.GetBlockHash(
+			ctx, int64(witness.Height()),
+		)
+		if err != nil {
+			continue
+		}
+		if hash == witness.BlockHash() {
+			continue
+		}
+
+		reason := fmt.Sprintf("terminal contradicted: %v rests on "+
+			"tx %v in block %v at height %d, but the dominant "+
+			"chain now has block %v there; a re-org deeper "+
+			"than the act threshold requires manual audit",
+			anchoring.Phase, witness.TxHash(),
+			witness.BlockHash(), witness.Height(), hash)
+
+		log.Errorf("Anchoring %d (site=%v): %s", anchoring.ID,
+			anchoring.Site, reason)
+
+		err = w.cfg.Registry.MarkStuck(ctx, anchoring.ID, reason)
+		if err != nil {
+			log.Warnf("Anchoring %d: unable to mark stuck, "+
+				"sweep will retry: %v", anchoring.ID, err)
+		}
+	}
 }
 
 // handleSensingEvent processes one sensing input.

@@ -232,6 +232,47 @@
         ]
       }
     },
+    "/v1/taproot-assets/anchorings/{anchoring_id}/withdraw": {
+      "post": {
+        "summary": "WithdrawAnchoring withdraws a stuck anchoring: the operator's\nmanual disposal after auditing a repeatedly failing delivery or a\nterminal phase contradicted by a re-org deeper than the safe\ndepth. The anchoring moves to the withdrawn phase, its stuck flag\nclears, and the watcher stops sensing it; the owning subsystem's\nstate is left exactly as it stands, in the operator's hands.",
+        "operationId": "TaprootAssets_WithdrawAnchoring",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/taprpcWithdrawAnchoringResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "anchoring_id",
+            "description": "The ID of the anchoring to withdraw.",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "format": "int64"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/TaprootAssetsWithdrawAnchoringBody"
+            }
+          }
+        ],
+        "tags": [
+          "TaprootAssets"
+        ]
+      }
+    },
     "/v1/taproot-assets/assets": {
       "get": {
         "summary": "tapcli: `assets list`\nListAssets lists the set of assets owned by the target daemon.",
@@ -1475,6 +1516,9 @@
     }
   },
   "definitions": {
+    "TaprootAssetsWithdrawAnchoringBody": {
+      "type": "object"
+    },
     "protobufAny": {
       "type": "object",
       "properties": {
@@ -1803,7 +1847,7 @@
         },
         "stuck": {
           "type": "boolean",
-          "description": "Whether delivery has failed repeatedly; retries continue\nregardless."
+          "description": "Whether the anchoring needs operator attention: either delivery\nto the owning subsystem has failed repeatedly (retries continue\nregardless), or a re-org deeper than the safe depth has\ncontradicted a terminal phase's recorded evidence — a condition\nthat is surfaced rather than silently recovered. The\nstuck_reason field carries the specifics; a stuck anchoring can\nbe released with WithdrawAnchoring after manual audit."
         },
         "delivery_attempts": {
           "type": "integer",
@@ -1836,6 +1880,10 @@
           "type": "string",
           "format": "int64",
           "description": "The unix time the terminal phase was delivered; zero while\nlive."
+        },
+        "stuck_reason": {
+          "type": "string",
+          "description": "The reason the anchoring is flagged stuck: the last delivery\nerror, or the terminal contradiction the audit found. Empty\nwhen the anchoring is not stuck."
         }
       }
     },
@@ -3456,6 +3504,15 @@
         "decoded_proof": {
           "$ref": "#/definitions/taprpcDecodedProof",
           "description": "The decoded last proof in the file if the proof file was valid."
+        }
+      }
+    },
+    "taprpcWithdrawAnchoringResponse": {
+      "type": "object",
+      "properties": {
+        "anchoring": {
+          "$ref": "#/definitions/taprpcAnchoring",
+          "description": "The withdrawn anchoring."
         }
       }
     }

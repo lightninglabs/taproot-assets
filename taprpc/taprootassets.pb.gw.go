@@ -421,6 +421,66 @@ func local_request_TaprootAssets_ListAnchorings_0(ctx context.Context, marshaler
 
 }
 
+func request_TaprootAssets_WithdrawAnchoring_0(ctx context.Context, marshaler runtime.Marshaler, client TaprootAssetsClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq WithdrawAnchoringRequest
+	var metadata runtime.ServerMetadata
+
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && err != io.EOF {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+
+	var (
+		val string
+		ok  bool
+		err error
+		_   = err
+	)
+
+	val, ok = pathParams["anchoring_id"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "anchoring_id")
+	}
+
+	protoReq.AnchoringId, err = runtime.Int64(val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "anchoring_id", err)
+	}
+
+	msg, err := client.WithdrawAnchoring(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	return msg, metadata, err
+
+}
+
+func local_request_TaprootAssets_WithdrawAnchoring_0(ctx context.Context, marshaler runtime.Marshaler, server TaprootAssetsServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq WithdrawAnchoringRequest
+	var metadata runtime.ServerMetadata
+
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && err != io.EOF {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+
+	var (
+		val string
+		ok  bool
+		err error
+		_   = err
+	)
+
+	val, ok = pathParams["anchoring_id"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "anchoring_id")
+	}
+
+	protoReq.AnchoringId, err = runtime.Int64(val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "anchoring_id", err)
+	}
+
+	msg, err := server.WithdrawAnchoring(ctx, &protoReq)
+	return msg, metadata, err
+
+}
+
 func request_TaprootAssets_StopDaemon_0(ctx context.Context, marshaler runtime.Marshaler, client TaprootAssetsClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var protoReq StopRequest
 	var metadata runtime.ServerMetadata
@@ -1282,6 +1342,31 @@ func RegisterTaprootAssetsHandlerServer(ctx context.Context, mux *runtime.ServeM
 
 	})
 
+	mux.Handle("POST", pattern_TaprootAssets_WithdrawAnchoring_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		var stream runtime.ServerTransportStream
+		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		var err error
+		var annotatedContext context.Context
+		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/taprpc.TaprootAssets/WithdrawAnchoring", runtime.WithHTTPPathPattern("/v1/taproot-assets/anchorings/{anchoring_id}/withdraw"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := local_request_TaprootAssets_WithdrawAnchoring_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+
+		forward_TaprootAssets_WithdrawAnchoring_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+
+	})
+
 	mux.Handle("POST", pattern_TaprootAssets_StopDaemon_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
@@ -1985,6 +2070,28 @@ func RegisterTaprootAssetsHandlerClient(ctx context.Context, mux *runtime.ServeM
 
 	})
 
+	mux.Handle("POST", pattern_TaprootAssets_WithdrawAnchoring_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		var err error
+		var annotatedContext context.Context
+		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/taprpc.TaprootAssets/WithdrawAnchoring", runtime.WithHTTPPathPattern("/v1/taproot-assets/anchorings/{anchoring_id}/withdraw"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := request_TaprootAssets_WithdrawAnchoring_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+
+		forward_TaprootAssets_WithdrawAnchoring_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+
+	})
+
 	mux.Handle("POST", pattern_TaprootAssets_StopDaemon_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
@@ -2447,6 +2554,8 @@ var (
 
 	pattern_TaprootAssets_ListAnchorings_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "taproot-assets", "anchorings"}, ""))
 
+	pattern_TaprootAssets_WithdrawAnchoring_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3, 2, 4}, []string{"v1", "taproot-assets", "anchorings", "anchoring_id", "withdraw"}, ""))
+
 	pattern_TaprootAssets_StopDaemon_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "taproot-assets", "stop"}, ""))
 
 	pattern_TaprootAssets_DebugLevel_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "taproot-assets", "debuglevel"}, ""))
@@ -2506,6 +2615,8 @@ var (
 	forward_TaprootAssets_ListTransfers_1 = runtime.ForwardResponseMessage
 
 	forward_TaprootAssets_ListAnchorings_0 = runtime.ForwardResponseMessage
+
+	forward_TaprootAssets_WithdrawAnchoring_0 = runtime.ForwardResponseMessage
 
 	forward_TaprootAssets_StopDaemon_0 = runtime.ForwardResponseMessage
 

@@ -509,9 +509,17 @@ type Anchoring struct {
 	// acknowledged. The site is converged when it equals Phase.
 	DeliveredPhase Phase
 
-	// Stuck indicates delivery has failed repeatedly; retries
-	// continue at low frequency, and the condition is surfaced.
+	// Stuck indicates the anchoring needs operator attention:
+	// either delivery has failed repeatedly (retries continue at
+	// low frequency regardless), or the terminal audit found the
+	// chain contradicting a terminal phase's recorded evidence (a
+	// re-org deeper than the act threshold).
 	Stuck bool
+
+	// StuckReason is the surfaced reason behind Stuck: the last
+	// delivery error, or the contradiction the terminal audit
+	// found. Empty when the anchoring is not stuck.
+	StuckReason string
 
 	// DeliveryAttempts counts failed delivery attempts since the
 	// last successful delivery.

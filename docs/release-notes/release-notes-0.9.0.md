@@ -289,25 +289,14 @@
   server before forcing a full enumeration sync as an audit (default:
   24h).
 
-- The new `--disable-anchoring-watcher` flag disables the anchoring
-  watcher service, serving as a kill switch for anchoring-based
-  processing in the migrated transfer, receive, minting, and
-  supply-commit paths. The registry's read surfaces (the
-  `ListAnchorings` RPC and the Prometheus collector) stay available
-  with the watcher disabled.
-
 - [PR#2287](https://github.com/lightninglabs/taproot-assets/pull/2287)
   validates `--reorgsafedepth` at startup. It must be at least
-  one, and — while the anchoring watcher is running — at most 144, the
-  chain notifier's maximum confirmation depth, since the depth doubles
-  as every anchoring's confirmation threshold. A larger value
-  previously passed startup and then failed every registration after
-  its transaction had already broadcast. The upper bound does not
-  apply with `--disable-anchoring-watcher` set: the legacy watcher
-  subscribes for a single confirmation and counts depth itself, so a
-  node rolling back onto it still starts on a depth the anchoring path
-  would refuse. Nodes configured above 144 that keep the watcher
-  enabled will refuse to start; lower the value before upgrading.
+  one and at most 144, the chain notifier's maximum confirmation
+  depth, since the depth doubles as every anchoring's confirmation
+  threshold. A larger value previously passed startup and then failed
+  every registration after its transaction had already broadcast.
+  Nodes configured above 144 will refuse to start; lower the value
+  before upgrading.
 
 ## Code Health
 

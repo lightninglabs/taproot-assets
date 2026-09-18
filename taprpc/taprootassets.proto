@@ -49,6 +49,17 @@ service TaprootAssets {
     */
     rpc ListAnchorings (ListAnchoringsRequest) returns (ListAnchoringsResponse);
 
+    /*
+    WithdrawAnchoring withdraws a stuck anchoring: the operator's
+    manual disposal after auditing a repeatedly failing delivery or a
+    terminal phase contradicted by a re-org deeper than the safe
+    depth. The anchoring moves to the withdrawn phase, its stuck flag
+    clears, and the watcher stops sensing it; the owning subsystem's
+    state is left exactly as it stands, in the operator's hands.
+    */
+    rpc WithdrawAnchoring (WithdrawAnchoringRequest)
+        returns (WithdrawAnchoringResponse);
+
     /* tapcli: `stop`
     StopDaemon will send a shutdown request to the interrupt handler, triggering
     a graceful shutdown of the daemon.
@@ -2174,8 +2185,13 @@ message Anchoring {
     // The best height at registration time.
     uint32 created_height = 6;
 
-    // Whether delivery has failed repeatedly; retries continue
-    // regardless.
+    // Whether the anchoring needs operator attention: either delivery
+    // to the owning subsystem has failed repeatedly (retries continue
+    // regardless), or a re-org deeper than the safe depth has
+    // contradicted a terminal phase's recorded evidence — a condition
+    // that is surfaced rather than silently recovered. The
+    // stuck_reason field carries the specifics; a stuck anchoring can
+    // be released with WithdrawAnchoring after manual audit.
     bool stuck = 7;
 
     // Failed delivery attempts since the last successful delivery.
@@ -2200,4 +2216,19 @@ message Anchoring {
     // The unix time the terminal phase was delivered; zero while
     // live.
     int64 terminal_at = 14;
+
+    // The reason the anchoring is flagged stuck: the last delivery
+    // error, or the terminal contradiction the audit found. Empty
+    // when the anchoring is not stuck.
+    string stuck_reason = 15;
+}
+
+message WithdrawAnchoringRequest {
+    // The ID of the anchoring to withdraw.
+    int64 anchoring_id = 1;
+}
+
+message WithdrawAnchoringResponse {
+    // The withdrawn anchoring.
+    Anchoring anchoring = 1;
 }

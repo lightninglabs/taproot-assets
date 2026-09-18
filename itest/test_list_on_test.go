@@ -140,23 +140,6 @@ var allTestCases = []*testCase{
 		test:           testReOrgMintAndSend,
 		reOrgSafeDepth: 6,
 	},
-	// The same re-organizations against the legacy path. The kill
-	// switch is presented as a rollback mechanism, but every re-org
-	// case above now runs on the anchoring watcher, leaving the
-	// legacy proof watcher's re-org handling — the thing a rollback
-	// would fall back onto — without end-to-end coverage.
-	{
-		name:                    "re-org mint watcher disabled",
-		test:                    testReOrgMint,
-		reOrgSafeDepth:          6,
-		disableAnchoringWatcher: true,
-	},
-	{
-		name:                    "re-org send watcher disabled",
-		test:                    testReOrgSend,
-		reOrgSafeDepth:          6,
-		disableAnchoringWatcher: true,
-	},
 	// The act gate itself, at a depth where it is not vacuous: the
 	// rest of the suite runs at depth 1, where burial coincides with
 	// the first confirmation.
@@ -170,13 +153,25 @@ var allTestCases = []*testCase{
 		test:           testActGatedSupplyEmissions,
 		reOrgSafeDepth: 6,
 	},
-	// The kill-switch rollback path: mint, send and receive must
-	// work end to end with the anchoring watcher disabled, riding
-	// the legacy confirmation and proof-watcher paths instead.
 	{
-		name:                    "basic send anchoring watcher disabled",
-		test:                    testBasicSendUnidirectional,
-		disableAnchoringWatcher: true,
+		name:           "re-org send conflicting spend",
+		test:           testReOrgSendConflictingSpend,
+		reOrgSafeDepth: 6,
+	},
+	{
+		name:           "re-org deep stuck",
+		test:           testReOrgDeepStuck,
+		reOrgSafeDepth: 3,
+	},
+	{
+		name:           "re-org supply commit",
+		test:           testReOrgSupplyCommit,
+		reOrgSafeDepth: 3,
+	},
+	{
+		name:           "re-org genesis receive",
+		test:           testReOrgGenesisReceive,
+		reOrgSafeDepth: 3,
 	},
 	{
 		name:             "basic send unidirectional hashmail courier",

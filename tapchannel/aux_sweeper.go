@@ -147,11 +147,6 @@ type AuxSweeperCfg struct {
 	// fresh anchoring for the winning transaction, while the stale
 	// form's anchoring abandons and compensates its rows.
 	AnchoringRegistrar ReceiveAnchoringRegistrar
-
-	// ProofWatcher is used to watch proofs we import for their anchor
-	// transaction being re-organized out of the chain, so their block
-	// info can be patched once it re-confirms.
-	ProofWatcher proof.Watcher
 }
 
 // AuxSweeper is used to sweep funds from a commitment transaction that has
@@ -1794,14 +1789,6 @@ func importOutputProofs(ctx context.Context, scid lnwire.ShortChannelID,
 func (a *AuxSweeper) materializeAssetOutputs(ctx context.Context,
 	outputs []*cmsg.AssetOutput) error {
 
-	vCtx := proof.VerifierCtx{
-		HeaderVerifier: a.cfg.HeaderVerifier,
-		MerkleVerifier: proof.DefaultMerkleVerifier,
-		GroupVerifier:  a.cfg.GroupVerifier,
-		ChainLookupGen: a.cfg.ChainBridge,
-		IgnoreChecker:  a.cfg.IgnoreChecker,
-	}
-
 	for _, out := range outputs {
 		outProof := &out.Proof.Val
 
@@ -1867,36 +1854,13 @@ func (a *AuxSweeper) materializeAssetOutputs(ctx context.Context,
 			Blob:    finalProofBuf.Bytes(),
 		}
 
-		// With the re-org watcher the import and the stake commit
-		// together: the swept output is never held without
-		// custody, and a file that cannot be staked is refused
-		// rather than held. Without it the archive import and the
-		// legacy proof watcher stand in.
-		if a.cfg.AnchoringRegistrar != nil {
-			err := a.cfg.AnchoringRegistrar.StakeReceive(
-				ctx, annotated,
-			)
-			if err != nil {
-				return fmt.Errorf("unable to stake swept "+
-					"proof: %w", err)
-			}
-		} else {
-			err = a.cfg.ProofArchive.ImportProofs(
-				ctx, vCtx, false, annotated,
-			)
-			if err != nil {
-				return fmt.Errorf("unable to import proof: %w",
-					err)
-			}
-
-			err = a.cfg.ProofWatcher.WatchProofs(
-				[]*proof.Proof{outProof},
-				a.cfg.ProofWatcher.DefaultUpdateCallback(),
-			)
-			if err != nil {
-				return fmt.Errorf("unable to watch proof: "+
-					"%w", err)
-			}
+		// The import and the stake commit together: the swept
+		// output is never held without custody, and a file that
+		// cannot be staked is refused rather than held.
+		err = a.cfg.AnchoringRegistrar.StakeReceive(ctx, annotated)
+		if err != nil {
+			return fmt.Errorf("unable to stake swept proof: %w",
+				err)
 		}
 	}
 

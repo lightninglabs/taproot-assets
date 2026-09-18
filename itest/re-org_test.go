@@ -1,17 +1,27 @@
 package itest
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/txscript/v2"
+	"github.com/btcsuite/btcd/wire/v2"
+	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/rpcutils"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
+	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/miner"
+	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 )
 
@@ -101,6 +111,38 @@ func testReOrgMint(t *harnessTest) {
 		a := assetList[idx]
 		AssertAssetProofs(t.t, t.tapd, chainClient, a)
 	}
+
+	// The proofs are not the only state keyed to the anchor: the
+	// database's chain-transaction row must re-stamp to the new block
+	// too. ListAssets reports the recorded anchor block context
+	// straight from those rows.
+	require.Eventually(t.t, func() bool {
+		listResp, err := t.tapd.ListAssets(
+			ctx, &taprpc.ListAssetRequest{},
+		)
+		if err != nil || len(listResp.Assets) == 0 {
+			return false
+		}
+
+		for _, a := range listResp.Assets {
+			anchor := a.ChainAnchor
+			if anchor.AnchorBlockHash != newBlockHash.String() {
+				return false
+			}
+			if anchor.BlockHeight != uint32(newBlockHeight) {
+				return false
+			}
+		}
+
+		return true
+	}, defaultWaitTimeout, 200*time.Millisecond)
+
+	// The batch row itself must have remained finalized across the
+	// re-org.
+	WaitForBatchState(
+		t.t, ctx, t.tapd, defaultWaitTimeout, batchKey,
+		mintrpc.BatchState_BATCH_STATE_FINALIZED,
+	)
 
 	// Let's now bury the proofs under sufficient blocks to allow the re-org
 	// watcher to stop watching the TX.
@@ -209,30 +251,27 @@ func testReOrgSend(t *harnessTest) {
 	// reflects that honestly: the transfer and everything it anchors
 	// are unconfirmed until the transaction confirms again, so no
 	// confirmed assets or balances are reported in the meantime. The
-	// legacy proof watcher has no such tier: the sender keeps listing
-	// the transfer's outputs, with proofs that no longer verify.
+	// downgrade is delivered once the watcher senses the re-org,
+	// asynchronously to the node's chain sync, so it is awaited
+	// rather than asserted at once.
 	listAssetRequest := &taprpc.ListAssetRequest{}
-	aliceAssets, err := t.tapd.ListAssets(ctx, listAssetRequest)
-	require.NoError(t.t, err)
-	if t.tapd.anchoringWatcherDisabled {
-		require.NotEmpty(t.t, aliceAssets.Assets)
-	} else {
-		// The downgrade is delivered once the watcher senses the
-		// re-org, asynchronously to the node's chain sync, so it
-		// is awaited rather than asserted at once.
-		require.Eventually(t.t, func() bool {
-			aliceAssets, err = t.tapd.ListAssets(
-				ctx, listAssetRequest,
-			)
+	var aliceAssets *taprpc.ListAssetResponse
+	require.Eventually(t.t, func() bool {
+		var err error
+		aliceAssets, err = t.tapd.ListAssets(ctx, listAssetRequest)
 
-			return err == nil && len(aliceAssets.Assets) == 0 &&
-				aliceAssets.UnconfirmedTransfers == 1
-		}, defaultWaitTimeout, 200*time.Millisecond)
-	}
+		return err == nil && len(aliceAssets.Assets) == 0 &&
+			aliceAssets.UnconfirmedTransfers == 1
+	}, defaultWaitTimeout, 200*time.Millisecond)
 
 	bobAssets, err := secondTapd.ListAssets(ctx, listAssetRequest)
 	require.NoError(t.t, err)
 	require.Empty(t.t, bobAssets.Assets)
+
+	// The downgrade is potency-tier only: nothing is compensated
+	// while the send can still re-confirm, so the receiver's address
+	// event keeps its completed status through the window.
+	AssertAddrEvent(t.t, secondTapd, bobAddr, 1, statusCompleted)
 
 	// Cleanup by mining the minting tx again.
 	newBlock := t.lndHarness.MineBlocksAndAssertNumTxes(1, 1)[0]
@@ -256,6 +295,27 @@ func testReOrgSend(t *harnessTest) {
 	// updated to the new block height.
 	WaitForProofUpdate(t.t, t.tapd, aliceAssets.Assets[0], newBlockHeight)
 	WaitForProofUpdate(t.t, secondTapd, bobAssets.Assets[0], newBlockHeight)
+
+	// The sender's transfer row must re-stamp its recorded anchor
+	// block context to the new block as well; ListTransfers reports
+	// it straight from the chain-transaction row.
+	require.Eventually(t.t, func() bool {
+		transfers, err := t.tapd.ListTransfers(
+			ctx, &taprpc.ListTransfersRequest{},
+		)
+		if err != nil || len(transfers.Transfers) != 1 {
+			return false
+		}
+
+		transfer := transfers.Transfers[0]
+		if transfer.AnchorTxBlockHash == nil {
+			return false
+		}
+
+		return bytes.Equal(
+			transfer.AnchorTxBlockHash.Hash, newBlockHash[:],
+		) && transfer.AnchorTxBlockHeight == uint32(newBlockHeight)
+	}, defaultWaitTimeout, 200*time.Millisecond)
 
 	// We now try to validate the send proofs of the delivered, change and
 	// passive assets. The re-org watcher should have updated the proofs and
@@ -374,30 +434,27 @@ func testReOrgSendV2Address(t *harnessTest) {
 	// reflects that honestly: the transfer and everything it anchors
 	// are unconfirmed until the transaction confirms again, so no
 	// confirmed assets or balances are reported in the meantime. The
-	// legacy proof watcher has no such tier: the sender keeps listing
-	// the transfer's outputs, with proofs that no longer verify.
+	// downgrade is delivered once the watcher senses the re-org,
+	// asynchronously to the node's chain sync, so it is awaited
+	// rather than asserted at once.
 	listAssetRequest := &taprpc.ListAssetRequest{}
-	aliceAssets, err := t.tapd.ListAssets(ctx, listAssetRequest)
-	require.NoError(t.t, err)
-	if t.tapd.anchoringWatcherDisabled {
-		require.NotEmpty(t.t, aliceAssets.Assets)
-	} else {
-		// The downgrade is delivered once the watcher senses the
-		// re-org, asynchronously to the node's chain sync, so it
-		// is awaited rather than asserted at once.
-		require.Eventually(t.t, func() bool {
-			aliceAssets, err = t.tapd.ListAssets(
-				ctx, listAssetRequest,
-			)
+	var aliceAssets *taprpc.ListAssetResponse
+	require.Eventually(t.t, func() bool {
+		var err error
+		aliceAssets, err = t.tapd.ListAssets(ctx, listAssetRequest)
 
-			return err == nil && len(aliceAssets.Assets) == 0 &&
-				aliceAssets.UnconfirmedTransfers == 1
-		}, defaultWaitTimeout, 200*time.Millisecond)
-	}
+		return err == nil && len(aliceAssets.Assets) == 0 &&
+			aliceAssets.UnconfirmedTransfers == 1
+	}, defaultWaitTimeout, 200*time.Millisecond)
 
 	bobAssets, err := secondTapd.ListAssets(ctx, listAssetRequest)
 	require.NoError(t.t, err)
 	require.Empty(t.t, bobAssets.Assets)
+
+	// The downgrade is potency-tier only: nothing is compensated
+	// while the send can still re-confirm, so the receiver's address
+	// event keeps its completed status through the window.
+	AssertAddrEvent(t.t, secondTapd, bobAddrV2, 1, statusCompleted)
 
 	// Cleanup by mining the minting tx again.
 	newBlock := t.lndHarness.MineBlocksAndAssertNumTxes(1, 1)[0]
@@ -421,6 +478,27 @@ func testReOrgSendV2Address(t *harnessTest) {
 	// updated to the new block height.
 	WaitForProofUpdate(t.t, t.tapd, aliceAssets.Assets[0], newBlockHeight)
 	WaitForProofUpdate(t.t, secondTapd, bobAssets.Assets[0], newBlockHeight)
+
+	// The sender's transfer row must re-stamp its recorded anchor
+	// block context to the new block as well; ListTransfers reports
+	// it straight from the chain-transaction row.
+	require.Eventually(t.t, func() bool {
+		transfers, err := t.tapd.ListTransfers(
+			ctx, &taprpc.ListTransfersRequest{},
+		)
+		if err != nil || len(transfers.Transfers) != 1 {
+			return false
+		}
+
+		transfer := transfers.Transfers[0]
+		if transfer.AnchorTxBlockHash == nil {
+			return false
+		}
+
+		return bytes.Equal(
+			transfer.AnchorTxBlockHash.Hash, newBlockHash[:],
+		) && transfer.AnchorTxBlockHeight == uint32(newBlockHeight)
+	}, defaultWaitTimeout, 200*time.Millisecond)
 
 	// We now try to validate the send proofs of the delivered, change and
 	// passive assets. The re-org watcher should have updated the proofs and
@@ -694,4 +772,759 @@ func generateReOrg(t *testing.T, lnd *lntest.HarnessTest,
 	lnd.Miner().DisconnectMiner(tempMiner)
 
 	lnd.ConnectMiner()
+}
+
+// testReOrgSendConflictingSpend tests the different-transaction re-org
+// shape: the transfer's anchor transaction confirms, a re-org orphans
+// it (unwitnessed re-entry), and a conflicting transaction the porter
+// did not broadcast then claims the transfer's asset input. While the
+// conflicting spend sits at potency depth both anchorings report
+// conflicted and nothing is compensated; once it buries at the safe
+// depth, the chain has decided against the transfer with act-level
+// finality: the sender's porter anchoring abandons and compensates
+// (inputs un-spent, materialized outputs removed), and the receiver's
+// anchoring follows, removing the received assets and resetting the
+// address event.
+func testReOrgSendConflictingSpend(t *harnessTest) {
+	// First, we'll mint a few assets and confirm the batch TX.
+	mintRequests := []*mintrpc.MintAssetRequest{
+		issuableAssets[0], issuableAssets[1],
+	}
+	lndMiner := t.lndHarness.Miner()
+	assetList := MintAssetsConfirmBatch(
+		t.t, lndMiner, t.tapd, mintRequests, WithNoUniverseLeafWait(),
+	)
+
+	// Bury the mint: the re-org scenario under test targets the send
+	// transaction, and the fork point must sit past the mint's
+	// burial.
+	t.lndHarness.MineBlocks(6)
+	WaitForMintUniverseLeaves(t.t, t.tapd, assetList)
+
+	ctx := context.Background()
+
+	// Bob will receive the assets on a second tapd instance.
+	lndBob := t.lndHarness.NewNodeWithCoins("Bob", nil)
+	secondTapd := setupTapdHarness(
+		t.t, t, lndBob, t.universeServer,
+		func(params *tapdHarnessParams) {
+			params.reOrgSafeDepth = 6
+		},
+	)
+	defer func() {
+		require.NoError(t.t, secondTapd.stop(!*noDelete))
+	}()
+
+	// Both minted assets share one anchor UTXO, and the send below
+	// will spend it. Craft the conflicting spend of that outpoint
+	// now: a pure-BTC transaction claiming the anchor output for the
+	// miner, to be mined on the re-org fork.
+	utxos, err := t.tapd.ListUtxos(ctx, &taprpc.ListUtxosRequest{})
+	require.NoError(t.t, err)
+	require.Len(t.t, utxos.ManagedUtxos, 1)
+
+	var anchorUtxo *taprpc.ManagedUtxo
+	for outpoint := range utxos.ManagedUtxos {
+		anchorUtxo = utxos.ManagedUtxos[outpoint]
+	}
+	conflictTx := craftConflictingSpend(t, anchorUtxo)
+
+	// Before we mine a block to confirm the send TX, we create a
+	// temporary miner: its fork will carry the conflicting spend.
+	tempMiner := spawnTempMiner(t.t, t, ctx)
+
+	// Send to Bob and confirm at one confirmation. The proof courier
+	// fires at the potency tier, so Bob's receive completes without
+	// waiting for burial.
+	sendAsset := assetList[0]
+	sendAssetGen := sendAsset.AssetGenesis
+	sendAmount := uint64(500)
+	bobAddr, err := secondTapd.NewAddr(ctx, &taprpc.NewAddrRequest{
+		AssetId: sendAssetGen.AssetId,
+		Amt:     sendAmount,
+	})
+	require.NoError(t.t, err)
+	AssertAddrCreated(t.t, secondTapd, sendAsset, bobAddr)
+
+	sendResp, _ := sendAssetsToAddr(t, t.tapd, bobAddr)
+	ConfirmAndAssertOutboundTransfer(
+		t.t, lndMiner, t.tapd, sendResp, sendAssetGen.AssetId,
+		[]uint64{sendAsset.Amount - sendAmount, sendAmount}, 0, 1,
+	)
+	AssertNonInteractiveRecvComplete(t.t, secondTapd, 1)
+
+	// Both sides hold witnessed anchorings on the send now.
+	assertAnchoringPhase(t.t, t.tapd, "tapfreighter.porter", "witnessed")
+	assertAnchoringPhase(
+		t.t, secondTapd, "tapcustody.receiver", "witnessed",
+	)
+
+	// Re-org the anchor transaction out: it returns to the mempool,
+	// and with no spend of the trigger set on the dominant chain the
+	// anchorings re-enter unwitnessed.
+	generateReOrg(t.t, t.lndHarness, tempMiner, 3, 2)
+	lndMiner.AssertNumTxsInMempool(1)
+
+	_, tempMinerHeight := tempMiner.GetBestBlock()
+	t.lndHarness.WaitForNodeBlockHeight(t.tapd.cfg.LndNode, tempMinerHeight)
+
+	assertAnchoringPhase(t.t, t.tapd, "tapfreighter.porter", "unwitnessed")
+	assertAnchoringPhase(
+		t.t, secondTapd, "tapcustody.receiver", "unwitnessed",
+	)
+
+	// Now mine the conflicting spend. Connecting its block evicts the
+	// orphaned anchor transaction from the mempool as a double spend:
+	// the transfer can never confirm again.
+	lndMiner.MineBlockWithTx(conflictTx)
+	lndMiner.AssertNumTxsInMempool(0)
+
+	// A foreign spend of the trigger set sits on the dominant chain:
+	// both anchorings sense conflicted, and the potency-tier
+	// downgrade unconfirms the transferred state without compensating
+	// anything — the conflicting spend could itself re-org out.
+	assertAnchoringPhase(t.t, t.tapd, "tapfreighter.porter", "conflicted")
+	assertAnchoringPhase(
+		t.t, secondTapd, "tapcustody.receiver", "conflicted",
+	)
+
+	listAssetRequest := &taprpc.ListAssetRequest{}
+	aliceAssets, err := t.tapd.ListAssets(ctx, listAssetRequest)
+	require.NoError(t.t, err)
+	require.Empty(t.t, aliceAssets.Assets)
+	require.EqualValues(t.t, 1, aliceAssets.UnconfirmedTransfers)
+
+	bobAssets, err := secondTapd.ListAssets(ctx, listAssetRequest)
+	require.NoError(t.t, err)
+	require.Empty(t.t, bobAssets.Assets)
+
+	AssertAddrEvent(t.t, secondTapd, bobAddr, 1, statusCompleted)
+
+	// Restart the sender while the conflict sits at potency, before
+	// any compensation: recovery must re-derive the conflicted
+	// phase from the persisted candidates alone, without the live
+	// subscriptions that observed it arise.
+	t.t.Logf("Restarting sender in the conflicted window")
+	require.NoError(t.t, t.tapd.stop(false))
+	require.NoError(t.t, t.tapd.start(false))
+	assertAnchoringPhase(t.t, t.tapd, "tapfreighter.porter", "conflicted")
+
+	// Bury the conflicting spend at the safe depth: the chain's
+	// decision against the transfer hardens into act, and both
+	// anchorings abandon and compensate — the restarted daemon
+	// carries its side through from recovered state.
+	t.lndHarness.MineBlocks(6)
+
+	assertAnchoringPhase(t.t, t.tapd, "tapfreighter.porter", "abandoned")
+	assertAnchoringPhase(
+		t.t, secondTapd, "tapcustody.receiver", "abandoned",
+	)
+
+	// The sender's compensation is bounded by the foreclosing
+	// transaction: it claimed the anchor output carrying both the
+	// transferred asset and the passive one, so the chain has given
+	// those inputs away, and reviving them would report a balance
+	// the sender no longer holds. Both stay spent, and no
+	// unconfirmed transfer lingers.
+	AssertBalances(t.t, t.tapd, 0, WithAssetID(sendAssetGen.AssetId))
+	AssertBalances(
+		t.t, t.tapd, 0,
+		WithAssetID(assetList[1].AssetGenesis.AssetId),
+	)
+
+	aliceAssets, err = t.tapd.ListAssets(ctx, listAssetRequest)
+	require.NoError(t.t, err)
+	require.Empty(t.t, aliceAssets.Assets)
+	require.EqualValues(t.t, 0, aliceAssets.UnconfirmedTransfers)
+
+	// The receiver's compensation removes the materialized assets for
+	// good and documents the failed receive: the address event
+	// returns to the detected status.
+	bobAssets, err = secondTapd.ListAssets(ctx, listAssetRequest)
+	require.NoError(t.t, err)
+	require.Empty(t.t, bobAssets.Assets)
+	AssertAddrEvent(t.t, secondTapd, bobAddr, 1, statusDetected)
+}
+
+// assertAnchoringPhase waits until the given site's single anchoring
+// reports the given phase, both sensed and delivered. Phase strings
+// on the RPC surface are decorated with their evidence, so matching
+// is by prefix.
+func assertAnchoringPhase(t *testing.T, tapd *tapdHarness, site,
+	phase string) {
+
+	t.Helper()
+
+	ctxb := context.Background()
+	err := wait.NoError(func() error {
+		resp, err := tapd.ListAnchorings(
+			ctxb, &taprpc.ListAnchoringsRequest{Site: site},
+		)
+		if err != nil {
+			return err
+		}
+		if len(resp.Anchorings) != 1 {
+			return fmt.Errorf("expected 1 anchoring for site "+
+				"%v, got %d", site, len(resp.Anchorings))
+		}
+
+		a := resp.Anchorings[0]
+		if !strings.HasPrefix(a.Phase, phase) ||
+			!strings.HasPrefix(a.DeliveredPhase, phase) {
+
+			return fmt.Errorf("anchoring %d: phase %v "+
+				"(delivered %v), want %v", a.Id, a.Phase,
+				a.DeliveredPhase, phase)
+		}
+
+		return nil
+	}, defaultWaitTimeout)
+	require.NoError(t, err)
+}
+
+// craftConflictingSpend builds and signs a pure-BTC transaction that
+// spends the given managed anchor UTXO to a miner address, signed
+// through lnd with the anchor output's taproot tweak. The result
+// conflicts with any transfer spending the same anchor outpoint.
+func craftConflictingSpend(t *harnessTest,
+	utxo *taprpc.ManagedUtxo) *wire.MsgTx {
+
+	lndMiner := t.lndHarness.Miner()
+	lndRPC := t.tapd.cfg.LndNode.RPC
+
+	op, err := wire.NewOutPointFromString(utxo.OutPoint)
+	require.NoError(t.t, err)
+
+	prevTx := lndMiner.GetRawTransaction(op.Hash)
+	prevOut := prevTx.MsgTx().TxOut[op.Index]
+
+	// Recover the anchor internal key's locator: tapd derived it from
+	// lnd's taproot-assets key family, so a scan over the first
+	// indices finds it.
+	var keyLoc *signrpc.KeyLocator
+	for idx := int32(0); idx < 50; idx++ {
+		desc := lndRPC.DeriveKey(&signrpc.KeyLocator{
+			KeyFamily: asset.TaprootAssetsKeyFamily,
+			KeyIndex:  idx,
+		})
+		if bytes.Equal(desc.RawKeyBytes, utxo.InternalKey) {
+			keyLoc = &signrpc.KeyLocator{
+				KeyFamily: asset.TaprootAssetsKeyFamily,
+				KeyIndex:  idx,
+			}
+
+			break
+		}
+	}
+	require.NotNil(t.t, keyLoc, "anchor internal key not found in "+
+		"taproot-assets key family")
+
+	// One input (the anchor outpoint), one output paying the miner.
+	minerAddr := lndMiner.NewMinerAddress()
+	minerScript, err := txscript.PayToAddrScript(minerAddr)
+	require.NoError(t.t, err)
+
+	const fee = 500
+	conflictTx := wire.NewMsgTx(2)
+	conflictTx.AddTxIn(&wire.TxIn{PreviousOutPoint: *op})
+	conflictTx.AddTxOut(wire.NewTxOut(prevOut.Value-fee, minerScript))
+
+	var txBuf bytes.Buffer
+	require.NoError(t.t, conflictTx.Serialize(&txBuf))
+
+	signResp := lndRPC.SignOutputRaw(&signrpc.SignReq{
+		RawTxBytes: txBuf.Bytes(),
+		SignDescs: []*signrpc.SignDescriptor{{
+			KeyDesc: &signrpc.KeyDescriptor{
+				KeyLoc: keyLoc,
+			},
+			TapTweak: utxo.MerkleRoot,
+			Output: &signrpc.TxOut{
+				Value:    prevOut.Value,
+				PkScript: prevOut.PkScript,
+			},
+			InputIndex: 0,
+			SignMethod: signrpc.
+				SignMethod_SIGN_METHOD_TAPROOT_KEY_SPEND,
+		}},
+		PrevOutputs: []*signrpc.TxOut{{
+			Value:    prevOut.Value,
+			PkScript: prevOut.PkScript,
+		}},
+	})
+	conflictTx.TxIn[0].Witness = wire.TxWitness{signResp.RawSigs[0]}
+
+	return conflictTx
+}
+
+// assertAnchoringStuck waits until the site's single anchoring
+// reports the given stuck state while both its sensed and delivered
+// phases keep the given prefix.
+func assertAnchoringStuck(t *testing.T, tapd *tapdHarness, site,
+	phase string, stuck bool) {
+
+	t.Helper()
+
+	ctxb := context.Background()
+	err := wait.NoError(func() error {
+		resp, err := tapd.ListAnchorings(
+			ctxb, &taprpc.ListAnchoringsRequest{Site: site},
+		)
+		if err != nil {
+			return err
+		}
+		if len(resp.Anchorings) != 1 {
+			return fmt.Errorf("expected 1 anchoring for site "+
+				"%v, got %d", site, len(resp.Anchorings))
+		}
+
+		a := resp.Anchorings[0]
+		if !strings.HasPrefix(a.Phase, phase) ||
+			!strings.HasPrefix(a.DeliveredPhase, phase) {
+
+			return fmt.Errorf("anchoring %d: phase %v "+
+				"(delivered %v), want %v", a.Id, a.Phase,
+				a.DeliveredPhase, phase)
+		}
+		if a.Stuck != stuck {
+			return fmt.Errorf("anchoring %d: stuck=%v, want %v",
+				a.Id, a.Stuck, stuck)
+		}
+
+		return nil
+	}, defaultWaitTimeout)
+	require.NoError(t, err)
+}
+
+// testReOrgDeepStuck tests the terminal-absorption policy's operator
+// surface: a re-org deeper than the safe depth after a transfer has
+// buried. The buried and act-emitted state is out of the watcher's
+// reach to reverse, so nothing is compensated and no phase moves;
+// instead the terminal audit flags the contradicted anchorings stuck
+// on both sides, and the flag stays latched even after the transfer
+// re-confirms on the rewritten chain.
+func testReOrgDeepStuck(t *harnessTest) {
+	// Mint and bury the batch at the test's safe depth of 3: the
+	// re-org under test targets the send transaction, and the fork
+	// point must sit past the mint's burial.
+	mintRequests := []*mintrpc.MintAssetRequest{
+		issuableAssets[0], issuableAssets[1],
+	}
+	lndMiner := t.lndHarness.Miner()
+	assetList := MintAssetsConfirmBatch(
+		t.t, lndMiner, t.tapd, mintRequests, WithNoUniverseLeafWait(),
+	)
+	t.lndHarness.MineBlocks(3)
+	WaitForMintUniverseLeaves(t.t, t.tapd, assetList)
+
+	ctx := context.Background()
+
+	// Bob receives the assets on a second tapd instance with the
+	// same safe depth.
+	lndBob := t.lndHarness.NewNodeWithCoins("Bob", nil)
+	secondTapd := setupTapdHarness(
+		t.t, t, lndBob, t.universeServer,
+		func(params *tapdHarnessParams) {
+			params.reOrgSafeDepth = 3
+		},
+	)
+	defer func() {
+		require.NoError(t.t, secondTapd.stop(!*noDelete))
+	}()
+
+	// The fork point: everything mined past here re-orgs out.
+	tempMiner := spawnTempMiner(t.t, t, ctx)
+
+	// Send to Bob and bury the transfer: one confirmation plus
+	// three more blocks puts the witness one past the safe depth.
+	sendAsset := assetList[0]
+	sendAssetGen := sendAsset.AssetGenesis
+	sendAmount := uint64(500)
+	bobAddr, err := secondTapd.NewAddr(ctx, &taprpc.NewAddrRequest{
+		AssetId: sendAssetGen.AssetId,
+		Amt:     sendAmount,
+	})
+	require.NoError(t.t, err)
+	AssertAddrCreated(t.t, secondTapd, sendAsset, bobAddr)
+	sendResp, _ := sendAssetsToAddr(t, t.tapd, bobAddr)
+	ConfirmAndAssertOutboundTransfer(
+		t.t, lndMiner, t.tapd, sendResp, sendAssetGen.AssetId,
+		[]uint64{sendAsset.Amount - sendAmount, sendAmount}, 0, 1,
+	)
+	AssertNonInteractiveRecvComplete(t.t, secondTapd, 1)
+	t.lndHarness.MineBlocks(3)
+
+	assertAnchoringStuck(
+		t.t, t.tapd, "tapfreighter.porter", "buried", false,
+	)
+	assertAnchoringStuck(
+		t.t, secondTapd, "tapcustody.receiver", "buried", false,
+	)
+
+	// Re-org out everything past the fork point: four blocks,
+	// deeper than the safe depth of 3. The send transaction
+	// returns to the mempool.
+	generateReOrg(t.t, t.lndHarness, tempMiner, 5, 1)
+	lndMiner.AssertNumTxsInMempool(1)
+
+	_, tempMinerHeight := tempMiner.GetBestBlock()
+	t.lndHarness.WaitForNodeBlockHeight(
+		t.tapd.cfg.LndNode, tempMinerHeight,
+	)
+	t.lndHarness.WaitForNodeBlockHeight(lndBob, tempMinerHeight)
+
+	// The terminal audit surfaces the contradiction on both sides:
+	// stuck, with the phase absorbed at buried.
+	assertAnchoringStuck(
+		t.t, t.tapd, "tapfreighter.porter", "buried", true,
+	)
+	assertAnchoringStuck(
+		t.t, secondTapd, "tapcustody.receiver", "buried", true,
+	)
+
+	// The mint's evidence sits below the fork point: the audit
+	// leaves it alone.
+	assertAnchoringStuck(
+		t.t, t.tapd, "tapgarden.minter", "buried", false,
+	)
+
+	// Nothing was compensated: the act-final state stands on both
+	// nodes, per the terminal-absorption policy.
+	listAssetRequest := &taprpc.ListAssetRequest{}
+	bobAssets, err := secondTapd.ListAssets(ctx, listAssetRequest)
+	require.NoError(t.t, err)
+	require.NotEmpty(t.t, bobAssets.Assets)
+	aliceAssets, err := t.tapd.ListAssets(ctx, listAssetRequest)
+	require.NoError(t.t, err)
+	require.NotEmpty(t.t, aliceAssets.Assets)
+
+	// The transfer re-confirms on the rewritten chain; the flag
+	// stays latched — the recorded evidence remains contradicted,
+	// and the operator decides what to do about it.
+	t.lndHarness.MineBlocksAndAssertNumTxes(1, 1)
+	assertAnchoringStuck(
+		t.t, t.tapd, "tapfreighter.porter", "buried", true,
+	)
+	assertAnchoringStuck(
+		t.t, secondTapd, "tapcustody.receiver", "buried", true,
+	)
+
+	// The surfaced reason names the contradiction.
+	porterAnchoring := fetchSiteAnchoring(
+		t.t, t.tapd, "tapfreighter.porter",
+	)
+	require.Contains(
+		t.t, porterAnchoring.StuckReason, "terminal contradicted",
+	)
+
+	// A healthy anchoring refuses manual withdrawal: the mint
+	// buried below the fork point and was never contradicted.
+	mintAnchoring := fetchSiteAnchoring(t.t, t.tapd, "tapgarden.minter")
+	_, err = t.tapd.WithdrawAnchoring(
+		ctx, &taprpc.WithdrawAnchoringRequest{
+			AnchoringId: mintAnchoring.Id,
+		},
+	)
+	require.ErrorContains(t.t, err, "not flagged stuck")
+
+	// The operator disposes of the audited contradiction: the
+	// anchoring withdraws, the flag and reason clear, and the node
+	// reports nothing stuck any more.
+	withdrawResp, err := t.tapd.WithdrawAnchoring(
+		ctx, &taprpc.WithdrawAnchoringRequest{
+			AnchoringId: porterAnchoring.Id,
+		},
+	)
+	require.NoError(t.t, err)
+	require.True(
+		t.t, strings.HasPrefix(withdrawResp.Anchoring.Phase,
+			"withdrawn"),
+	)
+	require.False(t.t, withdrawResp.Anchoring.Stuck)
+	require.Empty(t.t, withdrawResp.Anchoring.StuckReason)
+
+	stuckList, err := t.tapd.ListAnchorings(
+		ctx, &taprpc.ListAnchoringsRequest{StuckOnly: true},
+	)
+	require.NoError(t.t, err)
+	require.Empty(t.t, stuckList.Anchorings)
+}
+
+// fetchSiteAnchoring returns the site's single anchoring.
+func fetchSiteAnchoring(t *testing.T, tapd *tapdHarness,
+	site string) *taprpc.Anchoring {
+
+	t.Helper()
+
+	resp, err := tapd.ListAnchorings(
+		context.Background(), &taprpc.ListAnchoringsRequest{
+			Site: site,
+		},
+	)
+	require.NoError(t, err)
+	require.Len(t, resp.Anchorings, 1)
+
+	return resp.Anchorings[0]
+}
+
+// testReOrgSupplyCommit tests the supply-commit site across a re-org:
+// the commit transaction confirms, is re-organized out (potency-tier
+// only: nothing is finalized or retracted while it can re-confirm),
+// re-confirms in a new block, and buries at the safe depth — at which
+// point, and only at which point, the commitment finalizes, carrying
+// the re-organized confirmation's block context.
+func testReOrgSupplyCommit(t *harnessTest) {
+	ctxb := context.Background()
+	lndMiner := t.lndHarness.Miner()
+
+	// Mint a grouped asset with supply commitments enabled, and bury
+	// the mint at the test's safe depth of 3: universe publication
+	// and the mint's supply events are act-gated on its burial, and
+	// the re-org under test targets the supply commit transaction.
+	mintReq := CopyRequest(issuableAssets[0])
+	mintReq.Asset.EnableSupplyCommitments = true
+	assetList := MintAssetsConfirmBatch(
+		t.t, lndMiner, t.tapd, []*mintrpc.MintAssetRequest{mintReq},
+		WithNoUniverseLeafWait(),
+	)
+	require.Len(t.t, assetList, 1)
+	rpcAsset := assetList[0]
+	t.lndHarness.MineBlocks(3)
+	WaitForMintUniverseLeaves(t.t, t.tapd, assetList)
+
+	groupKeyBytes := rpcAsset.AssetGroup.TweakedGroupKey
+	require.NotNil(t.t, groupKeyBytes)
+
+	// An ignore entry gives the next commitment something to commit.
+	ignoreAmt := rpcAsset.Amount
+	respIgnore, err := t.tapd.IgnoreAssetOutPoint(
+		ctxb, &unirpc.IgnoreAssetOutPointRequest{
+			AssetOutPoint: &taprpc.AssetOutPoint{
+				AnchorOutPoint: rpcAsset.ChainAnchor.
+					AnchorOutpoint,
+				AssetId:   rpcAsset.AssetGenesis.AssetId,
+				ScriptKey: rpcAsset.ScriptKey,
+			},
+			Amount: ignoreAmt,
+		},
+	)
+	require.NoError(t.t, err)
+	require.NotNil(t.t, respIgnore)
+
+	// The fork point: the commit transaction confirms past here.
+	tempMiner := spawnTempMiner(t.t, t, ctxb)
+
+	// Kick off the commitment and confirm its transaction once.
+	groupKeyReq := &unirpc.UpdateSupplyCommitRequest_GroupKeyBytes{
+		GroupKeyBytes: groupKeyBytes,
+	}
+	respUpdate, err := t.tapd.UpdateSupplyCommit(
+		ctxb, &unirpc.UpdateSupplyCommitRequest{GroupKey: groupKeyReq},
+	)
+	require.NoError(t.t, err)
+	require.NotNil(t.t, respUpdate)
+	MineBlocks(t.t, lndMiner, 1, 1)
+
+	// One confirmation is potency, not act: the anchoring is
+	// witnessed, and no commitment is finalized yet.
+	assertAnchoringPhase(
+		t.t, t.tapd, "supplycommit.committer", "witnessed",
+	)
+	fetchReq := &unirpc.FetchSupplyCommitRequest{
+		GroupKey: &unirpc.FetchSupplyCommitRequest_GroupKeyBytes{
+			GroupKeyBytes: groupKeyBytes,
+		},
+		Locator: &unirpc.FetchSupplyCommitRequest_VeryFirst{
+			VeryFirst: true,
+		},
+	}
+
+	// The commitment row is staged at broadcast but carries no block
+	// info until the burial handler finalizes it, so a fetch in this
+	// window fails rather than serving unconfirmed chain data.
+	_, err = t.tapd.FetchSupplyCommit(ctxb, fetchReq)
+	require.ErrorContains(t.t, err, "no block info available")
+
+	// Re-org the confirmation out: the commit transaction returns
+	// to the mempool, and the anchoring honestly reports
+	// unwitnessed. Still nothing finalized, nothing retracted.
+	generateReOrg(t.t, t.lndHarness, tempMiner, 3, 2)
+	lndMiner.AssertNumTxsInMempool(1)
+
+	_, tempMinerHeight := tempMiner.GetBestBlock()
+	t.lndHarness.WaitForNodeBlockHeight(
+		t.tapd.cfg.LndNode, tempMinerHeight,
+	)
+
+	assertAnchoringPhase(
+		t.t, t.tapd, "supplycommit.committer", "unwitnessed",
+	)
+	_, err = t.tapd.FetchSupplyCommit(ctxb, fetchReq)
+	require.ErrorContains(t.t, err, "no block info available")
+
+	// The commit transaction re-confirms in a new block and buries
+	// at the safe depth: the commitment finalizes now, with the
+	// re-organized confirmation's block context.
+	newBlock := t.lndHarness.MineBlocksAndAssertNumTxes(1, 1)[0]
+	newBlockHash := newBlock.BlockHash()
+	_, newBlockHeight := lndMiner.GetBestBlock()
+
+	assertAnchoringPhase(
+		t.t, t.tapd, "supplycommit.committer", "witnessed",
+	)
+
+	t.lndHarness.MineBlocks(2)
+	assertAnchoringPhase(
+		t.t, t.tapd, "supplycommit.committer", "buried",
+	)
+
+	fetchResp, _ := WaitForSupplyCommit(
+		t.t, ctxb, t.tapd, groupKeyBytes, fn.None[wire.OutPoint](),
+		func(resp *unirpc.FetchSupplyCommitResponse) bool {
+			return resp.ChainData.BlockHeight > 0 &&
+				len(resp.ChainData.BlockHash) > 0
+		},
+	)
+	require.Equal(
+		t.t, newBlockHash[:], fetchResp.ChainData.BlockHash,
+	)
+	require.EqualValues(
+		t.t, newBlockHeight, fetchResp.ChainData.BlockHeight,
+	)
+
+	// The finalized commitment carries the ignore entry.
+	require.NotNil(t.t, fetchResp.IgnoreSubtreeRoot)
+	require.EqualValues(
+		t.t, ignoreAmt, fetchResp.IgnoreSubtreeRoot.RootNode.RootSum,
+	)
+}
+
+// testReOrgGenesisReceive tests the genesis-shape receive across a
+// re-org: an asset minted directly to the receiver's script key
+// arrives as a single-proof file, which has no prior asset outpoint
+// to watch — the receive anchoring seeds the genesis transaction
+// itself as its candidate. The genesis is then re-orged out (the
+// seeded anchoring honestly downgrades and the materialized asset
+// disappears), re-confirms in a new block (the anchoring re-witnesses
+// and the proof re-stamps), and buries at the receiver's safe depth.
+func testReOrgGenesisReceive(t *harnessTest) {
+	ctx := context.Background()
+	lndMiner := t.lndHarness.Miner()
+
+	// Bob's node holds the script key the mint below commits to.
+	// His deeper safe depth keeps the receive anchoring at the
+	// potency tier through the re-org window. NewNodeWithCoins
+	// mines blocks, so it must precede the fork point.
+	lndBob := t.lndHarness.NewNodeWithCoins("Bob", nil)
+	secondTapd := setupTapdHarness(
+		t.t, t, lndBob, t.universeServer,
+		func(params *tapdHarnessParams) {
+			params.reOrgSafeDepth = 6
+		},
+	)
+	defer func() {
+		require.NoError(t.t, secondTapd.stop(!*noDelete))
+	}()
+
+	bobScriptKey, _ := DeriveKeys(t.t, secondTapd)
+
+	// The fork point: the genesis confirmation lies past it.
+	tempMiner := spawnTempMiner(t.t, t, ctx)
+
+	// Alice mints directly to Bob's script key and buries the batch
+	// at her safe depth of 3 (universe publication is act-gated on
+	// that burial).
+	mintReq := CopyRequest(simpleAssets[0])
+	mintReq.Asset.ScriptKey = rpcutils.MarshalScriptKey(bobScriptKey)
+	assetList := MintAssetsConfirmBatch(
+		t.t, lndMiner, t.tapd, []*mintrpc.MintAssetRequest{mintReq},
+		WithNoUniverseLeafWait(),
+	)
+	require.Len(t.t, assetList, 1)
+	mintedAsset := assetList[0]
+	assetID := mintedAsset.AssetGenesis.AssetId
+	t.lndHarness.MineBlocks(2)
+	WaitForMintUniverseLeaves(t.t, t.tapd, assetList)
+
+	// Bob learns of the mint out of band: Alice exports the
+	// single-proof genesis file and Bob registers the transfer,
+	// which imports the proof, materializes the asset and stakes
+	// the seeded receive anchoring.
+	bobScriptKeyBytes := bobScriptKey.PubKey.SerializeCompressed()
+	exportResp, err := t.tapd.ExportProof(
+		ctx, &taprpc.ExportProofRequest{
+			AssetId:   assetID,
+			ScriptKey: bobScriptKeyBytes,
+		},
+	)
+	require.NoError(t.t, err)
+	ImportProofFile(t, secondTapd, exportResp.RawProofFile)
+
+	// The genesis sits at depth 3, short of Bob's safe depth of 6:
+	// the seeded anchoring is witnessed, and the asset shows.
+	assertAnchoringPhase(
+		t.t, secondTapd, "tapcustody.receiver", "witnessed",
+	)
+	AssertBalances(
+		t.t, secondTapd, mintedAsset.Amount, WithAssetID(assetID),
+		WithNumUtxos(1), WithScriptKeyType(asset.ScriptKeyBip86),
+	)
+
+	// Re-org the genesis out: the mint transaction returns to the
+	// mempool, and with the seed off-chain and no trigger outpoint
+	// to say anything else, Bob's anchoring honestly reports
+	// unwitnessed and the materialized asset hides.
+	generateReOrg(t.t, t.lndHarness, tempMiner, 6, 3)
+	lndMiner.AssertNumTxsInMempool(1)
+
+	_, tempMinerHeight := tempMiner.GetBestBlock()
+	t.lndHarness.WaitForNodeBlockHeight(
+		t.tapd.cfg.LndNode, tempMinerHeight,
+	)
+	t.lndHarness.WaitForNodeBlockHeight(lndBob, tempMinerHeight)
+
+	assertAnchoringPhase(
+		t.t, secondTapd, "tapcustody.receiver", "unwitnessed",
+	)
+	bobAssets, err := secondTapd.ListAssets(
+		ctx, &taprpc.ListAssetRequest{},
+	)
+	require.NoError(t.t, err)
+	require.Empty(t.t, bobAssets.Assets)
+
+	// Alice's mint anchoring buried at depth 3 and the re-org
+	// rewrote its evidence: the terminal audit flags it stuck while
+	// Bob's live anchoring simply re-derives — the same event,
+	// treated per anchoring by its own threshold.
+	assertAnchoringStuck(
+		t.t, t.tapd, "tapgarden.minter", "buried", true,
+	)
+
+	// The genesis re-confirms in a new block: Bob's anchoring
+	// re-witnesses and the tip proof re-stamps with the new block.
+	t.lndHarness.MineBlocksAndAssertNumTxes(1, 1)
+	_, newBlockHeight := lndMiner.GetBestBlock()
+
+	assertAnchoringPhase(
+		t.t, secondTapd, "tapcustody.receiver", "witnessed",
+	)
+	require.Eventually(t.t, func() bool {
+		bobAssets, err = secondTapd.ListAssets(
+			ctx, &taprpc.ListAssetRequest{},
+		)
+		return err == nil && len(bobAssets.Assets) == 1
+	}, defaultWaitTimeout, 200*time.Millisecond)
+	WaitForProofUpdate(
+		t.t, secondTapd, bobAssets.Assets[0], newBlockHeight,
+	)
+	AssertAssetProofs(
+		t.t, secondTapd, secondTapd.cfg.LndNode.RPC.ChainKit,
+		bobAssets.Assets[0],
+	)
+
+	// Burial at Bob's safe depth settles the receive.
+	t.lndHarness.MineBlocks(5)
+	assertAnchoringPhase(
+		t.t, secondTapd, "tapcustody.receiver", "buried",
+	)
 }

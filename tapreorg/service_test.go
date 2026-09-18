@@ -3588,3 +3588,276 @@ func TestWatcherRapid(t *testing.T) {
 		}
 	})
 }
+
+// stuckReason reads the anchoring's surfaced reason text directly
+// from the registry row.
+func (h *harness) stuckReason(id tapreorg.AnchoringID) string {
+	var reason sql.NullString
+	err := h.rawDB.QueryRow(
+		"SELECT last_delivery_error FROM reorg_anchorings "+
+			"WHERE id = $1", int64(id),
+	).Scan(&reason)
+	require.NoError(h.t, err)
+
+	return reason.String
+}
+
+// TestWatcherDeepReorgStuckBuried drives the terminal audit against a
+// buried anchoring: a re-org deeper than the act threshold rewrites
+// the witness's block. The terminal phase is absorbing and must not
+// move — act-gated emissions already fired under its finality — so
+// the contradiction surfaces via the Stuck flag, with a reason,
+// rather than being recovered.
+func TestWatcherDeepReorgStuckBuried(t *testing.T) {
+	t.Parallel()
+
+	h := newHarness(t)
+	h.start()
+
+	op := wire.OutPoint{Hash: chainhash.Hash{8}, Index: 0}
+	satTx := h.spendTx(op)
+	id := h.register(testThreshold, []*wire.MsgTx{satTx}, op)
+	h.settleConverged(id, tapreorg.Unwitnessed{})
+
+	// Confirm and bury: act-confirmed, sensing ends.
+	h.sim.MineBlock(satTx)
+	h.sim.MineBlocks(int(testThreshold) - 1)
+	h.settleWhere(id, func(a *tapreorg.Anchoring) bool {
+		return phaseKind(a.Phase) == "buried" &&
+			tapreorg.PhaseEqual(a.DeliveredPhase, a.Phase)
+	})
+
+	// A shallow re-org above the witness block contradicts
+	// nothing: several audit sweeps pass without flagging.
+	h.sim.Reorg(1, nil)
+	time.Sleep(10 * settleTick)
+	anchoring, err := h.store.GetAnchoring(context.Background(), id)
+	require.NoError(t, err)
+	require.False(t, anchoring.Stuck)
+	require.Equal(t, "buried", phaseKind(anchoring.Phase))
+
+	// A re-org deeper than the threshold rewrites the witness's
+	// block; the witness does not return. The phase stays buried,
+	// and the audit surfaces the contradiction.
+	h.sim.Reorg(int(testThreshold), nil, nil, nil)
+	h.settleWhere(id, func(a *tapreorg.Anchoring) bool {
+		return a.Stuck && phaseKind(a.Phase) == "buried"
+	})
+
+	// The site saw no new deliveries: its applied state still says
+	// buried, and the surfaced reason names the contradiction —
+	// both in the raw row and on the assembled aggregate.
+	require.Equal(t, "buried", phaseKind(h.site.appliedPhase(id)))
+	require.Contains(t, h.stuckReason(id), "terminal contradicted")
+
+	anchoring, err = h.store.GetAnchoring(context.Background(), id)
+	require.NoError(t, err)
+	require.Contains(t, anchoring.StuckReason, "terminal contradicted")
+}
+
+// TestWatcherDeepReorgStuckAbandoned drives the terminal audit
+// against the negative terminal: a foreign spend buried and the
+// anchoring abandoned (compensation ran), then a re-org deeper than
+// the threshold rewrote the foreign spend's block. As with burial,
+// the phase must not move; the contradiction surfaces via Stuck.
+func TestWatcherDeepReorgStuckAbandoned(t *testing.T) {
+	t.Parallel()
+
+	h := newHarness(t)
+	h.start()
+
+	op := wire.OutPoint{Hash: chainhash.Hash{9}, Index: 0}
+	satTx := h.spendTx(op)
+	foreignTx := h.spendTx(op)
+	id := h.register(testThreshold, []*wire.MsgTx{satTx}, op)
+	h.settleConverged(id, tapreorg.Unwitnessed{})
+
+	// The foreign spend confirms and buries: abandoned.
+	h.sim.MineBlock(foreignTx)
+	h.sim.MineBlocks(int(testThreshold) - 1)
+	h.settleWhere(id, func(a *tapreorg.Anchoring) bool {
+		return phaseKind(a.Phase) == "abandoned" &&
+			tapreorg.PhaseEqual(a.DeliveredPhase, a.Phase)
+	})
+
+	// A re-org deeper than the threshold rewrites the foreign
+	// spend's block. Abandoned is absorbing; Stuck surfaces.
+	h.sim.Reorg(int(testThreshold), nil, nil, nil)
+	h.settleWhere(id, func(a *tapreorg.Anchoring) bool {
+		return a.Stuck && phaseKind(a.Phase) == "abandoned"
+	})
+	require.Equal(t, "abandoned", phaseKind(h.site.appliedPhase(id)))
+	require.Contains(t, h.stuckReason(id), "terminal contradicted")
+}
+
+// TestWatcherWithdraw drives the site-initiated exit: a live anchoring
+// withdraws, the withdrawal write commits with the terminal advance,
+// and sensing ends — later chain movement delivers nothing and fires
+// no acts.
+func TestWatcherWithdraw(t *testing.T) {
+	t.Parallel()
+
+	h := newHarness(t)
+	h.start()
+
+	op := wire.OutPoint{Hash: chainhash.Hash{10}, Index: 0}
+	satTx := h.spendTx(op)
+	id := h.register(testThreshold, []*wire.MsgTx{satTx}, op)
+
+	// Witness first, so the withdrawal leaves observable applied
+	// state behind.
+	h.sim.MineBlock(satTx)
+	h.settleWhere(id, func(a *tapreorg.Anchoring) bool {
+		return phaseKind(a.Phase) == "witnessed" &&
+			tapreorg.PhaseEqual(a.DeliveredPhase, a.Phase)
+	})
+	require.Eventually(t, func() bool {
+		return h.effects.Load() == 1
+	}, settleTimeout, settleTick)
+
+	// Withdraw with a withdrawal write: the write and the phase
+	// advance commit together, and both sensed and delivered phase
+	// move to withdrawn at once — there is no signal left to
+	// deliver.
+	err := h.watcher.Withdraw(
+		context.Background(), id,
+		func(ctx context.Context, tx tapreorg.RegistryTx) error {
+			return tx.EnqueueEffect(ctx, tapreorg.OutboxEffect{
+				Kind:      "test",
+				Anchoring: fn.Some(id),
+				Payload:   tapreorg.VersionedBlob{Version: 1},
+			})
+		},
+	)
+	require.NoError(t, err)
+
+	h.settleWhere(id, func(a *tapreorg.Anchoring) bool {
+		return phaseKind(a.Phase) == "withdrawn" &&
+			tapreorg.PhaseEqual(a.DeliveredPhase, a.Phase)
+	})
+	require.Eventually(t, func() bool {
+		return h.effects.Load() == 2
+	}, settleTimeout, settleTick)
+
+	live, err := h.store.LiveAnchorings(context.Background())
+	require.NoError(t, err)
+	require.Empty(t, live)
+
+	// The witness buries on chain, but the stake no longer exists:
+	// no phase moves, no handler runs, no act fires.
+	h.sim.MineBlocks(int(testThreshold))
+	time.Sleep(10 * settleTick)
+
+	anchoring, err := h.store.GetAnchoring(context.Background(), id)
+	require.NoError(t, err)
+	require.Equal(t, "withdrawn", phaseKind(anchoring.Phase))
+	require.Equal(t, "withdrawn", phaseKind(anchoring.DeliveredPhase))
+	require.Equal(t, "witnessed", phaseKind(h.site.appliedPhase(id)))
+	require.Equal(t, int32(2), h.effects.Load())
+}
+
+// TestWatcherWithdrawRefusals pins the refusal surface: a settled
+// terminal cannot be withdrawn, an unknown ID resolves legibly, and a
+// parent with live dependents refuses until its children exit first.
+func TestWatcherWithdrawRefusals(t *testing.T) {
+	t.Parallel()
+
+	h := newHarness(t)
+	h.start()
+	ctx := context.Background()
+
+	// A buried (settled, not stuck) anchoring refuses withdrawal:
+	// its act already fired, and nothing contradicts it.
+	buriedOp := wire.OutPoint{Hash: chainhash.Hash{11}, Index: 0}
+	buriedTx := h.spendTx(buriedOp)
+	buriedID := h.register(testThreshold, []*wire.MsgTx{buriedTx}, buriedOp)
+	h.sim.MineBlock(buriedTx)
+	h.sim.MineBlocks(int(testThreshold) - 1)
+	h.settleWhere(buriedID, func(a *tapreorg.Anchoring) bool {
+		return phaseKind(a.Phase) == "buried" &&
+			tapreorg.PhaseEqual(a.DeliveredPhase, a.Phase)
+	})
+	err := h.watcher.Withdraw(ctx, buriedID, nil)
+	require.ErrorIs(t, err, tapreorg.ErrTerminalPhase)
+
+	// An unknown ID resolves to not-found, not a silent no-op.
+	err = h.watcher.Withdraw(ctx, tapreorg.AnchoringID(999_999), nil)
+	require.ErrorIs(t, err, tapreorg.ErrAnchoringNotFound)
+
+	// A parent with a live dependent refuses; the child must exit
+	// first, and then the parent withdraws freely.
+	parentOp := wire.OutPoint{Hash: chainhash.Hash{12}, Index: 0}
+	satParent := h.spendTx(parentOp)
+	parentID := h.register(
+		testThreshold, []*wire.MsgTx{satParent}, parentOp,
+	)
+	h.sim.MineBlock(satParent)
+	h.settleWhere(parentID, func(a *tapreorg.Anchoring) bool {
+		return phaseKind(a.Phase) == "witnessed"
+	})
+
+	childOp := wire.OutPoint{Hash: satParent.TxHash(), Index: 0}
+	satChild := h.spendTx(childOp)
+	childID := h.register(testThreshold, []*wire.MsgTx{satChild}, childOp)
+
+	err = h.watcher.Withdraw(ctx, parentID, nil)
+	require.ErrorIs(t, err, tapreorg.ErrLiveDependents)
+
+	require.NoError(t, h.watcher.Withdraw(ctx, childID, nil))
+	h.settleWhere(childID, func(a *tapreorg.Anchoring) bool {
+		return phaseKind(a.Phase) == "withdrawn"
+	})
+
+	require.NoError(t, h.watcher.Withdraw(ctx, parentID, nil))
+	h.settleWhere(parentID, func(a *tapreorg.Anchoring) bool {
+		return phaseKind(a.Phase) == "withdrawn"
+	})
+}
+
+// TestWatcherWithdrawStuckTerminal drives the operator disposal the
+// terminal-absorption policy documents: a buried anchoring whose
+// evidence a deep re-org contradicted (stuck) may be withdrawn, which
+// clears the flag and removes it from the audit's working set — the
+// phase itself never re-derives.
+func TestWatcherWithdrawStuckTerminal(t *testing.T) {
+	t.Parallel()
+
+	h := newHarness(t)
+	h.start()
+	ctx := context.Background()
+
+	op := wire.OutPoint{Hash: chainhash.Hash{13}, Index: 0}
+	satTx := h.spendTx(op)
+	id := h.register(testThreshold, []*wire.MsgTx{satTx}, op)
+
+	// Bury, then contradict the burial with a re-org deeper than
+	// the threshold: the terminal audit flags the anchoring stuck.
+	h.sim.MineBlock(satTx)
+	h.sim.MineBlocks(int(testThreshold) - 1)
+	h.settleWhere(id, func(a *tapreorg.Anchoring) bool {
+		return phaseKind(a.Phase) == "buried" &&
+			tapreorg.PhaseEqual(a.DeliveredPhase, a.Phase)
+	})
+	h.sim.Reorg(int(testThreshold), nil, nil, nil)
+	h.settleWhere(id, func(a *tapreorg.Anchoring) bool {
+		return a.Stuck && phaseKind(a.Phase) == "buried"
+	})
+
+	// The operator disposes of the contradicted terminal: the
+	// withdrawal succeeds, the flag clears, and the surfaced reason
+	// clears with the delivery bookkeeping.
+	require.NoError(t, h.watcher.Withdraw(ctx, id, nil))
+	h.settleWhere(id, func(a *tapreorg.Anchoring) bool {
+		return phaseKind(a.Phase) == "withdrawn" && !a.Stuck &&
+			tapreorg.PhaseEqual(a.DeliveredPhase, a.Phase)
+	})
+	require.Empty(t, h.stuckReason(id))
+
+	// Withdrawn rests on no chain evidence: subsequent audit sweeps
+	// leave it alone.
+	time.Sleep(10 * settleTick)
+	anchoring, err := h.store.GetAnchoring(ctx, id)
+	require.NoError(t, err)
+	require.False(t, anchoring.Stuck)
+	require.Equal(t, "withdrawn", phaseKind(anchoring.Phase))
+}

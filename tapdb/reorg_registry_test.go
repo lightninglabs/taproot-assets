@@ -1918,3 +1918,118 @@ func TestReorgRegistryPhase1OnAttach(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, pending, 2)
 }
+
+// TestReorgRegistryRecentTerminals pins the terminal audit's working
+// set: chain-decided terminals whose terminal delivery is within the
+// cutoff or still pending — excluding withdrawn rows (no chain
+// evidence), already-stuck rows and older terminals — and MarkStuck's
+// surfacing write.
+func TestReorgRegistryRecentTerminals(t *testing.T) {
+	t.Parallel()
+
+	store, testClock := newReorgStore(t)
+	ctx := context.Background()
+
+	noPhase1 := func(context.Context, tapreorg.RegistryTx,
+		tapreorg.AnchoringID) error {
+
+		return nil
+	}
+
+	registerAt := func(seed byte) (tapreorg.AnchoringID,
+		wire.OutPoint) {
+
+		op := testOutPoint(seed, 0)
+		id, err := store.Register(
+			ctx, testSpec(t, "porter", op), 500, noPhase1, nil,
+		)
+		require.NoError(t, err)
+
+		return id, op
+	}
+
+	// sense moves the sensed phase; deliver stamps terminal_at at
+	// the store clock's current time.
+	sense := func(id tapreorg.AnchoringID, phase tapreorg.Phase) {
+		require.NoError(t, store.SetPhase(ctx, id, phase))
+	}
+	deliver := func(id tapreorg.AnchoringID, phase tapreorg.Phase) {
+		require.NoError(t, store.Deliver(ctx, id, phase, nil))
+	}
+
+	// Buried and delivered before the cutoff.
+	oldID, oldOp := registerAt(1)
+	buriedOld := tapreorg.Buried{W: testWitness(t, 1, 600, oldOp)}
+	sense(oldID, buriedOld)
+	deliver(oldID, buriedOld)
+
+	testClock.SetTime(testClock.Now().Add(2 * time.Hour))
+
+	// Buried and delivered after the cutoff.
+	newID, newOp := registerAt(2)
+	buriedNew := tapreorg.Buried{W: testWitness(t, 2, 610, newOp)}
+	sense(newID, buriedNew)
+	deliver(newID, buriedNew)
+
+	// Buried sensed, delivery still pending.
+	pendingID, pendingOp := registerAt(3)
+	sense(pendingID, tapreorg.Buried{
+		W: testWitness(t, 3, 611, pendingOp),
+	})
+
+	// Abandoned by foreign burial, delivered after the cutoff.
+	abandonedID, abandonedOp := registerAt(4)
+	abandoned := tapreorg.Abandoned{
+		Cause: tapreorg.ForeignBurial{
+			Spend: tapreorg.ForeignSpend{
+				SpentOutPoint: abandonedOp,
+				W: testWitness(
+					t, 4, 612, abandonedOp,
+				),
+			},
+		},
+	}
+	sense(abandonedID, abandoned)
+	deliver(abandonedID, abandoned)
+
+	// Withdrawn: site-initiated, no chain evidence to audit.
+	withdrawnID, _ := registerAt(5)
+	require.NoError(t, store.Withdraw(
+		ctx, withdrawnID,
+		func(context.Context, tapreorg.RegistryTx) error {
+			return nil
+		},
+	))
+
+	// The cutoff sits between the old and new terminals.
+	cutoff := testClock.Now().Add(-time.Hour)
+	terminals, err := store.RecentTerminals(ctx, cutoff)
+	require.NoError(t, err)
+
+	ids := make([]tapreorg.AnchoringID, len(terminals))
+	for i, a := range terminals {
+		ids[i] = a.ID
+	}
+	require.ElementsMatch(
+		t, []tapreorg.AnchoringID{newID, pendingID, abandonedID},
+		ids,
+	)
+
+	// A stuck row leaves the working set; the flag surfaces on the
+	// anchoring.
+	require.NoError(t, store.MarkStuck(ctx, newID, "contradicted"))
+
+	terminals, err = store.RecentTerminals(ctx, cutoff)
+	require.NoError(t, err)
+	ids = ids[:0]
+	for _, a := range terminals {
+		ids = append(ids, a.ID)
+	}
+	require.ElementsMatch(
+		t, []tapreorg.AnchoringID{pendingID, abandonedID}, ids,
+	)
+
+	marked, err := store.GetAnchoring(ctx, newID)
+	require.NoError(t, err)
+	require.True(t, marked.Stuck)
+}

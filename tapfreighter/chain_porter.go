@@ -27,7 +27,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightninglabs/taproot-assets/universe"
-	"github.com/lightningnetwork/lnd/chainntnfs"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -38,16 +37,6 @@ const (
 	// we expect a send fragment to be valid for after its claimed outpoint
 	// has been spent. This is roughly equivalent to 90 days.
 	DefaultSendFragmentExpiryDelta = 12_960
-
-	// confRetryDelay is the initial delay before we re-register the
-	// transfer confirmation notification after a failure of the
-	// notification stream. The delay doubles on each successive failure,
-	// up to confRetryDelayMax.
-	confRetryDelay = time.Second
-
-	// confRetryDelayMax is the maximum delay between attempts to
-	// re-register the transfer confirmation notification.
-	confRetryDelayMax = time.Second * 30
 )
 
 // VerifiedProofImporter is used to import verified proofs into the local proof
@@ -131,10 +120,6 @@ type ChainPorterConfig struct {
 	// porter considers a transfer act-confirmed (buried).
 	AnchoringThreshold uint32
 
-	// ProofWatcher is used to watch new proofs for their anchor transaction
-	// to be confirmed safely with a minimum number of confirmations.
-	ProofWatcher proof.Watcher
-
 	// IgnoreChecker is an optional function that can be used to check if
 	// a proof should be ignored.
 	IgnoreChecker lfn.Option[proof.IgnoreChecker]
@@ -198,12 +183,6 @@ func NewChainPorter(cfg *ChainPorterConfig) *ChainPorter {
 			Quit:           make(chan struct{}),
 		},
 	}
-}
-
-// anchoringEnabled reports whether the porter runs on the re-org
-// watcher's anchoring path.
-func (p *ChainPorter) anchoringEnabled() bool {
-	return p.cfg.AnchoringWatcher != nil
 }
 
 // Start kicks off the chain porter and any goroutines it needs to carry out
@@ -451,384 +430,6 @@ func (p *ChainPorter) advanceState(pkg *sendPackage, kit *parcelKit) {
 	}
 }
 
-// waitForTransferTxConf waits for the confirmation of the final transaction
-// within the delta. Once confirmed, the parcel will be marked as delivered on
-// chain, with the goroutine cleaning up its state.
-//
-// The confirmation of the anchor transaction is a fact about the chain that
-// can be re-queried at any time, so a failure of the notification stream
-// doesn't mean the transfer failed, only that we lost our view of the chain
-// for a moment. We therefore re-register the notification on stream errors
-// instead of aborting the parcel, which would otherwise leave the transfer
-// pending forever.
-func (p *ChainPorter) waitForTransferTxConf(pkg *sendPackage) error {
-	outboundPkg := pkg.OutboundPkg
-
-	txHash := outboundPkg.AnchorTx.TxHash()
-	log.Infof("Waiting for confirmation of transfer_txid=%v", txHash)
-
-	confCtx, confCancel := p.WithCtxQuitNoTimeout()
-	defer confCancel()
-
-	retryDelay := confRetryDelay
-	for attempt := 1; ; attempt++ {
-		confEvent, terminal, err := p.waitForConfEventOnce(
-			confCtx, outboundPkg,
-		)
-		switch {
-		// We received the confirmation event, so we can proceed to
-		// the next state.
-		case confEvent != nil:
-			log.Debugf("Got chain confirmation: %v",
-				confEvent.Tx.TxHash())
-			pkg.TransferTxConfEvent = confEvent
-
-			// If the anchoring tx block hash is given, we'll also
-			// store it in the outbound package.
-			pkg.OutboundPkg.AnchorTxBlockHash = fn.MaybeSome(
-				confEvent.BlockHash,
-			)
-			pkg.OutboundPkg.AnchorTxBlockHeight =
-				confEvent.BlockHeight
-
-			pkg.SendState = SendStateStorePostAnchorTxConf
-
-			return nil
-
-		// We're shutting down, or the context was cancelled; there's
-		// no point in retrying.
-		case terminal:
-			return err
-		}
-
-		// The notification stream failed before delivering a
-		// confirmation event. Wait, then re-register.
-		log.Warnf("Transfer confirmation watcher for txid=%v failed "+
-			"(attempt %d), re-registering in %v: %v", txHash,
-			attempt, retryDelay, err)
-
-		select {
-		case <-time.After(retryDelay):
-		case <-confCtx.Done():
-			// The context is also cancelled on shutdown, in which
-			// case both this and the quit case below are ready at
-			// the same time. Prefer the graceful exit.
-			select {
-			case <-p.Quit:
-				log.Debugf("Skipping TX confirmation, exiting")
-				return nil
-			default:
-			}
-
-			return fmt.Errorf("context done whilst waiting for "+
-				"package tx confirmation of %v", txHash)
-		case <-p.Quit:
-			log.Debugf("Skipping TX confirmation, exiting")
-			return nil
-		}
-
-		retryDelay *= 2
-		if retryDelay > confRetryDelayMax {
-			retryDelay = confRetryDelayMax
-		}
-	}
-}
-
-// waitForConfEventOnce registers a confirmation notification for the parcel's
-// anchor transaction and waits for a single outcome. It returns the
-// confirmation event on success. If the notification stream fails in a way
-// that can be remedied by re-registering, a nil event and terminal=false are
-// returned. Shutdown and context cancellation are terminal.
-func (p *ChainPorter) waitForConfEventOnce(ctx context.Context,
-	outboundPkg *OutboundParcel) (*chainntnfs.TxConfirmation, bool, error) {
-
-	txHash := outboundPkg.AnchorTx.TxHash()
-	confNtfn, errChan, err := p.cfg.ChainBridge.RegisterConfirmationsNtfn(
-		ctx, &txHash, outboundPkg.AnchorTx.TxOut[0].PkScript, 1,
-		outboundPkg.AnchorTxHeightHint, true, nil,
-	)
-	if err != nil {
-		// Registration itself failed, which is generally a transient
-		// RPC issue, so we'll have the caller retry.
-		return nil, false, fmt.Errorf("unable to register for package "+
-			"tx conf: %w", err)
-	}
-
-	// Make sure the registration (and its notification stream) is torn
-	// down once we leave this attempt, whatever the outcome.
-	defer confNtfn.Cancel()
-
-	select {
-	case confEvent, ok := <-confNtfn.Confirmed:
-		if !ok || confEvent == nil {
-			return nil, false, fmt.Errorf("confirmation event "+
-				"channel closed for txid=%v", txHash)
-		}
-
-		return confEvent, false, nil
-
-	case err := <-errChan:
-		return nil, false, fmt.Errorf("error whilst waiting for "+
-			"package tx confirmation: %w", err)
-
-	case <-ctx.Done():
-		// The context is also cancelled on shutdown, in which case
-		// both this and the quit case below are ready at the same
-		// time. Prefer the graceful exit.
-		select {
-		case <-p.Quit:
-			log.Debugf("Skipping TX confirmation, exiting")
-			return nil, true, nil
-		default:
-		}
-
-		return nil, true, fmt.Errorf("context done whilst waiting "+
-			"for package tx confirmation of %v", txHash)
-
-	case <-p.Quit:
-		log.Debugf("Skipping TX confirmation, exiting")
-		return nil, true, nil
-	}
-}
-
-// storeProofs writes the updated sender and receiver proof files to the proof
-// archive.
-func (p *ChainPorter) storeProofs(sendPkg *sendPackage) error {
-	// Now we'll enter the final phase of the send process, where we'll
-	// write the receiver's proof file to disk.
-	//
-	// First, we'll fetch the sender's current proof file.
-	ctx, cancel := p.CtxBlocking()
-	defer cancel()
-
-	parcel := sendPkg.OutboundPkg
-	confEvent := sendPkg.TransferTxConfEvent
-
-	// Use callback to verify that block header exists on chain.
-	headerVerifier := tapnode.GenHeaderVerifier(ctx, p.cfg.ChainBridge)
-
-	// Generate updated passive asset proof files.
-	passiveAssetProofFiles := make(
-		[]*proof.AnnotatedProof, 0, len(sendPkg.PassiveAssets),
-	)
-	passiveAssetProofSuffixes := make(
-		[]*proof.Proof, 0, len(sendPkg.PassiveAssets),
-	)
-	for idx := range sendPkg.PassiveAssets {
-		passiveOut := sendPkg.PassiveAssets[idx].Outputs[0]
-
-		inputs := fn.Map(
-			sendPkg.PassiveAssets[idx].Inputs,
-			func(in *tappsbt.VInput) asset.PrevID {
-				return in.PrevID
-			},
-		)
-
-		newAnnotatedProofFile, err := p.updateAssetProofFile(
-			ctx, inputs, passiveOut.ProofSuffix,
-			passiveOut.Asset.ScriptKey, confEvent,
-		)
-		if err != nil {
-			return fmt.Errorf("failed to generate an updated "+
-				"proof file for passive asset: %w", err)
-		}
-
-		passiveAssetProofFiles = append(
-			passiveAssetProofFiles, newAnnotatedProofFile,
-		)
-		passiveAssetProofSuffixes = append(
-			passiveAssetProofSuffixes, passiveOut.ProofSuffix,
-		)
-	}
-
-	vCtx := proof.VerifierCtx{
-		HeaderVerifier: headerVerifier,
-		MerkleVerifier: proof.DefaultMerkleVerifier,
-		GroupVerifier:  p.cfg.GroupVerifier,
-		ChainLookupGen: p.cfg.ChainBridge,
-		IgnoreChecker:  p.cfg.IgnoreChecker,
-	}
-
-	verifiedPassiveProofs, err := proof.VerifyAnnotatedProofs(
-		ctx, vCtx, passiveAssetProofFiles...,
-	)
-	if err != nil {
-		return fmt.Errorf("error verifying passive proofs: %w", err)
-	}
-
-	log.Infof("Importing %d passive asset proofs into local Proof "+
-		"Archive", len(passiveAssetProofFiles))
-	err = p.cfg.ProofWriter.ImportVerifiedProofs(
-		ctx, false, verifiedPassiveProofs...,
-	)
-	if err != nil {
-		return fmt.Errorf("error importing passive proof: %w", err)
-	}
-
-	// The proof is created after a single confirmation. To make sure we
-	// notice if the anchor transaction is re-organized out of the chain, we
-	// give the proof to the re-org watcher and replace the updated proof in
-	// the local proof archive if a re-org happens.
-	if len(passiveAssetProofSuffixes) > 0 {
-		if err := p.cfg.ProofWatcher.WatchProofs(
-			passiveAssetProofSuffixes,
-			p.cfg.ProofWatcher.DefaultUpdateCallback(),
-		); err != nil {
-			return fmt.Errorf("error watching proof: %w", err)
-		}
-	}
-
-	// If there are no active inputs/outputs (only passive assets), don't
-	// create any proofs. This would be the case for externally anchored
-	// assets, such as in a Pool account, where the anchor UTXO is spent or
-	// re-created but the actual asset remains unchanged.
-	if len(parcel.Inputs) == 0 {
-		log.Debugf("Not updating proofs as there are no active " +
-			"transfers")
-
-		sendPkg.SendState = SendStateTransferProofs
-		return nil
-	}
-
-	sendPkg.FinalProofs = make(
-		map[OutputIdentifier]*proof.AnnotatedProof,
-		len(parcel.Outputs),
-	)
-	for idx := range parcel.Outputs {
-		out := parcel.Outputs[idx]
-
-		parsedSuffix := &proof.Proof{}
-		err := parsedSuffix.Decode(bytes.NewReader(out.ProofSuffix))
-		if err != nil {
-			return fmt.Errorf("error decoding proof suffix %d: %w",
-				idx, err)
-		}
-
-		var inputsForAsset []asset.PrevID
-		for _, in := range parcel.Inputs {
-			witnesses := parsedSuffix.Asset.Witnesses()
-			for _, witness := range witnesses {
-				if witness.PrevID != nil &&
-					in.PrevID == *witness.PrevID {
-
-					inputsForAsset = append(
-						inputsForAsset, in.PrevID,
-					)
-				}
-			}
-		}
-		outputProof, err := p.updateAssetProofFile(
-			ctx, inputsForAsset, parsedSuffix, out.ScriptKey,
-			confEvent,
-		)
-		if err != nil {
-			return fmt.Errorf("failed to generate an updated "+
-				"proof file for output %d: %w", idx, err)
-		}
-
-		outKey, err := out.UniqueKey()
-		if err != nil {
-			return fmt.Errorf("error generating unique key for "+
-				"output %d: %w", idx, err)
-		}
-		sendPkg.FinalProofs[outKey] = outputProof
-
-		vCtx := proof.VerifierCtx{
-			HeaderVerifier: headerVerifier,
-			MerkleVerifier: proof.DefaultMerkleVerifier,
-			GroupVerifier:  p.cfg.GroupVerifier,
-			ChainLookupGen: p.cfg.ChainBridge,
-			IgnoreChecker:  p.cfg.IgnoreChecker,
-		}
-
-		verifiedOutputProofs, err := proof.VerifyAnnotatedProofs(
-			ctx, vCtx, outputProof,
-		)
-		if err != nil {
-			return fmt.Errorf("error verifying proof: %w", err)
-		}
-
-		// Import proof into proof archive.
-		log.Infof("Importing proof for output %d into local Proof "+
-			"Archive", idx)
-		err = p.cfg.ProofWriter.ImportVerifiedProofs(
-			ctx, false, verifiedOutputProofs...,
-		)
-		if err != nil {
-			return fmt.Errorf("error importing proof: %w", err)
-		}
-
-		log.Debugf("Updated proofs for output %d", idx)
-
-		// The proof is created after a single confirmation. To make
-		// sure we notice if the anchor transaction is re-organized out
-		// of the chain, we give the proof to the re-org watcher and
-		// replace the updated proof in the local proof archive if a
-		// re-org happens. We only watch change output proofs, as we
-		// won't keep an asset record of outbound transfers. But the
-		// receiver will also watch for re-orgs, so no re-send of the
-		// proof is necessary anyway.
-		if out.ScriptKey.TweakedScriptKey != nil && out.ScriptKeyLocal {
-			err := p.cfg.ProofWatcher.WatchProofs(
-				[]*proof.Proof{parsedSuffix},
-				p.cfg.ProofWatcher.DefaultUpdateCallback(),
-			)
-			if err != nil {
-				return fmt.Errorf("error watching proof: %w",
-					err)
-			}
-		}
-
-		if len(sendPkg.SendManifests) == 0 {
-			// If there are no fragment manifests, then this is an
-			// old address or interactive/vPSBT flow transfer, and
-			// we don't need to create any submission TX proofs.
-			continue
-		}
-
-		// Because we need to provide a TX proof for each message we
-		// upload to the auth mailbox server, we need to find the
-		// manifest that corresponds to this output, then create the
-		// TX proof from the transition proof that already contains all
-		// the data.
-		for outIdx := range sendPkg.SendManifests {
-			manifest := sendPkg.SendManifests[outIdx]
-			log.Debugf("Adding TX proof to manifest for output "+
-				"index %d", outIdx)
-
-			if outIdx != out.Anchor.OutPoint.Index {
-				continue
-			}
-
-			if out.Anchor.InternalKey.PubKey == nil {
-				return fmt.Errorf("anchor internal key "+
-					"not set for output %d", outIdx)
-			}
-
-			copy(
-				manifest.Fragment.TaprootAssetRoot[:],
-				out.Anchor.TaprootAssetRoot,
-			)
-
-			manifest.Fragment.OutPoint = out.Anchor.OutPoint
-			manifest.Fragment.BlockHeader = parsedSuffix.BlockHeader
-			manifest.Fragment.BlockHeight = parsedSuffix.BlockHeight
-			manifest.TxProof = proof.TxProof{
-				MsgTx:           parsedSuffix.AnchorTx,
-				BlockHeader:     parsedSuffix.BlockHeader,
-				BlockHeight:     parsedSuffix.BlockHeight,
-				MerkleProof:     parsedSuffix.TxMerkleProof,
-				ClaimedOutPoint: out.Anchor.OutPoint,
-				InternalKey:     *out.Anchor.InternalKey.PubKey,
-				MerkleRoot:      out.Anchor.MerkleRoot,
-			}
-		}
-	}
-
-	sendPkg.SendState = SendStateTransferProofs
-	return nil
-}
-
 // sendBurnSupplyCommitEvents sends supply commitment events for all burned
 // assets to track them in the supply commitment state machine.
 func (p *ChainPorter) sendBurnSupplyCommitEvents(ctx context.Context,
@@ -914,117 +515,6 @@ func (p *ChainPorter) sendBurnSupplyCommitEvents(ctx context.Context,
 	return nil
 }
 
-// storePackageAnchorTxConf logs the on-chain confirmation of the transfer
-// anchor transaction for the given package.
-func (p *ChainPorter) storePackageAnchorTxConf(pkg *sendPackage) error {
-	ctx, cancel := p.WithCtxQuitNoTimeout()
-	defer cancel()
-
-	// Load passive asset proof files from archive.
-	passiveAssetProofFiles := map[asset.ID][]*proof.AnnotatedProof{}
-	for idx := range pkg.OutboundPkg.PassiveAssets {
-		passivePkt := pkg.OutboundPkg.PassiveAssets[idx]
-		passiveOut := passivePkt.Outputs[0]
-
-		proofLocator := proof.Locator{
-			AssetID:   fn.Ptr(passiveOut.Asset.ID()),
-			ScriptKey: *passiveOut.ScriptKey.PubKey,
-			OutPoint:  fn.Ptr(passiveOut.ProofSuffix.OutPoint()),
-		}
-		proofFileBlob, err := p.cfg.ProofReader.FetchProof(
-			ctx, proofLocator,
-		)
-		if err != nil {
-			return fmt.Errorf("error fetching passive asset "+
-				"proof file: %w", err)
-		}
-
-		passiveAssetProofFiles[passiveOut.Asset.ID()] = append(
-			passiveAssetProofFiles[passiveOut.Asset.ID()],
-			&proof.AnnotatedProof{
-				Locator: proofLocator,
-				Blob:    proofFileBlob,
-			},
-		)
-	}
-
-	anchorTxBlockHeight := int32(pkg.TransferTxConfEvent.BlockHeight)
-	anchorTxBlockHeader := pkg.TransferTxConfEvent.Block.Header
-
-	// Now we scan through the VPacket for any burns.
-	//
-	// Once the anchor transaction is confirmed, we must populate the block
-	// header and block height in the proof suffixes of all outputs. Without
-	// the block height, burn events cannot be considered valid for
-	// inclusion in supply commitments.
-	var burns []*AssetBurn
-
-	for _, v := range pkg.VirtualPackets {
-		for _, o := range v.Outputs {
-			if !o.Asset.IsBurn() {
-				continue
-			}
-
-			assetID := o.Asset.ID()
-
-			// We prepare the burn and add it to the list.
-			op := wire.OutPoint{
-				Hash:  pkg.OutboundPkg.AnchorTx.TxHash(),
-				Index: o.AnchorOutputIndex,
-			}
-			b := &AssetBurn{
-				AssetID:    assetID[:],
-				AssetType:  o.Asset.Type,
-				Amount:     o.Amount,
-				AnchorTxid: pkg.OutboundPkg.AnchorTx.TxHash(),
-				Note:       pkg.Note,
-				ScriptKey:  &o.Asset.ScriptKey,
-				Proof:      o.ProofSuffix,
-				OutPoint:   op,
-			}
-
-			// Set the block height and header in the burn proof.
-			b.Proof.BlockHeight = uint32(anchorTxBlockHeight)
-			b.Proof.BlockHeader = anchorTxBlockHeader
-
-			if o.Asset.GroupKey != nil {
-				groupKey := o.Asset.GroupKey.GroupPubKey
-				b.GroupKey = groupKey.SerializeCompressed()
-			}
-
-			burns = append(burns, b)
-		}
-	}
-
-	// Send supply commitment events for all burned assets before confirming
-	// the transaction. This ensures that supply commitments are tracked
-	// before the burn is considered complete.
-	err := p.sendBurnSupplyCommitEvents(ctx, burns)
-	if err != nil {
-		return fmt.Errorf("unable to send burn supply commit "+
-			"events: %w", err)
-	}
-
-	// At this point we have the confirmation signal, so we can mark the
-	// parcel delivery as completed in the database.
-	anchorTXID := pkg.OutboundPkg.AnchorTx.TxHash()
-	err = p.cfg.ExportLog.LogAnchorTxConfirm(ctx, &AssetConfirmEvent{
-		AnchorTXID:             anchorTXID,
-		BlockHash:              *pkg.TransferTxConfEvent.BlockHash,
-		BlockHeight:            anchorTxBlockHeight,
-		TxIndex:                int32(pkg.TransferTxConfEvent.TxIndex),
-		FinalProofs:            pkg.FinalProofs,
-		PassiveAssetProofFiles: passiveAssetProofFiles,
-		ZeroValueInputs:        pkg.ZeroValueInputs,
-	}, burns)
-	if err != nil {
-		return fmt.Errorf("unable to log parcel delivery "+
-			"confirmation: %w", err)
-	}
-
-	return nil
-}
-
 // fetchInputProof fetches a proof for the given input from the proof archive.
 func (p *ChainPorter) fetchInputProof(ctx context.Context,
 	input asset.PrevID) (*proof.File, error) {
@@ -1052,74 +542,6 @@ func (p *ChainPorter) fetchInputProof(ctx context.Context,
 	}
 
 	return inputProofFile, nil
-}
-
-// updateAssetProofFile retrieves and updates the proof file for the given
-// virtual packet output.
-func (p *ChainPorter) updateAssetProofFile(ctx context.Context,
-	inputs []asset.PrevID, proofSuffix *proof.Proof,
-	newScriptKey asset.ScriptKey,
-	confEvent *chainntnfs.TxConfirmation) (*proof.AnnotatedProof, error) {
-
-	// The suffix doesn't contain any information about the confirmed block
-	// yet, so we'll add that now.
-	err := proofSuffix.UpdateTransitionProof(&proof.BaseProofParams{
-		Block:       confEvent.Block,
-		BlockHeight: confEvent.BlockHeight,
-		Tx:          confEvent.Tx,
-		TxIndex:     int(confEvent.TxIndex),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("error updating transition proof: %w",
-			err)
-	}
-
-	// The suffix is complete, so we need to fetch the input proof in order
-	// to append the suffix to it.
-	firstInput := inputs[0]
-	inputProofFile, err := p.fetchInputProof(ctx, firstInput)
-	if err != nil {
-		return nil, fmt.Errorf("error fetching input proof: %w", err)
-	}
-
-	// Are there more inputs? Then this is a merge, and we need to add those
-	// additional files to the suffix as well.
-	for idx := 1; idx < len(inputs); idx++ {
-		additionalInputProofFile, err := p.fetchInputProof(
-			ctx, inputs[idx],
-		)
-		if err != nil {
-			return nil, fmt.Errorf("error fetching additional "+
-				"input proof %d: %w", idx, err)
-		}
-
-		proofSuffix.AdditionalInputs = append(
-			proofSuffix.AdditionalInputs, *additionalInputProofFile,
-		)
-	}
-
-	// With the proof suffix updated, we can append the proof, then encode
-	// it to get the final proof file.
-	if err := inputProofFile.AppendProof(*proofSuffix); err != nil {
-		return nil, fmt.Errorf("error appending proof: %w", err)
-	}
-	var outputProofBuf bytes.Buffer
-	if err := inputProofFile.Encode(&outputProofBuf); err != nil {
-		return nil, fmt.Errorf("error encoding proof: %w", err)
-	}
-
-	// Now we just need to identify the new proof correctly before adding it
-	// to the proof archive.
-	outputProofLocator := proof.Locator{
-		AssetID:   &firstInput.ID,
-		ScriptKey: *newScriptKey.PubKey,
-		OutPoint:  fn.Ptr(proofSuffix.OutPoint()),
-	}
-
-	return &proof.AnnotatedProof{
-		Locator: outputProofLocator,
-		Blob:    outputProofBuf.Bytes(),
-	}, nil
 }
 
 // reportProofTransfers logs a summary of the transfer outputs that require
@@ -2081,25 +1503,14 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		// This will also extend the leases for both asset inputs and
 		// zero-value UTXOs to prevent them from being used elsewhere.
 		//
-		// On the anchoring path the same write commits atomically
-		// with the transfer's registration as a speculative
-		// anchoring: there is no instant at which the stake exists
-		// without the watcher knowing it.
-		if p.anchoringEnabled() {
-			var anchoringID tapreorg.AnchoringID
-			anchoringID, err = p.registerParcelAnchoring(
-				ctx, &currentPkg,
-			)
-			if err == nil {
-				currentPkg.AnchoringID = anchoringID
-			}
-		} else {
-			err = p.cfg.ExportLog.LogPendingParcel(
-				ctx, parcel, defaultWalletLeaseIdentifier,
-				time.Now().Add(
-					defaultBroadcastCoinLeaseDuration,
-				),
-			)
+		// The same write commits atomically with the transfer's
+		// registration as a speculative anchoring: there is no
+		// instant at which the stake exists without the watcher
+		// knowing it.
+		var anchoringID tapreorg.AnchoringID
+		anchoringID, err = p.registerParcelAnchoring(ctx, &currentPkg)
+		if err == nil {
+			currentPkg.AnchoringID = anchoringID
 		}
 		if err != nil {
 			p.unlockInputs(ctx, &currentPkg)
@@ -2187,46 +1598,36 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		// caller's send request.
 		currentPkg.deliverOutboundPkgResp()
 
-		// On the anchoring path the re-org watcher is the sole
-		// sensor: we wait for the registry's delivered phase rather
-		// than subscribing to confirmations ourselves.
-		if p.anchoringEnabled() {
-			ctx, cancel := p.WithCtxQuitNoTimeout()
-			defer cancel()
+		// The re-org watcher is the sole sensor: we wait for the
+		// registry's delivered phase rather than subscribing to
+		// confirmations ourselves.
+		ctx, cancel := p.WithCtxQuitNoTimeout()
+		defer cancel()
 
-			outcome, err := p.waitForAnchoringOutcome(
-				ctx, &currentPkg,
-			)
-			if err != nil {
-				return nil, err
-			}
-			if outcome.abandoned {
-				return nil, fmt.Errorf("transfer %v "+
-					"abandoned: its anchor inputs were "+
-					"claimed by a buried conflicting "+
-					"transaction",
-					currentPkg.OutboundPkg.AnchorTx.
-						TxHash())
-			}
-
-			currentPkg.ConfWitness = outcome.witness
-
-			// Send-event subscribers read the anchor block
-			// context off the outbound package, as the legacy
-			// confirmation path set it from its notification.
-			currentPkg.OutboundPkg.AnchorTxBlockHash = fn.Some(
-				outcome.witness.W.BlockHash(),
-			)
-			currentPkg.OutboundPkg.AnchorTxBlockHeight =
-				outcome.witness.W.Height()
-
-			currentPkg.SendState = SendStateStorePostAnchorTxConf
-
-			return &currentPkg, nil
+		outcome, err := p.waitForAnchoringOutcome(ctx, &currentPkg)
+		if err != nil {
+			return nil, err
+		}
+		if outcome.abandoned {
+			return nil, fmt.Errorf("transfer %v abandoned: its "+
+				"anchor inputs were claimed by a buried "+
+				"conflicting transaction",
+				currentPkg.OutboundPkg.AnchorTx.TxHash())
 		}
 
-		err := p.waitForTransferTxConf(&currentPkg)
-		return &currentPkg, err
+		currentPkg.ConfWitness = outcome.witness
+
+		// Send-event subscribers read the anchor block context off
+		// the outbound package.
+		currentPkg.OutboundPkg.AnchorTxBlockHash = fn.Some(
+			outcome.witness.W.BlockHash(),
+		)
+		currentPkg.OutboundPkg.AnchorTxBlockHeight =
+			outcome.witness.W.Height()
+
+		currentPkg.SendState = SendStateStorePostAnchorTxConf
+
+		return &currentPkg, nil
 
 	// The transfer transaction is now confirmed on-chain. We'll update the
 	// package state on disk to reflect this. This step frees up the change
@@ -2246,51 +1647,30 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 			len(manifests))
 		currentPkg.SendManifests = manifests
 
-		// On the anchoring path the watcher's delivery already
-		// applied the confirmation to the database (atomically with
-		// the registry advance); what remains here is mirroring the
-		// final proof files into the archive for couriers and
-		// archive readers. Burn supply-commit events are act-gated
-		// and dispatched from the site's Buried handler via the
-		// outbox — never here.
-		if p.anchoringEnabled() {
-			ctx, cancel := p.CtxBlocking()
-			defer cancel()
+		// The watcher's delivery already applied the confirmation to
+		// the database (atomically with the registry advance); what
+		// remains here is mirroring the final proof files into the
+		// archive for couriers and archive readers. Burn
+		// supply-commit events are act-gated and dispatched from the
+		// site's Buried handler via the outbox — never here.
+		ctx, cancel := p.CtxBlocking()
+		defer cancel()
 
-			err := enrichSendManifests(
-				&currentPkg, currentPkg.ConfWitness,
-			)
-			if err != nil {
-				return nil, fmt.Errorf("unable to enrich "+
-					"send manifests: %w", err)
-			}
-
-			err = p.importConfirmedProofFiles(
-				ctx, &currentPkg, currentPkg.ConfWitness,
-			)
-			if err != nil {
-				return nil, fmt.Errorf("unable to import "+
-					"proof files: %w", err)
-			}
-
-			currentPkg.SendState = SendStateTransferProofs
-
-			return &currentPkg, nil
-		}
-
-		err = p.storeProofs(&currentPkg)
+		err = enrichSendManifests(&currentPkg, currentPkg.ConfWitness)
 		if err != nil {
-			return nil, fmt.Errorf("unable to store proofs: %w",
-				err)
+			return nil, fmt.Errorf("unable to enrich send "+
+				"manifests: %w", err)
 		}
 
-		// We'll now update the parcel state in storage to reflect that
-		// the transfer anchoring tx is confirmed on-chain.
-		err = p.storePackageAnchorTxConf(&currentPkg)
+		err = p.importConfirmedProofFiles(
+			ctx, &currentPkg, currentPkg.ConfWitness,
+		)
 		if err != nil {
-			return nil, fmt.Errorf("storing transfer anchor tx "+
-				"on-chain confirmation: %w", err)
+			return nil, fmt.Errorf("unable to import proof "+
+				"files: %w", err)
 		}
+
+		currentPkg.SendState = SendStateTransferProofs
 
 		return &currentPkg, nil
 

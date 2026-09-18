@@ -1904,6 +1904,14 @@ func (r *RPCServer) ListAnchorings(ctx context.Context,
 // the request's phase filter takes — with the evidence renderings in
 // the detail fields alongside.
 func marshalAnchoring(summary tapdb.AnchoringSummary) *taprpc.Anchoring {
+	// The error column also holds transient text while delivery
+	// retries below the stuck threshold; it surfaces as the stuck
+	// reason only once the flag is set.
+	var stuckReason string
+	if summary.Stuck {
+		stuckReason = summary.LastDeliveryError
+	}
+
 	return &taprpc.Anchoring{
 		Id:                   int64(summary.ID),
 		Site:                 string(summary.Site),
@@ -1914,11 +1922,86 @@ func marshalAnchoring(summary tapdb.AnchoringSummary) *taprpc.Anchoring {
 		Threshold:            summary.Threshold,
 		CreatedHeight:        summary.CreatedHeight,
 		Stuck:                summary.Stuck,
+		StuckReason:          stuckReason,
 		DeliveryAttempts:     summary.DeliveryAttempts,
 		WitnessTxid:          summary.WitnessTxid,
 		NumCandidates:        summary.NumCandidates,
 		LastDeliveryError:    summary.LastDeliveryError,
 		TerminalAt:           summary.TerminalAt,
+	}
+}
+
+// WithdrawAnchoring withdraws a stuck anchoring: the operator's
+// manual disposal after auditing a repeatedly failing delivery or a
+// terminal the chain has contradicted. The registry enforces the
+// structural refusals (live dependents, settled terminals); this
+// surface additionally requires the stuck flag, so a healthy stake
+// cannot be ripped out from under its owning subsystem by accident.
+func (r *RPCServer) WithdrawAnchoring(ctx context.Context,
+	req *taprpc.WithdrawAnchoringRequest) (
+	*taprpc.WithdrawAnchoringResponse, error) {
+
+	if r.cfg.AnchoringWatcher == nil {
+		return nil, fmt.Errorf("anchoring watcher not available")
+	}
+
+	id := tapreorg.AnchoringID(req.AnchoringId)
+	anchoring, err := r.cfg.AnchoringWatcher.Anchoring(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch anchoring: %w", err)
+	}
+	if !anchoring.Stuck {
+		return nil, fmt.Errorf("anchoring %d is not flagged stuck; "+
+			"manual withdrawal is reserved for stuck anchorings",
+			id)
+	}
+
+	// No site write runs: the subsystem's state is left exactly as
+	// it stands, in the operator's hands.
+	if err := r.cfg.AnchoringWatcher.Withdraw(ctx, id, nil); err != nil {
+		return nil, fmt.Errorf("unable to withdraw anchoring: %w",
+			err)
+	}
+
+	anchoring, err = r.cfg.AnchoringWatcher.Anchoring(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch withdrawn "+
+			"anchoring: %w", err)
+	}
+
+	return &taprpc.WithdrawAnchoringResponse{
+		Anchoring: marshalAnchoringAggregate(anchoring),
+	}, nil
+}
+
+// marshalAnchoringAggregate renders a full anchoring aggregate for
+// the RPC surface.
+func marshalAnchoringAggregate(
+	anchoring *tapreorg.Anchoring) *taprpc.Anchoring {
+
+	var witnessTxid []byte
+	switch phase := anchoring.Phase.(type) {
+	case tapreorg.Witnessed:
+		hash := phase.W.TxHash()
+		witnessTxid = hash.CloneBytes()
+
+	case tapreorg.Buried:
+		hash := phase.W.TxHash()
+		witnessTxid = hash.CloneBytes()
+	}
+
+	return &taprpc.Anchoring{
+		Id:               int64(anchoring.ID),
+		Site:             string(anchoring.Site),
+		Phase:            anchoring.Phase.String(),
+		DeliveredPhase:   anchoring.DeliveredPhase.String(),
+		Threshold:        anchoring.Threshold,
+		CreatedHeight:    anchoring.CreatedHeight,
+		Stuck:            anchoring.Stuck,
+		StuckReason:      anchoring.StuckReason,
+		DeliveryAttempts: anchoring.DeliveryAttempts,
+		WitnessTxid:      witnessTxid,
+		NumCandidates:    uint32(len(anchoring.Spends)),
 	}
 }
 
@@ -12475,20 +12558,6 @@ func (r *RPCServer) RegisterTransfer(ctx context.Context,
 			"belong to this node: %w", err)
 	}
 
-	// Check whether this proof is already in the local archive (and
-	// not just in the universe). If it is, the user imported it
-	// before — possibly through a run of this RPC that failed after
-	// the import committed but before the watcher registration
-	// below. Rejecting would leave no way to re-drive that
-	// registration, so the import is skipped instead (the existing
-	// proof is never overwritten) and the call falls through to the
-	// idempotent registration, making retries safe.
-	haveProof, err := r.cfg.ProofArchive.HasProof(ctx, locator)
-	if err != nil {
-		return nil, fmt.Errorf("error checking if proof is available: "+
-			"%w", err)
-	}
-
 	// We now fetch the full proof file from the local multiverse store,
 	// making sure we have the full proof chain for this transfer.
 	fullProvenance, err := r.cfg.Multiverse.FetchProof(ctx, locator)
@@ -12503,48 +12572,20 @@ func (r *RPCServer) RegisterTransfer(ctx context.Context,
 			err)
 	}
 
-	// With the anchoring watcher the import and the registration
-	// commit together: the receiver never holds an asset the watcher
-	// does not, a receive the watcher has abandoned is refused (the
-	// universe's copy outlived the compensation), and a file that
-	// cannot be staked is refused rather than held. A proof already
-	// imported — a run of this RPC that failed after its stake
-	// committed — is staked again without being imported twice, so
-	// retries are safe. Without the watcher the archive import and
-	// the legacy proof watcher stand in.
-	if r.cfg.AnchoringWatcher != nil && r.cfg.AssetCustodian != nil {
-		err := r.cfg.AssetCustodian.StakeReceive(
-			ctx, &proof.AnnotatedProof{
-				Locator: locator,
-				Blob:    fullProvenance,
-			},
-		)
-		if err != nil {
-			return nil, fmt.Errorf("error staking received "+
-				"proof: %w", err)
-		}
-	} else {
-		if !haveProof {
-			err = r.cfg.ProofArchive.ImportProofs(
-				ctx, r.ProofVerifierCtx(ctx), false,
-				&proof.AnnotatedProof{
-					Locator: locator,
-					Blob:    fullProvenance,
-				},
-			)
-			if err != nil {
-				return nil, fmt.Errorf("error importing "+
-					"proof: %w", err)
-			}
-		}
-
-		err = r.cfg.ReOrgWatcher.MaybeWatch(
-			proofFile, r.cfg.ReOrgWatcher.DefaultUpdateCallback(),
-		)
-		if err != nil {
-			return nil, fmt.Errorf("error watching received "+
-				"proof: %w", err)
-		}
+	// The import and the registration commit together: the receiver
+	// never holds an asset the watcher does not, a receive the
+	// watcher has abandoned is refused (the universe's copy outlived
+	// the compensation), and a file that cannot be staked is refused
+	// rather than held. A proof already imported — a run of this RPC
+	// that failed after its stake committed — is staked again without
+	// being imported twice, so retries are safe.
+	err = r.cfg.AssetCustodian.StakeReceive(ctx, &proof.AnnotatedProof{
+		Locator: locator,
+		Blob:    fullProvenance,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("error staking received proof: %w",
+			err)
 	}
 
 	lastProof, err := proofFile.LastProof()

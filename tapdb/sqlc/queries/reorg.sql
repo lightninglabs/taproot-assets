@@ -111,6 +111,28 @@ FROM reorg_anchorings
 WHERE phase_code != delivered_code
    OR phase_evidence != delivered_evidence;
 
+-- name: ListRecentReorgTerminals :many
+-- The terminal-audit working set: chain-decided terminals (buried
+-- or abandoned; withdrawn rests on no chain evidence) that are not
+-- already flagged stuck and whose terminal delivery is recent or
+-- still pending. The audit verifies each one's recorded evidence
+-- block against the dominant chain and flags contradictions.
+SELECT *
+FROM reorg_anchorings
+WHERE phase_code IN (3, 4)
+  AND stuck = FALSE
+  AND (terminal_at IS NULL OR terminal_at >= @cutoff)
+ORDER BY id;
+
+-- name: MarkReorgAnchoringStuck :exec
+-- Flag an anchoring stuck outside the delivery path: the terminal
+-- audit found the chain contradicting a terminal phase's recorded
+-- evidence. Delivery bookkeeping is left untouched.
+UPDATE reorg_anchorings
+SET stuck = TRUE,
+    last_delivery_error = @reason
+WHERE id = @id;
+
 -- name: UpsertReorgCandidateSpend :exec
 -- Certification is sticky: once set it survives every later update,
 -- since a certified act crossing is never retracted by re-orgs. The
@@ -166,6 +188,22 @@ SET phase_code = @phase_code,
     next_delivery_at = 0
 WHERE id = @id
   AND phase_code < 3;
+
+-- name: WithdrawReorgAnchoring :execrows
+-- The operator's disposal of a stuck terminal is the one permitted
+-- terminal phase transition, so this update relaxes the absorption
+-- guard of SetReorgAnchoringPhase to admit terminal rows whose stuck
+-- flag is set. Live rows withdraw freely.
+UPDATE reorg_anchorings
+SET phase_code = @phase_code,
+    phase_evidence = @phase_evidence,
+    witness_txid = NULL,
+    delivery_attempts = 0,
+    stuck = FALSE,
+    last_delivery_error = NULL,
+    next_delivery_at = 0
+WHERE id = @id
+  AND (phase_code < 3 OR stuck = TRUE);
 
 -- name: MarkReorgAnchoringDelivered :exec
 UPDATE reorg_anchorings

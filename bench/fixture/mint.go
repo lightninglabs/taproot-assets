@@ -9,6 +9,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapdb"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/tapnode/tapnodemock"
+	"github.com/lightninglabs/taproot-assets/tapreorg"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/stretchr/testify/require"
 )
@@ -26,6 +27,10 @@ type Mint struct {
 	ChainBridge  *tapnodemock.ChainBridge
 	Wallet       *tapnodemock.WalletAnchor
 	GenSigner    *tapgarden.MockGenSigner
+
+	// Registrar is the mock re-org watcher the planter stakes its
+	// genesis transactions on; a driver confirms them through it.
+	Registrar *tapreorg.MockRegistrar
 }
 
 // NewMint constructs a Mint fixture and registers cleanup. The Planter is
@@ -46,22 +51,23 @@ func NewMint(tb testing.TB) *Mint {
 	chainBridge := tapnodemock.NewChainBridge()
 	wallet := tapnodemock.NewWalletAnchor()
 	genSigner := tapgarden.NewMockGenSigner(st.KeyRing)
+	registrar := tapreorg.NewMockRegistrar()
 
 	errChan := make(chan error, 16)
 
 	planter := tapgarden.NewChainPlanter(tapgarden.PlanterConfig{
 		GardenKit: tapgarden.GardenKit{
-			Wallet:       wallet,
-			ChainBridge:  chainBridge,
-			BatchStore:   mintingStore,
-			MintingRefs:  mintingStore,
-			TreeStore:    &treeMgr,
-			KeyRing:      st.KeyRing,
-			GenSigner:    genSigner,
-			GenTxBuilder: &tapscript.GroupTxBuilder{},
-			TxValidator:  &tap.ValidatorV0{},
-			ProofFiles:   proof.NewMockProofArchive(),
-			ProofWatcher: &tapgarden.MockProofWatcher{},
+			Wallet:           wallet,
+			ChainBridge:      chainBridge,
+			BatchStore:       mintingStore,
+			MintingRefs:      mintingStore,
+			TreeStore:        &treeMgr,
+			KeyRing:          st.KeyRing,
+			GenSigner:        genSigner,
+			GenTxBuilder:     &tapscript.GroupTxBuilder{},
+			TxValidator:      &tap.ValidatorV0{},
+			ProofFiles:       proof.NewMockProofArchive(),
+			AnchoringWatcher: registrar,
 		},
 		ChainParams:  st.Config.ChainParams,
 		ProofUpdates: proof.NewMockProofArchive(),
@@ -84,5 +90,6 @@ func NewMint(tb testing.TB) *Mint {
 		ChainBridge:  chainBridge,
 		Wallet:       wallet,
 		GenSigner:    genSigner,
+		Registrar:    registrar,
 	}
 }

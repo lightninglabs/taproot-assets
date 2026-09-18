@@ -772,6 +772,63 @@ func (s *ReorgRegistryStore) DeliveryHealth(
 	return stuck, lagging, nil
 }
 
+// RecentTerminals returns the chain-decided terminal anchorings
+// (buried or abandoned) that are not already flagged stuck and whose
+// terminal delivery happened at or after the cutoff, or is still
+// pending: the terminal audit's working set.
+func (s *ReorgRegistryStore) RecentTerminals(ctx context.Context,
+	cutoff time.Time) ([]*tapreorg.Anchoring, error) {
+
+	var out []*tapreorg.Anchoring
+	dbErr := s.db.ExecTx(ctx, ReadTxOption(), func(q *sqlc.Queries) error {
+		rows, err := q.ListRecentReorgTerminals(
+			ctx, sql.NullInt64{
+				Int64: cutoff.Unix(),
+				Valid: true,
+			},
+		)
+		if err != nil {
+			return err
+		}
+
+		out = make([]*tapreorg.Anchoring, 0, len(rows))
+		for _, row := range rows {
+			anchoring, err := assembleAnchoring(ctx, q, row)
+			if err != nil {
+				return err
+			}
+			out = append(out, anchoring)
+		}
+
+		return nil
+	})
+	if dbErr != nil {
+		return nil, dbErr
+	}
+
+	return out, nil
+}
+
+// MarkStuck flags an anchoring stuck outside the delivery path, with
+// a reason surfaced in place of the last delivery error. The terminal
+// audit uses it when the chain contradicts a terminal phase's
+// recorded evidence; delivery bookkeeping is left untouched.
+func (s *ReorgRegistryStore) MarkStuck(ctx context.Context,
+	id tapreorg.AnchoringID, reason string) error {
+
+	return s.db.ExecTx(ctx, WriteTxOption(), func(q *sqlc.Queries) error {
+		return q.MarkReorgAnchoringStuck(
+			ctx, sqlc.MarkReorgAnchoringStuckParams{
+				ID: int64(id),
+				Reason: sql.NullString{
+					String: reason,
+					Valid:  true,
+				},
+			},
+		)
+	})
+}
+
 // LookupByMatchKey returns the site's anchoring for the given
 // per-site identity key via the (site_id, match_key) unique index.
 // An empty match key or a miss both return (nil, nil).
@@ -1211,7 +1268,11 @@ func (s *ReorgRegistryStore) PendingDeliveries(ctx context.Context,
 
 // Withdraw runs the site's withdrawal write and moves the anchoring
 // to Withdrawn in one transaction, refusing when live dependents
-// exist or the anchoring is already terminal.
+// exist or the anchoring is already terminal — unless the terminal is
+// flagged stuck, in which case withdrawal is the operator's disposal
+// of a contradicted terminal: the phase moves to Withdrawn, the stuck
+// flag clears with the delivery bookkeeping, and the anchoring leaves
+// the terminal audit's working set.
 func (s *ReorgRegistryStore) Withdraw(ctx context.Context,
 	id tapreorg.AnchoringID,
 	onWithdraw func(context.Context, tapreorg.RegistryTx) error) error {
@@ -1235,7 +1296,7 @@ func (s *ReorgRegistryStore) Withdraw(ctx context.Context,
 		if err != nil {
 			return err
 		}
-		if tapreorg.IsTerminal(phase) {
+		if tapreorg.IsTerminal(phase) && !row.Stuck {
 			return tapreorg.ErrTerminalPhase
 		}
 
@@ -1256,18 +1317,21 @@ func (s *ReorgRegistryStore) Withdraw(ctx context.Context,
 
 		// Withdrawal is site-initiated, so sensed and delivered
 		// phase advance together: there is no signal left to
-		// deliver. The row was read live in this transaction, so
-		// the update's terminal guard always passes here.
-		_, err = q.SetReorgAnchoringPhase(
-			ctx, sqlc.SetReorgAnchoringPhaseParams{
+		// deliver. The withdrawal update admits a terminal row
+		// only when its stuck flag is set, mirroring the check
+		// above at the row level.
+		rows, err := q.WithdrawReorgAnchoring(
+			ctx, sqlc.WithdrawReorgAnchoringParams{
 				ID:            int64(id),
 				PhaseCode:     int16(withdrawnCode),
 				PhaseEvidence: orEmpty(withdrawnEv),
-				WitnessTxid:   nil,
 			},
 		)
 		if err != nil {
 			return err
+		}
+		if rows == 0 {
+			return tapreorg.ErrTerminalPhase
 		}
 
 		return q.MarkReorgAnchoringDelivered(
@@ -1563,6 +1627,14 @@ func assembleAnchoring(ctx context.Context, q *sqlc.Queries,
 		return nil, err
 	}
 
+	// The error column also holds transient text while delivery
+	// retries below the stuck threshold; it only surfaces as the
+	// stuck reason once the flag is set.
+	var stuckReason string
+	if row.Stuck {
+		stuckReason = row.LastDeliveryError.String
+	}
+
 	return &tapreorg.Anchoring{
 		ID:        tapreorg.AnchoringID(row.ID),
 		Site:      tapreorg.SiteID(row.SiteID),
@@ -1581,6 +1653,7 @@ func assembleAnchoring(ctx context.Context, q *sqlc.Queries,
 		Phase:            phase,
 		DeliveredPhase:   delivered,
 		Stuck:            row.Stuck,
+		StuckReason:      stuckReason,
 		DeliveryAttempts: uint32(row.DeliveryAttempts),
 		Spends:           view.Spends,
 	}, nil

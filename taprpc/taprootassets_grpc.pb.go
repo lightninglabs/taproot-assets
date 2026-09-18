@@ -46,6 +46,13 @@ type TaprootAssetsClient interface {
 	// chain has assigned to each stake, and the delivery state of the
 	// owning subsystem.
 	ListAnchorings(ctx context.Context, in *ListAnchoringsRequest, opts ...grpc.CallOption) (*ListAnchoringsResponse, error)
+	// WithdrawAnchoring withdraws a stuck anchoring: the operator's
+	// manual disposal after auditing a repeatedly failing delivery or a
+	// terminal phase contradicted by a re-org deeper than the safe
+	// depth. The anchoring moves to the withdrawn phase, its stuck flag
+	// clears, and the watcher stops sensing it; the owning subsystem's
+	// state is left exactly as it stands, in the operator's hands.
+	WithdrawAnchoring(ctx context.Context, in *WithdrawAnchoringRequest, opts ...grpc.CallOption) (*WithdrawAnchoringResponse, error)
 	// tapcli: `stop`
 	// StopDaemon will send a shutdown request to the interrupt handler, triggering
 	// a graceful shutdown of the daemon.
@@ -201,6 +208,15 @@ func (c *taprootAssetsClient) ListTransfers(ctx context.Context, in *ListTransfe
 func (c *taprootAssetsClient) ListAnchorings(ctx context.Context, in *ListAnchoringsRequest, opts ...grpc.CallOption) (*ListAnchoringsResponse, error) {
 	out := new(ListAnchoringsResponse)
 	err := c.cc.Invoke(ctx, "/taprpc.TaprootAssets/ListAnchorings", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *taprootAssetsClient) WithdrawAnchoring(ctx context.Context, in *WithdrawAnchoringRequest, opts ...grpc.CallOption) (*WithdrawAnchoringResponse, error) {
+	out := new(WithdrawAnchoringResponse)
+	err := c.cc.Invoke(ctx, "/taprpc.TaprootAssets/WithdrawAnchoring", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -456,6 +472,13 @@ type TaprootAssetsServer interface {
 	// chain has assigned to each stake, and the delivery state of the
 	// owning subsystem.
 	ListAnchorings(context.Context, *ListAnchoringsRequest) (*ListAnchoringsResponse, error)
+	// WithdrawAnchoring withdraws a stuck anchoring: the operator's
+	// manual disposal after auditing a repeatedly failing delivery or a
+	// terminal phase contradicted by a re-org deeper than the safe
+	// depth. The anchoring moves to the withdrawn phase, its stuck flag
+	// clears, and the watcher stops sensing it; the owning subsystem's
+	// state is left exactly as it stands, in the operator's hands.
+	WithdrawAnchoring(context.Context, *WithdrawAnchoringRequest) (*WithdrawAnchoringResponse, error)
 	// tapcli: `stop`
 	// StopDaemon will send a shutdown request to the interrupt handler, triggering
 	// a graceful shutdown of the daemon.
@@ -571,6 +594,9 @@ func (UnimplementedTaprootAssetsServer) ListTransfers(context.Context, *ListTran
 }
 func (UnimplementedTaprootAssetsServer) ListAnchorings(context.Context, *ListAnchoringsRequest) (*ListAnchoringsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListAnchorings not implemented")
+}
+func (UnimplementedTaprootAssetsServer) WithdrawAnchoring(context.Context, *WithdrawAnchoringRequest) (*WithdrawAnchoringResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method WithdrawAnchoring not implemented")
 }
 func (UnimplementedTaprootAssetsServer) StopDaemon(context.Context, *StopRequest) (*StopResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method StopDaemon not implemented")
@@ -764,6 +790,24 @@ func _TaprootAssets_ListAnchorings_Handler(srv interface{}, ctx context.Context,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(TaprootAssetsServer).ListAnchorings(ctx, req.(*ListAnchoringsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _TaprootAssets_WithdrawAnchoring_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(WithdrawAnchoringRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TaprootAssetsServer).WithdrawAnchoring(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/taprpc.TaprootAssets/WithdrawAnchoring",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TaprootAssetsServer).WithdrawAnchoring(ctx, req.(*WithdrawAnchoringRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1150,6 +1194,10 @@ var TaprootAssets_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListAnchorings",
 			Handler:    _TaprootAssets_ListAnchorings_Handler,
+		},
+		{
+			MethodName: "WithdrawAnchoring",
+			Handler:    _TaprootAssets_WithdrawAnchoring_Handler,
 		},
 		{
 			MethodName: "StopDaemon",
