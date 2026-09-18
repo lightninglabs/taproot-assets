@@ -386,6 +386,13 @@
   the funding transaction confirms, before any commitment update, and
   asserts the swept assets remain spendable.
 
+* [PR#2304](https://github.com/lightninglabs/taproot-assets/pull/2304)
+  adds an integration test that covers static channel backup recovery for
+  asset channels: a node restores from an SCB, the peer force closes, and
+  the restored node's chain watcher must detect the spend of the overlay
+  funding output and sweep its non-delayed output (regression coverage for
+  lnd#11197).
+
 ## Database
 
 * [PR#2287](https://github.com/lightninglabs/taproot-assets/pull/2287)

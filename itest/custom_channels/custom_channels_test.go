@@ -120,6 +120,10 @@ var testCases = []*ccTestCase{
 		test: testCustomChannelsBreach,
 	},
 	{
+		name: "scb restore",
+		test: testCustomChannelsSCBRestore,
+	},
+	{
 		name: "v1 upgrade",
 		test: testCustomChannelsV1Upgrade,
 	},
