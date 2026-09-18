@@ -386,6 +386,10 @@
   the funding transaction confirms, before any commitment update, and
   asserts the swept assets remain spendable.
 
+* [PR#2311](https://github.com/lightninglabs/taproot-assets/pull/2311)
+  stops the event stream assertion helpers from logging after a test has
+  completed, which panicked the integration test binary.
+
 ## Database
 
 * [PR#2287](https://github.com/lightninglabs/taproot-assets/pull/2287)

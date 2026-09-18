@@ -184,6 +184,12 @@ func assertCompletedSendEventAssetMeta(t *testing.T,
 	assetType taprpc.AssetType) {
 
 	success := make(chan struct{})
+
+	// Close success on every return, including a failed require, so
+	// the goroutine below exits with this function and never calls
+	// t.Logf after the test has completed.
+	defer close(success)
+
 	timeout := time.After(defaultWaitTimeout)
 	go func() {
 		select {
@@ -210,7 +216,6 @@ func assertCompletedSendEventAssetMeta(t *testing.T,
 			)
 
 			stream.Cancel()
-			close(success)
 			return
 		}
 
