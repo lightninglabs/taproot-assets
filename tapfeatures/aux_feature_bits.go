@@ -50,7 +50,7 @@ func ourFeatures() []lnwire.FeatureBit {
 	return []lnwire.FeatureBit{
 		NoOpHTLCsOptional,
 		STXOOptional,
-		NegotiatedChanCfgOptional,
+		NegotiatedChanCfgRequired,
 	}
 }
 
