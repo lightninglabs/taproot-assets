@@ -232,3 +232,8 @@ replace github.com/prometheus/common => github.com/prometheus/common v0.66.1
 
 // Note this is a temporary replace and will be removed when taprpc is tagged.
 replace github.com/lightninglabs/taproot-assets/taprpc => ./taprpc
+
+// Temporary replace that points to lightningnetwork/lnd#10411 (persistent
+// scid aliases) rebased on the pinned lnd commit. Remove once the PR is merged
+// and lnd is bumped.
+replace github.com/lightningnetwork/lnd => github.com/GeorgeTsagk/lnd v0.0.0-20260907135521-53a43e15f745
