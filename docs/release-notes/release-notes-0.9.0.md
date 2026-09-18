@@ -155,6 +155,16 @@
   once and the event failed with `ErrMultipleProofs` on every attempt.
   The proof is now looked up by asset as well.
 
+* [PR#2291](https://github.com/lightninglabs/taproot-assets/pull/2291)
+  fixes a bug in which the FSM chain-notifier adapter discarded the
+  error channel lndclient returns, so a dropped notifier stream (for
+  example an lnd restart) left the confirmation or spend event channel
+  open forever. The affected protofsm state machine, such as the
+  supply-commit machine or the supply verifier, would then stall
+  silently until tapd restarted. The adapter now re-registers on a
+  stream error and keeps forwarding events. Fixes
+  [#2286](https://github.com/lightninglabs/taproot-assets/issues/2286).
+
 # New Features
 
 ## Functional Enhancements
