@@ -386,6 +386,11 @@
   the funding transaction confirms, before any commitment update, and
   asserts the swept assets remain spendable.
 
+* [PR#2309](https://github.com/lightninglabs/taproot-assets/pull/2309)
+  fixes a flaky custom channel integration test check that read the closed
+  channel list once after a cooperative close, before lnd had always
+  written the closed channel summary.
+
 ## Database
 
 * [PR#2287](https://github.com/lightninglabs/taproot-assets/pull/2287)
