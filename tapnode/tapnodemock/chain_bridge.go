@@ -21,6 +21,7 @@ import (
 type ChainBridge struct {
 	FeeEstimateSignal chan struct{}
 	PublishReq        chan *wire.MsgTx
+	PublishAttempts   chan *wire.MsgTx
 	ConfReqSignal     chan int
 	BlockEpochSignal  chan struct{}
 
@@ -35,6 +36,14 @@ type ChainBridge struct {
 	// ConfReqSignal, so any receive from that channel happens-after
 	// the corresponding store and a read of ConfReqs[reqNo] is safe.
 	ConfReqs map[int]*chainntnfs.ConfirmationEvent
+	// ConfPkScripts records the confirmation script hint for each request.
+	// It follows the same ConfReqSignal synchronization contract as
+	// ConfReqs.
+	ConfPkScripts map[int][]byte
+	// ConfTxIDs records the transaction ID for each confirmation request.
+	// It follows the same ConfReqSignal synchronization contract as
+	// ConfReqs.
+	ConfTxIDs map[int]*chainhash.Hash
 
 	// BlocksMu protects concurrent access to Blocks. Readers (GetBlock,
 	// called from cultivator goroutines) hold it for read; all writers
@@ -44,6 +53,9 @@ type ChainBridge struct {
 	Blocks   map[chainhash.Hash]*wire.MsgBlock
 
 	failFeeEstimates atomic.Bool
+	failPublish      atomic.Bool
+	failPublishFinal atomic.Bool
+	failConfRegister atomic.Bool
 	errConf          atomic.Int32
 	emptyConf        atomic.Int32
 	confErr          chan error
@@ -54,7 +66,10 @@ func NewChainBridge() *ChainBridge {
 	return &ChainBridge{
 		FeeEstimateSignal: make(chan struct{}),
 		PublishReq:        make(chan *wire.MsgTx),
+		PublishAttempts:   make(chan *wire.MsgTx, 10),
 		ConfReqs:          make(map[int]*chainntnfs.ConfirmationEvent),
+		ConfPkScripts:     make(map[int][]byte),
+		ConfTxIDs:         make(map[int]*chainhash.Hash),
 		ConfReqSignal:     make(chan int),
 		BlockEpochSignal:  make(chan struct{}, 1),
 		NewBlocks:         make(chan int32),
@@ -65,6 +80,22 @@ func NewChainBridge() *ChainBridge {
 // FailFeeEstimatesOnce arms the next call to EstimateFee to return an error.
 func (m *ChainBridge) FailFeeEstimatesOnce() {
 	m.failFeeEstimates.Store(true)
+}
+
+// FailPublishOnce arms the next call to PublishTransaction to return an error.
+func (m *ChainBridge) FailPublishOnce() {
+	m.failPublish.Store(true)
+}
+
+// FailPublishDefinitively arms transaction validation to return a conclusive
+// rejection until the caller replaces the mock.
+func (m *ChainBridge) FailPublishDefinitively() {
+	m.failPublishFinal.Store(true)
+}
+
+// FailConfRegistrationOnce arms the next confirmation registration to fail.
+func (m *ChainBridge) FailConfRegistrationOnce() {
+	m.failConfRegister.Store(true)
 }
 
 // FailConfOnce updates the ChainBridge such that the next call to
@@ -109,13 +140,16 @@ func (m *ChainBridge) SendConfNtfn(reqNo int, blockHash *chainhash.Hash,
 // RegisterConfirmationsNtfn records a confirmation subscription and signals
 // the caller via ConfReqSignal.
 func (m *ChainBridge) RegisterConfirmationsNtfn(ctx context.Context,
-	_ *chainhash.Hash, _ []byte, _, _ uint32, _ bool,
+	txid *chainhash.Hash, pkScript []byte, _, _ uint32, _ bool,
 	_ chan struct{}) (*chainntnfs.ConfirmationEvent, chan error, error) {
 
 	select {
 	case <-ctx.Done():
 		return nil, nil, fmt.Errorf("shutting down")
 	default:
+	}
+	if m.failConfRegister.CompareAndSwap(true, false) {
+		return nil, nil, fmt.Errorf("failed to register confirmation")
 	}
 
 	defer func() {
@@ -130,6 +164,11 @@ func (m *ChainBridge) RegisterConfirmationsNtfn(ctx context.Context,
 
 	currentReqCount := m.ReqCount.Load()
 	m.ConfReqs[int(currentReqCount)] = req
+	m.ConfPkScripts[int(currentReqCount)] = append([]byte(nil), pkScript...)
+	if txid != nil {
+		txidCopy := *txid
+		m.ConfTxIDs[int(currentReqCount)] = &txidCopy
+	}
 
 	select {
 	case m.ConfReqSignal <- int(currentReqCount):
@@ -234,7 +273,33 @@ func (m *ChainBridge) GetBlockTimestamp(_ context.Context, _ uint32) (int64,
 func (m *ChainBridge) PublishTransaction(_ context.Context,
 	tx *wire.MsgTx, _ string) error {
 
+	if m.failPublish.CompareAndSwap(true, false) {
+		m.PublishAttempts <- tx.Copy()
+		return fmt.Errorf("failed to publish transaction")
+	}
+
 	m.PublishReq <- tx
+	return nil
+}
+
+// ValidateAndPublishTransaction models the validation performed by lnd before
+// publication without sending a second mock publication notification on the
+// successful path.
+func (m *ChainBridge) ValidateAndPublishTransaction(_ context.Context,
+	tx *wire.MsgTx, _ string) error {
+
+	if m.failPublishFinal.Load() {
+		m.PublishAttempts <- tx.Copy()
+		return tapnode.NewDefinitivePublishError(
+			fmt.Errorf("transaction rejected: " +
+				"output already spent"),
+		)
+	}
+	if m.failPublish.CompareAndSwap(true, false) {
+		m.PublishAttempts <- tx.Copy()
+		return fmt.Errorf("failed to publish transaction")
+	}
+
 	return nil
 }
 
@@ -291,6 +356,7 @@ func (m *ChainBridge) GenProofChainLookup(*proof.Proof) (asset.ChainLookup,
 
 var _ asset.ChainLookup = (*ChainBridge)(nil)
 var _ tapnode.ChainBridge = (*ChainBridge)(nil)
+var _ tapnode.DefinitivePublisher = (*ChainBridge)(nil)
 
 // GenGroupVerifier returns a no-op group verifier suitable for tests that
 // don't care about group-key authenticity.

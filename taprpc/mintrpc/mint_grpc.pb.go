@@ -39,6 +39,11 @@ type MintClient interface {
 	// that require an external signer. Otherwise, FinalizeBatch can be called
 	// directly.
 	SealBatch(ctx context.Context, in *SealBatchRequest, opts ...grpc.CallOption) (*SealBatchResponse, error)
+	// tapcli `assets mint prepare`
+	// PrepareBatch commits the assets into a caller-authored anchor PSBT and
+	// returns the packet for external signing. The batch remains paused until
+	// FinalizeBatch is called with the signed packet.
+	PrepareBatch(ctx context.Context, in *PrepareBatchRequest, opts ...grpc.CallOption) (*PrepareBatchResponse, error)
 	// tapcli: `assets mint finalize`
 	// FinalizeBatch will attempt to finalize the current pending batch.
 	FinalizeBatch(ctx context.Context, in *FinalizeBatchRequest, opts ...grpc.CallOption) (*FinalizeBatchResponse, error)
@@ -84,6 +89,15 @@ func (c *mintClient) FundBatch(ctx context.Context, in *FundBatchRequest, opts .
 func (c *mintClient) SealBatch(ctx context.Context, in *SealBatchRequest, opts ...grpc.CallOption) (*SealBatchResponse, error) {
 	out := new(SealBatchResponse)
 	err := c.cc.Invoke(ctx, "/mintrpc.Mint/SealBatch", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *mintClient) PrepareBatch(ctx context.Context, in *PrepareBatchRequest, opts ...grpc.CallOption) (*PrepareBatchResponse, error) {
+	out := new(PrepareBatchResponse)
+	err := c.cc.Invoke(ctx, "/mintrpc.Mint/PrepareBatch", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -174,6 +188,11 @@ type MintServer interface {
 	// that require an external signer. Otherwise, FinalizeBatch can be called
 	// directly.
 	SealBatch(context.Context, *SealBatchRequest) (*SealBatchResponse, error)
+	// tapcli `assets mint prepare`
+	// PrepareBatch commits the assets into a caller-authored anchor PSBT and
+	// returns the packet for external signing. The batch remains paused until
+	// FinalizeBatch is called with the signed packet.
+	PrepareBatch(context.Context, *PrepareBatchRequest) (*PrepareBatchResponse, error)
 	// tapcli: `assets mint finalize`
 	// FinalizeBatch will attempt to finalize the current pending batch.
 	FinalizeBatch(context.Context, *FinalizeBatchRequest) (*FinalizeBatchResponse, error)
@@ -203,6 +222,9 @@ func (UnimplementedMintServer) FundBatch(context.Context, *FundBatchRequest) (*F
 }
 func (UnimplementedMintServer) SealBatch(context.Context, *SealBatchRequest) (*SealBatchResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SealBatch not implemented")
+}
+func (UnimplementedMintServer) PrepareBatch(context.Context, *PrepareBatchRequest) (*PrepareBatchResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method PrepareBatch not implemented")
 }
 func (UnimplementedMintServer) FinalizeBatch(context.Context, *FinalizeBatchRequest) (*FinalizeBatchResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method FinalizeBatch not implemented")
@@ -279,6 +301,24 @@ func _Mint_SealBatch_Handler(srv interface{}, ctx context.Context, dec func(inte
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(MintServer).SealBatch(ctx, req.(*SealBatchRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Mint_PrepareBatch_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PrepareBatchRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MintServer).PrepareBatch(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/mintrpc.Mint/PrepareBatch",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MintServer).PrepareBatch(ctx, req.(*PrepareBatchRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -376,6 +416,10 @@ var Mint_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SealBatch",
 			Handler:    _Mint_SealBatch_Handler,
+		},
+		{
+			MethodName: "PrepareBatch",
+			Handler:    _Mint_PrepareBatch_Handler,
 		},
 		{
 			MethodName: "FinalizeBatch",

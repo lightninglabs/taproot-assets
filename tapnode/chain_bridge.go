@@ -2,6 +2,7 @@ package tapnode
 
 import (
 	"context"
+	"errors"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
@@ -9,6 +10,40 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
+
+// DefinitivePublishError marks a transaction publication error that proves the
+// attempted backend rejected the transaction before it could enter that
+// backend's mempool. Callers that have exposed the signed transaction through
+// another boundary must still account for an independent relay.
+type DefinitivePublishError struct {
+	err error
+}
+
+// NewDefinitivePublishError wraps a conclusive transaction rejection.
+func NewDefinitivePublishError(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	return &DefinitivePublishError{err: err}
+}
+
+// Error returns the underlying publication error.
+func (e *DefinitivePublishError) Error() string {
+	return e.err.Error()
+}
+
+// Unwrap returns the underlying publication error.
+func (e *DefinitivePublishError) Unwrap() error {
+	return e.err
+}
+
+// IsDefinitivePublishError reports whether publication conclusively rejected
+// the transaction rather than failing with an ambiguous transport error.
+func IsDefinitivePublishError(err error) bool {
+	var definitiveErr *DefinitivePublishError
+	return errors.As(err, &definitiveErr)
+}
 
 // ChainBridge is our bridge to the target chain. It's used to get
 // confirmation notifications, the current height, publish
@@ -66,6 +101,27 @@ type ChainBridge interface {
 	// target.
 	EstimateFee(ctx context.Context,
 		confTarget uint32) (chainfee.SatPerKWeight, error)
+}
+
+// DefinitivePublisher is an optional ChainBridge extension that can
+// distinguish conclusive policy rejection from ambiguous publication errors.
+type DefinitivePublisher interface {
+	ValidateAndPublishTransaction(
+		context.Context, *wire.MsgTx, string,
+	) error
+}
+
+// ValidateAndPublishTransaction uses definitive publication when available.
+// Older ChainBridge implementations retain their publication behavior, with
+// every returned error conservatively treated as ambiguous.
+func ValidateAndPublishTransaction(ctx context.Context, bridge ChainBridge,
+	tx *wire.MsgTx, label string) error {
+
+	if publisher, ok := bridge.(DefinitivePublisher); ok {
+		return publisher.ValidateAndPublishTransaction(ctx, tx, label)
+	}
+
+	return bridge.PublishTransaction(ctx, tx, label)
 }
 
 // GenHeaderVerifier generates a block header on-chain verification callback

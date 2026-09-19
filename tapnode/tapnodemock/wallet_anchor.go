@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand/v2"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -28,10 +29,14 @@ import (
 
 // WalletAnchor is an in-memory mock implementation of tapnode.WalletAnchor.
 type WalletAnchor struct {
+	mu sync.RWMutex
+
 	FundPsbtSignal     chan *tapsend.FundedPsbt
 	UnlockInputSignal  chan wire.OutPoint
 	SignPsbtSignal     chan struct{}
 	ImportPubKeySignal chan *btcec.PublicKey
+	LeaseInputSignal   chan wire.OutPoint
+	ReleaseInputSignal chan wire.OutPoint
 	ListUnspentSignal  chan struct{}
 	SubscribeTxSignal  chan struct{}
 	SubscribeTx        chan lndclient.Transaction
@@ -39,8 +44,54 @@ type WalletAnchor struct {
 
 	Transactions  []lndclient.Transaction
 	ImportedUtxos []*lnwallet.Utxo
+	OwnedInputs   map[wire.OutPoint]bool
+	LeaseErrors   map[wire.OutPoint]error
+	ReleaseErrors map[wire.OutPoint]error
+	ImportErr     error
 
 	failSignPsbt atomic.Bool
+}
+
+// SetOwnedInput updates whether an input is controlled by the mock wallet.
+func (m *WalletAnchor) SetOwnedInput(op wire.OutPoint, owned bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.OwnedInputs[op] = owned
+}
+
+// SetLeaseError updates the error returned when an input is leased.
+func (m *WalletAnchor) SetLeaseError(op wire.OutPoint, err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if err == nil {
+		delete(m.LeaseErrors, op)
+		return
+	}
+
+	m.LeaseErrors[op] = err
+}
+
+// SetReleaseError updates the error returned when an input is released.
+func (m *WalletAnchor) SetReleaseError(op wire.OutPoint, err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if err == nil {
+		delete(m.ReleaseErrors, op)
+		return
+	}
+
+	m.ReleaseErrors[op] = err
+}
+
+// SetImportError updates the error returned when a Taproot output is imported.
+func (m *WalletAnchor) SetImportError(err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.ImportErr = err
 }
 
 // FailSignPsbtOnce arms the next call to SignAndFinalizePsbt to return
@@ -56,10 +107,15 @@ func NewWalletAnchor() *WalletAnchor {
 		UnlockInputSignal:  make(chan wire.OutPoint, 10),
 		SignPsbtSignal:     make(chan struct{}),
 		ImportPubKeySignal: make(chan *btcec.PublicKey),
+		LeaseInputSignal:   make(chan wire.OutPoint, 20),
+		ReleaseInputSignal: make(chan wire.OutPoint, 20),
 		ListUnspentSignal:  make(chan struct{}),
 		SubscribeTxSignal:  make(chan struct{}),
 		SubscribeTx:        make(chan lndclient.Transaction),
 		ListTxnsSignal:     make(chan struct{}),
+		OwnedInputs:        make(map[wire.OutPoint]bool),
+		LeaseErrors:        make(map[wire.OutPoint]error),
+		ReleaseErrors:      make(map[wire.OutPoint]error),
 	}
 }
 
@@ -194,10 +250,55 @@ func (m *WalletAnchor) ImportTaprootOutput(ctx context.Context,
 	case <-ctx.Done():
 		return nil, fmt.Errorf("shutting down")
 	}
+	m.mu.RLock()
+	importErr := m.ImportErr
+	m.mu.RUnlock()
+	if importErr != nil {
+		return nil, importErr
+	}
 
 	return btcaddr.NewAddressTaproot(
 		schnorr.SerializePubKey(pub), &chaincfg.RegressionNetParams,
 	)
+}
+
+// LeaseInput leases the input if the mock marks it as wallet-owned.
+func (m *WalletAnchor) LeaseInput(ctx context.Context,
+	_ tapnode.CustomAnchorLeaseID, op wire.OutPoint) (bool, error) {
+
+	m.mu.RLock()
+	leaseErr := m.LeaseErrors[op]
+	owned := m.OwnedInputs[op]
+	m.mu.RUnlock()
+	if leaseErr != nil {
+		return false, leaseErr
+	}
+	if !owned {
+		return false, nil
+	}
+	select {
+	case m.LeaseInputSignal <- op:
+		return true, nil
+
+	case <-ctx.Done():
+		return false, ctx.Err()
+	}
+}
+
+// ReleaseInput releases a custom-anchor lease held by the mock wallet.
+func (m *WalletAnchor) ReleaseInput(ctx context.Context,
+	_ tapnode.CustomAnchorLeaseID, op wire.OutPoint) error {
+
+	select {
+	case m.ReleaseInputSignal <- op:
+
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	m.mu.RLock()
+	releaseErr := m.ReleaseErrors[op]
+	m.mu.RUnlock()
+	return releaseErr
 }
 
 // UnlockInput unlocks the set of target inputs after a batch or send
@@ -279,3 +380,4 @@ func (m *WalletAnchor) MinRelayFee(
 }
 
 var _ tapnode.WalletAnchor = (*WalletAnchor)(nil)
+var _ tapnode.CustomAnchorLeaser = (*WalletAnchor)(nil)

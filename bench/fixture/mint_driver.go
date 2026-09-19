@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/chaincfg/v2"
+	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/proof"
@@ -60,17 +61,30 @@ func NewMintDriver(tb testing.TB) *MintDriver {
 // pump drains every signal the planter cultivator is known to emit and
 // synthesises the chain side of the conversation: confirmations are
 // fabricated, blocks are stored, and signal acks are sent in the
-// background so SendConfNtfn never blocks the pump.
+// background so SendConfNtfn never blocks the pump. Confirmation registration
+// and publication may arrive in either order, so the pump correlates them by
+// transaction ID instead of relying on caretaker state ordering.
 func (d *MintDriver) pump(ctx context.Context) {
 	defer close(d.pumpDone)
 
-	// lastTx carries the broadcast transaction between the publish step
-	// and the conf-registration step. The cultivator publishes before it
-	// registers, so by the time we see ConfReqSignal the broadcast has
-	// already happened. The select cases below execute serially in this
-	// one goroutine, so no synchronisation on lastTx is needed; the
-	// goroutine spawned for SendConfNtfn captures tx by value.
-	var lastTx *wire.MsgTx
+	published := make(map[chainhash.Hash]*wire.MsgTx)
+	pending := make(map[chainhash.Hash][]int)
+
+	confirm := func(reqNo int, tx *wire.MsgTx) {
+		// Build a one-tx block and register it under its hash so the
+		// caretaker's later GetBlock call finds it. SetBlock serialises
+		// this write against any concurrent caretaker reads.
+		block := buildBlockForTx(tx)
+		blockHash := block.BlockHash()
+		d.ChainBridge.SetBlock(blockHash, block)
+
+		// SendConfNtfn writes to req.Confirmed, which blocks until the
+		// caretaker reads it. Run it in its own goroutine so the pump
+		// stays responsive.
+		go d.ChainBridge.SendConfNtfn(
+			reqNo, &blockHash, 1, 0, block, tx,
+		)
+	}
 
 	for {
 		select {
@@ -87,28 +101,24 @@ func (d *MintDriver) pump(ctx context.Context) {
 		case <-d.ChainBridge.BlockEpochSignal:
 
 		case tx := <-d.ChainBridge.PublishReq:
-			lastTx = tx
+			txid := tx.TxHash()
+			published[txid] = tx
+			for _, reqNo := range pending[txid] {
+				confirm(reqNo, tx)
+			}
+			delete(pending, txid)
 
 		case reqNo := <-d.ChainBridge.ConfReqSignal:
-			tx := lastTx
-			if tx == nil {
+			txid := d.ChainBridge.ConfTxIDs[reqNo]
+			if txid == nil {
+				continue
+			}
+			if tx := published[*txid]; tx != nil {
+				confirm(reqNo, tx)
 				continue
 			}
 
-			// Build a one-tx block and register it under its hash
-			// so the cultivator's later GetBlock call finds it.
-			// SetBlock serialises this write against any
-			// concurrent cultivator reads.
-			block := buildBlockForTx(tx)
-			blockHash := block.BlockHash()
-			d.ChainBridge.SetBlock(blockHash, block)
-
-			// SendConfNtfn writes to req.Confirmed, which blocks
-			// until the cultivator reads it. Run it in its own
-			// goroutine so the pump stays responsive.
-			go d.ChainBridge.SendConfNtfn(
-				reqNo, &blockHash, 1, 0, block, tx,
-			)
+			pending[*txid] = append(pending[*txid], reqNo)
 		}
 	}
 }

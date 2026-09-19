@@ -135,6 +135,43 @@ func AssetAnchorCheck(txid, blockHash chainhash.Hash) AssetCheck {
 	}
 }
 
+// AssetAnchorOutpointCheck returns a check function that tests an asset's full
+// anchor outpoint and block hash.
+func AssetAnchorOutpointCheck(
+	outpoint wire.OutPoint, blockHash chainhash.Hash) AssetCheck {
+
+	return func(a *taprpc.Asset) error {
+		if a.ChainAnchor == nil {
+			return fmt.Errorf("asset is missing chain anchor field")
+		}
+
+		anchorOutpoint, err := wire.NewOutPointFromString(
+			a.ChainAnchor.AnchorOutpoint,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to parse outpoint: %w", err)
+		}
+		if *anchorOutpoint != outpoint {
+			return fmt.Errorf(
+				"unexpected asset anchor "+
+					"outpoint, got %v wanted %v",
+				anchorOutpoint, outpoint,
+			)
+		}
+
+		anchorBlockHash := a.ChainAnchor.AnchorBlockHash
+		if anchorBlockHash != blockHash.String() {
+			return fmt.Errorf(
+				"unexpected asset anchor block "+
+					"hash, got %v wanted %x",
+				anchorBlockHash, blockHash[:],
+			)
+		}
+
+		return nil
+	}
+}
+
 // AssetScriptKeyIsLocalCheck returns a check function that tests an asset's
 // script key for being a local key.
 func AssetScriptKeyIsLocalCheck(isLocal bool) AssetCheck {
@@ -2115,6 +2152,20 @@ func AssertAssetsMinted(t *testing.T, tapClient commands.RpcClientsBundle,
 	assetRequests []*mintrpc.MintAssetRequest, mintTXID,
 	blockHash chainhash.Hash) []*taprpc.Asset {
 
+	return AssertAssetsMintedAtOutpoint(
+		t, tapClient, assetRequests, wire.OutPoint{Hash: mintTXID},
+		blockHash,
+	)
+}
+
+// AssertAssetsMintedAtOutpoint makes sure all assets in the minting request
+// were minted at the exact anchor outpoint and block. The function returns the
+// list of minted assets.
+func AssertAssetsMintedAtOutpoint(t *testing.T,
+	tapClient commands.RpcClientsBundle,
+	assetRequests []*mintrpc.MintAssetRequest, mintOutpoint wire.OutPoint,
+	blockHash chainhash.Hash) []*taprpc.Asset {
+
 	ctx := context.Background()
 
 	// The rest of the anchor information should now be populated as well.
@@ -2130,7 +2181,8 @@ func AssertAssetsMinted(t *testing.T, tapClient commands.RpcClientsBundle,
 		ctx, &taprpc.ListAssetRequest{
 			ScriptKeyType: allScriptKeysQuery,
 			AnchorOutpoint: &taprpc.OutPoint{
-				Txid: mintTXID[:],
+				Txid:        mintOutpoint.Hash[:],
+				OutputIndex: mintOutpoint.Index,
 			},
 		},
 	)
@@ -2157,7 +2209,7 @@ func AssertAssetsMinted(t *testing.T, tapClient commands.RpcClientsBundle,
 		mintedAsset := AssertAssetState(
 			t, confirmedAssets, assetRequest.Asset.Name,
 			metaHash[:],
-			AssetAnchorCheck(mintTXID, blockHash),
+			AssetAnchorOutpointCheck(mintOutpoint, blockHash),
 			AssetScriptKeyIsLocalCheck(true),
 			AssetVersionCheck(assetRequest.Asset.AssetVersion),
 			func(a *taprpc.Asset) error {
@@ -2168,13 +2220,9 @@ func AssertAssetsMinted(t *testing.T, tapClient commands.RpcClientsBundle,
 						"outpoint")
 				}
 
-				if firstOutpoint == "" {
-					firstOutpoint = anchor.AnchorOutpoint
+				if firstOutpoint != "" &&
+					anchor.AnchorOutpoint != firstOutpoint {
 
-					return nil
-				}
-
-				if anchor.AnchorOutpoint != firstOutpoint {
 					return fmt.Errorf("unexpected anchor "+
 						"outpoint, got %v wanted %v",
 						anchor.AnchorOutpoint,
@@ -2184,6 +2232,9 @@ func AssertAssetsMinted(t *testing.T, tapClient commands.RpcClientsBundle,
 				if anchor.BlockHeight == 0 {
 					return fmt.Errorf("missing block " +
 						"height")
+				}
+				if firstOutpoint == "" {
+					firstOutpoint = anchor.AnchorOutpoint
 				}
 
 				return nil
