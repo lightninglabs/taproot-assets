@@ -51,6 +51,47 @@ func (q *Queries) FetchSupplySyncerPushLogs(ctx context.Context, groupKey []byte
 	return items, nil
 }
 
+const FetchSupplySyncerPushedServers = `-- name: FetchSupplySyncerPushedServers :many
+SELECT server_address
+FROM supply_syncer_push_log
+WHERE group_key = $1
+  AND commit_txid = $2
+  AND output_index = $3
+`
+
+type FetchSupplySyncerPushedServersParams struct {
+	GroupKey    []byte
+	CommitTxid  []byte
+	OutputIndex int32
+}
+
+// Fetches the addresses of the servers a given supply commitment has
+// already been pushed to, identified by its commitment outpoint. The
+// push log records every successful remote insert, so this is the
+// sender's durable view of which servers already hold the commitment.
+func (q *Queries) FetchSupplySyncerPushedServers(ctx context.Context, arg FetchSupplySyncerPushedServersParams) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, FetchSupplySyncerPushedServers, arg.GroupKey, arg.CommitTxid, arg.OutputIndex)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var server_address string
+		if err := rows.Scan(&server_address); err != nil {
+			return nil, err
+		}
+		items = append(items, server_address)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const InsertSupplySyncerPushLog = `-- name: InsertSupplySyncerPushLog :exec
 INSERT INTO supply_syncer_push_log (
     group_key, max_pushed_block_height, server_address, 

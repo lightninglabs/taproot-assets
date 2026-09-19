@@ -307,6 +307,14 @@ var _ NotifyArchiver = (*MultiArchiveNotifier)(nil)
 //	├─ asset_id1/
 //	│  ├─ scriptKey1-outpointTxid[:32]-outpointIndex.assetproof
 //	│  ├─ scriptKey2-outpointTxid[:32]-outpointIndex.assetproof
+//
+// In the daemon's archive the file tree mirrors the database store,
+// which the anchoring watcher's handlers rewrite and delete inside
+// their delivery transactions. The mirror cannot take part in those
+// transactions, so it is brought back into lockstep afterwards
+// through the watcher's outbox (see DispatchMirrorSync): between the
+// commit and the dispatch a file may briefly carry a stale block
+// context or outlive its deleted database counterpart.
 type FileArchiver struct {
 	// proofPath is the directory name that we'll use as the roof for all
 	// our files.
@@ -653,6 +661,28 @@ func (f *FileArchiver) HasProof(_ context.Context, id Locator) (bool, error) {
 	}
 
 	return lnrpc.FileExists(proofPath), nil
+}
+
+// RemoveProof deletes the proof file for the given locator, which must
+// name the outpoint. A file that does not exist is not an error: the
+// method keeps a mirror in lockstep with an authoritative store, and a
+// deletion replayed twice is still one deletion.
+func (f *FileArchiver) RemoveProof(_ context.Context, id Locator) error {
+	proofPath, err := genProofFileStoragePath(f.proofPath, id)
+	if err != nil {
+		return fmt.Errorf("unable to make proof file path: %w", err)
+	}
+
+	err = os.Remove(proofPath)
+	switch {
+	case os.IsNotExist(err):
+		return nil
+
+	case err != nil:
+		return fmt.Errorf("unable to remove proof file: %w", err)
+	}
+
+	return nil
 }
 
 // FetchProofs fetches all proofs for assets uniquely identified by the passed

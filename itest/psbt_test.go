@@ -2567,6 +2567,26 @@ func testPsbtTrustlessSwap(t *harnessTest) {
 		t.t, bobScriptKeyBytes, registerResp.RegisteredAsset.ScriptKey,
 	)
 
+	// A repeated registration is idempotent: the proof is already
+	// imported, so the call skips the import, re-ensures the re-org
+	// watcher registration and succeeds. This is the recovery path
+	// for a registration that failed after its import committed.
+	registerResp, err = bob.RegisterTransfer(
+		ctxb, &taprpc.RegisterTransferRequest{
+			AssetId:   assetID[:],
+			GroupKey:  mintedAsset.AssetGroup.TweakedGroupKey,
+			ScriptKey: bobScriptKeyBytes,
+			Outpoint: &taprpc.OutPoint{
+				Txid:        transferTXID[:],
+				OutputIndex: bobOutputIndex,
+			},
+		},
+	)
+	require.NoError(t.t, err)
+	require.Equal(
+		t.t, bobScriptKeyBytes, registerResp.RegisteredAsset.ScriptKey,
+	)
+
 	bobAssets, err := bob.ListAssets(ctxb, &taprpc.ListAssetRequest{})
 	require.NoError(t.t, err)
 

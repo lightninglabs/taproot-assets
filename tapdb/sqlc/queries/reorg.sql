@@ -6,14 +6,23 @@
 -- name: InsertReorgAnchoring :one
 INSERT INTO reorg_anchorings (
     site_id, threshold, match_version, match_data, payload_version,
-    payload_data, created_height, phase_code, phase_evidence,
+    payload_data, match_key, created_height, phase_code, phase_evidence,
     delivered_code, delivered_evidence, next_delivery_at
 ) VALUES (
     @site_id, @threshold, @match_version, @match_data, @payload_version,
-    @payload_data, @created_height, @phase_code, @phase_evidence,
-    @delivered_code, @delivered_evidence, 0
+    @payload_data, @match_key, @created_height, @phase_code,
+    @phase_evidence, @delivered_code, @delivered_evidence, 0
 )
 RETURNING id;
+
+-- name: LookupReorgAnchoringByMatchKey :one
+-- Returns the anchoring row for (site_id, match_key), or no rows if
+-- none exists. The unique partial index makes this O(1); it is the
+-- production shape of "does this site already have an anchoring for
+-- this identity?"
+SELECT *
+FROM reorg_anchorings
+WHERE site_id = @site_id AND match_key = @match_key;
 
 -- name: InsertReorgTriggerOutpoint :exec
 INSERT INTO reorg_trigger_outpoints (
@@ -44,6 +53,11 @@ ORDER BY spender_txid;
 SELECT *
 FROM reorg_anchorings
 WHERE phase_code < 3
+ORDER BY id;
+
+-- name: ListReorgAnchorings :many
+SELECT *
+FROM reorg_anchorings
 ORDER BY id;
 
 -- name: ListReorgAnchoringSummariesPage :many

@@ -74,7 +74,7 @@ func TestTaprootAssetsDaemon(t *testing.T) {
 		t.Skip("integration tests not selected with flag 'itest'")
 	}
 
-	ht := &harnessTest{t: t}
+	ht := &harnessTest{t: t, nodes: make(map[string]*tapdHarness)}
 	ht.setupLogging()
 
 	// Now we can set up our test harness (LND instance), with the chain
@@ -122,6 +122,8 @@ func TestTaprootAssetsDaemon(t *testing.T) {
 			tapdHarness, uniHarness, proofCourier := setupHarnesses(
 				t1, ht, lndHarness, uniServerLndHarness,
 				testCase.proofCourierType,
+				testCase.reOrgSafeDepth,
+				testCase.disableAnchoringWatcher,
 			)
 
 			ht := ht.newHarnessTest(

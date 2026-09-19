@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -135,7 +136,7 @@ func TestReorgRegistryLifecycle(t *testing.T) {
 			return tx.EnqueueEffect(
 				ctx, testEffect(newID, "phase1"),
 			)
-		},
+		}, nil,
 	)
 	require.NoError(t, err)
 
@@ -297,7 +298,7 @@ func TestReorgRegistryHandlerAtomicity(t *testing.T) {
 	ctx := context.Background()
 
 	op := testOutPoint(2, 0)
-	id, err := store.Register(ctx, testSpec(t, "porter", op), 500, nil)
+	id, err := store.Register(ctx, testSpec(t, "porter", op), 500, nil, nil)
 	require.NoError(t, err)
 
 	w := testWitness(t, 3, 600, op)
@@ -352,7 +353,7 @@ func TestReorgRegistryDependencies(t *testing.T) {
 	// output 0.
 	parentOp := testOutPoint(4, 0)
 	parentID, err := store.Register(
-		ctx, testSpec(t, "minter", parentOp), 500, nil,
+		ctx, testSpec(t, "minter", parentOp), 500, nil, nil,
 	)
 	require.NoError(t, err)
 
@@ -371,7 +372,7 @@ func TestReorgRegistryDependencies(t *testing.T) {
 
 	childOp := wire.OutPoint{Hash: wP.TxHash(), Index: 0}
 	childID, err := store.Register(
-		ctx, testSpec(t, "porter", childOp), 601, nil,
+		ctx, testSpec(t, "porter", childOp), 601, nil, nil,
 	)
 	require.NoError(t, err)
 
@@ -447,7 +448,7 @@ func TestReorgRegistryDependencies(t *testing.T) {
 	// A live, dependent-free anchoring withdraws cleanly, sensed
 	// and delivered advancing together.
 	loneID, err := store.Register(
-		ctx, testSpec(t, "porter", testOutPoint(9, 1)), 700, nil,
+		ctx, testSpec(t, "porter", testOutPoint(9, 1)), 700, nil, nil,
 	)
 	require.NoError(t, err)
 	require.NoError(t, store.Withdraw(
@@ -482,7 +483,7 @@ func TestReorgRegistryEdgesBeforeParentObserved(t *testing.T) {
 
 	parentOp := testOutPoint(4, 0)
 	parentID, err := store.Register(
-		ctx, testSpec(t, "minter", parentOp), 500, nil,
+		ctx, testSpec(t, "minter", parentOp), 500, nil, nil,
 	)
 	require.NoError(t, err)
 
@@ -492,7 +493,7 @@ func TestReorgRegistryEdgesBeforeParentObserved(t *testing.T) {
 	wP := testWitness(t, 5, 600, parentOp)
 	childOp := wire.OutPoint{Hash: wP.TxHash(), Index: 0}
 	childID, err := store.Register(
-		ctx, testSpec(t, "porter", childOp), 550, nil,
+		ctx, testSpec(t, "porter", childOp), 550, nil, nil,
 	)
 	require.NoError(t, err)
 
@@ -536,7 +537,7 @@ func TestReorgRegistryEdgesBeforeParentObserved(t *testing.T) {
 
 	child2Op := wire.OutPoint{Hash: wP.TxHash(), Index: 1}
 	child2ID, err := store.Register(
-		ctx, testSpec(t, "porter", child2Op), 610, nil,
+		ctx, testSpec(t, "porter", child2Op), 610, nil, nil,
 	)
 	require.NoError(t, err)
 
@@ -551,7 +552,7 @@ func TestReorgRegistryEdgesBeforeParentObserved(t *testing.T) {
 	wF := testWitness(t, 6, 610, parentOp)
 	child3Op := wire.OutPoint{Hash: wF.TxHash(), Index: 0}
 	_, err = store.Register(
-		ctx, testSpec(t, "porter", child3Op), 611, nil,
+		ctx, testSpec(t, "porter", child3Op), 611, nil, nil,
 	)
 	require.NoError(t, err)
 
@@ -584,7 +585,7 @@ func TestReorgRegistryPartialSatisfierRefused(t *testing.T) {
 	opA := testOutPoint(70, 0)
 	opB := testOutPoint(70, 1)
 	id, err := store.Register(
-		ctx, testSpec(t, "minter", opA, opB), 500, nil,
+		ctx, testSpec(t, "minter", opA, opB), 500, nil, nil,
 	)
 	require.NoError(t, err)
 
@@ -635,7 +636,7 @@ func TestReorgRegistryBurialSettlesEdges(t *testing.T) {
 
 	parentOp := testOutPoint(50, 0)
 	parentID, err := store.Register(
-		ctx, testSpec(t, "minter", parentOp), 500, nil,
+		ctx, testSpec(t, "minter", parentOp), 500, nil, nil,
 	)
 	require.NoError(t, err)
 
@@ -665,14 +666,14 @@ func TestReorgRegistryBurialSettlesEdges(t *testing.T) {
 		ctx, testSpec(
 			t, "porter",
 			wire.OutPoint{Hash: wP.TxHash(), Index: 0},
-		), 601, nil,
+		), 601, nil, nil,
 	)
 	require.NoError(t, err)
 	childBID, err := store.Register(
 		ctx, testSpec(
 			t, "porter",
 			wire.OutPoint{Hash: wQ.TxHash(), Index: 0},
-		), 602, nil,
+		), 602, nil, nil,
 	)
 	require.NoError(t, err)
 
@@ -721,7 +722,7 @@ func TestReorgRegistryTerminalAbsorbing(t *testing.T) {
 	ctx := context.Background()
 
 	op := testOutPoint(30, 0)
-	id, err := store.Register(ctx, testSpec(t, "porter", op), 500, nil)
+	id, err := store.Register(ctx, testSpec(t, "porter", op), 500, nil, nil)
 	require.NoError(t, err)
 
 	w := testWitness(t, 31, 600, op)
@@ -742,7 +743,7 @@ func TestReorgRegistryTerminalAbsorbing(t *testing.T) {
 	// straggling write must lose, and the withdrawal outcome must
 	// survive intact, sensed and delivered alike.
 	id2, err := store.Register(
-		ctx, testSpec(t, "porter", testOutPoint(32, 0)), 500, nil,
+		ctx, testSpec(t, "porter", testOutPoint(32, 0)), 500, nil, nil,
 	)
 	require.NoError(t, err)
 	require.NoError(t, store.Withdraw(ctx, id2, nil))
@@ -773,7 +774,7 @@ func TestReorgRegistryCertifiedForeclosureFrozen(t *testing.T) {
 
 	parentOp := testOutPoint(40, 0)
 	parentID, err := store.Register(
-		ctx, testSpec(t, "minter", parentOp), 500, nil,
+		ctx, testSpec(t, "minter", parentOp), 500, nil, nil,
 	)
 	require.NoError(t, err)
 
@@ -792,7 +793,7 @@ func TestReorgRegistryCertifiedForeclosureFrozen(t *testing.T) {
 
 	childOp := wire.OutPoint{Hash: wP.TxHash(), Index: 0}
 	childID, err := store.Register(
-		ctx, testSpec(t, "porter", childOp), 601, nil,
+		ctx, testSpec(t, "porter", childOp), 601, nil, nil,
 	)
 	require.NoError(t, err)
 
@@ -874,9 +875,13 @@ func TestReorgRegistryStrongestForeclosure(t *testing.T) {
 	// one output of each, so both edges derive at registration.
 	op1 := testOutPoint(0xa1, 0)
 	op2 := testOutPoint(0xa2, 0)
-	p1, err := store.Register(ctx, testSpec(t, "minter", op1), 500, nil)
+	p1, err := store.Register(
+		ctx, testSpec(t, "minter", op1), 500, nil, nil,
+	)
 	require.NoError(t, err)
-	p2, err := store.Register(ctx, testSpec(t, "minter", op2), 500, nil)
+	p2, err := store.Register(
+		ctx, testSpec(t, "minter", op2), 500, nil, nil,
+	)
 	require.NoError(t, err)
 
 	wP1 := testWitness(t, 0xb1, 600, op1)
@@ -908,7 +913,7 @@ func TestReorgRegistryStrongestForeclosure(t *testing.T) {
 		t, "porter",
 		wire.OutPoint{Hash: wP1.TxHash(), Index: 0},
 		wire.OutPoint{Hash: wP2.TxHash(), Index: 0},
-	), 601, nil)
+	), 601, nil, nil)
 	require.NoError(t, err)
 
 	edges, err := store.IncomingEdges(ctx, childID)
@@ -1011,7 +1016,7 @@ func TestReorgRegistryQueryAnchorings(t *testing.T) {
 		}
 		op := testOutPoint(50+byte(i), 0)
 		id, err := store.Register(
-			ctx, testSpec(t, site, op), 500, nil,
+			ctx, testSpec(t, site, op), 500, nil, nil,
 		)
 		require.NoError(t, err)
 		ids = append(ids, id)
@@ -1141,7 +1146,7 @@ func TestReorgRegistryObservabilityRollups(t *testing.T) {
 
 		id, err := store.Register(
 			ctx, testSpec(t, site, testOutPoint(seed, 0)), 500,
-			nil,
+			nil, nil,
 		)
 		require.NoError(t, err)
 
@@ -1237,7 +1242,7 @@ func TestReorgRegistryRapid(t *testing.T) {
 				op := testOutPoint(seed, uint32(seed))
 				id, err := store.Register(
 					ctx, testSpec(rt, "site", op), 500,
-					nil,
+					nil, nil,
 				)
 				require.NoError(rt, err)
 
@@ -1377,6 +1382,301 @@ func TestReorgRegistryRapid(t *testing.T) {
 	})
 }
 
+// TestReorgRegistrySeedCandidate exercises the seeded-registration
+// path: a spec that provides a SeedCandidate stores it in the
+// registration transaction, the anchoring's chain view reflects the
+// seed, and phase derivation immediately observes Witnessed. This is
+// the shape a genesis-shaped receive uses to stake on a proof file's
+// tip anchor tx, which is already known confirmed at registration.
+func TestReorgRegistrySeedCandidate(t *testing.T) {
+	t.Parallel()
+
+	store, _ := newReorgStore(t)
+	ctx := context.Background()
+
+	// Build the seed's witness and block context. The tx's input
+	// is a wallet UTXO from the caller's world; the seeded-
+	// registration path does not watch it — the tx IS the
+	// witnessing spender, and the anchoring's chain view records
+	// the tx directly without a trigger set.
+	fundingOp := testOutPoint(0x11, 0)
+	tx := wire.NewMsgTx(2)
+	tx.AddTxIn(wire.NewTxIn(&fundingOp, nil, nil))
+	tx.AddTxOut(wire.NewTxOut(1_000, []byte{0x51, 0xaa}))
+	var blockHash chainhash.Hash
+	blockHash[0] = 0xaa
+	witness, err := tapreorg.NewWitness(tx, blockHash, 600, 1)
+	require.NoError(t, err)
+
+	header := &wire.BlockHeader{Timestamp: time.Unix(1, 0)}
+	merkle := &proof.TxMerkleProof{
+		Bits:  []bool{false},
+		Nodes: []chainhash.Hash{},
+	}
+
+	spec := tapreorg.RegistrationSpec{
+		Site:      "receiver",
+		Triggers:  tapreorg.TriggerSet{},
+		MatchData: tapreorg.VersionedBlob{Version: 1},
+		Payload:   tapreorg.VersionedBlob{Version: 1},
+		Threshold: 6,
+		SeedCandidate: &tapreorg.CandidateSpend{
+			W:           witness,
+			Verdict:     tapreorg.VerdictSatisfies,
+			OnChain:     true,
+			BlockHeader: header,
+			MerkleProof: merkle,
+		},
+	}
+
+	// The reconcile callback runs on the registration transaction
+	// against the seeded anchoring, already stamped on the phase
+	// the seed derives.
+	var reconciled *tapreorg.Anchoring
+	reconcile := func(_ context.Context, _ tapreorg.RegistryTx,
+		anchoring *tapreorg.Anchoring,
+		added []tapreorg.TriggerOutPoint) error {
+
+		require.Empty(t, added)
+		reconciled = anchoring
+
+		return nil
+	}
+
+	id, err := store.Register(ctx, spec, 500, nil, reconcile)
+	require.NoError(t, err)
+
+	// The seed is durable in the registration transaction.
+	view, err := store.ChainView(ctx, id)
+	require.NoError(t, err)
+	require.Len(t, view.Spends, 1)
+	require.Equal(t, witness.TxHash(), view.Spends[0].W.TxHash())
+	require.True(t, view.Spends[0].OnChain)
+	require.NotNil(t, view.Spends[0].BlockHeader)
+	require.NotNil(t, view.Spends[0].MerkleProof)
+
+	// Phase derivation reports Witnessed, and so does the row: a
+	// seeded registration is born on the seed's phase, sensed and
+	// delivered alike, rather than at the Unwitnessed default.
+	phase := tapreorg.DerivePhase(view)
+	require.IsType(t, tapreorg.Witnessed{}, phase)
+
+	anchoring, err := store.GetAnchoring(ctx, id)
+	require.NoError(t, err)
+	require.True(t, tapreorg.PhaseEqual(anchoring.Phase, phase))
+	require.True(
+		t, tapreorg.PhaseEqual(anchoring.DeliveredPhase, phase),
+	)
+
+	// The callback saw the birth phase with the seed as the only
+	// candidate.
+	require.NotNil(t, reconciled)
+	require.Equal(t, id, reconciled.ID)
+	require.True(t, tapreorg.PhaseEqual(reconciled.Phase, phase))
+	require.True(
+		t, tapreorg.PhaseEqual(reconciled.DeliveredPhase, phase),
+	)
+	require.Len(t, reconciled.Spends, 1)
+}
+
+// TestReorgRegistrySeedBirthAtomic asserts that a seeded
+// registration's birth delivery is part of the registration
+// transaction: a failing reconcile callback leaves no anchoring
+// behind, and a seed can accompany a trigger set, in which case the
+// triggers are recorded alongside the seed.
+func TestReorgRegistrySeedBirthAtomic(t *testing.T) {
+	t.Parallel()
+
+	store, _ := newReorgStore(t)
+	ctx := context.Background()
+
+	fundingOp := testOutPoint(0x12, 0)
+	tx := wire.NewMsgTx(2)
+	tx.AddTxIn(wire.NewTxIn(&fundingOp, nil, nil))
+	tx.AddTxOut(wire.NewTxOut(1_000, []byte{0x51, 0xab}))
+	var blockHash chainhash.Hash
+	blockHash[0] = 0xab
+	witness, err := tapreorg.NewWitness(tx, blockHash, 600, 1)
+	require.NoError(t, err)
+
+	seed := &tapreorg.CandidateSpend{
+		W:           witness,
+		Verdict:     tapreorg.VerdictSatisfies,
+		OnChain:     true,
+		BlockHeader: &wire.BlockHeader{Timestamp: time.Unix(1, 0)},
+		MerkleProof: &proof.TxMerkleProof{
+			Bits:  []bool{false},
+			Nodes: []chainhash.Hash{},
+		},
+	}
+	matchKey := []byte("seed-birth")
+
+	// The seed rides alongside the trigger it spends.
+	spec := testSpec(t, "receiver", fundingOp)
+	spec.MatchKey = matchKey
+	spec.SeedCandidate = seed
+
+	// A failing birth delivery aborts the registration whole.
+	boom := errors.New("site refuses the birth phase")
+	failing := func(_ context.Context, _ tapreorg.RegistryTx,
+		_ *tapreorg.Anchoring, _ []tapreorg.TriggerOutPoint) error {
+
+		return boom
+	}
+	_, err = store.Register(ctx, spec, 500, nil, failing)
+	require.ErrorIs(t, err, boom)
+
+	existing, err := store.LookupByMatchKey(ctx, "receiver", matchKey)
+	require.NoError(t, err)
+	require.Nil(t, existing, "aborted registration left a row")
+
+	// The same registration with a consenting site lands with both
+	// the trigger and the seed recorded.
+	id, err := store.Register(ctx, spec, 500, nil, nil)
+	require.NoError(t, err)
+
+	anchoring, err := store.GetAnchoring(ctx, id)
+	require.NoError(t, err)
+	require.Equal(t, 1, anchoring.Triggers.Len())
+	require.Len(t, anchoring.Spends, 1)
+	require.Equal(t, witness.TxHash(), anchoring.Spends[0].W.TxHash())
+	require.IsType(t, tapreorg.Witnessed{}, anchoring.Phase)
+	require.True(
+		t, tapreorg.PhaseEqual(
+			anchoring.DeliveredPhase, anchoring.Phase,
+		),
+	)
+
+	// An attach to the seeded anchoring reconciles against the
+	// birth phase, not the registry's Unwitnessed default.
+	var attached *tapreorg.Anchoring
+	again, err := store.Register(
+		ctx, spec, 501, nil,
+		func(_ context.Context, _ tapreorg.RegistryTx,
+			anchoring *tapreorg.Anchoring,
+			_ []tapreorg.TriggerOutPoint) error {
+
+			attached = anchoring
+
+			return nil
+		},
+	)
+	require.NoError(t, err)
+	require.Equal(t, id, again)
+	require.NotNil(t, attached)
+	require.IsType(t, tapreorg.Witnessed{}, attached.DeliveredPhase)
+}
+
+// TestReorgRegistrySeedCandidateValidation asserts the value-level
+// checks on a seeded spec: on-chain, with a block header and merkle
+// proof.
+func TestReorgRegistrySeedCandidateValidation(t *testing.T) {
+	t.Parallel()
+
+	tx := wire.NewMsgTx(2)
+	tx.AddTxOut(wire.NewTxOut(1_000, []byte{0x51, 0xbb}))
+	var blockHash chainhash.Hash
+	blockHash[0] = 0xbb
+	witness, err := tapreorg.NewWitness(tx, blockHash, 700, 0)
+	require.NoError(t, err)
+
+	base := tapreorg.RegistrationSpec{
+		Site:      "receiver",
+		MatchData: tapreorg.VersionedBlob{Version: 1},
+		Payload:   tapreorg.VersionedBlob{Version: 1},
+		Threshold: 6,
+	}
+
+	// Empty triggers with no seed → ErrEmptyTriggerSet.
+	err = base.Validate()
+	require.ErrorIs(t, err, tapreorg.ErrEmptyTriggerSet)
+
+	// Seed not on-chain.
+	spec := base
+	spec.SeedCandidate = &tapreorg.CandidateSpend{
+		W:       witness,
+		Verdict: tapreorg.VerdictSatisfies,
+		OnChain: false,
+	}
+	require.ErrorContains(t, spec.Validate(), "on-chain")
+
+	// Seed on-chain but missing block header.
+	spec.SeedCandidate.OnChain = true
+	require.ErrorContains(t, spec.Validate(), "block header")
+
+	// Header set, merkle proof missing.
+	spec.SeedCandidate.BlockHeader = &wire.BlockHeader{}
+	require.ErrorContains(t, spec.Validate(), "merkle proof")
+
+	// Full valid seed.
+	spec.SeedCandidate.MerkleProof = &proof.TxMerkleProof{}
+	require.NoError(t, spec.Validate())
+}
+
+// TestReorgRegistryLookupByMatchKey asserts the indexed identity
+// lookup: registrations with a MatchKey are stored under (site,
+// match_key), a second Register with the same key is absorbed by the
+// unique index into the existing anchoring, and LookupByMatchKey
+// returns the anchoring in O(1). An empty match key disables the
+// check.
+func TestReorgRegistryLookupByMatchKey(t *testing.T) {
+	t.Parallel()
+
+	store, _ := newReorgStore(t)
+	ctx := context.Background()
+
+	spec := testSpec(t, "porter", testOutPoint(1, 0))
+	spec.MatchKey = []byte("txid-1")
+
+	id, err := store.Register(ctx, spec, 500, nil, nil)
+	require.NoError(t, err)
+
+	// Round-trip through GetAnchoring surfaces the key.
+	anchoring, err := store.GetAnchoring(ctx, id)
+	require.NoError(t, err)
+	require.Equal(t, spec.MatchKey, anchoring.MatchKey)
+
+	// Indexed lookup returns the same anchoring.
+	found, err := store.LookupByMatchKey(ctx, "porter", spec.MatchKey)
+	require.NoError(t, err)
+	require.NotNil(t, found)
+	require.Equal(t, id, found.ID)
+
+	// Miss returns (nil, nil).
+	miss, err := store.LookupByMatchKey(ctx, "porter", []byte("nope"))
+	require.NoError(t, err)
+	require.Nil(t, miss)
+
+	// Empty key returns (nil, nil) without hitting the index.
+	miss, err = store.LookupByMatchKey(ctx, "porter", nil)
+	require.NoError(t, err)
+	require.Nil(t, miss)
+
+	// Registering the same site + match_key again hits the unique
+	// partial index and is absorbed into the existing anchoring.
+	dup := testSpec(t, "porter", testOutPoint(2, 0))
+	dup.MatchKey = spec.MatchKey
+	dupID, err := store.Register(ctx, dup, 500, nil, nil)
+	require.NoError(t, err)
+	require.Equal(t, id, dupID)
+
+	// A registration with the same key at a DIFFERENT site is fine:
+	// the index is per-site.
+	crossSite := testSpec(t, "custody", testOutPoint(3, 0))
+	crossSite.MatchKey = spec.MatchKey
+	_, err = store.Register(ctx, crossSite, 500, nil, nil)
+	require.NoError(t, err)
+
+	// Two registrations at the same site with NULL match_key coexist:
+	// the unique index excludes null keys.
+	free1 := testSpec(t, "porter", testOutPoint(4, 0))
+	_, err = store.Register(ctx, free1, 500, nil, nil)
+	require.NoError(t, err)
+	free2 := testSpec(t, "porter", testOutPoint(5, 0))
+	_, err = store.Register(ctx, free2, 500, nil, nil)
+	require.NoError(t, err)
+}
+
 // TestReorgRegistryDeliveryFreshAggregate pins the fresh-aggregate
 // contract: the anchoring aggregate handed to the delivery handler is
 // assembled INSIDE the delivery transaction, so candidate enrichment
@@ -1392,7 +1692,7 @@ func TestReorgRegistryDeliveryFreshAggregate(t *testing.T) {
 
 	op := testOutPoint(42, 0)
 	id, err := store.Register(
-		ctx, testSpec(t, "porter", op), 500, nil,
+		ctx, testSpec(t, "porter", op), 500, nil, nil,
 	)
 	require.NoError(t, err)
 
@@ -1455,4 +1755,166 @@ func TestReorgRegistryDeliveryFreshAggregate(t *testing.T) {
 		},
 	)
 	require.NoError(t, err)
+}
+
+// TestReorgRegistryRegisterIdempotent asserts registration's identity
+// idempotency. Every call site deduplicates by lookup-then-register,
+// which is only atomic inside Register itself: a duplicate that slips
+// past the lookup must be absorbed by the (site, match_key) unique
+// index and answered with the winner's ID, not surfaced as a
+// constraint error. The loser's phase-1 write must not run — the
+// winner's already did, inside its own registration transaction.
+func TestReorgRegistryRegisterIdempotent(t *testing.T) {
+	t.Parallel()
+
+	store, _ := newReorgStore(t)
+	ctx := context.Background()
+
+	site := tapreorg.SiteID("idem-site")
+
+	spec := testSpec(t, site, testOutPoint(1, 0))
+	spec.MatchKey = []byte("identity-1")
+
+	var phase1Runs int
+	phase1 := func(context.Context, tapreorg.RegistryTx,
+		tapreorg.AnchoringID) error {
+
+		phase1Runs++
+
+		return nil
+	}
+
+	id1, err := store.Register(ctx, spec, 500, phase1, nil)
+	require.NoError(t, err)
+	require.Equal(t, 1, phase1Runs)
+
+	id2, err := store.Register(ctx, spec, 501, phase1, nil)
+	require.NoError(t, err)
+	require.Equal(t, id1, id2)
+	require.Equal(t, 1, phase1Runs)
+
+	all, err := store.AllAnchorings(ctx)
+	require.NoError(t, err)
+	require.Len(t, all, 1)
+
+	// A different identity on the same site still registers fresh.
+	spec2 := testSpec(t, site, testOutPoint(2, 0))
+	spec2.MatchKey = []byte("identity-2")
+
+	id3, err := store.Register(ctx, spec2, 502, nil, nil)
+	require.NoError(t, err)
+	require.NotEqual(t, id1, id3)
+}
+
+// TestReorgRegistryRegisterRace registers one identity from several
+// goroutines at once — the receive site's shape, where the custodian
+// loop, the RegisterTransfer RPC and the aux sweeper can all present
+// the same proof — and requires every caller to converge on a single
+// anchoring.
+func TestReorgRegistryRegisterRace(t *testing.T) {
+	t.Parallel()
+
+	store, _ := newReorgStore(t)
+	ctx := context.Background()
+
+	site := tapreorg.SiteID("race-site")
+
+	const callers = 8
+
+	// Specs are built on the test goroutine: the require helpers
+	// inside the spec builders must not run anywhere else.
+	specs := make([]tapreorg.RegistrationSpec, callers)
+	for i := range specs {
+		specs[i] = testSpec(t, site, testOutPoint(3, 0))
+		specs[i].MatchKey = []byte("contended-identity")
+	}
+
+	var (
+		wg   sync.WaitGroup
+		ids  [callers]tapreorg.AnchoringID
+		errs [callers]error
+	)
+	for i := 0; i < callers; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			ids[i], errs[i] = store.Register(
+				ctx, specs[i], 500, nil, nil,
+			)
+		}(i)
+	}
+	wg.Wait()
+
+	for i := 0; i < callers; i++ {
+		require.NoError(t, errs[i])
+		require.Equal(t, ids[0], ids[i])
+	}
+
+	all, err := store.AllAnchorings(ctx)
+	require.NoError(t, err)
+	require.Len(t, all, 1)
+}
+
+// TestReorgRegistryPhase1OnAttach pins the phase-1 write's attach
+// semantics: skipped by default, run on the shared anchoring when the
+// spec marks the stake as the registration's own, and rolled back
+// with the registration transaction either way.
+func TestReorgRegistryPhase1OnAttach(t *testing.T) {
+	t.Parallel()
+
+	store, testClock := newReorgStore(t)
+	ctx := context.Background()
+
+	spec := testSpec(t, "receiver", testOutPoint(0x61, 0))
+	spec.MatchKey = []byte("attach-stake")
+
+	var runs int
+	stake := func(ctx context.Context, tx tapreorg.RegistryTx,
+		id tapreorg.AnchoringID) error {
+
+		runs++
+
+		return tx.EnqueueEffect(
+			ctx, testEffect(id, fmt.Sprintf("stake-%d", runs)),
+		)
+	}
+
+	id, err := store.Register(ctx, spec, 500, stake, nil)
+	require.NoError(t, err)
+	require.Equal(t, 1, runs)
+
+	// A plain attach skips the phase-1 write: the original
+	// registration's stake stands for the identity.
+	again, err := store.Register(ctx, spec, 500, stake, nil)
+	require.NoError(t, err)
+	require.Equal(t, id, again)
+	require.Equal(t, 1, runs)
+
+	// An attach whose stake is its own runs it on the shared
+	// anchoring, in the attach transaction.
+	spec.Phase1OnAttach = true
+	again, err = store.Register(ctx, spec, 500, stake, nil)
+	require.NoError(t, err)
+	require.Equal(t, id, again)
+	require.Equal(t, 2, runs)
+
+	pending, err := store.PendingEffects(ctx, testClock.Now(), 10)
+	require.NoError(t, err)
+	require.Len(t, pending, 2)
+
+	// A failure later in the attach transaction rolls the phase-1
+	// write back with it.
+	boom := errors.New("site refuses the attach")
+	failing := func(_ context.Context, _ tapreorg.RegistryTx,
+		_ *tapreorg.Anchoring, _ []tapreorg.TriggerOutPoint) error {
+
+		return boom
+	}
+	_, err = store.Register(ctx, spec, 500, stake, failing)
+	require.ErrorIs(t, err, boom)
+	require.Equal(t, 3, runs)
+
+	pending, err = store.PendingEffects(ctx, testClock.Now(), 10)
+	require.NoError(t, err)
+	require.Len(t, pending, 2)
 }

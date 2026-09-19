@@ -138,6 +138,7 @@ type AssetTransfer struct {
 	Label                 sql.NullString
 	SkipAnchorTxBroadcast bool
 	Superseded            bool
+	Abandoned             bool
 }
 
 type AssetTransferInput struct {
@@ -405,6 +406,7 @@ type ReorgAnchoring struct {
 	LastDeliveryError sql.NullString
 	NextDeliveryAt    int64
 	TerminalAt        sql.NullInt64
+	MatchKey          []byte
 }
 
 type ReorgCandidateSpend struct {

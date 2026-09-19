@@ -12502,6 +12502,12 @@ func (r *RPCServer) DecodeAssetPayReq(ctx context.Context,
 // local universe (e.g. through the use of the universerpc.InsertProof RPC or
 // the universe proof courier and universe sync mechanisms) and this call
 // simply instructs the daemon to detect the transfer as an asset it owns.
+//
+// Recovery invariant. The RPC is caller-driven; a crash between the archive
+// import and the anchoring registration is recovered by the caller retrying.
+// Both ImportProofs (idempotent via archive locator dedupe) and
+// RegisterReceiveAnchoring (idempotent via the anchoring registry's
+// (site, match_key) unique index) tolerate the repeat cleanly.
 func (r *RPCServer) RegisterTransfer(ctx context.Context,
 	req *taprpc.RegisterTransferRequest) (*taprpc.RegisterTransferResponse,
 	error) {
@@ -12577,16 +12583,18 @@ func (r *RPCServer) RegisterTransfer(ctx context.Context,
 			"belong to this node: %w", err)
 	}
 
-	// Next, we make sure we don't already have this proof in the local
-	// archive (only in the universe). If we have, it means the user already
-	// imported it, and we don't want to overwrite it.
+	// Check whether this proof is already in the local archive (and
+	// not just in the universe). If it is, the user imported it
+	// before — possibly through a run of this RPC that failed after
+	// the import committed but before the watcher registration
+	// below. Rejecting would leave no way to re-drive that
+	// registration, so the import is skipped instead (the existing
+	// proof is never overwritten) and the call falls through to the
+	// idempotent registration, making retries safe.
 	haveProof, err := r.cfg.ProofArchive.HasProof(ctx, locator)
 	if err != nil {
 		return nil, fmt.Errorf("error checking if proof is available: "+
 			"%w", err)
-	}
-	if haveProof {
-		return nil, fmt.Errorf("proof already exists for this transfer")
 	}
 
 	// We now fetch the full proof file from the local multiverse store,
@@ -12603,25 +12611,48 @@ func (r *RPCServer) RegisterTransfer(ctx context.Context,
 			err)
 	}
 
-	// All seems well, we can now import the proof into our local proof
-	// archive, which will also materialize an asset in the asset database.
-	err = r.cfg.ProofArchive.ImportProofs(
-		ctx, r.ProofVerifierCtx(ctx), false, &proof.AnnotatedProof{
-			Locator: locator,
-			Blob:    fullProvenance,
-		},
-	)
-	if err != nil {
-		return nil, fmt.Errorf("error importing proof: %w", err)
-	}
+	// With the anchoring watcher the import and the registration
+	// commit together: the receiver never holds an asset the watcher
+	// does not, a receive the watcher has abandoned is refused (the
+	// universe's copy outlived the compensation), and a file that
+	// cannot be staked is refused rather than held. A proof already
+	// imported — a run of this RPC that failed after its stake
+	// committed — is staked again without being imported twice, so
+	// retries are safe. Without the watcher the archive import and
+	// the legacy proof watcher stand in.
+	if r.cfg.AnchoringWatcher != nil && r.cfg.AssetCustodian != nil {
+		err := r.cfg.AssetCustodian.StakeReceive(
+			ctx, &proof.AnnotatedProof{
+				Locator: locator,
+				Blob:    fullProvenance,
+			},
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error staking received "+
+				"proof: %w", err)
+		}
+	} else {
+		if !haveProof {
+			err = r.cfg.ProofArchive.ImportProofs(
+				ctx, r.ProofVerifierCtx(ctx), false,
+				&proof.AnnotatedProof{
+					Locator: locator,
+					Blob:    fullProvenance,
+				},
+			)
+			if err != nil {
+				return nil, fmt.Errorf("error importing "+
+					"proof: %w", err)
+			}
+		}
 
-	// In case this proof hasn't been buried sufficiently, let's also hand
-	// it to the re-org watcher.
-	err = r.cfg.ReOrgWatcher.MaybeWatch(
-		proofFile, r.cfg.ReOrgWatcher.DefaultUpdateCallback(),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("error watching received proof: %w", err)
+		err = r.cfg.ReOrgWatcher.MaybeWatch(
+			proofFile, r.cfg.ReOrgWatcher.DefaultUpdateCallback(),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error watching received "+
+				"proof: %w", err)
+		}
 	}
 
 	lastProof, err := proofFile.LastProof()
@@ -12721,7 +12752,7 @@ func (r *RPCServer) ExportAssetWalletBackup(ctx context.Context,
 	// Delegate to the backup package.
 	blob, err := backup.ExportBackup(
 		ctx, mode, confirmedAssets, r.cfg.ProofArchive,
-		r.cfg.TapAddrBook, fedURLs,
+		r.cfg.TapAddrBook, r.cfg.TapAddrBook, fedURLs,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to export backup: %w", err)
@@ -12739,13 +12770,14 @@ func (r *RPCServer) ImportAssetsFromBackup(ctx context.Context,
 	*wrpc.ImportAssetsFromBackupResponse, error) {
 
 	cfg := &backup.ImportConfig{
-		SpendChecker:  r.cfg.Lnd.ChainNotifier,
-		ChainQuerier:  r.cfg.ChainBridge,
-		ProofArchive:  r.cfg.ProofArchive,
-		KeyRegistrar:  r.cfg.TapAddrBook,
-		ProofVerifier: r.ProofVerifierCtx(ctx),
-		KeyDeriver:    r.cfg.Lnd.WalletKit,
-		WalletProofs:  r.cfg.AssetStore,
+		SpendChecker:   r.cfg.Lnd.ChainNotifier,
+		ChainQuerier:   r.cfg.ChainBridge,
+		ProofArchive:   r.cfg.ProofArchive,
+		KeyRegistrar:   r.cfg.TapAddrBook,
+		ProofVerifier:  r.ProofVerifierCtx(ctx),
+		KeyDeriver:     r.cfg.Lnd.WalletKit,
+		WalletProofs:   r.cfg.AssetStore,
+		GroupRegistrar: r.cfg.TapAddrBook,
 	}
 
 	numImported, numSkipped, err := backup.ImportBackup(

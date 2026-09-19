@@ -135,6 +135,19 @@ type AuxSweeperCfg struct {
 	// a proof should be ignored.
 	IgnoreChecker lfn.Option[proof.IgnoreChecker]
 
+	// AnchoringRegistrar registers imported sweep and commitment
+	// proof files as speculative anchorings with the re-org watcher,
+	// which then owns their full re-org lifecycle (re-confirmation
+	// patching, conflict downgrades, and abandonment compensation
+	// when a different sweep form wins). Implemented by the
+	// custodian: the sweep side's speculative state has exactly the
+	// receive shape — an imported file plus materialized asset rows
+	// keyed to an anchor transaction. When a replacement sweep form
+	// confirms after a re-org, its own materialization registers a
+	// fresh anchoring for the winning transaction, while the stale
+	// form's anchoring abandons and compensates its rows.
+	AnchoringRegistrar ReceiveAnchoringRegistrar
+
 	// ProofWatcher is used to watch proofs we import for their anchor
 	// transaction being re-organized out of the chain, so their block
 	// info can be patched once it re-confirms.
@@ -1771,6 +1784,13 @@ func importOutputProofs(ctx context.Context, scid lnwire.ShortChannelID,
 // archiver, which creates the asset row as a side effect. The import is
 // idempotent, so it is safe to call this for outputs that have already been
 // materialized through another path.
+//
+// Recovery invariant. A crash between the archive import and the anchoring
+// registration is recovered by LND replaying the force-close resolution on
+// restart, which re-invokes this materialization. Both ImportProofs
+// (idempotent via archive locator dedupe) and RegisterReceiveAnchoring
+// (idempotent via the anchoring registry's (site, match_key) unique index)
+// tolerate the repeat cleanly.
 func (a *AuxSweeper) materializeAssetOutputs(ctx context.Context,
 	outputs []*cmsg.AssetOutput) error {
 
@@ -1842,29 +1862,56 @@ func (a *AuxSweeper) materializeAssetOutputs(ctx context.Context,
 			"outpoint=%v, script_key=%x", outProof.OutPoint(),
 			outProof.Asset.ScriptKey.PubKey.SerializeCompressed())
 
-		err = a.cfg.ProofArchive.ImportProofs(
-			ctx, vCtx, false, &proof.AnnotatedProof{
-				Locator: locator,
-				Blob:    finalProofBuf.Bytes(),
-			},
-		)
-		if err != nil {
-			return fmt.Errorf("unable to import proof: %w", err)
+		annotated := &proof.AnnotatedProof{
+			Locator: locator,
+			Blob:    finalProofBuf.Bytes(),
 		}
 
-		// Hand the transition proof to the re-org watcher, so its
-		// block info is patched in the archive if the commitment
-		// transaction is re-organized into a different block.
-		err = a.cfg.ProofWatcher.WatchProofs(
-			[]*proof.Proof{outProof},
-			a.cfg.ProofWatcher.DefaultUpdateCallback(),
-		)
-		if err != nil {
-			return fmt.Errorf("unable to watch proof: %w", err)
+		// With the re-org watcher the import and the stake commit
+		// together: the swept output is never held without
+		// custody, and a file that cannot be staked is refused
+		// rather than held. Without it the archive import and the
+		// legacy proof watcher stand in.
+		if a.cfg.AnchoringRegistrar != nil {
+			err := a.cfg.AnchoringRegistrar.StakeReceive(
+				ctx, annotated,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to stake swept "+
+					"proof: %w", err)
+			}
+		} else {
+			err = a.cfg.ProofArchive.ImportProofs(
+				ctx, vCtx, false, annotated,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to import proof: %w",
+					err)
+			}
+
+			err = a.cfg.ProofWatcher.WatchProofs(
+				[]*proof.Proof{outProof},
+				a.cfg.ProofWatcher.DefaultUpdateCallback(),
+			)
+			if err != nil {
+				return fmt.Errorf("unable to watch proof: "+
+					"%w", err)
+			}
 		}
 	}
 
 	return nil
+}
+
+// ReceiveAnchoringRegistrar stakes a received proof file on the
+// re-org watcher: the import and the anchoring commit together.
+type ReceiveAnchoringRegistrar interface {
+	// StakeReceive verifies the proof file and commits its import
+	// and its anchoring in one registration transaction. Files
+	// with derivable asset-bearing triggers register the ordinary
+	// way; single-proof genesis-shaped files seed the anchor tx
+	// directly as the anchoring's candidate spend.
+	StakeReceive(ctx context.Context, p *proof.AnnotatedProof) error
 }
 
 // importCommitTx imports the commitment transaction into the wallet. This is
@@ -2761,9 +2808,18 @@ func (a *AuxSweeper) registerAndBroadcastSweep(req *sweep.BumpRequest,
 	sweepTx *wire.MsgTx, fee btcutil.Amount,
 	outpointToTxIndex map[wire.OutPoint]int) error {
 
-	// TODO(roasbeef): need to handle replacement -- will porter just
-	// upsert in place?
-
+	// Replacement handling. A sweep replacement (RBF, CPFP, or an
+	// input-set change on fee-bump) reaches here as a fresh call
+	// with a different txid, which the porter registers as a new
+	// anchoring keyed on that txid. Original and replacement live
+	// side by side; when the replacement buries, the original's
+	// EvaluateCandidate treats it as a foreign spend of its trigger
+	// inputs, which drives the original anchoring through
+	// Conflicted to Abandoned. The porter's OnAbandoned handler
+	// compensates the abandoned transfer (transfer superseded,
+	// UTXOs unswept, leases released, passive assets restored), so
+	// no upsert-in-place is required here — form-change composition
+	// handles it structurally.
 	log.Infof("Register broadcast of sweep_tx=%v",
 		limitSpewer.Sdump(sweepTx))
 

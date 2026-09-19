@@ -858,6 +858,15 @@ func (s *Server) Stop() error {
 		return err
 	}
 
+	// The federation envoy stops before the anchoring watcher: the
+	// watcher's mint-publish effect waits on the envoy's serial loop,
+	// which ignores the attempt context and returns only once the
+	// envoy quits, so a federation member that never answers would
+	// otherwise park the watcher's shutdown behind it.
+	if err := s.cfg.UniverseFederation.Stop(); err != nil {
+		return err
+	}
+
 	if s.cfg.AnchoringWatcher != nil {
 		if err := s.cfg.AnchoringWatcher.Stop(); err != nil {
 			return err
@@ -865,10 +874,6 @@ func (s *Server) Stop() error {
 	}
 
 	if err := s.cfg.ChainPorter.Stop(); err != nil {
-		return err
-	}
-
-	if err := s.cfg.UniverseFederation.Stop(); err != nil {
 		return err
 	}
 

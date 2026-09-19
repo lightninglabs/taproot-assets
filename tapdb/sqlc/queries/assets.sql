@@ -214,6 +214,25 @@ INSERT INTO asset_groups (
     DO UPDATE SET genesis_point_id = EXCLUDED.genesis_point_id
 RETURNING group_id;
 
+-- name: UpsertAssetGroupKeyFull :one
+INSERT INTO asset_groups (
+    version, tweaked_group_key, tapscript_root, internal_key_id,
+    genesis_point_id, custom_subtree_root_id
+) VALUES (
+    $1, $2, $3, $4, $5, $6
+) ON CONFLICT (tweaked_group_key)
+    -- The caller knows the group's raw key, so it also knows the version and
+    -- roots the tweaked key is derived from. Replace whatever an earlier
+    -- import of a reissuance stored, which had none of that and used the
+    -- tweaked key in place of the raw key.
+    DO UPDATE SET
+        version = EXCLUDED.version,
+        tapscript_root = EXCLUDED.tapscript_root,
+        internal_key_id = EXCLUDED.internal_key_id,
+        genesis_point_id = EXCLUDED.genesis_point_id,
+        custom_subtree_root_id = EXCLUDED.custom_subtree_root_id
+RETURNING group_id;
+
 -- name: UpsertAssetGroupWitness :one
 INSERT INTO asset_group_witnesses (
     witness_stack, gen_asset_id, group_key_id
@@ -343,6 +362,16 @@ SET spent = TRUE
 WHERE asset_id = (SELECT asset_id FROM target_asset)
 RETURNING assets.asset_id;
 
+-- name: SetAssetSpentByID :exec
+-- Marks one asset row spent by its primary key. Used by abandonment
+-- compensation for a passive holding whose restored anchor outpoint
+-- the foreclosing transaction consumed: the holding's provenance is
+-- intact but the outpoint belongs to someone else, so it must not
+-- count toward balances or coin selection.
+UPDATE assets
+SET spent = TRUE
+WHERE asset_id = @asset_id;
+
 -- name: QueryAssetBalancesByAsset :many
 SELECT
     genesis_info_view.asset_id, SUM(amount) balance,
@@ -446,6 +475,22 @@ WHERE (
 -- Sort and limit to return the genesis ID for initial genesis of the group.
 ORDER BY key_group_info_view.witness_id
 LIMIT 1;
+
+-- name: FetchGroupWitnessesByGroupKey :many
+SELECT
+    key_group_info_view.version AS version,
+    key_group_info_view.gen_asset_id AS gen_asset_id,
+    key_group_info_view.raw_key AS raw_key,
+    key_group_info_view.key_index AS key_index,
+    key_group_info_view.key_family AS key_family,
+    key_group_info_view.tapscript_root AS tapscript_root,
+    key_group_info_view.witness_stack AS witness_stack,
+    key_group_info_view.custom_subtree_root AS custom_subtree_root
+FROM key_group_info_view
+WHERE (
+    key_group_info_view.tweaked_group_key = @group_key
+)
+ORDER BY key_group_info_view.witness_id;
 
 -- name: FetchGroupByGenesis :one
 SELECT
@@ -1322,3 +1367,51 @@ WHERE (
     (taproot_internal_keys.raw_key = sqlc.narg('taproot_internal_key_raw') OR sqlc.narg('taproot_internal_key_raw') IS NULL)
 )
 ORDER BY precommits.id ASC;
+
+-- name: SetAssetUnspent :one
+-- The inverse of SetAssetSpent, applied when the transfer that spent
+-- the asset is abandoned and nothing else consumed its anchor input
+-- on the surviving chain.
+--
+-- Two claimants can contradict that premise. A rival local transfer
+-- may have confirmed against the same outpoint — the sweeper's fee
+-- bump composes a replacement form — and only the losing form is
+-- abandoned; the surviving-claimant test below guards that case, the
+-- same test UnsupersedeSafeTransfers applies. Or the foreclosing
+-- transaction itself consumed the outpoint (a third party, routine
+-- for tapchannel triggers): that transaction is not a local transfer
+-- and is invisible here, so the caller must not invoke this query
+-- for inputs the foreclosure consumed. The abandoned transfer's own
+-- confirmation is withdrawn before this runs, so it cannot answer
+-- for itself.
+WITH target_asset(asset_id) AS (
+    SELECT assets.asset_id
+    FROM assets
+    JOIN script_keys
+      ON assets.script_key_id = script_keys.script_key_id
+    JOIN genesis_assets
+      ON assets.genesis_id = genesis_assets.gen_asset_id
+    JOIN managed_utxos utxos
+         ON assets.anchor_utxo_id = utxos.utxo_id AND
+            (utxos.outpoint = sqlc.narg('anchor_point') OR
+             sqlc.narg('anchor_point') IS NULL)
+    WHERE script_keys.tweaked_script_key = @script_key
+     AND genesis_assets.asset_id = @gen_asset_id
+)
+UPDATE assets
+SET spent = FALSE
+WHERE asset_id = (SELECT asset_id FROM target_asset)
+  AND NOT EXISTS (
+      SELECT 1
+      FROM asset_transfer_inputs claimant_in
+      JOIN asset_transfers claimant
+        ON claimant.id = claimant_in.transfer_id
+      JOIN chain_txns claimant_txn
+        ON claimant_txn.txn_id = claimant.anchor_txn_id
+      WHERE claimant_in.script_key = @script_key
+        AND claimant_in.asset_id = @gen_asset_id
+        AND (claimant_in.anchor_point = sqlc.narg('anchor_point') OR
+             sqlc.narg('anchor_point') IS NULL)
+        AND claimant_txn.block_hash IS NOT NULL
+  )
+RETURNING assets.asset_id;

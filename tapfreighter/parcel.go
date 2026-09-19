@@ -12,6 +12,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
+	"github.com/lightninglabs/taproot-assets/tapreorg"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -558,6 +559,14 @@ type sendPackage struct {
 	// AnchorTx is the BTC level anchor transaction with all its information
 	// as it was used when funding/signing it.
 	AnchorTx *tapsend.AnchorTransaction
+
+	// AnchoringID is the transfer's speculative anchoring in the
+	// re-org watcher's registry, on the anchoring path.
+	AnchoringID tapreorg.AnchoringID
+
+	// ConfWitness is the anchoring's current witness with its block
+	// enrichment, set once the anchoring reports witnessed.
+	ConfWitness *tapreorg.CandidateSpend
 
 	// OutboundPkg is the on-disk level information that tracks the pending
 	// transfer.
