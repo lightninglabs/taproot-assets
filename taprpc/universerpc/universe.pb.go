@@ -346,7 +346,10 @@ type AssetRootRequest struct {
 	// The length limit for the page.
 	Limit int32 `protobuf:"varint,3,opt,name=limit,proto3" json:"limit,omitempty"`
 	// The direction of the page.
-	Direction     taprpc.SortDirection `protobuf:"varint,4,opt,name=direction,proto3,enum=taprpc.SortDirection" json:"direction,omitempty"`
+	Direction taprpc.SortDirection `protobuf:"varint,4,opt,name=direction,proto3,enum=taprpc.SortDirection" json:"direction,omitempty"`
+	// An optional filter to only return roots of the given proof type. If left
+	// unspecified, roots of all proof types are returned.
+	ProofType     ProofType `protobuf:"varint,5,opt,name=proof_type,json=proofType,proto3,enum=universerpc.ProofType" json:"proof_type,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -407,6 +410,13 @@ func (x *AssetRootRequest) GetDirection() taprpc.SortDirection {
 		return x.Direction
 	}
 	return taprpc.SortDirection(0)
+}
+
+func (x *AssetRootRequest) GetProofType() ProofType {
+	if x != nil {
+		return x.ProofType
+	}
+	return ProofType_PROOF_TYPE_UNSPECIFIED
 }
 
 type MerkleSumNode struct {
@@ -5115,12 +5125,14 @@ const file_universerpc_universe_proto_rawDesc = "" +
 	"proof_type\x18\x01 \x01(\x0e2\x16.universerpc.ProofTypeR\tproofType\x122\n" +
 	"\fspecific_ids\x18\x02 \x03(\v2\x0f.universerpc.IDR\vspecificIds\"]\n" +
 	"\x16MultiverseRootResponse\x12C\n" +
-	"\x0fmultiverse_root\x18\x01 \x01(\v2\x1a.universerpc.MerkleSumNodeR\x0emultiverseRoot\"\xa2\x01\n" +
+	"\x0fmultiverse_root\x18\x01 \x01(\v2\x1a.universerpc.MerkleSumNodeR\x0emultiverseRoot\"\xd9\x01\n" +
 	"\x10AssetRootRequest\x12+\n" +
 	"\x12with_amounts_by_id\x18\x01 \x01(\bR\x0fwithAmountsById\x12\x16\n" +
 	"\x06offset\x18\x02 \x01(\x05R\x06offset\x12\x14\n" +
 	"\x05limit\x18\x03 \x01(\x05R\x05limit\x123\n" +
-	"\tdirection\x18\x04 \x01(\x0e2\x15.taprpc.SortDirectionR\tdirection\"G\n" +
+	"\tdirection\x18\x04 \x01(\x0e2\x15.taprpc.SortDirectionR\tdirection\x125\n" +
+	"\n" +
+	"proof_type\x18\x05 \x01(\x0e2\x16.universerpc.ProofTypeR\tproofType\"G\n" +
 	"\rMerkleSumNode\x12\x1b\n" +
 	"\troot_hash\x18\x01 \x01(\fR\brootHash\x12\x19\n" +
 	"\broot_sum\x18\x02 \x01(\x03R\arootSum\"\xc7\x01\n" +
@@ -5600,157 +5612,158 @@ var file_universerpc_universe_proto_depIdxs = []int32{
 	8,   // 1: universerpc.MultiverseRootRequest.specific_ids:type_name -> universerpc.ID
 	7,   // 2: universerpc.MultiverseRootResponse.multiverse_root:type_name -> universerpc.MerkleSumNode
 	81,  // 3: universerpc.AssetRootRequest.direction:type_name -> taprpc.SortDirection
-	0,   // 4: universerpc.ID.proof_type:type_name -> universerpc.ProofType
-	8,   // 5: universerpc.UniverseRoot.id:type_name -> universerpc.ID
-	7,   // 6: universerpc.UniverseRoot.mssmt_root:type_name -> universerpc.MerkleSumNode
-	77,  // 7: universerpc.UniverseRoot.amounts_by_asset_id:type_name -> universerpc.UniverseRoot.AmountsByAssetIdEntry
-	78,  // 8: universerpc.AssetRootResponse.universe_roots:type_name -> universerpc.AssetRootResponse.UniverseRootsEntry
-	8,   // 9: universerpc.AssetRootQuery.id:type_name -> universerpc.ID
-	9,   // 10: universerpc.QueryRootResponse.issuance_root:type_name -> universerpc.UniverseRoot
-	9,   // 11: universerpc.QueryRootResponse.transfer_root:type_name -> universerpc.UniverseRoot
-	8,   // 12: universerpc.DeleteRootQuery.id:type_name -> universerpc.ID
-	25,  // 13: universerpc.DeleteAssetLeafRequest.key:type_name -> universerpc.UniverseKey
-	17,  // 14: universerpc.AssetKey.op:type_name -> universerpc.Outpoint
-	8,   // 15: universerpc.AssetLeafKeysRequest.id:type_name -> universerpc.ID
-	81,  // 16: universerpc.AssetLeafKeysRequest.direction:type_name -> taprpc.SortDirection
-	8,   // 17: universerpc.AssetLeavesRequest.id:type_name -> universerpc.ID
-	81,  // 18: universerpc.AssetLeavesRequest.direction:type_name -> taprpc.SortDirection
-	18,  // 19: universerpc.AssetLeafEntry.asset_key:type_name -> universerpc.AssetKey
-	18,  // 20: universerpc.AssetLeafKeyResponse.asset_keys:type_name -> universerpc.AssetKey
-	21,  // 21: universerpc.AssetLeafKeyResponse.entries:type_name -> universerpc.AssetLeafEntry
-	82,  // 22: universerpc.AssetLeaf.asset:type_name -> taprpc.Asset
-	23,  // 23: universerpc.AssetLeafResponse.leaves:type_name -> universerpc.AssetLeaf
-	8,   // 24: universerpc.UniverseKey.id:type_name -> universerpc.ID
-	18,  // 25: universerpc.UniverseKey.leaf_key:type_name -> universerpc.AssetKey
-	25,  // 26: universerpc.AssetProofResponse.req:type_name -> universerpc.UniverseKey
-	9,   // 27: universerpc.AssetProofResponse.universe_root:type_name -> universerpc.UniverseRoot
-	23,  // 28: universerpc.AssetProofResponse.asset_leaf:type_name -> universerpc.AssetLeaf
-	7,   // 29: universerpc.AssetProofResponse.multiverse_root:type_name -> universerpc.MerkleSumNode
-	27,  // 30: universerpc.AssetProofResponse.issuance_data:type_name -> universerpc.IssuanceData
-	83,  // 31: universerpc.IssuanceData.meta_reveal:type_name -> taprpc.AssetMeta
-	84,  // 32: universerpc.IssuanceData.genesis_reveal:type_name -> taprpc.GenesisReveal
-	85,  // 33: universerpc.IssuanceData.group_key_reveal:type_name -> taprpc.GroupKeyReveal
-	25,  // 34: universerpc.AssetProof.key:type_name -> universerpc.UniverseKey
-	23,  // 35: universerpc.AssetProof.asset_leaf:type_name -> universerpc.AssetLeaf
-	25,  // 36: universerpc.PushProofRequest.key:type_name -> universerpc.UniverseKey
-	41,  // 37: universerpc.PushProofRequest.server:type_name -> universerpc.UniverseFederationServer
-	25,  // 38: universerpc.PushProofResponse.key:type_name -> universerpc.UniverseKey
-	8,   // 39: universerpc.SyncTarget.id:type_name -> universerpc.ID
-	1,   // 40: universerpc.SyncRequest.sync_mode:type_name -> universerpc.UniverseSyncMode
-	33,  // 41: universerpc.SyncRequest.sync_targets:type_name -> universerpc.SyncTarget
-	9,   // 42: universerpc.SyncedUniverse.old_asset_root:type_name -> universerpc.UniverseRoot
-	9,   // 43: universerpc.SyncedUniverse.new_asset_root:type_name -> universerpc.UniverseRoot
-	23,  // 44: universerpc.SyncedUniverse.new_asset_leaves:type_name -> universerpc.AssetLeaf
-	35,  // 45: universerpc.SyncResponse.synced_universes:type_name -> universerpc.SyncedUniverse
-	8,   // 46: universerpc.SyncDeltaItem.universe_id:type_name -> universerpc.ID
-	18,  // 47: universerpc.SyncDeltaItem.key:type_name -> universerpc.AssetKey
-	23,  // 48: universerpc.SyncDeltaItem.leaf:type_name -> universerpc.AssetLeaf
-	39,  // 49: universerpc.SyncDeltaResponse.items:type_name -> universerpc.SyncDeltaItem
-	9,   // 50: universerpc.SyncDeltaResponse.universe_roots:type_name -> universerpc.UniverseRoot
-	41,  // 51: universerpc.ListFederationServersResponse.servers:type_name -> universerpc.UniverseFederationServer
-	41,  // 52: universerpc.AddFederationServerRequest.servers:type_name -> universerpc.UniverseFederationServer
-	41,  // 53: universerpc.DeleteFederationServerRequest.servers:type_name -> universerpc.UniverseFederationServer
-	3,   // 54: universerpc.AssetStatsQuery.asset_type_filter:type_name -> universerpc.AssetTypeFilter
-	2,   // 55: universerpc.AssetStatsQuery.sort_by:type_name -> universerpc.AssetQuerySort
-	81,  // 56: universerpc.AssetStatsQuery.direction:type_name -> taprpc.SortDirection
-	51,  // 57: universerpc.AssetStatsSnapshot.group_anchor:type_name -> universerpc.AssetStatsAsset
-	51,  // 58: universerpc.AssetStatsSnapshot.asset:type_name -> universerpc.AssetStatsAsset
-	86,  // 59: universerpc.AssetStatsAsset.asset_type:type_name -> taprpc.AssetType
-	50,  // 60: universerpc.UniverseAssetStats.asset_stats:type_name -> universerpc.AssetStatsSnapshot
-	55,  // 61: universerpc.QueryEventsResponse.events:type_name -> universerpc.GroupedUniverseEvents
-	58,  // 62: universerpc.SetFederationSyncConfigRequest.global_sync_configs:type_name -> universerpc.GlobalFederationSyncConfig
-	59,  // 63: universerpc.SetFederationSyncConfigRequest.asset_sync_configs:type_name -> universerpc.AssetFederationSyncConfig
-	0,   // 64: universerpc.GlobalFederationSyncConfig.proof_type:type_name -> universerpc.ProofType
-	8,   // 65: universerpc.AssetFederationSyncConfig.id:type_name -> universerpc.ID
-	8,   // 66: universerpc.QueryFederationSyncConfigRequest.id:type_name -> universerpc.ID
-	58,  // 67: universerpc.QueryFederationSyncConfigResponse.global_sync_configs:type_name -> universerpc.GlobalFederationSyncConfig
-	59,  // 68: universerpc.QueryFederationSyncConfigResponse.asset_sync_configs:type_name -> universerpc.AssetFederationSyncConfig
-	87,  // 69: universerpc.IgnoreAssetOutPointRequest.asset_out_point:type_name -> taprpc.AssetOutPoint
-	7,   // 70: universerpc.IgnoreAssetOutPointResponse.leaf:type_name -> universerpc.MerkleSumNode
-	88,  // 71: universerpc.FetchSupplyCommitRequest.commit_outpoint:type_name -> taprpc.OutPoint
-	88,  // 72: universerpc.FetchSupplyCommitRequest.spent_commit_outpoint:type_name -> taprpc.OutPoint
-	7,   // 73: universerpc.SupplyCommitSubtreeRoot.root_node:type_name -> universerpc.MerkleSumNode
-	74,  // 74: universerpc.FetchSupplyCommitResponse.chain_data:type_name -> universerpc.SupplyCommitChainData
-	67,  // 75: universerpc.FetchSupplyCommitResponse.issuance_subtree_root:type_name -> universerpc.SupplyCommitSubtreeRoot
-	67,  // 76: universerpc.FetchSupplyCommitResponse.burn_subtree_root:type_name -> universerpc.SupplyCommitSubtreeRoot
-	67,  // 77: universerpc.FetchSupplyCommitResponse.ignore_subtree_root:type_name -> universerpc.SupplyCommitSubtreeRoot
-	71,  // 78: universerpc.FetchSupplyCommitResponse.issuance_leaves:type_name -> universerpc.SupplyLeafEntry
-	71,  // 79: universerpc.FetchSupplyCommitResponse.burn_leaves:type_name -> universerpc.SupplyLeafEntry
-	71,  // 80: universerpc.FetchSupplyCommitResponse.ignore_leaves:type_name -> universerpc.SupplyLeafEntry
-	88,  // 81: universerpc.FetchSupplyCommitResponse.spent_commitment_outpoint:type_name -> taprpc.OutPoint
-	79,  // 82: universerpc.FetchSupplyCommitResponse.block_headers:type_name -> universerpc.FetchSupplyCommitResponse.BlockHeadersEntry
-	17,  // 83: universerpc.SupplyLeafKey.outpoint:type_name -> universerpc.Outpoint
-	70,  // 84: universerpc.SupplyLeafEntry.leaf_key:type_name -> universerpc.SupplyLeafKey
-	7,   // 85: universerpc.SupplyLeafEntry.leaf_node:type_name -> universerpc.MerkleSumNode
-	71,  // 86: universerpc.FetchSupplyLeavesResponse.issuance_leaves:type_name -> universerpc.SupplyLeafEntry
-	71,  // 87: universerpc.FetchSupplyLeavesResponse.burn_leaves:type_name -> universerpc.SupplyLeafEntry
-	71,  // 88: universerpc.FetchSupplyLeavesResponse.ignore_leaves:type_name -> universerpc.SupplyLeafEntry
-	80,  // 89: universerpc.FetchSupplyLeavesResponse.block_headers:type_name -> universerpc.FetchSupplyLeavesResponse.BlockHeadersEntry
-	74,  // 90: universerpc.InsertSupplyCommitRequest.chain_data:type_name -> universerpc.SupplyCommitChainData
-	88,  // 91: universerpc.InsertSupplyCommitRequest.spent_commitment_outpoint:type_name -> taprpc.OutPoint
-	71,  // 92: universerpc.InsertSupplyCommitRequest.issuance_leaves:type_name -> universerpc.SupplyLeafEntry
-	71,  // 93: universerpc.InsertSupplyCommitRequest.burn_leaves:type_name -> universerpc.SupplyLeafEntry
-	71,  // 94: universerpc.InsertSupplyCommitRequest.ignore_leaves:type_name -> universerpc.SupplyLeafEntry
-	9,   // 95: universerpc.AssetRootResponse.UniverseRootsEntry.value:type_name -> universerpc.UniverseRoot
-	72,  // 96: universerpc.FetchSupplyCommitResponse.BlockHeadersEntry.value:type_name -> universerpc.SupplyLeafBlockHeader
-	72,  // 97: universerpc.FetchSupplyLeavesResponse.BlockHeadersEntry.value:type_name -> universerpc.SupplyLeafBlockHeader
-	4,   // 98: universerpc.Universe.MultiverseRoot:input_type -> universerpc.MultiverseRootRequest
-	6,   // 99: universerpc.Universe.AssetRoots:input_type -> universerpc.AssetRootRequest
-	11,  // 100: universerpc.Universe.QueryAssetRoots:input_type -> universerpc.AssetRootQuery
-	13,  // 101: universerpc.Universe.DeleteAssetRoot:input_type -> universerpc.DeleteRootQuery
-	15,  // 102: universerpc.Universe.DeleteAssetLeaf:input_type -> universerpc.DeleteAssetLeafRequest
-	19,  // 103: universerpc.Universe.AssetLeafKeys:input_type -> universerpc.AssetLeafKeysRequest
-	20,  // 104: universerpc.Universe.AssetLeaves:input_type -> universerpc.AssetLeavesRequest
-	25,  // 105: universerpc.Universe.QueryProof:input_type -> universerpc.UniverseKey
-	28,  // 106: universerpc.Universe.InsertProof:input_type -> universerpc.AssetProof
-	29,  // 107: universerpc.Universe.PushProof:input_type -> universerpc.PushProofRequest
-	31,  // 108: universerpc.Universe.Info:input_type -> universerpc.InfoRequest
-	34,  // 109: universerpc.Universe.SyncUniverse:input_type -> universerpc.SyncRequest
-	38,  // 110: universerpc.Universe.SyncDelta:input_type -> universerpc.SyncDeltaRequest
-	42,  // 111: universerpc.Universe.ListFederationServers:input_type -> universerpc.ListFederationServersRequest
-	44,  // 112: universerpc.Universe.AddFederationServer:input_type -> universerpc.AddFederationServerRequest
-	46,  // 113: universerpc.Universe.DeleteFederationServer:input_type -> universerpc.DeleteFederationServerRequest
-	36,  // 114: universerpc.Universe.UniverseStats:input_type -> universerpc.StatsRequest
-	49,  // 115: universerpc.Universe.QueryAssetStats:input_type -> universerpc.AssetStatsQuery
-	53,  // 116: universerpc.Universe.QueryEvents:input_type -> universerpc.QueryEventsRequest
-	56,  // 117: universerpc.Universe.SetFederationSyncConfig:input_type -> universerpc.SetFederationSyncConfigRequest
-	60,  // 118: universerpc.Universe.QueryFederationSyncConfig:input_type -> universerpc.QueryFederationSyncConfigRequest
-	62,  // 119: universerpc.Universe.IgnoreAssetOutPoint:input_type -> universerpc.IgnoreAssetOutPointRequest
-	64,  // 120: universerpc.Universe.UpdateSupplyCommit:input_type -> universerpc.UpdateSupplyCommitRequest
-	66,  // 121: universerpc.Universe.FetchSupplyCommit:input_type -> universerpc.FetchSupplyCommitRequest
-	69,  // 122: universerpc.Universe.FetchSupplyLeaves:input_type -> universerpc.FetchSupplyLeavesRequest
-	75,  // 123: universerpc.Universe.InsertSupplyCommit:input_type -> universerpc.InsertSupplyCommitRequest
-	5,   // 124: universerpc.Universe.MultiverseRoot:output_type -> universerpc.MultiverseRootResponse
-	10,  // 125: universerpc.Universe.AssetRoots:output_type -> universerpc.AssetRootResponse
-	12,  // 126: universerpc.Universe.QueryAssetRoots:output_type -> universerpc.QueryRootResponse
-	14,  // 127: universerpc.Universe.DeleteAssetRoot:output_type -> universerpc.DeleteRootResponse
-	16,  // 128: universerpc.Universe.DeleteAssetLeaf:output_type -> universerpc.DeleteAssetLeafResponse
-	22,  // 129: universerpc.Universe.AssetLeafKeys:output_type -> universerpc.AssetLeafKeyResponse
-	24,  // 130: universerpc.Universe.AssetLeaves:output_type -> universerpc.AssetLeafResponse
-	26,  // 131: universerpc.Universe.QueryProof:output_type -> universerpc.AssetProofResponse
-	26,  // 132: universerpc.Universe.InsertProof:output_type -> universerpc.AssetProofResponse
-	30,  // 133: universerpc.Universe.PushProof:output_type -> universerpc.PushProofResponse
-	32,  // 134: universerpc.Universe.Info:output_type -> universerpc.InfoResponse
-	37,  // 135: universerpc.Universe.SyncUniverse:output_type -> universerpc.SyncResponse
-	40,  // 136: universerpc.Universe.SyncDelta:output_type -> universerpc.SyncDeltaResponse
-	43,  // 137: universerpc.Universe.ListFederationServers:output_type -> universerpc.ListFederationServersResponse
-	45,  // 138: universerpc.Universe.AddFederationServer:output_type -> universerpc.AddFederationServerResponse
-	47,  // 139: universerpc.Universe.DeleteFederationServer:output_type -> universerpc.DeleteFederationServerResponse
-	48,  // 140: universerpc.Universe.UniverseStats:output_type -> universerpc.StatsResponse
-	52,  // 141: universerpc.Universe.QueryAssetStats:output_type -> universerpc.UniverseAssetStats
-	54,  // 142: universerpc.Universe.QueryEvents:output_type -> universerpc.QueryEventsResponse
-	57,  // 143: universerpc.Universe.SetFederationSyncConfig:output_type -> universerpc.SetFederationSyncConfigResponse
-	61,  // 144: universerpc.Universe.QueryFederationSyncConfig:output_type -> universerpc.QueryFederationSyncConfigResponse
-	63,  // 145: universerpc.Universe.IgnoreAssetOutPoint:output_type -> universerpc.IgnoreAssetOutPointResponse
-	65,  // 146: universerpc.Universe.UpdateSupplyCommit:output_type -> universerpc.UpdateSupplyCommitResponse
-	68,  // 147: universerpc.Universe.FetchSupplyCommit:output_type -> universerpc.FetchSupplyCommitResponse
-	73,  // 148: universerpc.Universe.FetchSupplyLeaves:output_type -> universerpc.FetchSupplyLeavesResponse
-	76,  // 149: universerpc.Universe.InsertSupplyCommit:output_type -> universerpc.InsertSupplyCommitResponse
-	124, // [124:150] is the sub-list for method output_type
-	98,  // [98:124] is the sub-list for method input_type
-	98,  // [98:98] is the sub-list for extension type_name
-	98,  // [98:98] is the sub-list for extension extendee
-	0,   // [0:98] is the sub-list for field type_name
+	0,   // 4: universerpc.AssetRootRequest.proof_type:type_name -> universerpc.ProofType
+	0,   // 5: universerpc.ID.proof_type:type_name -> universerpc.ProofType
+	8,   // 6: universerpc.UniverseRoot.id:type_name -> universerpc.ID
+	7,   // 7: universerpc.UniverseRoot.mssmt_root:type_name -> universerpc.MerkleSumNode
+	77,  // 8: universerpc.UniverseRoot.amounts_by_asset_id:type_name -> universerpc.UniverseRoot.AmountsByAssetIdEntry
+	78,  // 9: universerpc.AssetRootResponse.universe_roots:type_name -> universerpc.AssetRootResponse.UniverseRootsEntry
+	8,   // 10: universerpc.AssetRootQuery.id:type_name -> universerpc.ID
+	9,   // 11: universerpc.QueryRootResponse.issuance_root:type_name -> universerpc.UniverseRoot
+	9,   // 12: universerpc.QueryRootResponse.transfer_root:type_name -> universerpc.UniverseRoot
+	8,   // 13: universerpc.DeleteRootQuery.id:type_name -> universerpc.ID
+	25,  // 14: universerpc.DeleteAssetLeafRequest.key:type_name -> universerpc.UniverseKey
+	17,  // 15: universerpc.AssetKey.op:type_name -> universerpc.Outpoint
+	8,   // 16: universerpc.AssetLeafKeysRequest.id:type_name -> universerpc.ID
+	81,  // 17: universerpc.AssetLeafKeysRequest.direction:type_name -> taprpc.SortDirection
+	8,   // 18: universerpc.AssetLeavesRequest.id:type_name -> universerpc.ID
+	81,  // 19: universerpc.AssetLeavesRequest.direction:type_name -> taprpc.SortDirection
+	18,  // 20: universerpc.AssetLeafEntry.asset_key:type_name -> universerpc.AssetKey
+	18,  // 21: universerpc.AssetLeafKeyResponse.asset_keys:type_name -> universerpc.AssetKey
+	21,  // 22: universerpc.AssetLeafKeyResponse.entries:type_name -> universerpc.AssetLeafEntry
+	82,  // 23: universerpc.AssetLeaf.asset:type_name -> taprpc.Asset
+	23,  // 24: universerpc.AssetLeafResponse.leaves:type_name -> universerpc.AssetLeaf
+	8,   // 25: universerpc.UniverseKey.id:type_name -> universerpc.ID
+	18,  // 26: universerpc.UniverseKey.leaf_key:type_name -> universerpc.AssetKey
+	25,  // 27: universerpc.AssetProofResponse.req:type_name -> universerpc.UniverseKey
+	9,   // 28: universerpc.AssetProofResponse.universe_root:type_name -> universerpc.UniverseRoot
+	23,  // 29: universerpc.AssetProofResponse.asset_leaf:type_name -> universerpc.AssetLeaf
+	7,   // 30: universerpc.AssetProofResponse.multiverse_root:type_name -> universerpc.MerkleSumNode
+	27,  // 31: universerpc.AssetProofResponse.issuance_data:type_name -> universerpc.IssuanceData
+	83,  // 32: universerpc.IssuanceData.meta_reveal:type_name -> taprpc.AssetMeta
+	84,  // 33: universerpc.IssuanceData.genesis_reveal:type_name -> taprpc.GenesisReveal
+	85,  // 34: universerpc.IssuanceData.group_key_reveal:type_name -> taprpc.GroupKeyReveal
+	25,  // 35: universerpc.AssetProof.key:type_name -> universerpc.UniverseKey
+	23,  // 36: universerpc.AssetProof.asset_leaf:type_name -> universerpc.AssetLeaf
+	25,  // 37: universerpc.PushProofRequest.key:type_name -> universerpc.UniverseKey
+	41,  // 38: universerpc.PushProofRequest.server:type_name -> universerpc.UniverseFederationServer
+	25,  // 39: universerpc.PushProofResponse.key:type_name -> universerpc.UniverseKey
+	8,   // 40: universerpc.SyncTarget.id:type_name -> universerpc.ID
+	1,   // 41: universerpc.SyncRequest.sync_mode:type_name -> universerpc.UniverseSyncMode
+	33,  // 42: universerpc.SyncRequest.sync_targets:type_name -> universerpc.SyncTarget
+	9,   // 43: universerpc.SyncedUniverse.old_asset_root:type_name -> universerpc.UniverseRoot
+	9,   // 44: universerpc.SyncedUniverse.new_asset_root:type_name -> universerpc.UniverseRoot
+	23,  // 45: universerpc.SyncedUniverse.new_asset_leaves:type_name -> universerpc.AssetLeaf
+	35,  // 46: universerpc.SyncResponse.synced_universes:type_name -> universerpc.SyncedUniverse
+	8,   // 47: universerpc.SyncDeltaItem.universe_id:type_name -> universerpc.ID
+	18,  // 48: universerpc.SyncDeltaItem.key:type_name -> universerpc.AssetKey
+	23,  // 49: universerpc.SyncDeltaItem.leaf:type_name -> universerpc.AssetLeaf
+	39,  // 50: universerpc.SyncDeltaResponse.items:type_name -> universerpc.SyncDeltaItem
+	9,   // 51: universerpc.SyncDeltaResponse.universe_roots:type_name -> universerpc.UniverseRoot
+	41,  // 52: universerpc.ListFederationServersResponse.servers:type_name -> universerpc.UniverseFederationServer
+	41,  // 53: universerpc.AddFederationServerRequest.servers:type_name -> universerpc.UniverseFederationServer
+	41,  // 54: universerpc.DeleteFederationServerRequest.servers:type_name -> universerpc.UniverseFederationServer
+	3,   // 55: universerpc.AssetStatsQuery.asset_type_filter:type_name -> universerpc.AssetTypeFilter
+	2,   // 56: universerpc.AssetStatsQuery.sort_by:type_name -> universerpc.AssetQuerySort
+	81,  // 57: universerpc.AssetStatsQuery.direction:type_name -> taprpc.SortDirection
+	51,  // 58: universerpc.AssetStatsSnapshot.group_anchor:type_name -> universerpc.AssetStatsAsset
+	51,  // 59: universerpc.AssetStatsSnapshot.asset:type_name -> universerpc.AssetStatsAsset
+	86,  // 60: universerpc.AssetStatsAsset.asset_type:type_name -> taprpc.AssetType
+	50,  // 61: universerpc.UniverseAssetStats.asset_stats:type_name -> universerpc.AssetStatsSnapshot
+	55,  // 62: universerpc.QueryEventsResponse.events:type_name -> universerpc.GroupedUniverseEvents
+	58,  // 63: universerpc.SetFederationSyncConfigRequest.global_sync_configs:type_name -> universerpc.GlobalFederationSyncConfig
+	59,  // 64: universerpc.SetFederationSyncConfigRequest.asset_sync_configs:type_name -> universerpc.AssetFederationSyncConfig
+	0,   // 65: universerpc.GlobalFederationSyncConfig.proof_type:type_name -> universerpc.ProofType
+	8,   // 66: universerpc.AssetFederationSyncConfig.id:type_name -> universerpc.ID
+	8,   // 67: universerpc.QueryFederationSyncConfigRequest.id:type_name -> universerpc.ID
+	58,  // 68: universerpc.QueryFederationSyncConfigResponse.global_sync_configs:type_name -> universerpc.GlobalFederationSyncConfig
+	59,  // 69: universerpc.QueryFederationSyncConfigResponse.asset_sync_configs:type_name -> universerpc.AssetFederationSyncConfig
+	87,  // 70: universerpc.IgnoreAssetOutPointRequest.asset_out_point:type_name -> taprpc.AssetOutPoint
+	7,   // 71: universerpc.IgnoreAssetOutPointResponse.leaf:type_name -> universerpc.MerkleSumNode
+	88,  // 72: universerpc.FetchSupplyCommitRequest.commit_outpoint:type_name -> taprpc.OutPoint
+	88,  // 73: universerpc.FetchSupplyCommitRequest.spent_commit_outpoint:type_name -> taprpc.OutPoint
+	7,   // 74: universerpc.SupplyCommitSubtreeRoot.root_node:type_name -> universerpc.MerkleSumNode
+	74,  // 75: universerpc.FetchSupplyCommitResponse.chain_data:type_name -> universerpc.SupplyCommitChainData
+	67,  // 76: universerpc.FetchSupplyCommitResponse.issuance_subtree_root:type_name -> universerpc.SupplyCommitSubtreeRoot
+	67,  // 77: universerpc.FetchSupplyCommitResponse.burn_subtree_root:type_name -> universerpc.SupplyCommitSubtreeRoot
+	67,  // 78: universerpc.FetchSupplyCommitResponse.ignore_subtree_root:type_name -> universerpc.SupplyCommitSubtreeRoot
+	71,  // 79: universerpc.FetchSupplyCommitResponse.issuance_leaves:type_name -> universerpc.SupplyLeafEntry
+	71,  // 80: universerpc.FetchSupplyCommitResponse.burn_leaves:type_name -> universerpc.SupplyLeafEntry
+	71,  // 81: universerpc.FetchSupplyCommitResponse.ignore_leaves:type_name -> universerpc.SupplyLeafEntry
+	88,  // 82: universerpc.FetchSupplyCommitResponse.spent_commitment_outpoint:type_name -> taprpc.OutPoint
+	79,  // 83: universerpc.FetchSupplyCommitResponse.block_headers:type_name -> universerpc.FetchSupplyCommitResponse.BlockHeadersEntry
+	17,  // 84: universerpc.SupplyLeafKey.outpoint:type_name -> universerpc.Outpoint
+	70,  // 85: universerpc.SupplyLeafEntry.leaf_key:type_name -> universerpc.SupplyLeafKey
+	7,   // 86: universerpc.SupplyLeafEntry.leaf_node:type_name -> universerpc.MerkleSumNode
+	71,  // 87: universerpc.FetchSupplyLeavesResponse.issuance_leaves:type_name -> universerpc.SupplyLeafEntry
+	71,  // 88: universerpc.FetchSupplyLeavesResponse.burn_leaves:type_name -> universerpc.SupplyLeafEntry
+	71,  // 89: universerpc.FetchSupplyLeavesResponse.ignore_leaves:type_name -> universerpc.SupplyLeafEntry
+	80,  // 90: universerpc.FetchSupplyLeavesResponse.block_headers:type_name -> universerpc.FetchSupplyLeavesResponse.BlockHeadersEntry
+	74,  // 91: universerpc.InsertSupplyCommitRequest.chain_data:type_name -> universerpc.SupplyCommitChainData
+	88,  // 92: universerpc.InsertSupplyCommitRequest.spent_commitment_outpoint:type_name -> taprpc.OutPoint
+	71,  // 93: universerpc.InsertSupplyCommitRequest.issuance_leaves:type_name -> universerpc.SupplyLeafEntry
+	71,  // 94: universerpc.InsertSupplyCommitRequest.burn_leaves:type_name -> universerpc.SupplyLeafEntry
+	71,  // 95: universerpc.InsertSupplyCommitRequest.ignore_leaves:type_name -> universerpc.SupplyLeafEntry
+	9,   // 96: universerpc.AssetRootResponse.UniverseRootsEntry.value:type_name -> universerpc.UniverseRoot
+	72,  // 97: universerpc.FetchSupplyCommitResponse.BlockHeadersEntry.value:type_name -> universerpc.SupplyLeafBlockHeader
+	72,  // 98: universerpc.FetchSupplyLeavesResponse.BlockHeadersEntry.value:type_name -> universerpc.SupplyLeafBlockHeader
+	4,   // 99: universerpc.Universe.MultiverseRoot:input_type -> universerpc.MultiverseRootRequest
+	6,   // 100: universerpc.Universe.AssetRoots:input_type -> universerpc.AssetRootRequest
+	11,  // 101: universerpc.Universe.QueryAssetRoots:input_type -> universerpc.AssetRootQuery
+	13,  // 102: universerpc.Universe.DeleteAssetRoot:input_type -> universerpc.DeleteRootQuery
+	15,  // 103: universerpc.Universe.DeleteAssetLeaf:input_type -> universerpc.DeleteAssetLeafRequest
+	19,  // 104: universerpc.Universe.AssetLeafKeys:input_type -> universerpc.AssetLeafKeysRequest
+	20,  // 105: universerpc.Universe.AssetLeaves:input_type -> universerpc.AssetLeavesRequest
+	25,  // 106: universerpc.Universe.QueryProof:input_type -> universerpc.UniverseKey
+	28,  // 107: universerpc.Universe.InsertProof:input_type -> universerpc.AssetProof
+	29,  // 108: universerpc.Universe.PushProof:input_type -> universerpc.PushProofRequest
+	31,  // 109: universerpc.Universe.Info:input_type -> universerpc.InfoRequest
+	34,  // 110: universerpc.Universe.SyncUniverse:input_type -> universerpc.SyncRequest
+	38,  // 111: universerpc.Universe.SyncDelta:input_type -> universerpc.SyncDeltaRequest
+	42,  // 112: universerpc.Universe.ListFederationServers:input_type -> universerpc.ListFederationServersRequest
+	44,  // 113: universerpc.Universe.AddFederationServer:input_type -> universerpc.AddFederationServerRequest
+	46,  // 114: universerpc.Universe.DeleteFederationServer:input_type -> universerpc.DeleteFederationServerRequest
+	36,  // 115: universerpc.Universe.UniverseStats:input_type -> universerpc.StatsRequest
+	49,  // 116: universerpc.Universe.QueryAssetStats:input_type -> universerpc.AssetStatsQuery
+	53,  // 117: universerpc.Universe.QueryEvents:input_type -> universerpc.QueryEventsRequest
+	56,  // 118: universerpc.Universe.SetFederationSyncConfig:input_type -> universerpc.SetFederationSyncConfigRequest
+	60,  // 119: universerpc.Universe.QueryFederationSyncConfig:input_type -> universerpc.QueryFederationSyncConfigRequest
+	62,  // 120: universerpc.Universe.IgnoreAssetOutPoint:input_type -> universerpc.IgnoreAssetOutPointRequest
+	64,  // 121: universerpc.Universe.UpdateSupplyCommit:input_type -> universerpc.UpdateSupplyCommitRequest
+	66,  // 122: universerpc.Universe.FetchSupplyCommit:input_type -> universerpc.FetchSupplyCommitRequest
+	69,  // 123: universerpc.Universe.FetchSupplyLeaves:input_type -> universerpc.FetchSupplyLeavesRequest
+	75,  // 124: universerpc.Universe.InsertSupplyCommit:input_type -> universerpc.InsertSupplyCommitRequest
+	5,   // 125: universerpc.Universe.MultiverseRoot:output_type -> universerpc.MultiverseRootResponse
+	10,  // 126: universerpc.Universe.AssetRoots:output_type -> universerpc.AssetRootResponse
+	12,  // 127: universerpc.Universe.QueryAssetRoots:output_type -> universerpc.QueryRootResponse
+	14,  // 128: universerpc.Universe.DeleteAssetRoot:output_type -> universerpc.DeleteRootResponse
+	16,  // 129: universerpc.Universe.DeleteAssetLeaf:output_type -> universerpc.DeleteAssetLeafResponse
+	22,  // 130: universerpc.Universe.AssetLeafKeys:output_type -> universerpc.AssetLeafKeyResponse
+	24,  // 131: universerpc.Universe.AssetLeaves:output_type -> universerpc.AssetLeafResponse
+	26,  // 132: universerpc.Universe.QueryProof:output_type -> universerpc.AssetProofResponse
+	26,  // 133: universerpc.Universe.InsertProof:output_type -> universerpc.AssetProofResponse
+	30,  // 134: universerpc.Universe.PushProof:output_type -> universerpc.PushProofResponse
+	32,  // 135: universerpc.Universe.Info:output_type -> universerpc.InfoResponse
+	37,  // 136: universerpc.Universe.SyncUniverse:output_type -> universerpc.SyncResponse
+	40,  // 137: universerpc.Universe.SyncDelta:output_type -> universerpc.SyncDeltaResponse
+	43,  // 138: universerpc.Universe.ListFederationServers:output_type -> universerpc.ListFederationServersResponse
+	45,  // 139: universerpc.Universe.AddFederationServer:output_type -> universerpc.AddFederationServerResponse
+	47,  // 140: universerpc.Universe.DeleteFederationServer:output_type -> universerpc.DeleteFederationServerResponse
+	48,  // 141: universerpc.Universe.UniverseStats:output_type -> universerpc.StatsResponse
+	52,  // 142: universerpc.Universe.QueryAssetStats:output_type -> universerpc.UniverseAssetStats
+	54,  // 143: universerpc.Universe.QueryEvents:output_type -> universerpc.QueryEventsResponse
+	57,  // 144: universerpc.Universe.SetFederationSyncConfig:output_type -> universerpc.SetFederationSyncConfigResponse
+	61,  // 145: universerpc.Universe.QueryFederationSyncConfig:output_type -> universerpc.QueryFederationSyncConfigResponse
+	63,  // 146: universerpc.Universe.IgnoreAssetOutPoint:output_type -> universerpc.IgnoreAssetOutPointResponse
+	65,  // 147: universerpc.Universe.UpdateSupplyCommit:output_type -> universerpc.UpdateSupplyCommitResponse
+	68,  // 148: universerpc.Universe.FetchSupplyCommit:output_type -> universerpc.FetchSupplyCommitResponse
+	73,  // 149: universerpc.Universe.FetchSupplyLeaves:output_type -> universerpc.FetchSupplyLeavesResponse
+	76,  // 150: universerpc.Universe.InsertSupplyCommit:output_type -> universerpc.InsertSupplyCommitResponse
+	125, // [125:151] is the sub-list for method output_type
+	99,  // [99:125] is the sub-list for method input_type
+	99,  // [99:99] is the sub-list for extension type_name
+	99,  // [99:99] is the sub-list for extension extendee
+	0,   // [0:99] is the sub-list for field type_name
 }
 
 func init() { file_universerpc_universe_proto_init() }
