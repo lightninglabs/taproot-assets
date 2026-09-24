@@ -407,6 +407,14 @@
   confirm. Existing rows default to `false`; no backfill or operator
   action is required.
 
+* [PR#2315](https://github.com/lightninglabs/taproot-assets/pull/2315)
+  updates the SQLite driver to v1.59.0, embedding SQLite 3.53.4, which
+  fixes the WAL-reset data-corruption bug affecting SQLite versions
+  through 3.51.2 when concurrent connections write and checkpoint a
+  WAL-mode database, and updates the PostgreSQL driver to v5.11.0,
+  bringing in its security hardening and correctness fixes. No migration
+  or operator action is required.
+
 ## Code Health
 
 * [PR#2190](https://github.com/lightninglabs/taproot-assets/pull/2190)
