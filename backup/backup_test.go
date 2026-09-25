@@ -2,6 +2,7 @@ package backup
 
 import (
 	"bytes"
+	"io"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -9,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
 
@@ -67,7 +69,7 @@ func newTestScriptKeyBackup(t *testing.T) *ScriptKeyBackup {
 				Index:  456,
 			},
 		},
-		Tweak: []byte("test-tweak-data"),
+		Tweak: bytes.Repeat([]byte{0x01}, 64),
 	}
 }
 
@@ -139,6 +141,22 @@ func TestScriptKeyBackupRoundtrip(t *testing.T) {
 	require.Equal(t, original.RawKey.Family, decoded.RawKey.Family)
 	require.Equal(t, original.RawKey.Index, decoded.RawKey.Index)
 	require.Equal(t, original.Tweak, decoded.Tweak)
+}
+
+// TestAssetBackupDeclaredLength verifies EOF handling for a truncated asset
+// backup at the maximum permitted declared size.
+func TestAssetBackupDeclaredLength(t *testing.T) {
+	t.Parallel()
+
+	var (
+		encoded bytes.Buffer
+		scratch [8]byte
+	)
+	require.NoError(t, tlv.WriteVarInt(&encoded, maxTLVSize, &scratch))
+
+	var assetBackup AssetBackup
+	err := assetBackup.Decode(&encoded)
+	require.ErrorIs(t, err, io.EOF)
 }
 
 // TestKeyDescriptorBackupRoundtrip tests encode/decode roundtrip for
