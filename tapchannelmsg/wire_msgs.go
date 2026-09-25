@@ -108,7 +108,11 @@ func (p *ProofChunk) Encode(w io.Writer) error {
 // Decode reads the message using the given io.Reader.
 func (p *ProofChunk) Decode(r io.Reader) error {
 	stream, err := tlv.NewStream(
-		p.ChunkSumID.Record(), p.Chunk.Record(), p.Last.Record(),
+		p.ChunkSumID.Record(),
+		boundedBytesRecord(
+			p.Chunk.TlvType(), &p.Chunk.Val, tlv.MaxRecordSize,
+		),
+		p.Last.Record(),
 	)
 	if err != nil {
 		return err

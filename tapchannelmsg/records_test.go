@@ -509,6 +509,25 @@ func TestAuxShutdownMsg(t *testing.T) {
 	}
 }
 
+// TestScriptKeyMapDeclaredCount ensures a short script-key record cannot use
+// its declared entry count as an unbounded allocation size.
+func TestScriptKeyMapDeclaredCount(t *testing.T) {
+	t.Parallel()
+
+	var (
+		encoded bytes.Buffer
+		scratch [8]byte
+	)
+
+	require.NoError(t, tlv.WriteVarInt(&encoded, 65541, &scratch))
+	require.NoError(t, tlv.WriteVarInt(&encoded, 3, &scratch))
+	require.NoError(t, tlv.WriteVarInt(&encoded, 65535, &scratch))
+
+	var msg AuxShutdownMsg
+	err := msg.Decode(&encoded)
+	require.ErrorIs(t, err, ErrListInvalid)
+}
+
 // TestContractResolution tests encoding and decoding of the ContractResolution
 // TLV blob.
 func TestContractResolution(t *testing.T) {

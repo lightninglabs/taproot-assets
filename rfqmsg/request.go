@@ -78,6 +78,19 @@ type (
 	]
 )
 
+func oracleMetadataRecord(
+	metadata *tlv.RecordT[tlv.TlvType27, []byte]) tlv.Record {
+
+	size := func() uint64 {
+		return uint64(len(metadata.Val))
+	}
+
+	return tlv.MakeDynamicRecord(
+		metadata.TlvType(), &metadata.Val, size, tlv.EVarBytes,
+		asset.DVarBytesWithLimit(MaxOracleMetadataLength),
+	)
+}
+
 // ExecutionPolicy specifies how a quote request should be filled.
 type ExecutionPolicy uint8
 
@@ -629,7 +642,7 @@ func (m *requestWireMsgData) Decode(r io.Reader) error {
 		minInAsset.Record(),
 		minOutAsset.Record(),
 
-		oracleMetadata.Record(),
+		oracleMetadataRecord(&oracleMetadata),
 		assetRateLimit.Record(),
 		executionPolicy.Record(),
 	)
