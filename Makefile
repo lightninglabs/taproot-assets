@@ -413,7 +413,7 @@ bench-closure-check:
 
 fuzz:
 	@$(call print, "Fuzzing packages '$(FUZZPKG)'.")
-	scripts/fuzz.sh run "$(FUZZPKG)" "$(FUZZ_TEST_RUN_TIME)" "$(FUZZ_NUM_PROCESSES)" "$(FUZZ_TEST_TIMEOUT)"
+	scripts/fuzz.sh run "$(FUZZPKG)" "$(FUZZ_TEST_RUN_TIME)" "$(FUZZ_NUM_PROCESSES)" "$(FUZZ_TEST_TIMEOUT)" "$(FUZZ_BASE_WORKDIR)"
 
 # =========
 # UTILITIES
