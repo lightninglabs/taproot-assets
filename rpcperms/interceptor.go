@@ -11,6 +11,8 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 )
 
@@ -276,7 +278,7 @@ func errorLogUnaryServerInterceptor(logger btclog.Logger) grpc.UnaryServerInterc
 		resp, err := handler(ctx, req)
 		if err != nil {
 			// TODO(roasbeef): also log request details?
-			logger.Errorf("[%v]: %v", info.FullMethod, err)
+			logRPCError(logger, info.FullMethod, err)
 		}
 
 		return resp, err
@@ -292,10 +294,25 @@ func errorLogStreamServerInterceptor(logger btclog.Logger) grpc.StreamServerInte
 
 		err := handler(srv, ss)
 		if err != nil {
-			logger.Errorf("[%v]: %v", info.FullMethod, err)
+			logRPCError(logger, info.FullMethod, err)
 		}
 
 		return err
+	}
+}
+
+// logRPCError logs an error returned by an RPC handler. Errors whose status
+// code reports a problem with the client's request rather than a failure of
+// the server are logged at debug level, since they're an expected outcome of
+// serving well-formed but unfulfillable requests. Everything else is logged
+// as an error.
+func logRPCError(logger btclog.Logger, method string, err error) {
+	switch status.Code(err) {
+	case codes.NotFound, codes.InvalidArgument:
+		logger.Debugf("[%v]: %v", method, err)
+
+	default:
+		logger.Errorf("[%v]: %v", method, err)
 	}
 }
 
