@@ -56,6 +56,10 @@ const (
 	// payload. This prevents OOM from malformed input.
 	maxTLVSize = 100 * 1024 * 1024 // 100 MB
 
+	// maxSerializedPubKeySize permits both compressed and uncompressed
+	// public keys accepted by btcec.ParsePubKey during backup import.
+	maxSerializedPubKeySize = 65
+
 	// maxFederationURLs is the maximum number of federation URLs that
 	// can be stored in a v3 backup. This prevents OOM from malformed
 	// input.
@@ -688,13 +692,13 @@ func (sk *ScriptKeyBackup) Decode(r io.Reader) error {
 	records := []tlv.Record{
 		boundedBytesRecord(
 			ScriptKeyPubKeyType, &pubKeyBytes,
-			btcec.PubKeyBytesLenCompressed,
+			maxSerializedPubKeySize,
 		),
 		tlv.MakePrimitiveRecord(ScriptKeyFamilyType, &family),
 		tlv.MakePrimitiveRecord(ScriptKeyIndexType, &index),
 		boundedBytesRecord(
 			ScriptKeyRawPubKeyType, &rawPubKeyBytes,
-			btcec.PubKeyBytesLenCompressed,
+			maxSerializedPubKeySize,
 		),
 		boundedBytesRecord(
 			ScriptKeyTweakType, &tweak, maxTLVSize,
@@ -786,7 +790,7 @@ func (kd *KeyDescriptorBackup) Decode(r io.Reader) error {
 	records := []tlv.Record{
 		boundedBytesRecord(
 			KeyDescPubKeyType, &pubKeyBytes,
-			btcec.PubKeyBytesLenCompressed,
+			maxSerializedPubKeySize,
 		),
 		tlv.MakePrimitiveRecord(KeyDescFamilyType, &family),
 		tlv.MakePrimitiveRecord(KeyDescIndexType, &index),
