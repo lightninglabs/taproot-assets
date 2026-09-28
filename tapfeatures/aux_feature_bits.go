@@ -30,6 +30,18 @@ const (
 	// that the initial commitment of an asset channel is derived from the
 	// negotiated local and remote channel configs.
 	NegotiatedChanCfgOptional lnwire.FeatureBit = 5
+
+	// RbfCoopCloseRequired is a feature bit that declares as required
+	// that asset channels are closed cooperatively with lnd's RBF close
+	// flow (option_simple_close), with the aux closer hooks driven from
+	// within that flow.
+	RbfCoopCloseRequired lnwire.FeatureBit = 6
+
+	// RbfCoopCloseOptional is a feature bit that declares as optional
+	// that asset channels are closed cooperatively with lnd's RBF close
+	// flow. Both peers need to signal it for an asset channel to use the
+	// RBF flow, otherwise the legacy close negotiation is used.
+	RbfCoopCloseOptional lnwire.FeatureBit = 7
 )
 
 // featureNames keeps track of the string description of known features.
@@ -41,6 +53,9 @@ var featureNames = map[lnwire.FeatureBit]string{
 
 	NegotiatedChanCfgRequired: "negotiated-chan-cfg",
 	NegotiatedChanCfgOptional: "negotiated-chan-cfg",
+
+	RbfCoopCloseRequired: "rbf-coop-close",
+	RbfCoopCloseOptional: "rbf-coop-close",
 }
 
 // ourFeatures returns a slice containing all of the locally supported features.
@@ -51,6 +66,7 @@ func ourFeatures() []lnwire.FeatureBit {
 		NoOpHTLCsOptional,
 		STXOOptional,
 		NegotiatedChanCfgOptional,
+		RbfCoopCloseOptional,
 	}
 }
 
