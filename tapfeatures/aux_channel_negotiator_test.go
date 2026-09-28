@@ -1,9 +1,12 @@
 package tapfeatures
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
 
@@ -77,4 +80,57 @@ func TestNegotiatedChanCfgFeature(t *testing.T) {
 
 	peer.Set(NegotiatedChanCfgOptional)
 	require.NoError(t, checkRequiredBits(required, peer))
+}
+
+// TestRbfCoopCloseFeature asserts that we advertise the RBF co-op close
+// feature as optional, and that a peer only counts as supporting it when it
+// signals the bit itself.
+func TestRbfCoopCloseFeature(t *testing.T) {
+	local := LocalFeatures()
+
+	require.True(t, local.HasFeature(RbfCoopCloseOptional))
+	require.False(t, local.RequiresFeature(RbfCoopCloseOptional))
+
+	// A peer that doesn't know the feature still passes our required
+	// bits check, it just won't use the RBF flow for asset channels.
+	peer := lnwire.NewRawFeatureVector(NoOpHTLCsOptional, STXOOptional)
+	require.NoError(t, checkRequiredBits(getLocalFeatureVec(), peer))
+
+	negotiator := NewAuxChannelNegotiator()
+	peerVertex := route.Vertex{1, 2, 3}
+
+	// Without any init records from the peer, the feature is unknown.
+	peerFeatures := negotiator.GetPeerFeatures(peerVertex)
+	require.False(t, peerFeatures.HasFeature(RbfCoopCloseOptional))
+
+	// Process init records without the bit, it stays unsupported.
+	records, err := initRecordsFor(peer)
+	require.NoError(t, err)
+	require.NoError(t, negotiator.ProcessInitRecords(peerVertex, records))
+	peerFeatures = negotiator.GetPeerFeatures(peerVertex)
+	require.False(t, peerFeatures.HasFeature(RbfCoopCloseOptional))
+
+	// Once the peer signals the bit, it's supported.
+	peer.Set(RbfCoopCloseOptional)
+	records, err = initRecordsFor(peer)
+	require.NoError(t, err)
+	require.NoError(t, negotiator.ProcessInitRecords(peerVertex, records))
+	peerFeatures = negotiator.GetPeerFeatures(peerVertex)
+	require.True(t, peerFeatures.HasFeature(RbfCoopCloseOptional))
+}
+
+// initRecordsFor encodes the given feature vector the way a peer would put it
+// into its init message.
+func initRecordsFor(features *lnwire.RawFeatureVector) (lnwire.CustomRecords,
+	error) {
+
+	var buf bytes.Buffer
+	if err := features.Encode(&buf); err != nil {
+		return nil, err
+	}
+
+	tlvMap := make(tlv.TypeMap, 1)
+	tlvMap[AuxFeatureBitsTLV] = buf.Bytes()
+
+	return lnwire.NewCustomRecords(tlvMap)
 }
