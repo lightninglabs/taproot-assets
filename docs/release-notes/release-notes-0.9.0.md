@@ -198,6 +198,17 @@
   and supply updates to become externally visible only after that
   threshold; lowering it reduces the corresponding re-org protection.
 
+* [PR#2321](https://github.com/lightninglabs/taproot-assets/pull/2321)
+  adds support for lnd's RBF cooperative close flow
+  (`option_simple_close`) to asset channels, so they no longer fall
+  back to the legacy close negotiation. Both parties can bump the fee
+  of the close transaction, and the aux closer re-commits the assets in
+  every candidate and finalizes whichever confirms, also across a
+  restart. The flow is used with peers that signal the new
+  `rbf-coop-close` tap channel feature bit, other peers keep using the
+  legacy negotiation. Requires lnd with
+  [lightningnetwork/lnd#11279](https://github.com/lightningnetwork/lnd/pull/11279).
+
 - [`tapd` now keeps an encrypted asset wallet backup
   file](https://github.com/lightninglabs/taproot-assets/pull/2277)
   (`assets.backup`, see [backup-file.md](../backup-file.md)) on disk that is updated
