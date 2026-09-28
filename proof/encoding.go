@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"maps"
 	"math"
 	"net/url"
+	"slices"
 
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -354,8 +356,18 @@ func CommitmentProofsEncoder(w io.Writer, val any, buf *[8]byte) error {
 			return err
 		}
 
+		// Iterating over a map yields a random order, so we encode the
+		// proofs sorted by their key to arrive at a canonical encoding.
+		keys := slices.SortedFunc(
+			maps.Keys(*t), func(a, b asset.SerializedKey) int {
+				return bytes.Compare(a[:], b[:])
+			},
+		)
+
 		var proofBuf bytes.Buffer
-		for key, proof := range *t {
+		for _, key := range keys {
+			proof := (*t)[key]
+
 			var keyBytes [33]byte
 			copy(keyBytes[:], key[:])
 
