@@ -833,7 +833,18 @@ func SendOutputsEncoder(w io.Writer, val any, buf *[8]byte) error {
 			return err
 		}
 
-		for id, output := range *t {
+		// Iterating over a map yields a random order, so we encode the
+		// outputs sorted by their asset ID to arrive at a canonical
+		// encoding.
+		ids := slices.SortedFunc(
+			maps.Keys(*t), func(a, b asset.ID) int {
+				return bytes.Compare(a[:], b[:])
+			},
+		)
+
+		for _, id := range ids {
+			output := (*t)[id]
+
 			idArr := ([32]byte)(id)
 			if err := tlv.EBytes32(w, &idArr, buf); err != nil {
 				return err
