@@ -72,6 +72,6 @@ func (c *cacheLogger) log() {
 		size = c.cacheSize()
 	}
 
-	log.Infof("cacheLogger(name=%s, hits=%d, misses=%d, "+
+	log.Debugf("cacheLogger(name=%s, hits=%d, misses=%d, "+
 		"hit_ratio=%.2f%%, size=%s)", c.name, hit, miss, ratio, size)
 }
