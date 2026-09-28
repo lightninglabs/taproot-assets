@@ -158,8 +158,11 @@ func TestDecodeCloseInfoSTXOVersion(t *testing.T) {
 			&buf, binary.BigEndian, uint32(0),
 		))
 
-		info, err := decodeCloseInfo(&buf)
+		infos, err := decodeCloseInfos(&buf)
 		require.NoError(t, err)
+		require.Len(t, infos, 1)
+
+		info := infos[0]
 		require.Equal(t, int64(12345), info.closeFee)
 		require.Equal(
 			t, STXOFeatures{STXO: supportSTXO}, info.stxoFeatures,
