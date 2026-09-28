@@ -603,6 +603,8 @@ github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03
 github.com/BurntSushi/toml v1.4.0 h1:kuoIxZQy2WRRk1pttg9asf+WVv6tWQuBNVmK8+nqPr0=
 github.com/BurntSushi/toml v1.4.0/go.mod h1:ukJfTF/6rtPPRCnwkur4qwRxa8vTRFBF0uk2lLoLwho=
 github.com/BurntSushi/xgb v0.0.0-20160522181843-27f122750802/go.mod h1:IVnqGOEym/WlBOVXweHU+Q+/VP0lqqI8lqeDx9IjBqo=
+github.com/GeorgeTsagk/lnd v0.0.0-20260929162134-b0778f6b700e h1:gQ2HI1q5OWgHKyYh7DPXCc+Dv50iyu1kFtmBqy/K41c=
+github.com/GeorgeTsagk/lnd v0.0.0-20260929162134-b0778f6b700e/go.mod h1:s6Rs050GFHJJ9aGdjxdJw+gBLQcerjc5z6Ho9PyGifY=
 github.com/JohnCGriffin/overflow v0.0.0-20211019200055-46fa312c352c/go.mod h1:X0CRv0ky0k6m906ixxpzmDRLvX58TFUKS2eePweuyxk=
 github.com/Microsoft/go-winio v0.6.2 h1:F2VQgta7ecxGYO8k3ZZz3RS8fVIXVxONVUPlNERoyfY=
 github.com/Microsoft/go-winio v0.6.2/go.mod h1:yd8OoFMLzJbo9gZq8j5qaps8bJ9aShtEA8Ipt1oGCvU=
@@ -661,8 +663,8 @@ github.com/btcsuite/btclog v1.0.0 h1:sEkpKJMmfGiyZjADwEIgB1NSwMyfdD1FB8v6+w1T0Ns
 github.com/btcsuite/btclog v1.0.0/go.mod h1:w7xnGOhwT3lmrS4H3b/D1XAXxvh+tbhUm8xeHN2y3TQ=
 github.com/btcsuite/btclog/v2 v2.0.1-0.20250728225537-6090e87c6c5b h1:MQ+Q6sDy37V1wP1Yu79A5KqJutolqUGwA99UZWQDWZM=
 github.com/btcsuite/btclog/v2 v2.0.1-0.20250728225537-6090e87c6c5b/go.mod h1:XItGUfVOxotJL8kkuk2Hj3EVow5KCugXl3wWfQ6K0AE=
-github.com/btcsuite/btcwallet v0.18.0 h1:VSRClNLT7NX0wmJEGALz3jOZRRjWPpUdp7VI1Akie1o=
-github.com/btcsuite/btcwallet v0.18.0/go.mod h1:1ZMc1EEskov+AKKv4kCMZqN8BwVh9rpXwEyxbeWy2A4=
+github.com/btcsuite/btcwallet v0.18.1-0.20260903142755-a960541f35ed h1:2nmty4a4/GIqP+II2NXU+O6yZyRO1wgaeIjCHIZTvv4=
+github.com/btcsuite/btcwallet v0.18.1-0.20260903142755-a960541f35ed/go.mod h1:IQrr6b13s0ZTaj9RlM/LhQ+Xvmo/gK86L9oGu2upIeQ=
 github.com/btcsuite/btcwallet/wallet/txauthor v1.4.0 h1:oIkGj32YK1CvWaJGlVwZA1f+y/KVHkfrd2PoST0ZpQs=
 github.com/btcsuite/btcwallet/wallet/txauthor v1.4.0/go.mod h1:sGrBjcqQ8UPexuRajFs72+o544CJn3Pavv/5H0VAWVk=
 github.com/btcsuite/btcwallet/wallet/txrules v1.3.0 h1:D5aGMwWIxdqek3xEJs4eOdMoh6iga2EI2xSlaXCdnNo=
@@ -671,8 +673,8 @@ github.com/btcsuite/btcwallet/wallet/txsizes v1.3.0 h1:2W9qt0edMoX8crx0Wm4Cv+eAj
 github.com/btcsuite/btcwallet/wallet/txsizes v1.3.0/go.mod h1:42aE6+LMZSSEisQAa15Xml25ncuJFfhCrkcpB5OmkZk=
 github.com/btcsuite/btcwallet/walletdb v1.6.0 h1:Yund5XbdqFxNW7+R2Sxs02bMC5fMrmORj4GN8MV55no=
 github.com/btcsuite/btcwallet/walletdb v1.6.0/go.mod h1:q9xif0Csp52GVb3l252BbHCuyiCnuEbrPWu/HAsvaYc=
-github.com/btcsuite/btcwallet/wtxmgr v1.6.0 h1:ivSSnYCD4Kb5yAMZVyBA1VMYABIFcopPEcmHCrRZXcE=
-github.com/btcsuite/btcwallet/wtxmgr v1.6.0/go.mod h1:Raor7IBIwHSIKE9Lr5o+R9rwX7sRMHU1zjxgEQgn9h8=
+github.com/btcsuite/btcwallet/wtxmgr v1.6.1-0.20260903142755-a960541f35ed h1:HhSbzqX5IJUlBehUY+HLAXM1At+QygEOq0FdLTC5DYY=
+github.com/btcsuite/btcwallet/wtxmgr v1.6.1-0.20260903142755-a960541f35ed/go.mod h1:Raor7IBIwHSIKE9Lr5o+R9rwX7sRMHU1zjxgEQgn9h8=
 github.com/btcsuite/go-socks v0.0.0-20170105172521-4720035b7bfd h1:R/opQEbFEy9JGkIguV40SvRY1uliPX8ifOvi6ICsFCw=
 github.com/btcsuite/go-socks v0.0.0-20170105172521-4720035b7bfd/go.mod h1:HHNXQzUsZCxOoE+CPiyCTO6x34Zs86zZUiwtpXoGdtg=
 github.com/btcsuite/golangcrypto v0.0.0-20150304025918-53f62d9b43e8/go.mod h1:tYvUd8KLhm/oXvUeSEs2VlLghFjQt9+ZaF9ghH0JNjc=
@@ -1067,8 +1069,6 @@ github.com/lightninglabs/protobuf-go-hex-display v1.34.2-hex-display h1:w7FM5LH9
 github.com/lightninglabs/protobuf-go-hex-display v1.34.2-hex-display/go.mod h1:qYOHts0dSfpeUzUFpOMr/WGzszTmLH+DiWniOlNbLDw=
 github.com/lightningnetwork/lightning-onion v1.4.0 h1:qWE1icOH4AKXRcq1KCzt6P/TesqptgBTP++V7wowTc0=
 github.com/lightningnetwork/lightning-onion v1.4.0/go.mod h1:YDPkvVTVQ6FBBE6Yj93tDd7zA3iTSrryi9xq46i7bKE=
-github.com/lightningnetwork/lnd v0.21.0-beta.rc2.0.20260903094101-d66a7c137d32 h1:lwPqwW244WCcdOZGwmS+rrieC1hTPYaRvkjHC8KXDeY=
-github.com/lightningnetwork/lnd v0.21.0-beta.rc2.0.20260903094101-d66a7c137d32/go.mod h1:deRbYNteO2ZNleUYVQLHXCTMKbiuoUO7ShmYseVRRM8=
 github.com/lightningnetwork/lnd/actor v0.0.6 h1:Ge8N2wivARG+27qJBwTlB0vwsypStZYZy8vk4Zl38sU=
 github.com/lightningnetwork/lnd/actor v0.0.6/go.mod h1:YAsoniSbY/cAM9HTVNfZLvt7RI6swDxy6wzPspTcMZg=
 github.com/lightningnetwork/lnd/cert v1.2.2 h1:71YK6hogeJtxSxw2teq3eGeuy4rHGKcFf0d0Uy4qBjI=
