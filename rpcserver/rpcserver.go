@@ -7650,6 +7650,18 @@ func (r *RPCServer) QueryProof(ctx context.Context,
 
 	firstProof, err := r.queryProof(ctx, universeID, leafKey)
 	if err != nil {
+		// A leaf the universe doesn't hold is a normal outcome of a
+		// well-formed query: receivers poll for transfer proofs
+		// before the sender has uploaded them. Report it as
+		// NotFound so clients, and the RPC error log, can tell it
+		// apart from a server failure.
+		if errors.Is(err, universe.ErrNoUniverseProofFound) {
+			return nil, status.Errorf(codes.NotFound,
+				"query proof (uni=%v, leaf_key=%x): %v",
+				universeID.StringForLog(),
+				leafKey.UniverseKey(), err)
+		}
+
 		return nil, fmt.Errorf("query proof "+
 			"(uni=%v, leaf_key=%x): %w",
 			universeID.StringForLog(),

@@ -462,7 +462,6 @@ func (b *MultiverseStore) RootNodes(ctx context.Context,
 	}
 
 	now := time.Now()
-	log.Infof("populating root cache...")
 
 	params := sqlc.UniverseRootsParams{
 		SortDirection: sqlInt16(q.SortDirection),
