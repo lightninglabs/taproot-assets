@@ -155,6 +155,11 @@
   once and the event failed with `ErrMultipleProofs` on every attempt.
   The proof is now looked up by asset as well.
 
+* [PR#2317](https://github.com/lightninglabs/taproot-assets/pull/2317)
+  updates RFQ quote accounting to track settled amounts separately from
+  pending HTLC reservations and restore settled usage from forwarding records
+  on startup. Failed HTLCs continue to release their reservations.
+
 # New Features
 
 ## Functional Enhancements
