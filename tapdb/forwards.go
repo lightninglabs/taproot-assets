@@ -25,6 +25,11 @@ type ForwardStore interface {
 	QueryPendingForwards(ctx context.Context) (
 		[]sqlc.QueryPendingForwardsRow, error)
 
+	// QuerySettledFillByRfqID fetches the total settled outgoing amount
+	// grouped by RFQ session ID.
+	QuerySettledFillByRfqID(ctx context.Context) (
+		[]sqlc.QuerySettledFillByRfqIDRow, error)
+
 	// QueryForwards queries forwarding event records with optional filters.
 	QueryForwards(ctx context.Context,
 		arg sqlc.QueryForwardsParams) ([]sqlc.QueryForwardsRow, error)
@@ -116,6 +121,48 @@ func (s *PersistedForwardStore) PendingForwards(
 	}
 
 	return forwards, nil
+}
+
+// SettledFillByRfqID returns the total settled outgoing amount (in
+// millisatoshis) of all settled forwarding events, grouped by RFQ session ID.
+func (s *PersistedForwardStore) SettledFillByRfqID(
+	ctx context.Context,
+) (map[rfqmsg.ID]uint64, error) {
+
+	readOpts := ReadTxOption()
+	settledFill := make(map[rfqmsg.ID]uint64)
+
+	err := s.db.ExecTx(ctx, readOpts, func(q ForwardStore) error {
+		rows, err := q.QuerySettledFillByRfqID(ctx)
+		if err != nil {
+			return fmt.Errorf("querying settled fill by RFQ ID: %w",
+				err)
+		}
+
+		for _, row := range rows {
+			var rfqID rfqmsg.ID
+			if len(row.RfqID) != len(rfqID) {
+				return fmt.Errorf("invalid RFQ ID length: %d",
+					len(row.RfqID))
+			}
+			copy(rfqID[:], row.RfqID)
+
+			if row.SettledAmtMsat < 0 {
+				return fmt.Errorf("negative settled fill for "+
+					"RFQ ID %x: %d", rfqID,
+					row.SettledAmtMsat)
+			}
+
+			settledFill[rfqID] = uint64(row.SettledAmtMsat)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return settledFill, nil
 }
 
 type forwardQueryFilters struct {

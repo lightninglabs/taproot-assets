@@ -171,8 +171,20 @@ type Policy interface {
 	// whether the next compliance check passes.
 	TrackAcceptedHtlc(circuitKey models.CircuitKey, amt lnwire.MilliSatoshi)
 
-	// UntrackHtlc stops tracking the uniquely identified HTLC.
+	// UntrackHtlc stops tracking the uniquely identified HTLC. The HTLC's
+	// reservation is released, restoring the corresponding quote capacity.
+	// This must only be used for HTLCs that did not settle.
 	UntrackHtlc(circuitKey models.CircuitKey)
+
+	// SettleHtlc marks the uniquely identified HTLC as settled. The HTLC's
+	// amount is moved from the in-flight reservation into the policy's
+	// lifetime settled fill, permanently consuming quote capacity.
+	SettleHtlc(circuitKey models.CircuitKey)
+
+	// AddSettledFill adds the given amount to the policy's lifetime
+	// settled fill. It is used at startup to restore fill accounting from
+	// persisted forwarding events.
+	AddSettledFill(amt lnwire.MilliSatoshi)
 
 	// GenerateInterceptorResponse generates an interceptor response for the
 	// HTLC interceptor from the policy.
@@ -201,6 +213,11 @@ type AssetSalePolicy struct {
 	// CurrentAssetAmountMsat is the total amount that is held currently in
 	// accepted HTLCs.
 	CurrentAmountMsat lnwire.MilliSatoshi
+
+	// settledAmountMsat is the lifetime total amount of settled HTLCs.
+	// Settled fill permanently consumes quote capacity and is never
+	// released.
+	settledAmountMsat lnwire.MilliSatoshi
 
 	// stateMutex is a mutex that locks access to this policy's internal
 	// state. This is needed as state is updated asynchronously by each
@@ -319,10 +336,17 @@ func (c *AssetSalePolicy) CheckHtlcCompliance(_ context.Context,
 	// already and must not be counted a second time.
 	currentAmtMsat := c.currentAmountExcluding(htlc.IncomingCircuitKey)
 
-	if (currentAmtMsat + htlc.AmountOutMsat) > policyMaxOutMsat {
+	// The capacity check accounts for both the amount currently reserved
+	// by in-flight HTLCs and the lifetime settled fill. Settled fill is
+	// never released, so the quote's maximum bounds the total amount
+	// traded over its lifetime, not just the amount in flight.
+	totalFillMsat := currentAmtMsat + c.settledAmountMsat
+	if (totalFillMsat + htlc.AmountOutMsat) > policyMaxOutMsat {
 		return fmt.Errorf("HTLC out amount is greater than the policy "+
-			"maximum (htlc_out_msat=%d, policy_max_out_msat=%d)",
-			htlc.AmountOutMsat, policyMaxOutMsat)
+			"maximum (htlc_out_msat=%d, in_flight_msat=%d, "+
+			"settled_msat=%d, policy_max_out_msat=%d)",
+			htlc.AmountOutMsat, currentAmtMsat, c.settledAmountMsat,
+			policyMaxOutMsat)
 	}
 
 	// Lastly, check to ensure that the policy has not expired.
@@ -381,7 +405,9 @@ func (c *AssetSalePolicy) currentAmountExcluding(
 	return c.CurrentAmountMsat - prevAmt
 }
 
-// UntrackHtlc stops tracking the uniquely identified HTLC.
+// UntrackHtlc stops tracking the uniquely identified HTLC. The HTLC's
+// reservation is released, restoring the corresponding quote capacity. This
+// must only be called for HTLCs that did not settle.
 func (c *AssetSalePolicy) UntrackHtlc(circuitKey models.CircuitKey) {
 	c.stateMutex.Lock()
 	defer c.stateMutex.Unlock()
@@ -394,6 +420,34 @@ func (c *AssetSalePolicy) UntrackHtlc(circuitKey models.CircuitKey) {
 	delete(c.htlcToAmt, circuitKey)
 
 	c.CurrentAmountMsat -= amt
+}
+
+// SettleHtlc marks the uniquely identified HTLC as settled. The HTLC's amount
+// is moved from the in-flight reservation into the policy's lifetime settled
+// fill, permanently consuming quote capacity.
+func (c *AssetSalePolicy) SettleHtlc(circuitKey models.CircuitKey) {
+	c.stateMutex.Lock()
+	defer c.stateMutex.Unlock()
+
+	amt, found := c.htlcToAmt[circuitKey]
+	if !found {
+		return
+	}
+
+	delete(c.htlcToAmt, circuitKey)
+
+	c.CurrentAmountMsat -= amt
+	c.settledAmountMsat += amt
+}
+
+// AddSettledFill adds the given amount to the policy's lifetime settled fill.
+// It is used at startup to restore fill accounting from persisted forwarding
+// events.
+func (c *AssetSalePolicy) AddSettledFill(amt lnwire.MilliSatoshi) {
+	c.stateMutex.Lock()
+	defer c.stateMutex.Unlock()
+
+	c.settledAmountMsat += amt
 }
 
 // Expiry returns the policy's expiry time as a unix timestamp.
@@ -505,6 +559,11 @@ type AssetPurchasePolicy struct {
 	// CurrentAssetAmountMsat is the total amount that is held currently in
 	// accepted HTLCs.
 	CurrentAmountMsat lnwire.MilliSatoshi
+
+	// settledAmountMsat is the lifetime total amount of settled HTLCs.
+	// Settled fill permanently consumes quote capacity and is never
+	// released.
+	settledAmountMsat lnwire.MilliSatoshi
 
 	// stateMutex is a mutex that locks access to this policy's internal
 	// state. This is needed as state is updated asynchronously by each
@@ -628,11 +687,17 @@ func (c *AssetPurchasePolicy) CheckHtlcCompliance(ctx context.Context,
 	// HTLC must not be counted twice.
 	currentAmtMsat := c.currentAmountExcluding(htlc.IncomingCircuitKey)
 
-	if (currentAmtMsat + htlc.AmountOutMsat) > c.PaymentMaxAmt {
+	// The capacity check accounts for both the amount currently reserved
+	// by in-flight HTLCs and the lifetime settled fill. Settled fill is
+	// never released, so the quote's maximum bounds the total amount
+	// traded over its lifetime, not just the amount in flight.
+	totalFillMsat := currentAmtMsat + c.settledAmountMsat
+	if (totalFillMsat + htlc.AmountOutMsat) > c.PaymentMaxAmt {
 		return fmt.Errorf("HTLC out amount is more than the maximum "+
 			"agreed BTC payment (htlc_out_msat=%d, "+
+			"in_flight_msat=%d, settled_msat=%d, "+
 			"payment_max_amt=%d)", htlc.AmountOutMsat,
-			c.PaymentMaxAmt)
+			currentAmtMsat, c.settledAmountMsat, c.PaymentMaxAmt)
 	}
 
 	// Lastly, check to ensure that the policy has not expired.
@@ -691,7 +756,9 @@ func (c *AssetPurchasePolicy) currentAmountExcluding(
 	return c.CurrentAmountMsat - prevAmt
 }
 
-// UntrackHtlc stops tracking the uniquely identified HTLC.
+// UntrackHtlc stops tracking the uniquely identified HTLC. The HTLC's
+// reservation is released, restoring the corresponding quote capacity. This
+// must only be called for HTLCs that did not settle.
 func (c *AssetPurchasePolicy) UntrackHtlc(circuitKey models.CircuitKey) {
 	c.stateMutex.Lock()
 	defer c.stateMutex.Unlock()
@@ -704,6 +771,34 @@ func (c *AssetPurchasePolicy) UntrackHtlc(circuitKey models.CircuitKey) {
 	delete(c.htlcToAmt, circuitKey)
 
 	c.CurrentAmountMsat -= amt
+}
+
+// SettleHtlc marks the uniquely identified HTLC as settled. The HTLC's amount
+// is moved from the in-flight reservation into the policy's lifetime settled
+// fill, permanently consuming quote capacity.
+func (c *AssetPurchasePolicy) SettleHtlc(circuitKey models.CircuitKey) {
+	c.stateMutex.Lock()
+	defer c.stateMutex.Unlock()
+
+	amt, found := c.htlcToAmt[circuitKey]
+	if !found {
+		return
+	}
+
+	delete(c.htlcToAmt, circuitKey)
+
+	c.CurrentAmountMsat -= amt
+	c.settledAmountMsat += amt
+}
+
+// AddSettledFill adds the given amount to the policy's lifetime settled fill.
+// It is used at startup to restore fill accounting from persisted forwarding
+// events.
+func (c *AssetPurchasePolicy) AddSettledFill(amt lnwire.MilliSatoshi) {
+	c.stateMutex.Lock()
+	defer c.stateMutex.Unlock()
+
+	c.settledAmountMsat += amt
 }
 
 // Expiry returns the policy's expiry time as a unix timestamp in seconds.
@@ -852,6 +947,26 @@ func (a *AssetForwardPolicy) UntrackHtlc(circuitKey models.CircuitKey) {
 
 	// Untrack HTLC in the outgoing policy.
 	a.outgoingPolicy.UntrackHtlc(circuitKey)
+}
+
+// SettleHtlc marks the uniquely identified HTLC as settled on both legs of
+// the forward.
+func (a *AssetForwardPolicy) SettleHtlc(circuitKey models.CircuitKey) {
+	// Settle HTLC in the incoming policy.
+	a.incomingPolicy.SettleHtlc(circuitKey)
+
+	// Settle HTLC in the outgoing policy.
+	a.outgoingPolicy.SettleHtlc(circuitKey)
+}
+
+// AddSettledFill adds the given amount to the lifetime settled fill of both
+// legs of the forward.
+func (a *AssetForwardPolicy) AddSettledFill(amt lnwire.MilliSatoshi) {
+	// Add settled fill in the incoming policy.
+	a.incomingPolicy.AddSettledFill(amt)
+
+	// Add settled fill in the outgoing policy.
+	a.outgoingPolicy.AddSettledFill(amt)
 }
 
 // Expiry returns the policy's expiry time as a unix timestamp in seconds. The
@@ -1425,10 +1540,12 @@ func (h *OrderHandler) subscribeHtlcs(ctx context.Context) error {
 func (h *OrderHandler) handleHtlcSettle(ctx context.Context,
 	circuitKey models.CircuitKey) {
 
-	// Clean up the policy tracking first.
+	// Update the policy tracking first. A settled HTLC permanently consumes
+	// quote capacity, so it is moved into the policy's lifetime settled
+	// fill instead of releasing its reservation.
 	policy, found := h.htlcToPolicy.LoadAndDelete(circuitKey)
 	if found {
-		policy.UntrackHtlc(circuitKey)
+		policy.SettleHtlc(circuitKey)
 	}
 
 	// If forwarding event logging is disabled, nothing more to do.
@@ -1650,6 +1767,14 @@ func (h *OrderHandler) Start(ctx context.Context) error {
 				"%v", err)
 		}
 
+		// Restore the lifetime settled fill of each policy from the
+		// persisted forwarding events. This must happen after pending
+		// forwards have been reconciled, so that HTLCs which settled
+		// while the daemon was down are accounted for.
+		if err := h.restoreSettledFill(ctx); err != nil {
+			log.Errorf("restoring settled fill accounting: %v", err)
+		}
+
 		// Start the HTLC interceptor in a separate go routine.
 		h.Wg.Add(1)
 		go func() {
@@ -1805,6 +1930,40 @@ func (h *OrderHandler) restorePersistedPolicies(ctx context.Context) error {
 	for _, accept := range peerSellAccepts {
 		h.peerSellQuotes.Store(accept.ShortChannelId(), accept)
 	}
+
+	return nil
+}
+
+// restoreSettledFill restores the lifetime settled fill of each restored
+// policy from the persisted forwarding events. Settled fill permanently
+// consumes quote capacity, so it must survive daemon restarts.
+func (h *OrderHandler) restoreSettledFill(ctx context.Context) error {
+	// If forwarding event logging is disabled, there is no persisted fill
+	// accounting to restore.
+	if h.forwardStore == nil {
+		return nil
+	}
+
+	settledFill, err := h.forwardStore.SettledFillByRfqID(ctx)
+	if err != nil {
+		return fmt.Errorf("error fetching settled fill by RFQ ID: %w",
+			err)
+	}
+
+	if len(settledFill) == 0 {
+		return nil
+	}
+
+	h.policies.Range(func(_ SerialisedScid, policy Policy) bool {
+		amtMsat, ok := settledFill[policy.RfqID()]
+		if !ok {
+			return true
+		}
+
+		policy.AddSettledFill(lnwire.MilliSatoshi(amtMsat))
+
+		return true
+	})
 
 	return nil
 }

@@ -189,6 +189,12 @@ type ForwardStore interface {
 	// PendingForwards retrieves forwards that haven't settled or failed.
 	PendingForwards(ctx context.Context) ([]ForwardInput, error)
 
+	// SettledFillByRfqID returns the total settled outgoing amount (in
+	// millisatoshis) of all settled forwarding events, grouped by RFQ
+	// session ID. It is used to restore lifetime fill accounting after a
+	// restart.
+	SettledFillByRfqID(ctx context.Context) (map[rfqmsg.ID]uint64, error)
+
 	// QueryForwardsWithCount retrieves forwarding event records matching
 	// the given filters along with the total count.
 	QueryForwardsWithCount(ctx context.Context,

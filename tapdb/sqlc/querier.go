@@ -231,6 +231,7 @@ type Querier interface {
 	QueryPendingForwards(ctx context.Context) ([]QueryPendingForwardsRow, error)
 	QueryPendingSupplyCommitTransition(ctx context.Context, groupKey []byte) (QueryPendingSupplyCommitTransitionRow, error)
 	QueryProofTransferAttempts(ctx context.Context, arg QueryProofTransferAttemptsParams) ([]time.Time, error)
+	QuerySettledFillByRfqID(ctx context.Context) ([]QuerySettledFillByRfqIDRow, error)
 	QueryStartingSupplyCommitment(ctx context.Context, groupKey []byte) (QueryStartingSupplyCommitmentRow, error)
 	QuerySupersededTransferIDs(ctx context.Context) ([]int64, error)
 	QuerySupplyCommitStateMachine(ctx context.Context, groupKey []byte) (QuerySupplyCommitStateMachineRow, error)
