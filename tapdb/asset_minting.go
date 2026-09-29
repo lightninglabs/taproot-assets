@@ -151,6 +151,10 @@ type PendingAssetStore interface {
 	// assets.
 	UpsertAssetStore
 
+	// AssetProofStore houses the atomic proof blob and provenance index
+	// operations.
+	AssetProofStore
+
 	// GroupStore houses the methods related to querying asset groups.
 	GroupStore
 
@@ -245,10 +249,6 @@ type PendingAssetStore interface {
 	// table for a given asset identified by `Outpoint` and
 	// `TweakedScriptKey`.
 	FetchAssetID(ctx context.Context, arg FetchAssetID) ([]int64, error)
-
-	// UpsertAssetProofByID inserts a new or updates an existing asset
-	// proof on disk.
-	UpsertAssetProofByID(ctx context.Context, arg ProofUpdateByID) error
 
 	// FetchAssetMetaForAsset fetches the asset meta for a given asset.
 	FetchAssetMetaForAsset(ctx context.Context,
@@ -2002,10 +2002,16 @@ func (a *AssetMintingStore) MarkBatchConfirmed(ctx context.Context,
 			// Upload proof by the dbAssetId, which is the _primary
 			// key_ of the asset in table assets, not the BIPS
 			// concept of `asset_id`.
-			err = q.UpsertAssetProofByID(ctx, ProofUpdateByID{
-				AssetID:   dbAssetIds[0],
-				ProofFile: proofBlob,
-			})
+			indexed, err := NewIndexedProofFile(proofBlob)
+			if err != nil {
+				return fmt.Errorf(
+					"unable to index proof file: %w", err,
+				)
+			}
+
+			err = StoreIndexedAssetProof(
+				ctx, q, dbAssetIds[0], indexed,
+			)
 			if err != nil {
 				return fmt.Errorf("unable to insert proof "+
 					"file: %w", err)

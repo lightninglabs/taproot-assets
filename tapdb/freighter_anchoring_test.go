@@ -29,8 +29,9 @@ func blockContextFor(t *testing.T, tx *wire.MsgTx,
 	proof.TxMerkleProof) {
 
 	header := wire.BlockHeader{
-		Version: 2,
-		Nonce:   nonce,
+		Version:    2,
+		MerkleRoot: tx.TxHash(),
+		Nonce:      nonce,
 	}
 	merkle, err := proof.NewTxMerkleProof([]*wire.MsgTx{tx}, 0)
 	require.NoError(t, err)

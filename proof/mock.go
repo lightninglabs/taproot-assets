@@ -25,6 +25,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	mboxrpc "github.com/lightninglabs/taproot-assets/taprpc/authmailboxrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/universerpc"
+	"github.com/lightninglabs/taproot-assets/tapscript"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnutils"
@@ -1344,3 +1345,180 @@ type GroupRevealMutator func(asset.GroupKeyReveal)
 
 // GenRevealMutator mutates the genesis reveal of a fixture proof.
 type GenRevealMutator func(*asset.Genesis) *asset.Genesis
+
+// RandAnchoredGenesisProof issues a grouped asset and places its genesis
+// transaction on the caller's chain: anchor receives the transaction and
+// returns the block that confirms it and that block's height, so the proof
+// describes a chain the caller controls. The issuer's script key is returned
+// so the asset can be spent on.
+func RandAnchoredGenesisProof(t testing.TB,
+	anchor func(tx *wire.MsgTx) (*wire.MsgBlock, uint32)) (Proof,
+	*btcec.PrivateKey) {
+
+	t.Helper()
+
+	amt := uint64(100)
+	genesisProof, issuerPrivKey := RandGenesisProofWithKey(
+		t, asset.Normal, &amt, nil, true, nil, nil, nil, nil, asset.V0,
+	)
+	block, height := anchor(&genesisProof.AnchorTx)
+	stampAnchorBlock(t, &genesisProof, block, height)
+
+	return genesisProof, issuerPrivKey
+}
+
+// AppendRandTransfer extends a proof file with a full-value transfer of its
+// tip asset to a fresh BIP-86 key, signed by the holder's script key and
+// anchored on the caller's chain the same way as RandAnchoredGenesisProof.
+// It returns the recipient's key descriptor and private key, so the asset
+// can be carried on, and the outpoint it now sits at.
+func AppendRandTransfer(t testing.TB, file *File,
+	senderPrivKey *btcec.PrivateKey,
+	anchor func(tx *wire.MsgTx) (*wire.MsgBlock, uint32)) (
+	keychain.KeyDescriptor, *btcec.PrivateKey, wire.OutPoint) {
+
+	t.Helper()
+
+	prevProof, err := file.LastProof()
+	require.NoError(t, err)
+
+	recipientPrivKey := test.RandPrivKey()
+	recipientKeyDesc := test.PubToKeyDesc(recipientPrivKey.PubKey())
+	newAsset := *prevProof.Asset.Copy()
+	newAsset.ScriptKey = asset.NewScriptKeyBip86(recipientKeyDesc)
+
+	// The holder signs the transfer with its script key.
+	prevOut := wire.OutPoint{
+		Hash:  prevProof.AnchorTx.TxHash(),
+		Index: prevProof.InclusionProof.OutputIndex,
+	}
+	prevID := &asset.PrevID{
+		OutPoint: prevOut,
+		ID:       prevProof.Asset.ID(),
+		ScriptKey: asset.ToSerialized(
+			prevProof.Asset.ScriptKey.PubKey,
+		),
+	}
+	newAsset.PrevWitnesses = []asset.Witness{{PrevID: prevID}}
+	virtualTx, _, err := tapscript.VirtualTx(
+		&newAsset, commitment.InputSet{*prevID: &prevProof.Asset},
+	)
+	require.NoError(t, err)
+	virtualTxCopy := asset.VirtualTxWithInput(
+		virtualTx, newAsset.LockTime, newAsset.RelativeLockTime, 0, nil,
+	)
+	sigHash, err := tapscript.InputKeySpendSigHash(
+		virtualTxCopy, &prevProof.Asset, &newAsset, 0,
+		txscript.SigHashDefault,
+	)
+	require.NoError(t, err)
+	sig, err := schnorr.Sign(
+		txscript.TweakTaprootPrivKey(*senderPrivKey, nil), sigHash,
+	)
+	require.NoError(t, err)
+	newAsset.PrevWitnesses[0].TxWitness = wire.TxWitness{sig.Serialize()}
+
+	// The anchor output commits to the transferred asset and to the
+	// spent input's STXO leaf.
+	assetCommitment, err := commitment.NewAssetCommitment(&newAsset)
+	require.NoError(t, err)
+	tapCommitment, err := commitment.NewTapCommitment(
+		nil, assetCommitment,
+	)
+	require.NoError(t, err)
+	stxoAsset, err := asset.MakeSpentAsset(newAsset.PrevWitnesses[0])
+	require.NoError(t, err)
+	require.NoError(t, tapCommitment.MergeAltLeaves(
+		asset.ToAltLeaves([]*asset.Asset{stxoAsset}),
+	))
+
+	internalKey := test.SchnorrPubKey(t, recipientPrivKey)
+	tapscriptRoot := tapCommitment.TapscriptRoot(nil)
+	taprootKey := txscript.ComputeTaprootOutputKey(
+		internalKey, tapscriptRoot[:],
+	)
+	anchorTx := &wire.MsgTx{
+		Version: 2,
+		TxIn:    []*wire.TxIn{{PreviousOutPoint: prevOut}},
+		TxOut: []*wire.TxOut{{
+			PkScript: test.ComputeTaprootScript(t, taprootKey),
+			Value:    330,
+		}},
+	}
+	block, height := anchor(anchorTx)
+	txIndex := blockTxIndex(t, block, anchorTx)
+
+	transitionProof, err := CreateTransitionProof(
+		prevOut, &TransitionParams{
+			BaseProofParams: BaseProofParams{
+				Block:            block,
+				BlockHeight:      height,
+				Tx:               anchorTx,
+				TxIndex:          txIndex,
+				OutputIndex:      0,
+				InternalKey:      internalKey,
+				TaprootAssetRoot: tapCommitment,
+			},
+			NewAsset: &newAsset,
+		}, WithVersion(TransitionV1),
+	)
+	require.NoError(t, err)
+	require.NoError(t, file.AppendProof(*transitionProof))
+
+	return recipientKeyDesc, recipientPrivKey,
+		wire.OutPoint{Hash: anchorTx.TxHash()}
+}
+
+// RandTransferProofFile builds a proof file that verifies under the default
+// merkle verifier: a grouped genesis and a full-value transfer of the issued
+// asset to a fresh key, both anchored on the caller's chain. The recipient's
+// key descriptor and the transfer's anchor outpoint are returned for callers
+// that need to claim the asset.
+func RandTransferProofFile(t testing.TB,
+	anchor func(tx *wire.MsgTx) (*wire.MsgBlock, uint32)) (*File,
+	keychain.KeyDescriptor, wire.OutPoint) {
+
+	t.Helper()
+
+	genesisProof, issuerPrivKey := RandAnchoredGenesisProof(t, anchor)
+	file := NewEmptyFile(V0)
+	require.NoError(t, file.AppendProof(genesisProof))
+	recipientKeyDesc, _, anchorOut := AppendRandTransfer(
+		t, file, issuerPrivKey, anchor,
+	)
+
+	return file, recipientKeyDesc, anchorOut
+}
+
+// stampAnchorBlock gives a proof the block context of the block the caller
+// confirmed its anchor transaction in.
+func stampAnchorBlock(t testing.TB, p *Proof, block *wire.MsgBlock,
+	height uint32) {
+
+	t.Helper()
+
+	merkle, err := NewTxMerkleProof(
+		block.Transactions, blockTxIndex(t, block, &p.AnchorTx),
+	)
+	require.NoError(t, err)
+
+	p.BlockHeader = block.Header
+	p.BlockHeight = height
+	p.TxMerkleProof = *merkle
+}
+
+// blockTxIndex locates a transaction in a block.
+func blockTxIndex(t testing.TB, block *wire.MsgBlock, tx *wire.MsgTx) int {
+	t.Helper()
+
+	txid := tx.TxHash()
+	for idx := range block.Transactions {
+		if block.Transactions[idx].TxHash() == txid {
+			return idx
+		}
+	}
+
+	require.Failf(t, "transaction not in block", "%v", txid)
+
+	return 0
+}

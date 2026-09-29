@@ -485,13 +485,23 @@ func FinalizeBatchUnconfirmed(t *testing.T, minerClient *miner.HarnessMiner,
 
 		metaHash := metaReveal.MetaHash()
 
+		// An explicitly requested script key may be external to the
+		// minting daemon's wallet, so locality is only asserted for
+		// wallet-derived keys.
+		scriptKeyLocalCheck := AssetScriptKeyIsLocalCheck(true)
+		if assetRequest.Asset.ScriptKey != nil {
+			scriptKeyLocalCheck = func(*taprpc.Asset) error {
+				return nil
+			}
+		}
+
 		AssertAssetState(
 			t, unconfirmedAssets, assetRequest.Asset.Name,
 			metaHash[:],
 			AssetAmountCheck(assetRequest.Asset.Amount),
 			AssetTypeCheck(assetRequest.Asset.AssetType),
 			AssetAnchorCheck(*hashes[0], zeroHash),
-			AssetScriptKeyIsLocalCheck(true),
+			scriptKeyLocalCheck,
 			AssetVersionCheck(assetRequest.Asset.AssetVersion),
 			AssetScriptKeyCheck(assetRequest.Asset.ScriptKey),
 			AssetIsGroupedCheck(

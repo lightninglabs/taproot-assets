@@ -1125,11 +1125,18 @@ func TestCommitBatchChainActions(t *testing.T) {
 	_, err = db.FetchGenesisPointByAnchorTx(ctx, sqlInt64(dbGenTx.TxnID))
 	require.NoError(t, err)
 
-	// For each asset created above, we'll make a fake proof file for it.
+	// For each asset created above, make a structurally valid synthetic
+	// proof file. Confirming a batch now stores proof provenance together
+	// with each blob, so arbitrary bytes are not a representable input.
 	assetProofs := make(proof.AssetBlobs)
+	mintBlock := wire.MsgBlock{
+		Transactions: []*wire.MsgTx{rawGenTx},
+	}
 	for _, a := range randAssetCtx.assetRoot.CommittedAssets() {
-		blob := make([]byte, 100)
-		_, err := rand.Read(blob[:])
+		assetProof := proof.RandProof(
+			t, a.Genesis, a.ScriptKey.PubKey, mintBlock, 0, 0,
+		)
+		blob, err := proof.EncodeAsProofFile(&assetProof)
 		require.NoError(t, err)
 
 		assetProofs[asset.ToSerialized(a.ScriptKey.PubKey)] = blob

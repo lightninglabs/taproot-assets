@@ -123,7 +123,6 @@ func TestTaprootAssetsDaemon(t *testing.T) {
 				t1, ht, lndHarness, uniServerLndHarness,
 				testCase.proofCourierType,
 				testCase.reOrgSafeDepth,
-				testCase.disableAnchoringWatcher,
 			)
 
 			ht := ht.newHarnessTest(

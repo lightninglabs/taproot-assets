@@ -198,7 +198,7 @@
           },
           {
             "name": "phase",
-            "description": "Only return anchorings whose sensed phase has exactly this\nname, when set: one of unwitnessed, witnessed, conflicted,\nburied, abandoned, withdrawn. Any other value is an error.",
+            "description": "Only return anchorings whose sensed phase has exactly this\nname, when set: one of unwitnessed, witnessed, conflicted,\nburied, abandoned. Any other value is an error.",
             "in": "query",
             "required": false,
             "type": "string"
@@ -1785,7 +1785,7 @@
         },
         "phase": {
           "type": "string",
-          "description": "The sensed phase: the registry's derived truth. One of\nunwitnessed, witnessed, conflicted, buried, abandoned,\nwithdrawn — the same vocabulary the request's phase filter\ntakes, so a listed value filters verbatim."
+          "description": "The sensed phase: the registry's derived truth. One of\nunwitnessed, witnessed, conflicted, buried, abandoned — the same\nvocabulary the request's phase filter takes, so a listed value\nfilters verbatim."
         },
         "delivered_phase": {
           "type": "string",
@@ -1803,7 +1803,7 @@
         },
         "stuck": {
           "type": "boolean",
-          "description": "Whether delivery has failed repeatedly; retries continue\nregardless."
+          "description": "Whether delivery has failed repeatedly; retries continue\nregardless. The stuck_reason field carries the last error."
         },
         "delivery_attempts": {
           "type": "integer",
@@ -1836,6 +1836,10 @@
           "type": "string",
           "format": "int64",
           "description": "The unix time the terminal phase was delivered; zero while\nlive."
+        },
+        "stuck_reason": {
+          "type": "string",
+          "description": "The last delivery error, surfaced once the anchoring is flagged\nstuck. Empty when the anchoring is not stuck."
         }
       }
     },

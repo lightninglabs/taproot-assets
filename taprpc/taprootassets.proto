@@ -2130,7 +2130,7 @@ message ListAnchoringsRequest {
 
     // Only return anchorings whose sensed phase has exactly this
     // name, when set: one of unwitnessed, witnessed, conflicted,
-    // buried, abandoned, withdrawn. Any other value is an error.
+    // buried, abandoned. Any other value is an error.
     string phase = 2;
 
     // Only return anchorings whose delivery is flagged stuck.
@@ -2157,9 +2157,9 @@ message Anchoring {
     string site = 2;
 
     // The sensed phase: the registry's derived truth. One of
-    // unwitnessed, witnessed, conflicted, buried, abandoned,
-    // withdrawn — the same vocabulary the request's phase filter
-    // takes, so a listed value filters verbatim.
+    // unwitnessed, witnessed, conflicted, buried, abandoned — the same
+    // vocabulary the request's phase filter takes, so a listed value
+    // filters verbatim.
     string phase = 3;
 
     // The phase the owning site last durably acknowledged, in the
@@ -2175,7 +2175,7 @@ message Anchoring {
     uint32 created_height = 6;
 
     // Whether delivery has failed repeatedly; retries continue
-    // regardless.
+    // regardless. The stuck_reason field carries the last error.
     bool stuck = 7;
 
     // Failed delivery attempts since the last successful delivery.
@@ -2200,4 +2200,8 @@ message Anchoring {
     // The unix time the terminal phase was delivered; zero while
     // live.
     int64 terminal_at = 14;
+
+    // The last delivery error, surfaced once the anchoring is flagged
+    // stuck. Empty when the anchoring is not stuck.
+    string stuck_reason = 15;
 }

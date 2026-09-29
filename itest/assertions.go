@@ -2154,11 +2154,21 @@ func AssertAssetsMinted(t *testing.T, tapClient commands.RpcClientsBundle,
 
 		metaHash := metaReveal.MetaHash()
 
+		// An explicitly requested script key may be external to the
+		// minting daemon's wallet, so locality is only asserted for
+		// wallet-derived keys.
+		scriptKeyLocalCheck := AssetScriptKeyIsLocalCheck(true)
+		if assetRequest.Asset.ScriptKey != nil {
+			scriptKeyLocalCheck = func(*taprpc.Asset) error {
+				return nil
+			}
+		}
+
 		mintedAsset := AssertAssetState(
 			t, confirmedAssets, assetRequest.Asset.Name,
 			metaHash[:],
 			AssetAnchorCheck(mintTXID, blockHash),
-			AssetScriptKeyIsLocalCheck(true),
+			scriptKeyLocalCheck,
 			AssetVersionCheck(assetRequest.Asset.AssetVersion),
 			func(a *taprpc.Asset) error {
 				anchor := a.ChainAnchor

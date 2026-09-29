@@ -27,8 +27,9 @@ import (
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapcustody"
 	"github.com/lightninglabs/taproot-assets/tapdb"
-	"github.com/lightninglabs/taproot-assets/tapgarden"
+	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/tapnode/tapnodemock"
+	"github.com/lightninglabs/taproot-assets/tapreorg"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -114,6 +115,21 @@ func (m *mockVerifier) Verify(_ context.Context, r io.Reader,
 }
 
 // newProofArchive creates a new instance of the MultiArchiver.
+// dbRegistryTx is a RegistryTx over the test database's autocommit
+// queries, for the mock registrar's phase-1 writes; effects are
+// dropped, as the tests drive no outbox.
+type dbRegistryTx struct {
+	q *sqlc.Queries
+}
+
+func (d *dbRegistryTx) Queries() *sqlc.Queries { return d.q }
+
+func (d *dbRegistryTx) EnqueueEffect(context.Context,
+	tapreorg.OutboxEffect) error {
+
+	return nil
+}
+
 func newProofArchiveForDB(t *testing.T, db *tapdb.BaseDB) (*proof.MultiArchiver,
 	*tapdb.AssetStore, *tapdb.MultiverseStore) {
 
@@ -379,7 +395,12 @@ func newHarness(t *testing.T,
 	courierDispatch := &proof.MockProofCourierDispatcher{
 		Courier: courier,
 	}
-	proofWatcher := &tapgarden.MockProofWatcher{}
+
+	// The registrar runs each stake's phase-1 write, the received
+	// proof's import, against the test database: the custodian never
+	// holds an asset the watcher does not.
+	registrar := tapreorg.NewMockRegistrar()
+	registrar.RunPhase1(&dbRegistryTx{q: db.BaseDB.Queries})
 
 	ctxb := context.Background()
 	for _, initialAddr := range initialAddrs {
@@ -405,7 +426,10 @@ func newHarness(t *testing.T,
 		ProofArchive:           archive,
 		ProofNotifier:          notifier,
 		ProofCourierDispatcher: courierDispatch,
-		ProofWatcher:           proofWatcher,
+		ProofVerifier:          newMockVerifier(t),
+		AnchoringWatcher:       registrar,
+		AnchoringLog:           assetDB,
+		AnchoringThreshold:     1,
 		MboxInsecure:           true,
 		ErrChan:                errChan,
 	}
@@ -538,11 +562,15 @@ func randProofWithScriptKey(t *testing.T, outputIndex int, tx *wire.MsgTx,
 		}
 	}
 
+	// The tip carries block context: a genesis-shaped file has no
+	// asset-bearing input to watch, so the receive stakes on the
+	// tip's confirmation instead, and a file without it is refused.
 	p := &proof.Proof{
 		PrevOut: wire.OutPoint{},
 		BlockHeader: wire.BlockHeader{
 			Timestamp: time.Unix(rand.Int63(), 0),
 		},
+		BlockHeight:   1,
 		AnchorTx:      *tx,
 		TxMerkleProof: proof.TxMerkleProof{},
 		Asset:         a,

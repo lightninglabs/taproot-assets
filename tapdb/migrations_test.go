@@ -1954,6 +1954,58 @@ func TestMigration65BackfillPagesLargeTables(t *testing.T) {
 	require.NoError(t, rows.Close())
 }
 
+// TestMigration72BackfillsProofProvenance exercises the real upgrade boundary:
+// migration 71 has created an empty reverse index, a legacy/raw write leaves
+// its row unindexed, and migration 72 derives the index before startup.
+func TestMigration72BackfillsProofProvenance(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db := NewTestDBWithVersion(t, 71)
+	_, assetStore := newAssetStoreFromDB(db.BaseDB)
+
+	assetGen := newAssetGenerator(t, 1, 1)
+	assetGen.genAssets(t, assetStore, []assetDesc{{
+		assetGen:    assetGen.assetGens[0],
+		anchorPoint: assetGen.anchorPoints[0],
+		amt:         10,
+	}})
+
+	var (
+		assetID int64
+		blob    []byte
+	)
+	err := db.QueryRowContext(
+		ctx, "SELECT asset_id, proof_file FROM asset_proofs LIMIT 1",
+	).Scan(&assetID, &blob)
+	require.NoError(t, err)
+
+	// Mimic a proof written by a pre-index binary after migration 71's
+	// schema exists but before its provenance has been derived.
+	require.NoError(t, db.UpsertAssetProofByID(ctx, ProofUpdateByID{
+		AssetID:   assetID,
+		ProofFile: blob,
+	}))
+	unindexed, err := db.FetchUnindexedAssetProofs(ctx, 10)
+	require.NoError(t, err)
+	require.Len(t, unindexed, 1)
+
+	err = db.ExecuteMigrations(TargetLatest, WithProgrammaticMigrations(
+		makeProgrammaticMigrations(db, programmaticMigrations, true),
+	))
+	require.NoError(t, err)
+
+	unindexed, err = db.FetchUnindexedAssetProofs(ctx, 10)
+	require.NoError(t, err)
+	require.Empty(t, unindexed)
+
+	var anchorCount int
+	require.NoError(t, db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM asset_proof_anchors
+	`).Scan(&anchorCount))
+	require.Positive(t, anchorCount)
+}
+
 // TestMigration61CancelsDuplicatePreBroadcastBatches verifies that the
 // legacy-DB self-heal step in migration 61 preserves the most recent
 // pre-broadcast batch and cancels the rest before the partial unique

@@ -8,6 +8,7 @@ import (
 	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/stretchr/testify/require"
 	"pgregory.net/rapid"
 )
@@ -49,6 +50,66 @@ func genTx(t *rapid.T, label string) *wire.MsgTx {
 	return tx
 }
 
+// TestAnchorNeedsProtectionRapid checks the confirmation frontier without
+// relying on arithmetic that can overflow at the top of the height range.
+func TestAnchorNeedsProtectionRapid(t *testing.T) {
+	t.Parallel()
+
+	rapid.Check(t, func(t *rapid.T) {
+		blockHeight := rapid.Uint32Range(1, ^uint32(0)).Draw(
+			t, "block height",
+		)
+		threshold := rapid.Uint32Range(1, 10_000).Draw(
+			t, "threshold",
+		)
+		depth := rapid.Uint32Range(1, 20_000).Draw(t, "depth")
+
+		var bestHeight uint32
+		if depth-1 > ^uint32(0)-blockHeight {
+			bestHeight = ^uint32(0)
+		} else {
+			bestHeight = blockHeight + depth - 1
+		}
+		actualDepth := bestHeight - blockHeight + 1
+
+		require.Equal(
+			t, actualDepth < threshold,
+			AnchorNeedsProtection(
+				bestHeight, blockHeight, threshold,
+			),
+		)
+		require.True(t, AnchorNeedsProtection(bestHeight, 0, threshold))
+		require.True(
+			t, AnchorNeedsProtection(bestHeight, blockHeight, 0),
+		)
+	})
+}
+
+// TestProtectionFloorRapid checks that the floor is the exact boundary of
+// AnchorNeedsProtection over known heights: nothing needing protection lies
+// below it, and the height just below it needs none.
+func TestProtectionFloorRapid(t *testing.T) {
+	t.Parallel()
+
+	rapid.Check(t, func(t *rapid.T) {
+		bestHeight := rapid.Uint32().Draw(t, "best height")
+		threshold := rapid.Uint32Range(0, 10_000).Draw(t, "threshold")
+		blockHeight := rapid.Uint32Range(1, ^uint32(0)).Draw(
+			t, "block height",
+		)
+
+		floor := ProtectionFloor(bestHeight, threshold)
+		if AnchorNeedsProtection(bestHeight, blockHeight, threshold) {
+			require.GreaterOrEqual(t, blockHeight, floor)
+		}
+		if floor > 1 {
+			require.False(t, AnchorNeedsProtection(
+				bestHeight, floor-1, threshold,
+			))
+		}
+	})
+}
+
 // genWitnessAt draws a witness located at the given height.
 func genWitnessAt(t *rapid.T, label string, height uint32) Witness {
 	w, err := NewWitness(
@@ -86,7 +147,7 @@ func genForeignSpend(t *rapid.T, label string, maxHeight uint32) ForeignSpend {
 func genPhase(t *rapid.T) Phase {
 	const maxHeight = 1_000_000
 
-	switch rapid.IntRange(0, 6).Draw(t, "phaseKind") {
+	switch rapid.IntRange(0, 5).Draw(t, "phaseKind") {
 	case 0:
 		return Unwitnessed{}
 
@@ -112,16 +173,13 @@ func genPhase(t *rapid.T) Phase {
 			Spend: genForeignSpend(t, "burial", maxHeight),
 		}}
 
-	case 5:
+	default:
 		return Abandoned{Cause: Foreclosed{
 			Parent: AnchoringID(rapid.Int64Range(1, 1<<40).Draw(
 				t, "parent",
 			)),
 			W: genWitness(t, "foreclosing", maxHeight),
 		}}
-
-	default:
-		return Withdrawn{}
 	}
 }
 
@@ -161,7 +219,6 @@ func TestPhaseNameRoundTrip(t *testing.T) {
 	codes := []PhaseCode{
 		PhaseCodeUnwitnessed, PhaseCodeWitnessed,
 		PhaseCodeConflicted, PhaseCodeBuried, PhaseCodeAbandoned,
-		PhaseCodeWithdrawn,
 	}
 	for _, code := range codes {
 		back, err := PhaseCodeFromName(code.String())
@@ -226,9 +283,9 @@ func genHostileView(t *rapid.T, maxHeight uint32) ChainView {
 }
 
 // TestDerivePhaseTotal asserts totality and the conservative reading
-// over hostile views: derivation always yields a well-formed,
-// non-Withdrawn phase, act phases derive only from certifications,
-// and contradictory evidence never buries or compensates.
+// over hostile views: derivation always yields a well-formed phase,
+// act phases derive only from certifications, and contradictory
+// evidence never buries or compensates.
 func TestDerivePhaseTotal(t *testing.T) {
 	t.Parallel()
 
@@ -238,10 +295,6 @@ func TestDerivePhaseTotal(t *testing.T) {
 
 		p := DerivePhase(view)
 		require.NotNil(rt, p)
-
-		// Withdrawn is never derived.
-		_, isWithdrawn := p.(Withdrawn)
-		require.False(rt, isWithdrawn)
 
 		// The derived phase is well-formed: it encodes.
 		_, _, err := EncodePhase(p)
@@ -712,4 +765,61 @@ func TestConstructorInvariants(t *testing.T) {
 			t, badSpec.Validate(), "unwatchable pkScript",
 		)
 	}
+}
+
+// TestVerifiedProofContext asserts that the site-to-storage block context is
+// only constructible when the witness, block header and merkle proof describe
+// the same transaction location.
+func TestVerifiedProofContext(t *testing.T) {
+	t.Parallel()
+
+	tx := wire.NewMsgTx(2)
+	tx.LockTime = 7
+	merkleProof, err := proof.NewTxMerkleProof([]*wire.MsgTx{tx}, 0)
+	require.NoError(t, err)
+	header := wire.BlockHeader{
+		Version:    2,
+		MerkleRoot: tx.TxHash(),
+		Nonce:      11,
+	}
+	witness, err := NewWitness(tx, header.BlockHash(), 700, 0)
+	require.NoError(t, err)
+	anchoring := &Anchoring{Spends: []CandidateSpend{{
+		Verdict:     VerdictSatisfies,
+		W:           witness,
+		OnChain:     true,
+		BlockHeader: &header,
+		MerkleProof: merkleProof,
+	}}}
+
+	context, err := VerifiedProofContext(
+		anchoring, Witnessed{W: witness},
+	)
+	require.NoError(t, err)
+	require.Equal(t, tx.TxHash(), context.AnchorTxID())
+	require.Equal(t, header.BlockHash(), context.BlockHash())
+	require.Equal(t, uint32(700), context.BlockHeight())
+	require.Equal(t, uint32(0), context.TxIndex())
+
+	wrongBlock, err := NewWitness(tx, chainhash.Hash{1}, 700, 0)
+	require.NoError(t, err)
+	_, err = VerifiedProofContext(
+		anchoring, Witnessed{W: wrongBlock},
+	)
+	require.ErrorContains(t, err, "does not match header")
+
+	wrongIndex, err := NewWitness(tx, header.BlockHash(), 700, 1)
+	require.NoError(t, err)
+	_, err = VerifiedProofContext(
+		anchoring, Witnessed{W: wrongIndex},
+	)
+	require.ErrorContains(t, err, "does not match merkle proof index")
+
+	badHeader := header
+	badHeader.MerkleRoot = chainhash.Hash{}
+	anchoring.Spends[0].BlockHeader = &badHeader
+	_, err = VerifiedProofContext(
+		anchoring, Witnessed{W: witness},
+	)
+	require.ErrorContains(t, err, "invalid witness block context")
 }

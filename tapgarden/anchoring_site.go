@@ -48,10 +48,10 @@ type MintAnchoringLog interface {
 	// ApplyReceiveReconfirm converges anchored state to a
 	// (re)confirmed transaction, returning the locators of the
 	// proofs it re-stamped.
-	ApplyReceiveReconfirm(ctx context.Context, q *sqlc.Queries,
-		anchorTxid chainhash.Hash, blockHash chainhash.Hash,
-		blockHeight, txIndex uint32, header wire.BlockHeader,
-		merkle proof.TxMerkleProof) ([]proof.Locator, error)
+	ApplyReceiveReconfirm(
+		ctx context.Context, q *sqlc.Queries,
+		blockContext proof.VerifiedBlockContext,
+	) ([]proof.Locator, error)
 
 	// ApplyReceiveUnconfirm withdraws the recorded confirmation.
 	ApplyReceiveUnconfirm(ctx context.Context, q *sqlc.Queries,
@@ -182,15 +182,22 @@ func (s *mintSite) reconfirm(ctx context.Context, tx tapreorg.RegistryTx,
 		return err
 	}
 
-	witness, err := tapreorg.WitnessContext(anchoring, anchoring.Phase)
+	blockContext, err := tapreorg.VerifiedProofContext(
+		anchoring, anchoring.Phase,
+	)
 	if err != nil {
 		return err
 	}
+	if blockContext.AnchorTxID() != blob.GenesisTxid {
+		return fmt.Errorf(
+			"witness transaction %v does not match "+
+				"mint anchor %v",
+			blockContext.AnchorTxID(), blob.GenesisTxid,
+		)
+	}
 
 	restamped, err := s.planter.cfg.MintAnchoringLog.ApplyReceiveReconfirm(
-		ctx, tx.Queries(), blob.GenesisTxid, witness.W.BlockHash(),
-		witness.W.Height(), witness.W.TxIndex(),
-		*witness.BlockHeader, *witness.MerkleProof,
+		ctx, tx.Queries(), blockContext,
 	)
 	if err != nil {
 		return err
@@ -476,14 +483,12 @@ func (c *ChainPlanter) DispatchMintPublish(ctx context.Context,
 // not essential: they identify THIS batch's signing choice, not any
 // batch signing choice for the same seedlings. If the batch is ever
 // replaced or refunded with different inputs (RBF or manual
-// re-signing on abandon-and-retry), the anchoring must be Withdrawn
-// and a fresh registration issued on the replacement's inputs —
-// otherwise the original anchoring watches inputs that will never be
-// spent while the actual confirming transaction goes unwitnessed. The
-// cultivator does not currently exercise this path (batches are
-// abandon-and-recreate, and the fresh batch registers its own
-// anchoring), but any future RBF or same-batch re-fund must call
-// Withdraw + register anew.
+// re-signing on abandon-and-retry), a fresh registration must be
+// issued on the replacement's inputs, and the original anchoring is
+// left watching inputs that will never be spent; the registry offers
+// no disposal for it. The cultivator does not exercise this path:
+// batches are abandon-and-recreate, and the fresh batch registers its
+// own anchoring.
 func (b *Cultivator) registerMintAnchoring(ctx context.Context,
 	signedTx *wire.MsgTx) error {
 
@@ -535,6 +540,22 @@ func (b *Cultivator) registerMintAnchoring(ctx context.Context,
 		GenesisTxid: genesisTxid,
 	})
 
+	var seed *tapreorg.CandidateSpend
+	if b.cfg.Batch.State() == BatchStateConfirmed {
+		confirmedSeed, err := b.confirmedMintSeed(ctx, genesisTxid)
+		if err != nil {
+			return err
+		}
+		if !tapreorg.AnchorNeedsProtection(
+			b.cfg.AnchoringWatcher.BestHeight(),
+			confirmedSeed.W.Height(), b.cfg.AnchoringThreshold,
+		) {
+
+			return nil
+		}
+		seed = &confirmedSeed
+	}
+
 	// The batch's speculative writes happened through the batch
 	// store before broadcast; the planter's restart recovery re-runs
 	// the broadcast branch and lands back here, so the crash window
@@ -542,12 +563,13 @@ func (b *Cultivator) registerMintAnchoring(ctx context.Context,
 	// self-heals.
 	_, err = b.cfg.AnchoringWatcher.Register(
 		ctx, tapreorg.RegistrationSpec{
-			Site:      MintSiteID,
-			Triggers:  triggers,
-			MatchData: blob,
-			Payload:   blob,
-			MatchKey:  matchKey,
-			Threshold: b.cfg.AnchoringThreshold,
+			Site:          MintSiteID,
+			Triggers:      triggers,
+			MatchData:     blob,
+			Payload:       blob,
+			MatchKey:      matchKey,
+			Threshold:     b.cfg.AnchoringThreshold,
+			SeedCandidate: seed,
 		}, nil,
 	)
 	if err != nil {
@@ -556,6 +578,89 @@ func (b *Cultivator) registerMintAnchoring(ctx context.Context,
 	}
 
 	return nil
+}
+
+// confirmedMintSeed reconstructs the chain witness already embodied by a
+// legacy confirmed batch. Seeding adoption at Witnessed prevents registration
+// from transiently withdrawing a confirmation merely because the old row was
+// created before the registry existed.
+func (b *Cultivator) confirmedMintSeed(ctx context.Context,
+	genesisTxid chainhash.Hash) (tapreorg.CandidateSpend, error) {
+
+	if b.cfg.Batch.RootAssetCommitment == nil {
+		return tapreorg.CandidateSpend{}, fmt.Errorf(
+			"confirmed batch has no asset commitment")
+	}
+
+	assets := b.cfg.Batch.RootAssetCommitment.CommittedAssets()
+	if len(assets) == 0 {
+		return tapreorg.CandidateSpend{}, fmt.Errorf(
+			"confirmed batch has no committed assets")
+	}
+
+	proofReader := b.cfg.ProofArchive
+	if proofReader == nil {
+		proofReader = b.cfg.ProofFiles
+	}
+	if proofReader == nil {
+		return tapreorg.CandidateSpend{}, fmt.Errorf(
+			"confirmed batch has no proof reader")
+	}
+
+	mintedAsset := assets[0]
+	blob, err := proofReader.FetchProof(ctx, proof.Locator{
+		AssetID:   fn.Ptr(mintedAsset.ID()),
+		ScriptKey: *mintedAsset.ScriptKey.PubKey,
+	})
+	if err != nil {
+		return tapreorg.CandidateSpend{}, fmt.Errorf(
+			"unable to fetch confirmed mint proof: %w", err)
+	}
+
+	return mintSeedFromProof(blob, genesisTxid)
+}
+
+// mintSeedFromProof projects the complete watcher seed carried by a stored
+// issuance proof, rejecting a proof for any other batch transaction.
+func mintSeedFromProof(blob proof.Blob,
+	genesisTxid chainhash.Hash) (tapreorg.CandidateSpend, error) {
+
+	file, err := proof.DecodeFile(blob)
+	if err != nil {
+		return tapreorg.CandidateSpend{}, fmt.Errorf(
+			"unable to decode confirmed mint proof: %w", err)
+	}
+	tip, err := file.LastProof()
+	if err != nil {
+		return tapreorg.CandidateSpend{}, fmt.Errorf(
+			"unable to read confirmed mint proof: %w", err)
+	}
+	if tip.AnchorTx.TxHash() != genesisTxid {
+		return tapreorg.CandidateSpend{}, fmt.Errorf(
+			"confirmed mint proof anchors at %v, expected %v",
+			tip.AnchorTx.TxHash(), genesisTxid)
+	}
+
+	blockHash := tip.BlockHeader.BlockHash()
+	witness, err := tapreorg.NewWitness(
+		&tip.AnchorTx, blockHash, tip.BlockHeight,
+		tip.TxMerkleProof.TxIndex(),
+	)
+	if err != nil {
+		return tapreorg.CandidateSpend{}, fmt.Errorf(
+			"unable to build confirmed mint witness: %w", err)
+	}
+
+	header := tip.BlockHeader
+	merkle := tip.TxMerkleProof
+	return tapreorg.CandidateSpend{
+		W:            witness,
+		Verdict:      tapreorg.VerdictSatisfies,
+		OnChain:      true,
+		BlockHeader:  &header,
+		MerkleProof:  &merkle,
+		ActCertified: false,
+	}, nil
 }
 
 // mintAnchoringOutcome is what waiting on a batch's anchoring resolves
@@ -701,10 +806,6 @@ func (b *Cultivator) readMintAnchoring(ctx context.Context,
 
 	case tapreorg.Abandoned:
 		return &mintAnchoringOutcome{abandoned: true}, false, nil
-
-	case tapreorg.Withdrawn:
-		return nil, false, fmt.Errorf("mint anchoring %d withdrawn",
-			anchoringID)
 	}
 
 	return nil, false, nil

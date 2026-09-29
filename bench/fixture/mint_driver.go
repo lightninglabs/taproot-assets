@@ -11,10 +11,12 @@ import (
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/chaincfg/v2"
+	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
+	"github.com/lightninglabs/taproot-assets/tapreorg"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 )
@@ -58,19 +60,13 @@ func NewMintDriver(tb testing.TB) *MintDriver {
 }
 
 // pump drains every signal the planter cultivator is known to emit and
-// synthesises the chain side of the conversation: confirmations are
-// fabricated, blocks are stored, and signal acks are sent in the
-// background so SendConfNtfn never blocks the pump.
+// synthesises the chain side of the conversation: each published
+// genesis transaction is confirmed on the mock re-org watcher, its
+// block is stored for the cultivator's witness-block fetch, and the
+// cultivator waiting on the anchoring is woken the way the watcher's
+// delivery listener does in production.
 func (d *MintDriver) pump(ctx context.Context) {
 	defer close(d.pumpDone)
-
-	// lastTx carries the broadcast transaction between the publish step
-	// and the conf-registration step. The cultivator publishes before it
-	// registers, so by the time we see ConfReqSignal the broadcast has
-	// already happened. The select cases below execute serially in this
-	// one goroutine, so no synchronisation on lastTx is needed; the
-	// goroutine spawned for SendConfNtfn captures tx by value.
-	var lastTx *wire.MsgTx
 
 	for {
 		select {
@@ -87,28 +83,50 @@ func (d *MintDriver) pump(ctx context.Context) {
 		case <-d.ChainBridge.BlockEpochSignal:
 
 		case tx := <-d.ChainBridge.PublishReq:
-			lastTx = tx
+			d.confirm(ctx, tx)
+		}
+	}
+}
 
-		case reqNo := <-d.ChainBridge.ConfReqSignal:
-			tx := lastTx
-			if tx == nil {
+// confirm confirms a published genesis transaction: its one-tx block is
+// registered with the chain bridge so the cultivator's GetBlock call
+// finds it, the anchoring staked on the transaction (before it was
+// published) flips to witnessed on the mock watcher, and the planter's
+// delivery listener wakes the cultivator waiting on it.
+func (d *MintDriver) confirm(ctx context.Context, tx *wire.MsgTx) {
+	block := buildBlockForTx(tx)
+	blockHash := block.BlockHash()
+	d.ChainBridge.SetBlock(blockHash, block)
+
+	_, err := d.Registrar.ConfirmSpend(
+		tx, blockHash, 1, 0, block.Header, proof.TxMerkleProof{
+			Bits:  []bool{true},
+			Nodes: []chainhash.Hash{blockHash},
+		},
+	)
+	if err != nil {
+		return
+	}
+
+	spent := make(map[wire.OutPoint]struct{}, len(tx.TxIn))
+	for _, txIn := range tx.TxIn {
+		spent[txIn.PreviousOutPoint] = struct{}{}
+	}
+	anchorings, err := d.Registrar.AllAnchorings(ctx, tapgarden.MintSiteID)
+	if err != nil {
+		return
+	}
+	for _, anchoring := range anchorings {
+		for _, point := range anchoring.Triggers.OutPoints() {
+			if _, ok := spent[point.OutPoint]; !ok {
 				continue
 			}
-
-			// Build a one-tx block and register it under its hash
-			// so the cultivator's later GetBlock call finds it.
-			// SetBlock serialises this write against any
-			// concurrent cultivator reads.
-			block := buildBlockForTx(tx)
-			blockHash := block.BlockHash()
-			d.ChainBridge.SetBlock(blockHash, block)
-
-			// SendConfNtfn writes to req.Confirmed, which blocks
-			// until the cultivator reads it. Run it in its own
-			// goroutine so the pump stays responsive.
-			go d.ChainBridge.SendConfNtfn(
-				reqNo, &blockHash, 1, 0, block, tx,
+			d.Planter.OnAnchoringDelivered(
+				anchoring.ID, tapgarden.MintSiteID,
+				tapreorg.Witnessed{},
 			)
+
+			break
 		}
 	}
 }

@@ -512,8 +512,6 @@ func stateToDBString(state supplycommit.State) (string, error) {
 		return "CommitTxSignState", nil
 	case *supplycommit.CommitBroadcastState:
 		return "CommitBroadcastState", nil
-	case *supplycommit.CommitFinalizeState:
-		return "CommitFinalizeState", nil
 	default:
 		return "", fmt.Errorf("unknown state type: %T", state)
 	}
@@ -534,8 +532,6 @@ func stateToInt(state supplycommit.State) (int32, error) {
 		return 4, nil
 	case *supplycommit.CommitBroadcastState:
 		return 5, nil
-	case *supplycommit.CommitFinalizeState:
-		return 6, nil
 	default:
 		return -1, fmt.Errorf("unknown state type: %T", state)
 	}
@@ -557,7 +553,12 @@ func intToState(stateID int32) (supplycommit.State, error) {
 	case 5:
 		return &supplycommit.CommitBroadcastState{}, nil
 	case 6:
-		return &supplycommit.CommitFinalizeState{}, nil
+		// Rows persisted by the legacy finalize state load as the
+		// broadcast state: a pending transition awaiting act-level
+		// finality is exactly what the broadcast state now means,
+		// and its resume path re-derives everything it needs from
+		// the durable record.
+		return &supplycommit.CommitBroadcastState{}, nil
 	default:
 		return nil, fmt.Errorf("unknown state ID: %d", stateID)
 	}
@@ -965,30 +966,10 @@ func bindDanglingUpdatesBody(ctx context.Context, db SupplyCommitStore,
 	return boundEvents, nil
 }
 
-// InsertSignedCommitTx associates a new signed commitment anchor transaction
-// with the current active supply commitment state transition.
-func (s *SupplyCommitMachine) InsertSignedCommitTx(ctx context.Context,
-	assetSpec asset.Specifier,
-	commitDetails supplycommit.SupplyCommitTxn) error {
-
-	groupKey := assetSpec.UnwrapGroupKeyToPtr()
-	if groupKey == nil {
-		return ErrMissingGroupKey
-	}
-	groupKeyBytes := schnorr.SerializePubKey(groupKey)
-
-	writeTx := WriteTxOption()
-	return s.db.ExecTx(ctx, writeTx, func(db SupplyCommitStore) error {
-		return insertSignedCommitTxBody(
-			ctx, db, groupKeyBytes, commitDetails,
-		)
-	})
-}
-
-// insertSignedCommitTxBody is the transaction-scoped body of
-// InsertSignedCommitTx: it persists the signed commitment transaction,
-// links it to the pending transition, and moves the state-machine row
-// to CommitBroadcastState.
+// insertSignedCommitTxBody persists a signed commitment transaction within
+// the caller's transaction: it stores the transaction, links it to the
+// pending transition, and moves the state-machine row to
+// CommitBroadcastState.
 func insertSignedCommitTxBody(ctx context.Context, db SupplyCommitStore,
 	groupKeyBytes []byte,
 	commitDetails supplycommit.SupplyCommitTxn) error {

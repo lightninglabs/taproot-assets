@@ -1,5 +1,5 @@
 -- Phase codes mirror tapreorg.PhaseCode: 0 unwitnessed, 1 witnessed,
--- 2 conflicted, 3 buried, 4 abandoned, 5 withdrawn. Codes >= 3 are
+-- 2 conflicted, 3 buried, 4 abandoned. Codes >= 3 are
 -- terminal. Verdict codes mirror tapreorg.Verdict: 0 satisfies, 1
 -- foreign. The literals below must stay in sync with those enums.
 
@@ -154,8 +154,8 @@ DO UPDATE SET
 -- resets with it; a systematically failing handler re-sticks after
 -- the usual number of attempts. Terminal phases are absorbing at the
 -- row level: a write racing another writer's terminal transition
--- (a site-initiated withdrawal, most likely) matches no rows, and
--- the caller observes the refusal via the row count.
+-- matches no rows, and the caller observes the refusal via the row
+-- count.
 UPDATE reorg_anchorings
 SET phase_code = @phase_code,
     phase_evidence = @phase_evidence,
@@ -269,14 +269,6 @@ SET foreclosing_evidence = NULL,
 WHERE child_id = @child_id
   AND parent_id = @parent_id
   AND foreclosing_act_certified = FALSE;
-
--- name: CountLiveReorgDependents :one
-SELECT COUNT(*)
-FROM reorg_dependencies d
-JOIN reorg_anchorings child
-  ON child.id = d.child_id
-WHERE d.parent_id = @parent_id
-  AND child.phase_code < 3;
 
 -- name: InsertReorgEffect :one
 INSERT INTO reorg_outbox (

@@ -232,6 +232,25 @@ func (f *faultRegistry) Register(ctx context.Context,
 	)
 }
 
+func (f *faultRegistry) RegisterBatch(ctx context.Context,
+	requests []tapreorg.RegistrationRequest, createdHeight uint32,
+	phase1 tapreorg.BatchPhase1Func) ([]tapreorg.AnchoringID, error) {
+
+	if err := f.failNext("RegisterBatch"); err != nil {
+		return nil, err
+	}
+	if err := f.failNext("Register"); err != nil {
+		return nil, err
+	}
+	if f.detach.Load() {
+		ctx = context.WithoutCancel(ctx)
+	}
+
+	return f.Registry.RegisterBatch(
+		ctx, requests, createdHeight, phase1,
+	)
+}
+
 func (f *faultRegistry) GetAnchoring(ctx context.Context,
 	id tapreorg.AnchoringID) (*tapreorg.Anchoring, error) {
 
@@ -315,17 +334,6 @@ func (f *faultRegistry) PendingDeliveries(ctx context.Context,
 	}
 
 	return f.Registry.PendingDeliveries(ctx, now)
-}
-
-func (f *faultRegistry) Withdraw(ctx context.Context,
-	id tapreorg.AnchoringID,
-	onWithdraw func(context.Context, tapreorg.RegistryTx) error) error {
-
-	if err := f.failNext("Withdraw"); err != nil {
-		return err
-	}
-
-	return f.Registry.Withdraw(ctx, id, onWithdraw)
 }
 
 func (f *faultRegistry) DependencyEdges(ctx context.Context,
@@ -568,6 +576,36 @@ func (h *harness) spendTx(ops ...wire.OutPoint) *wire.MsgTx {
 func (h *harness) register(threshold uint32, satisfying []*wire.MsgTx,
 	triggers ...wire.OutPoint) tapreorg.AnchoringID {
 
+	return h.registerSpec(
+		h.spec(threshold, satisfying, triggers...), standardEffect,
+	)
+}
+
+// registerEnqueuing registers an anchoring over one trigger whose
+// phase-1 write enqueues the standard effect and then whatever the
+// caller enqueues, in that order.
+func (h *harness) registerEnqueuing(threshold uint32, op wire.OutPoint,
+	enqueue func(context.Context, tapreorg.RegistryTx,
+		tapreorg.AnchoringID) error) tapreorg.AnchoringID {
+
+	phase1 := func(ctx context.Context, tx tapreorg.RegistryTx,
+		newID tapreorg.AnchoringID) error {
+
+		if err := standardEffect(ctx, tx, newID); err != nil {
+			return err
+		}
+
+		return enqueue(ctx, tx, newID)
+	}
+
+	return h.registerSpec(h.spec(threshold, nil, op), phase1)
+}
+
+// spec builds a registration over the given triggers, satisfied by
+// the given transactions.
+func (h *harness) spec(threshold uint32, satisfying []*wire.MsgTx,
+	triggers ...wire.OutPoint) tapreorg.RegistrationSpec {
+
 	points := make([]tapreorg.TriggerOutPoint, len(triggers))
 	for i, op := range triggers {
 		points[i] = tapreorg.TriggerOutPoint{
@@ -585,7 +623,7 @@ func (h *harness) register(threshold uint32, satisfying []*wire.MsgTx,
 		matchData = append(matchData, txid[:]...)
 	}
 
-	spec := tapreorg.RegistrationSpec{
+	return tapreorg.RegistrationSpec{
 		Site:     testSiteID,
 		Triggers: triggerSet,
 		MatchData: tapreorg.VersionedBlob{
@@ -595,19 +633,20 @@ func (h *harness) register(threshold uint32, satisfying []*wire.MsgTx,
 		Payload:   tapreorg.VersionedBlob{Version: 1},
 		Threshold: threshold,
 	}
-	phase1 := func(ctx context.Context, tx tapreorg.RegistryTx,
-		newID tapreorg.AnchoringID) error {
+}
 
-		return tx.EnqueueEffect(ctx, tapreorg.OutboxEffect{
-			Kind:      "test",
-			Anchoring: fn.Some(newID),
-			Payload: tapreorg.VersionedBlob{
-				Version: 1,
-			},
-		})
-	}
+// standardEffect is the phase-1 write of an ordinary registration: it
+// enqueues the harness's standard effect for the new anchoring.
+func standardEffect(ctx context.Context, tx tapreorg.RegistryTx,
+	newID tapreorg.AnchoringID) error {
 
-	return h.registerSpec(spec, phase1)
+	return tx.EnqueueEffect(ctx, tapreorg.OutboxEffect{
+		Kind:      "test",
+		Anchoring: fn.Some(newID),
+		Payload: tapreorg.VersionedBlob{
+			Version: 1,
+		},
+	})
 }
 
 // registerSpec registers the spec with retry and read-back, shared by
@@ -808,8 +847,6 @@ func phaseKind(p tapreorg.Phase) string {
 		return "buried"
 	case tapreorg.Abandoned:
 		return "abandoned"
-	case tapreorg.Withdrawn:
-		return "withdrawn"
 	default:
 		return fmt.Sprintf("unknown<%T>", p)
 	}
@@ -1813,8 +1850,8 @@ func TestWatcherForeclosureCertification(t *testing.T) {
 // yet-unconfirmed witness transaction, so no edge can derive at its
 // registration. The edge derives when the parent's form is first
 // observed on chain, and from there the full dependency doctrine
-// holds: withdrawal refused, foreclosure staged and certified, the
-// child abandoned by cascade.
+// holds: foreclosure staged and certified, the child abandoned by
+// cascade.
 func TestWatcherChildBeforeParentConfirms(t *testing.T) {
 	t.Parallel()
 
@@ -1837,7 +1874,7 @@ func TestWatcherChildBeforeParentConfirms(t *testing.T) {
 	require.Empty(t, edges)
 
 	// The parent's form confirms: the edge derives from the newly
-	// recorded candidate, and the withdrawal guard holds from here.
+	// recorded candidate.
 	h.sim.MineBlock(pForm1)
 	h.settleWhere(parentID, func(a *tapreorg.Anchoring) bool {
 		return phaseKind(a.Phase) == "witnessed"
@@ -1848,9 +1885,6 @@ func TestWatcherChildBeforeParentConfirms(t *testing.T) {
 	require.Len(t, edges, 1)
 	require.Equal(t, childID, edges[0].Child)
 	require.Equal(t, pForm1.TxHash(), edges[0].ParentWitnessTxHash)
-
-	err = h.watcher.Withdraw(context.Background(), parentID, nil)
-	require.ErrorIs(t, err, tapreorg.ErrLiveDependents)
 
 	// The parent re-witnesses in its other form; at the child's own
 	// threshold the notifier certifies the foreclosure and the
@@ -2388,17 +2422,15 @@ func TestWatcherCallbackPanicsContained(t *testing.T) {
 	// Stage 3: the effect handler panics. Dispatch fails into
 	// backoff and completes once the defect is fixed.
 	op3 := wire.OutPoint{Hash: chainhash.Hash{0xed}, Index: 0}
-	id3 := h.register(2, nil, op3)
-	require.NoError(t, h.watcher.Withdraw(
-		ctx, id3,
-		func(ctx context.Context, tx tapreorg.RegistryTx) error {
-			return tx.EnqueueEffect(ctx, tapreorg.OutboxEffect{
-				Kind:      "boom",
-				Anchoring: fn.Some(id3),
-				Payload:   tapreorg.VersionedBlob{Version: 1},
-			})
-		},
-	))
+	h.registerEnqueuing(2, op3, func(ctx context.Context,
+		tx tapreorg.RegistryTx, id tapreorg.AnchoringID) error {
+
+		return tx.EnqueueEffect(ctx, tapreorg.OutboxEffect{
+			Kind:      "boom",
+			Anchoring: fn.Some(id),
+			Payload:   tapreorg.VersionedBlob{Version: 1},
+		})
+	})
 
 	require.Eventually(t, func() bool {
 		effects, err := h.store.PendingEffects(
@@ -2435,7 +2467,6 @@ func TestWatcherEffectDispatchDeadline(t *testing.T) {
 	t.Parallel()
 
 	h := newHarness(t)
-	ctx := context.Background()
 
 	// A handler that returns only when its context is cancelled:
 	// the shape of a hung remote call.
@@ -2457,26 +2488,24 @@ func TestWatcherEffectDispatchDeadline(t *testing.T) {
 	// Enqueue a hanging effect with a well-behaved effect behind it
 	// in dispatch order.
 	op := wire.OutPoint{Hash: chainhash.Hash{0xee}, Index: 0}
-	id := h.register(2, nil, op)
-	require.NoError(t, h.watcher.Withdraw(
-		ctx, id,
-		func(ctx context.Context, tx tapreorg.RegistryTx) error {
-			err := tx.EnqueueEffect(ctx, tapreorg.OutboxEffect{
-				Kind:      "hang",
-				Anchoring: fn.Some(id),
-				Payload:   tapreorg.VersionedBlob{Version: 1},
-			})
-			if err != nil {
-				return err
-			}
+	h.registerEnqueuing(2, op, func(ctx context.Context,
+		tx tapreorg.RegistryTx, id tapreorg.AnchoringID) error {
 
-			return tx.EnqueueEffect(ctx, tapreorg.OutboxEffect{
-				Kind:      "test",
-				Anchoring: fn.Some(id),
-				Payload:   tapreorg.VersionedBlob{Version: 1},
-			})
-		},
-	))
+		err := tx.EnqueueEffect(ctx, tapreorg.OutboxEffect{
+			Kind:      "hang",
+			Anchoring: fn.Some(id),
+			Payload:   tapreorg.VersionedBlob{Version: 1},
+		})
+		if err != nil {
+			return err
+		}
+
+		return tx.EnqueueEffect(ctx, tapreorg.OutboxEffect{
+			Kind:      "test",
+			Anchoring: fn.Some(id),
+			Payload:   tapreorg.VersionedBlob{Version: 1},
+		})
+	})
 
 	// The deadline converts the hang into failed attempts that back
 	// off and retry rather than parking the dispatcher.
@@ -2526,17 +2555,15 @@ func TestWatcherEffectNotReady(t *testing.T) {
 	h.start()
 
 	op := wire.OutPoint{Hash: chainhash.Hash{0xed}, Index: 0}
-	id := h.register(2, nil, op)
-	require.NoError(t, h.watcher.Withdraw(
-		ctx, id,
-		func(ctx context.Context, tx tapreorg.RegistryTx) error {
-			return tx.EnqueueEffect(ctx, tapreorg.OutboxEffect{
-				Kind:      "gated",
-				Anchoring: fn.Some(id),
-				Payload:   tapreorg.VersionedBlob{Version: 1},
-			})
-		},
-	))
+	h.registerEnqueuing(2, op, func(ctx context.Context,
+		tx tapreorg.RegistryTx, id tapreorg.AnchoringID) error {
+
+		return tx.EnqueueEffect(ctx, tapreorg.OutboxEffect{
+			Kind:      "gated",
+			Anchoring: fn.Some(id),
+			Payload:   tapreorg.VersionedBlob{Version: 1},
+		})
+	})
 
 	pendingGated := func() []*tapreorg.StoredEffect {
 		pending, err := h.store.PendingEffects(ctx, time.Now(), 10)
@@ -2584,7 +2611,6 @@ func TestWatcherEffectDispatchPerHandlerDeadline(t *testing.T) {
 	t.Parallel()
 
 	h := newHarness(t)
-	ctx := context.Background()
 
 	// Each handler works well past the harness's 100ms default and
 	// records whether the attempt was cut short by its context.
@@ -2614,29 +2640,27 @@ func TestWatcherEffectDispatchPerHandlerDeadline(t *testing.T) {
 	h.start()
 
 	op := wire.OutPoint{Hash: chainhash.Hash{0xef}, Index: 0}
-	id := h.register(2, nil, op)
-	require.NoError(t, h.watcher.Withdraw(
-		ctx, id,
-		func(ctx context.Context, tx tapreorg.RegistryTx) error {
-			for _, kind := range []tapreorg.EffectKind{
-				"unbounded", "long",
-			} {
-				effect := tapreorg.OutboxEffect{
-					Kind:      kind,
-					Anchoring: fn.Some(id),
-					Payload: tapreorg.VersionedBlob{
-						Version: 1,
-					},
-				}
-				err := tx.EnqueueEffect(ctx, effect)
-				if err != nil {
-					return err
-				}
-			}
+	h.registerEnqueuing(2, op, func(ctx context.Context,
+		tx tapreorg.RegistryTx, id tapreorg.AnchoringID) error {
 
-			return nil
-		},
-	))
+		for _, kind := range []tapreorg.EffectKind{
+			"unbounded", "long",
+		} {
+			effect := tapreorg.OutboxEffect{
+				Kind:      kind,
+				Anchoring: fn.Some(id),
+				Payload: tapreorg.VersionedBlob{
+					Version: 1,
+				},
+			}
+			err := tx.EnqueueEffect(ctx, effect)
+			if err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
 
 	require.Eventually(t, func() bool {
 		return completed.Load() == 2
@@ -3560,31 +3584,9 @@ func TestWatcherRapid(t *testing.T) {
 				"of transient faults: %v", err)
 		}
 
-		// Leftover injected faults would bleed into the withdraw
-		// below and the next iteration's registration, failing
-		// harness calls rather than watcher paths.
+		// Leftover injected faults would bleed into the next
+		// iteration's registration, failing harness calls rather
+		// than watcher paths.
 		h.registry.FailNextCalls(0, "")
-
-		// Bound the shared harness's live set: production
-		// anchorings terminate, and a monotonically growing
-		// sensor population is a harness artifact that only
-		// stresses the database. Withdrawal is refused exactly
-		// when the anchoring already terminated on its own;
-		// transient contention is retried.
-		for attempt := 0; attempt < 50; attempt++ {
-			err := h.watcher.Withdraw(
-				context.Background(), id, nil,
-			)
-			if errors.Is(err, tapdb.ErrRetriesExceeded) {
-				time.Sleep(settleTick)
-				continue
-			}
-			if err != nil {
-				require.ErrorIs(
-					rt, err, tapreorg.ErrTerminalPhase,
-				)
-			}
-			break
-		}
 	})
 }

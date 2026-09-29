@@ -64,9 +64,6 @@ func TestReceiveAnchoringPersistence(t *testing.T) {
 	tipProof.AnchorTx = *anchorTx
 	file, err := proof.NewFile(proof.V0, *tipProof)
 	require.NoError(t, err)
-	var fileBuf bytes.Buffer
-	require.NoError(t, file.Encode(&fileBuf))
-
 	var assetDBID int64
 	err = db.DB.QueryRowContext(
 		ctx, "SELECT assets.asset_id FROM assets "+
@@ -76,10 +73,11 @@ func TestReceiveAnchoringPersistence(t *testing.T) {
 		assets[0].ScriptKey.PubKey.SerializeCompressed(),
 	).Scan(&assetDBID)
 	require.NoError(t, err)
-	require.NoError(t, db.UpsertAssetProofByID(ctx, ProofUpdateByID{
-		AssetID:   assetDBID,
-		ProofFile: fileBuf.Bytes(),
-	}))
+	indexedProof, err := NewIndexedProofFileFromFile(file)
+	require.NoError(t, err)
+	require.NoError(t, StoreIndexedAssetProof(
+		ctx, db, assetDBID, indexedProof,
+	))
 
 	// A completed address event keyed to the anchor transaction and
 	// referencing the received asset and proof — the shape a real
@@ -127,14 +125,20 @@ func TestReceiveAnchoringPersistence(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	reconfirm := func(blockHash chainhash.Hash, header wire.BlockHeader,
+	reconfirm := func(header wire.BlockHeader,
 		merkle proof.TxMerkleProof, height uint32) error {
+
+		blockContext, err := proof.NewVerifiedBlockContext(
+			anchorTx, header, height, merkle,
+		)
+		if err != nil {
+			return err
+		}
 
 		return executor.ExecTx(
 			ctx, WriteTxOption(), func(q *sqlc.Queries) error {
 				_, err := assetsStore.ApplyReceiveReconfirm(
-					ctx, q, anchorTxid, blockHash, height,
-					0, header, merkle,
+					ctx, q, blockContext,
 				)
 				return err
 			},
@@ -145,8 +149,8 @@ func TestReceiveAnchoringPersistence(t *testing.T) {
 	// the new context. Applied twice: a redelivered confirmation
 	// equals one, and in particular the proof file does not grow.
 	blockHashA, headerA, merkleA := blockContextFor(t, anchorTx, 10)
-	require.NoError(t, reconfirm(blockHashA, headerA, merkleA, 700))
-	require.NoError(t, reconfirm(blockHashA, headerA, merkleA, 700))
+	require.NoError(t, reconfirm(headerA, merkleA, 700))
+	require.NoError(t, reconfirm(headerA, merkleA, 700))
 
 	chainTx, err := db.FetchChainTx(ctx, anchorTxid[:])
 	require.NoError(t, err)
@@ -165,7 +169,7 @@ func TestReceiveAnchoringPersistence(t *testing.T) {
 	// Reconfirmation in block B (the re-org case) refreshes both
 	// again — convergently.
 	blockHashB, headerB, merkleB := blockContextFor(t, anchorTx, 11)
-	require.NoError(t, reconfirm(blockHashB, headerB, merkleB, 701))
+	require.NoError(t, reconfirm(headerB, merkleB, 701))
 
 	blob, err = db.AssetProofBlobByAssetID(ctx, assetDBID)
 	require.NoError(t, err)
@@ -279,11 +283,14 @@ func TestReceiveAnchoringReconfirmBeforeProofs(t *testing.T) {
 	anchorTxid := anchorTx.TxHash()
 
 	blockHash, header, merkle := blockContextFor(t, anchorTx, 10)
-	err := executor.ExecTx(
+	blockContext, err := proof.NewVerifiedBlockContext(
+		anchorTx, header, 700, merkle,
+	)
+	require.NoError(t, err)
+	err = executor.ExecTx(
 		ctx, WriteTxOption(), func(q *sqlc.Queries) error {
 			_, err := assetsStore.ApplyReceiveReconfirm(
-				ctx, q, anchorTxid, blockHash, 700, 0,
-				header, merkle,
+				ctx, q, blockContext,
 			)
 			return err
 		},
@@ -295,6 +302,264 @@ func TestReceiveAnchoringReconfirmBeforeProofs(t *testing.T) {
 	chainTx, err := db.FetchChainTx(ctx, anchorTxid[:])
 	require.NoError(t, err)
 	require.Equal(t, blockHash[:], chainTx.BlockHash)
+}
+
+// TestReceiveReconfirmRestampsProofDAGOccurrences asserts that provenance,
+// rather than the proof file's tip, determines which files reconfirmation
+// repairs. Every occurrence of the anchor in a nested DAG is refreshed, while
+// unrelated proof contexts remain unchanged and redelivery is idempotent.
+func TestReceiveReconfirmRestampsProofDAGOccurrences(t *testing.T) {
+	t.Parallel()
+
+	db := NewTestDB(t)
+	_, assetsStore := newAssetStoreFromDB(db.BaseDB)
+	ctx := context.Background()
+	executor := NewTransactionExecutor(
+		db, func(tx *sql.Tx) *sqlc.Queries {
+			return db.WithTx(tx)
+		},
+	)
+
+	assetGen := newAssetGenerator(t, 1, 1)
+	assetGen.genAssets(t, assetsStore, []assetDesc{{
+		assetGen:    assetGen.assetGens[0],
+		anchorPoint: assetGen.anchorPoints[0],
+		amt:         10,
+	}})
+
+	assets, err := assetsStore.FetchAllAssets(ctx, true, true, nil)
+	require.NoError(t, err)
+	require.Len(t, assets, 1)
+
+	anchorTx := assetGen.anchorTxs[0]
+	anchorTxID := anchorTx.TxHash()
+
+	// Put the target anchor at two nested depths beneath an unrelated
+	// tip. A tip-only lookup or replacement cannot pass this test.
+	innerTarget := randProof(t, assets[0].Asset)
+	innerTarget.AnchorTx = *anchorTx
+	innerFile, err := proof.NewFile(proof.V0, *innerTarget)
+	require.NoError(t, err)
+
+	outerTarget := randProof(t, assets[0].Asset)
+	outerTarget.AnchorTx = *anchorTx
+	outerTarget.AdditionalInputs = []proof.File{*innerFile}
+	outerFile, err := proof.NewFile(proof.V0, *outerTarget)
+	require.NoError(t, err)
+
+	unrelatedTx := wire.NewMsgTx(2)
+	unrelatedTx.LockTime = 99
+	unrelatedTx.AddTxIn(wire.NewTxIn(
+		&wire.OutPoint{Index: 1}, nil, nil,
+	))
+	unrelatedTx.AddTxOut(wire.NewTxOut(1, []byte{0x51}))
+	unrelatedTip := randProof(t, assets[0].Asset)
+	unrelatedTip.AnchorTx = *unrelatedTx
+	unrelatedTip.AdditionalInputs = []proof.File{*outerFile}
+	proofFile, err := proof.NewFile(proof.V0, *unrelatedTip)
+	require.NoError(t, err)
+
+	var assetDBID int64
+	err = db.DB.QueryRowContext(
+		ctx, "SELECT assets.asset_id FROM assets "+
+			"JOIN script_keys ON assets.script_key_id = "+
+			"script_keys.script_key_id "+
+			"WHERE script_keys.tweaked_script_key = $1",
+		assets[0].ScriptKey.PubKey.SerializeCompressed(),
+	).Scan(&assetDBID)
+	require.NoError(t, err)
+
+	indexedProof, err := NewIndexedProofFileFromFile(proofFile)
+	require.NoError(t, err)
+	require.NoError(t, StoreIndexedAssetProof(
+		ctx, db, assetDBID, indexedProof,
+	))
+	storedBlob, err := db.AssetProofBlobByAssetID(ctx, assetDBID)
+	require.NoError(t, err)
+	storedFile := &proof.File{}
+	require.NoError(t, storedFile.Decode(bytes.NewReader(storedBlob)))
+	storedTip, err := storedFile.LastProof()
+	require.NoError(t, err)
+
+	blockHash, header, merkle := blockContextFor(t, anchorTx, 44)
+	blockContext, err := proof.NewVerifiedBlockContext(
+		anchorTx, header, 1_001, merkle,
+	)
+	require.NoError(t, err)
+
+	reconfirm := func() []proof.Locator {
+		t.Helper()
+
+		var locators []proof.Locator
+		err := executor.ExecTx(
+			ctx, WriteTxOption(), func(q *sqlc.Queries) error {
+				var err error
+				locators, err =
+					assetsStore.ApplyReceiveReconfirm(
+						ctx, q, blockContext,
+					)
+				return err
+			},
+		)
+		require.NoError(t, err)
+
+		return locators
+	}
+
+	require.Len(t, reconfirm(), 1)
+	firstBlob, err := db.AssetProofBlobByAssetID(ctx, assetDBID)
+	require.NoError(t, err)
+	repaired := &proof.File{}
+	require.NoError(t, repaired.Decode(bytes.NewReader(firstBlob)))
+
+	matches := proofDAGOccurrences(t, repaired, anchorTxID)
+	require.Len(t, matches, 2)
+	for _, occurrence := range matches {
+		require.Equal(t, blockHash, occurrence.BlockHeader.BlockHash())
+		require.EqualValues(t, 1_001, occurrence.BlockHeight)
+		require.Equal(t, merkle, occurrence.TxMerkleProof)
+	}
+
+	tip, err := repaired.LastProof()
+	require.NoError(t, err)
+	require.Equal(t, storedTip.BlockHeader, tip.BlockHeader)
+	require.Equal(t, storedTip.BlockHeight, tip.BlockHeight)
+
+	require.Len(t, reconfirm(), 1)
+	secondBlob, err := db.AssetProofBlobByAssetID(ctx, assetDBID)
+	require.NoError(t, err)
+	require.Equal(t, firstBlob, secondBlob)
+
+	rows, err := db.FetchAssetProofsByAnchorTx(ctx, anchorTxID[:])
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+}
+
+// TestReceiveReconfirmRestampsSingleProofBlob asserts that a historical bare
+// single-proof blob, adopted by the provenance backfill, is repaired like any
+// other stored proof: the repair reads it as a one-proof file, re-stamps the
+// occurrence and stores the result as a proof file.
+func TestReceiveReconfirmRestampsSingleProofBlob(t *testing.T) {
+	t.Parallel()
+
+	db := NewTestDB(t)
+	_, assetsStore := newAssetStoreFromDB(db.BaseDB)
+	ctx := context.Background()
+	executor := NewTransactionExecutor(
+		db, func(tx *sql.Tx) *sqlc.Queries {
+			return db.WithTx(tx)
+		},
+	)
+
+	assetGen := newAssetGenerator(t, 1, 1)
+	assetGen.genAssets(t, assetsStore, []assetDesc{{
+		assetGen:    assetGen.assetGens[0],
+		anchorPoint: assetGen.anchorPoints[0],
+		amt:         10,
+	}})
+
+	assets, err := assetsStore.FetchAllAssets(ctx, true, true, nil)
+	require.NoError(t, err)
+	require.Len(t, assets, 1)
+
+	anchorTx := assetGen.anchorTxs[0]
+
+	var assetDBID int64
+	err = db.DB.QueryRowContext(
+		ctx, "SELECT assets.asset_id FROM assets "+
+			"JOIN script_keys ON assets.script_key_id = "+
+			"script_keys.script_key_id "+
+			"WHERE script_keys.tweaked_script_key = $1",
+		assets[0].ScriptKey.PubKey.SerializeCompressed(),
+	).Scan(&assetDBID)
+	require.NoError(t, err)
+
+	// A pre-index binary stored the bare proof, not a proof file; the
+	// backfill then adopts it as written.
+	bareProof := randProof(t, assets[0].Asset)
+	bareProof.AnchorTx = *anchorTx
+	bareBlob, err := bareProof.Bytes()
+	require.NoError(t, err)
+	require.True(t, proof.Blob(bareBlob).IsSingleProof())
+	require.NoError(t, db.UpsertAssetProofByID(ctx, ProofUpdateByID{
+		AssetID:   assetDBID,
+		ProofFile: bareBlob,
+	}))
+	err = executor.ExecTx(
+		ctx, WriteTxOption(), func(q *sqlc.Queries) error {
+			return backfillProofProvenance(ctx, q)
+		},
+	)
+	require.NoError(t, err)
+
+	blockHash, header, merkle := blockContextFor(t, anchorTx, 45)
+	blockContext, err := proof.NewVerifiedBlockContext(
+		anchorTx, header, 1_002, merkle,
+	)
+	require.NoError(t, err)
+
+	reconfirm := func() []proof.Locator {
+		t.Helper()
+
+		var locators []proof.Locator
+		err := executor.ExecTx(
+			ctx, WriteTxOption(), func(q *sqlc.Queries) error {
+				var err error
+				locators, err =
+					assetsStore.ApplyReceiveReconfirm(
+						ctx, q, blockContext,
+					)
+				return err
+			},
+		)
+		require.NoError(t, err)
+
+		return locators
+	}
+
+	require.Len(t, reconfirm(), 1)
+	repairedBlob, err := db.AssetProofBlobByAssetID(ctx, assetDBID)
+	require.NoError(t, err)
+	require.True(t, proof.Blob(repairedBlob).IsFile())
+	repaired, err := proof.Blob(repairedBlob).AsFile()
+	require.NoError(t, err)
+	require.Equal(t, 1, repaired.NumProofs())
+	tip, err := repaired.LastProof()
+	require.NoError(t, err)
+	require.Equal(t, blockHash, tip.BlockHeader.BlockHash())
+	require.EqualValues(t, 1_002, tip.BlockHeight)
+
+	require.Len(t, reconfirm(), 1)
+	secondBlob, err := db.AssetProofBlobByAssetID(ctx, assetDBID)
+	require.NoError(t, err)
+	require.Equal(t, repairedBlob, secondBlob)
+}
+
+func proofDAGOccurrences(t *testing.T, proofFile *proof.File,
+	anchorTxID chainhash.Hash) []proof.Proof {
+
+	t.Helper()
+
+	var occurrences []proof.Proof
+	for idx := 0; idx < proofFile.NumProofs(); idx++ {
+		p, err := proofFile.ProofAt(uint32(idx))
+		require.NoError(t, err)
+
+		for inputIdx := range p.AdditionalInputs {
+			input := &p.AdditionalInputs[inputIdx]
+			occurrences = append(
+				occurrences,
+				proofDAGOccurrences(
+					t, input, anchorTxID,
+				)...,
+			)
+		}
+		if p.AnchorTx.TxHash() == anchorTxID {
+			occurrences = append(occurrences, *p)
+		}
+	}
+
+	return occurrences
 }
 
 // TestReceiveAnchoringMultiLeaf drives the receive persistence cycle
@@ -359,9 +624,6 @@ func TestReceiveAnchoringMultiLeaf(t *testing.T) {
 		tipProof.AnchorTx = *anchorTx
 		file, err := proof.NewFile(proof.V0, *tipProof)
 		require.NoError(t, err)
-		var buf bytes.Buffer
-		require.NoError(t, file.Encode(&buf))
-
 		var dbID int64
 		assetID := a.ID()
 		err = db.DB.QueryRowContext(
@@ -372,24 +634,29 @@ func TestReceiveAnchoringMultiLeaf(t *testing.T) {
 			assetID[:],
 		).Scan(&dbID)
 		require.NoError(t, err)
-		require.NoError(t, db.UpsertAssetProofByID(
-			ctx, ProofUpdateByID{
-				AssetID:   dbID,
-				ProofFile: buf.Bytes(),
-			},
+		indexedProof, err := NewIndexedProofFileFromFile(file)
+		require.NoError(t, err)
+		require.NoError(t, StoreIndexedAssetProof(
+			ctx, db, dbID, indexedProof,
 		))
 
 		leaves = append(leaves, leaf{dbID: dbID, assetID: assetID})
 	}
 
-	reconfirm := func(blockHash chainhash.Hash, header wire.BlockHeader,
+	reconfirm := func(header wire.BlockHeader,
 		merkle proof.TxMerkleProof, height uint32) error {
+
+		blockContext, err := proof.NewVerifiedBlockContext(
+			anchorTx, header, height, merkle,
+		)
+		if err != nil {
+			return err
+		}
 
 		return executor.ExecTx(
 			ctx, WriteTxOption(), func(q *sqlc.Queries) error {
 				_, err := assetsStore.ApplyReceiveReconfirm(
-					ctx, q, anchorTxid, blockHash, height,
-					0, header, merkle,
+					ctx, q, blockContext,
 				)
 				return err
 			},
@@ -423,13 +690,13 @@ func TestReceiveAnchoringMultiLeaf(t *testing.T) {
 	}
 
 	blockHashA, headerA, merkleA := blockContextFor(t, anchorTx, 20)
-	require.NoError(t, reconfirm(blockHashA, headerA, merkleA, 800))
-	require.NoError(t, reconfirm(blockHashA, headerA, merkleA, 800))
+	require.NoError(t, reconfirm(headerA, merkleA, 800))
+	require.NoError(t, reconfirm(headerA, merkleA, 800))
 	assertLeafFiles(blockHashA, 800)
 
 	// Re-organized re-confirmation in a new block: both refresh.
 	blockHashB, headerB, merkleB := blockContextFor(t, anchorTx, 21)
-	require.NoError(t, reconfirm(blockHashB, headerB, merkleB, 801))
+	require.NoError(t, reconfirm(headerB, merkleB, 801))
 	assertLeafFiles(blockHashB, 801)
 
 	// The potency-tier downgrade, applied twice.
@@ -644,4 +911,101 @@ func TestStakeReceivedProofsAtomic(t *testing.T) {
 		require.NoError(t, err)
 		require.True(t, has)
 	}
+
+	// An already-safe receive uses the same idempotent import body in its
+	// own transaction because it has no watcher registration to share.
+	_, safe := NewDbHandle(t).AddRandomAssetProof(t)
+	completeLocator(safe)
+	verifiedSafe, err := proof.VerifyAnnotatedProofsWithVerifier(
+		ctx, snapshotVerifier{snapshot: safe.AssetSnapshot},
+		proof.MockVerifierCtx, safe,
+	)
+	require.NoError(t, err)
+
+	imported, err = assetsStore.StoreReceivedProofs(ctx, verifiedSafe...)
+	require.NoError(t, err)
+	require.Len(t, imported, 1)
+	has, err = assetsStore.HasReceivedProof(ctx, safe.Locator)
+	require.NoError(t, err)
+	require.True(t, has)
+
+	imported, err = assetsStore.StoreReceivedProofs(ctx, verifiedSafe...)
+	require.NoError(t, err)
+	require.Empty(t, imported)
+
+	effects, err := registry.PendingEffects(
+		ctx, time.Unix(1<<32, 0), 10,
+	)
+	require.NoError(t, err)
+	require.Len(t, effects, 1)
+	require.Equal(
+		t, tapreorg.EffectKind(proof.MirrorSyncEffectKind),
+		effects[0].Effect.Kind,
+	)
+	require.Zero(t, effects[0].Effect.Anchoring.UnwrapOr(0))
+	sync, err := proof.DecodeMirrorSyncPayload(
+		effects[0].Effect.Payload.Version,
+		effects[0].Effect.Payload.Data,
+	)
+	require.NoError(t, err)
+	require.Equal(t, proof.MirrorSyncRewrite, sync.Op)
+	require.Len(t, sync.Locators, 1)
+	require.Equal(t, safe.AssetID, sync.Locators[0].AssetID)
+	require.True(t, safe.ScriptKey.IsEqual(&sync.Locators[0].ScriptKey))
+	require.Equal(t, safe.Locator.OutPoint, sync.Locators[0].OutPoint)
+}
+
+// TestProofsForAdoptionFloor checks that the adoption scan returns only the
+// proof files whose tip anchor confirmed at or above the floor, together
+// with those whose confirmation height the database does not know.
+func TestProofsForAdoptionFloor(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	_, assetsStore, db := newAssetStore(t)
+
+	// Four assets with tips confirmed at heights 500 through 503.
+	assetGen := newAssetGenerator(t, 4, 1)
+	descs := make([]assetDesc, len(assetGen.anchorPoints))
+	for idx := range descs {
+		descs[idx] = assetDesc{
+			assetGen:    assetGen.assetGens[idx],
+			anchorPoint: assetGen.anchorPoints[idx],
+			amt:         10,
+		}
+	}
+	assetGen.genAssets(t, assetsStore, descs)
+
+	// The first tip's chain row forgets its height; its file still says
+	// 500, which is how the test tells the files apart.
+	firstTx := assetGen.anchorTxs[0]
+	rawTx, err := fn.Serialize(firstTx)
+	require.NoError(t, err)
+	firstTxid := firstTx.TxHash()
+	_, err = db.UpsertChainTx(ctx, ChainTxParams{
+		Txid:        firstTxid[:],
+		RawTx:       rawTx,
+		BlockHeight: sqlInt32(0),
+	})
+	require.NoError(t, err)
+
+	tipHeights := func(floor uint32) []uint32 {
+		blobs, err := assetsStore.ProofsForAdoption(ctx, floor)
+		require.NoError(t, err)
+
+		heights := make([]uint32, len(blobs))
+		for idx, blob := range blobs {
+			file, err := blob.AsFile()
+			require.NoError(t, err)
+			tip, err := file.LastProof()
+			require.NoError(t, err)
+			heights[idx] = tip.BlockHeight
+		}
+
+		return heights
+	}
+
+	require.ElementsMatch(t, []uint32{500, 501, 502, 503}, tipHeights(0))
+	require.ElementsMatch(t, []uint32{500, 502, 503}, tipHeights(502))
+	require.ElementsMatch(t, []uint32{500}, tipHeights(504))
 }

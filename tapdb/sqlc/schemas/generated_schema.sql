@@ -210,6 +210,17 @@ CREATE UNIQUE INDEX asset_minting_batches_unique_pending_or_frozen
     ON asset_minting_batches ((1))
     WHERE batch_state IN (0, 1);
 
+CREATE TABLE asset_proof_anchors (
+    proof_id BIGINT NOT NULL REFERENCES asset_proofs(proof_id)
+        ON DELETE CASCADE,
+    anchor_txid BLOB NOT NULL CHECK(length(anchor_txid) = 32),
+
+    PRIMARY KEY (proof_id, anchor_txid)
+);
+
+CREATE INDEX asset_proof_anchors_txid_idx
+    ON asset_proof_anchors(anchor_txid);
+
 CREATE TABLE asset_proofs (
     proof_id INTEGER PRIMARY KEY,
 
@@ -221,7 +232,7 @@ CREATE TABLE asset_proofs (
     -- for all other files
 
     proof_file BLOB NOT NULL
-);
+, provenance_indexed BOOLEAN NOT NULL DEFAULT FALSE);
 
 CREATE TABLE asset_seedlings (
     seedling_id INTEGER PRIMARY KEY,

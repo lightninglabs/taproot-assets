@@ -85,6 +85,17 @@ WHERE
     AND (transfers.label = sqlc.narg('filter_label') OR
             sqlc.narg('filter_label') IS NULL)
 
+    -- Optionally restrict to transfers confirmed at or above a block
+    -- height, so startup adoption reads only transfers that may still
+    -- be young rather than hydrating every transfer ever made.
+    AND (
+        (
+            txns.block_height >= sqlc.narg('min_block_height')
+            AND txns.block_height > 0
+        )
+        OR sqlc.narg('min_block_height') IS NULL
+    )
+
     -- Optionally filter on outputs with a specific script key.
     AND (
       EXISTS (

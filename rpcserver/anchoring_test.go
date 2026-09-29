@@ -59,7 +59,7 @@ func TestMarshalAnchoring(t *testing.T) {
 	codes := []tapreorg.PhaseCode{
 		tapreorg.PhaseCodeUnwitnessed, tapreorg.PhaseCodeWitnessed,
 		tapreorg.PhaseCodeConflicted, tapreorg.PhaseCodeBuried,
-		tapreorg.PhaseCodeAbandoned, tapreorg.PhaseCodeWithdrawn,
+		tapreorg.PhaseCodeAbandoned,
 	}
 	for _, code := range codes {
 		back, err := tapreorg.PhaseCodeFromName(code.String())

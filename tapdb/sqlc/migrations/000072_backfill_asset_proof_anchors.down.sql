@@ -1,0 +1,2 @@
+-- The reverse provenance index belongs to migration 71. Rolling this version
+-- back only makes its programmatic backfill eligible to run again.

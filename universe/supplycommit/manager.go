@@ -192,22 +192,16 @@ func (m *Manager) startAssetSM(ctx context.Context,
 	// against an empty transition, and a broadcast state's first event
 	// would kill the machine over a nil commitment transaction.
 	initialTransition.WhenSome(func(transition SupplyStateTransition) {
-		switch state := initialState.(type) {
-		case *CommitBroadcastState:
-			state.SupplyTransition = transition
-
-		case *CommitFinalizeState:
+		if state, ok := initialState.(*CommitBroadcastState); ok {
 			state.SupplyTransition = transition
 		}
 	})
 
-	// On the anchoring path a restored broadcast state must hold its
-	// anchoring before the machine resumes and rests on it. A record
-	// persisted before the watcher existed has none; adopt it now.
-	// The state it watches over is already durable, so the
-	// registration stakes nothing.
+	// A restored broadcast state must hold its anchoring before the
+	// machine resumes and rests on it. A record persisted before the
+	// watcher existed has none; adopt it now. The state it watches
+	// over is already durable, so the registration stakes nothing.
 	if broadcast, ok := initialState.(*CommitBroadcastState); ok &&
-		env.AnchoringWatcher != nil &&
 		broadcast.SupplyTransition.NewCommitment.Txn != nil {
 
 		registered, err := registerCommitAnchoring(
@@ -256,36 +250,23 @@ func (m *Manager) startAssetSM(ctx context.Context,
 	// publish the wallet rejected, would otherwise leave a signed
 	// transaction nobody broadcasts and a group that can never
 	// advance. Publishing a transaction the network already has is
-	// harmless. On the legacy path the machine also re-subscribes
-	// for the confirmation. On the anchoring path the re-org watcher
-	// already holds the commitment and finalizes it out of band, so
-	// a tick follows: the resting handler re-derives the machine's
-	// position from the durable record.
+	// harmless. The re-org watcher already holds the commitment and
+	// finalizes it out of band, so a tick follows: the resting
+	// handler re-derives the machine's position from the durable
+	// record. Rows persisted by the legacy finalize state load as
+	// this state too — a pending transition awaiting act-level
+	// finality is exactly what the broadcast state means.
 	case *CommitBroadcastState:
-		if env.AnchoringWatcher == nil ||
-			state.SupplyTransition.NewCommitment.Txn != nil {
-
+		if state.SupplyTransition.NewCommitment.Txn != nil {
 			newSm.SendEvent(ctx, &BroadcastEvent{})
 		}
-		if env.AnchoringWatcher != nil {
-			newSm.SendEvent(ctx, &CommitTickEvent{})
-		}
+		newSm.SendEvent(ctx, &CommitTickEvent{})
 
-	// Once we get a confirmation, then we'll transition to the
-	// CommitFinalizeState. If we crashed right after that, then
-	// we'll also send the finalize event so we can apply
-	// everything, and transition back to the normal default state.
-	case *CommitFinalizeState:
-		newSm.SendEvent(ctx, &FinalizeEvent{})
-
-	// On the anchoring path the watcher's finalizer and compensator
-	// park bound updates here for the machine to pick up, so a tick
-	// resumes the interrupted cycle. The legacy path leaves the batch
-	// to the operator's publish call, as before.
+	// The watcher's finalizer and compensator park bound updates here
+	// for the machine to pick up, so a tick resumes the interrupted
+	// cycle.
 	case *UpdatesPendingState:
-		if env.AnchoringWatcher != nil {
-			newSm.SendEvent(ctx, &CommitTickEvent{})
-		}
+		newSm.SendEvent(ctx, &CommitTickEvent{})
 	}
 
 	return &newSm, nil

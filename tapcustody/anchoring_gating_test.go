@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightninglabs/taproot-assets/address"
@@ -45,6 +46,12 @@ func (l *recordingReceiveLog) StakeReceivedProofs(_ context.Context,
 	return nil, nil
 }
 
+func (l *recordingReceiveLog) StoreReceivedProofs(_ context.Context,
+	_ ...proof.VerifiedAnnotatedProof) ([]proof.Blob, error) {
+
+	return nil, nil
+}
+
 func (l *recordingReceiveLog) NotifyProofs(_ ...proof.Blob) {}
 
 func (l *recordingReceiveLog) HasReceivedProof(_ context.Context,
@@ -54,18 +61,16 @@ func (l *recordingReceiveLog) HasReceivedProof(_ context.Context,
 }
 
 func (l *recordingReceiveLog) ApplyReceiveReconfirm(_ context.Context,
-	_ *sqlc.Queries, anchorTxid chainhash.Hash,
-	blockHash chainhash.Hash, blockHeight, txIndex uint32,
-	header wire.BlockHeader,
-	_ proof.TxMerkleProof) ([]proof.Locator, error) {
+	_ *sqlc.Queries,
+	blockContext proof.VerifiedBlockContext) ([]proof.Locator, error) {
 
 	l.calls = append(l.calls, receiveCall{
 		kind:        "reconfirm",
-		txid:        anchorTxid,
-		blockHash:   blockHash,
-		blockHeight: blockHeight,
-		txIndex:     txIndex,
-		header:      header,
+		txid:        blockContext.AnchorTxID(),
+		blockHash:   blockContext.BlockHash(),
+		blockHeight: blockContext.BlockHeight(),
+		txIndex:     blockContext.TxIndex(),
+		header:      blockContext.BlockHeader(),
 	})
 
 	return l.locators, nil
@@ -198,7 +203,32 @@ func witnessAt(t *testing.T, tx *wire.MsgTx, nonce uint32,
 
 	t.Helper()
 
-	header := &wire.BlockHeader{Version: 2, Nonce: nonce}
+	txs := make([]*wire.MsgTx, int(txIndex)+1)
+	for i := range txs {
+		filler := wire.NewMsgTx(2)
+		filler.LockTime = nonce + uint32(i) + 1
+		txs[i] = filler
+	}
+	txs[txIndex] = tx
+
+	merkleProof, err := proof.NewTxMerkleProof(txs, int(txIndex))
+	require.NoError(t, err)
+	merkleRoot := tx.TxHash()
+	for i := range merkleProof.Nodes {
+		var left, right *chainhash.Hash
+		if merkleProof.Bits[i] {
+			left, right = &merkleRoot, &merkleProof.Nodes[i]
+		} else {
+			left, right = &merkleProof.Nodes[i], &merkleRoot
+		}
+		merkleRoot = blockchain.HashMerkleBranches(left, right)
+	}
+
+	header := &wire.BlockHeader{
+		Version:    2,
+		MerkleRoot: merkleRoot,
+		Nonce:      nonce,
+	}
 	blockHash := header.BlockHash()
 
 	w, err := tapreorg.NewWitness(tx, blockHash, height, txIndex)
@@ -209,7 +239,7 @@ func witnessAt(t *testing.T, tx *wire.MsgTx, nonce uint32,
 		W:           w,
 		OnChain:     true,
 		BlockHeader: header,
-		MerkleProof: &proof.TxMerkleProof{},
+		MerkleProof: merkleProof,
 	}
 }
 

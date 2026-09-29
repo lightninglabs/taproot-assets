@@ -114,22 +114,34 @@ func (h *supplyCommitTestHarness) expectApplyCommitTxStake() {
 	).Return(nil).Once()
 }
 
-// expectAnchoringCommitCycle arranges a full commitment cycle on the
-// anchoring path, from tree creation through broadcast, where the
-// machine registers with the watcher instead of subscribing for a
-// confirmation. The commitment fetch provides a real pre-commitment
-// and the funding mock preserves the transaction's essential inputs,
-// so the registered trigger set is the one production would build:
-// exactly the pre-commitment outpoint, the wallet fee input excluded.
+// expectAnchoringCommitCycle arranges a full commitment cycle, from
+// tree creation through broadcast, staked on the given registrar.
 func (h *supplyCommitTestHarness) expectAnchoringCommitCycle(
 	registrar *mockAnchoringRegistrar) {
+
+	h.t.Helper()
+	h.expectCommitCycle(registrar, true)
+}
+
+// expectCommitCycle arranges a commitment cycle from tree creation
+// (optionally) or transaction creation through broadcast, where the
+// machine stakes the signed transaction on the watcher instead of
+// subscribing for a confirmation. The commitment fetch provides a real
+// pre-commitment and the funding mock preserves the transaction's
+// essential inputs, so the registered trigger set is the one
+// production would build: exactly the pre-commitment outpoint, the
+// wallet fee input excluded.
+func (h *supplyCommitTestHarness) expectCommitCycle(
+	registrar *mockAnchoringRegistrar, includeTreeFetches bool) {
 
 	h.t.Helper()
 
 	groupKey, err := h.cfg.assetSpec.UnwrapGroupKeyOrErr()
 	require.NoError(h.t, err)
 
-	h.expectTreeFetches()
+	if includeTreeFetches {
+		h.expectTreeFetches()
+	}
 
 	// The store resolves the pre-commitment twice: for the
 	// transaction's construction, and for the trigger derivation at
@@ -175,14 +187,25 @@ func (h *supplyCommitTestHarness) expectAnchoringCommitCycle(
 	).Return(fundPsbtFunc, nil).Once()
 
 	h.expectPsbtSigning()
+	h.expectStakeAndBroadcast(registrar, preCommit)
+}
+
+// expectStakeAndBroadcast arranges the signing step's stake and the
+// broadcast that follows: signing stakes the transition inside the
+// registration, whose phase-1 write persists the signed transaction,
+// and broadcast then finds the anchoring already registered. The
+// registered trigger set must be exactly the pre-commitment outpoint,
+// any wallet fee input excluded.
+func (h *supplyCommitTestHarness) expectStakeAndBroadcast(
+	registrar *mockAnchoringRegistrar, preCommit PreCommitment) {
+
+	h.t.Helper()
+
 	h.expectAssetLookup()
 	h.mockDaemon.On(
 		"BroadcastTransaction", mock.Anything, mock.Anything,
 	).Return(nil).Once()
 
-	// Signing stakes the transition inside the registration, whose
-	// phase-1 write persists the signed transaction; broadcast then
-	// finds the anchoring already registered.
 	h.expectApplyCommitTxStake()
 	registrar.On(
 		"Register", mock.Anything,
@@ -212,21 +235,6 @@ func TestSupplyCommitBroadcastRestingTick(t *testing.T) {
 		testAssetID, randGroupKey,
 	)
 	mintEvent := newTestMintEvent(t, testScriptKey, randOutPoint(t))
-
-	// Without a watcher configured, the legacy machine has no
-	// business receiving ticks in the broadcast state.
-	t.Run("legacy_tick_errors", func(t *testing.T) {
-		h := newSupplyCommitTestHarness(t, &harnessCfg{
-			initialState: &CommitBroadcastState{},
-			assetSpec:    defaultAssetSpec,
-		})
-		h.start()
-		defer h.stopAndAssert()
-
-		h.assertHandlesInvalidEvent(
-			&CommitTickEvent{}, ErrInvalidStateTransition,
-		)
-	})
 
 	// While the durable record still says broadcast, the machine
 	// keeps resting.
@@ -495,8 +503,8 @@ func TestSupplyCommitUpdatesPendingRederive(t *testing.T) {
 	)
 	mintEvent := newTestMintEvent(t, testScriptKey, randOutPoint(t))
 
-	// A resumed machine re-derives the batch and runs the legacy
-	// cycle (no watcher configured here).
+	// A resumed machine re-derives the batch and runs the cycle
+	// through to a fresh, registered broadcast.
 	t.Run("resumed_empty_rederives", func(t *testing.T) {
 		h := newSupplyCommitTestHarness(t, &harnessCfg{
 			initialState: &UpdatesPendingState{},
@@ -624,11 +632,10 @@ func signalCall(done chan struct{}) func(mock.Arguments) {
 // TestSupplyCommitRestart exercises the manager's resumption of a
 // machine from the durable record. A restart inside the act window
 // finds the record in the broadcast state with the pending transition
-// alongside: the resumed state must carry that transition, and on the
-// anchoring path the machine must come to rest for the watcher's
-// finalization rather than re-run a broadcast the watcher already
-// holds. A restored pending batch resumes on the anchoring path and
-// waits for the operator on the legacy path.
+// alongside: the resumed state must carry that transition, and the
+// machine must come to rest for the watcher's finalization rather
+// than re-run a broadcast the watcher already holds. A restored
+// pending batch resumes the interrupted cycle.
 func TestSupplyCommitRestart(t *testing.T) {
 	t.Parallel()
 
@@ -812,63 +819,5 @@ func TestSupplyCommitRestart(t *testing.T) {
 		)
 		require.True(t, sm.IsRunning())
 		registrar.AssertExpectations(t)
-	})
-
-	// Without a watcher the restored broadcast state re-runs the
-	// broadcast from the persisted transition and re-subscribes for
-	// the confirmation.
-	t.Run("legacy_broadcast_rebroadcasts", func(t *testing.T) {
-		h, manager := newManagerHarness(t, &harnessCfg{
-			assetSpec: defaultAssetSpec,
-		})
-		defer stopManager(h, manager)
-
-		h.expectFetchState(
-			&CommitBroadcastState{}, lfn.Some(broadcastTransition),
-		)
-		broadcast := make(chan struct{})
-		h.mockDaemon.On(
-			"BroadcastTransaction", commitTx, mock.Anything,
-		).Return(nil).Run(signalCall(broadcast)).Once()
-		h.mockChain.On("CurrentHeight", mock.Anything).Return(
-			uint32(123), nil,
-		).Once()
-		h.mockDaemon.On(
-			"RegisterConfirmationsNtfn", mock.Anything,
-			mock.Anything, mock.Anything, mock.Anything,
-			mock.Anything,
-		).Return(nil).Once()
-
-		sm, err := manager.startAssetSM(
-			context.Background(), defaultAssetSpec,
-		)
-		require.NoError(t, err)
-		defer sm.Stop()
-
-		_, err = lfn.RecvOrTimeout(broadcast, testTimeout)
-		require.NoError(t, err)
-
-		awaitState[*CommitBroadcastState](t, sm)
-		require.True(t, sm.IsRunning())
-	})
-
-	// Without a watcher a restored pending batch waits for the
-	// operator's publish call.
-	t.Run("legacy_updates_pending_rests", func(t *testing.T) {
-		h, manager := newManagerHarness(t, &harnessCfg{
-			assetSpec: defaultAssetSpec,
-		})
-		defer stopManager(h, manager)
-
-		h.expectFetchState(&UpdatesPendingState{}, pendingBatch)
-
-		sm, err := manager.startAssetSM(
-			context.Background(), defaultAssetSpec,
-		)
-		require.NoError(t, err)
-		defer sm.Stop()
-
-		awaitState[*UpdatesPendingState](t, sm)
-		require.True(t, sm.IsRunning())
 	})
 }
