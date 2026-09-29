@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
@@ -83,6 +84,13 @@ func (l *recordingPorterLog) ApplyAnchorTxConfirm(_ context.Context,
 	return keys, nil
 }
 
+func (l *recordingPorterLog) RestampStoredProofs(_ context.Context,
+	_ *sqlc.Queries, _ proof.VerifiedBlockContext) ([]proof.Locator,
+	error) {
+
+	return nil, nil
+}
+
 func (l *recordingPorterLog) ApplyAnchorTxUnconfirm(_ context.Context,
 	_ *sqlc.Queries, anchorTxid chainhash.Hash) error {
 
@@ -127,6 +135,52 @@ func (l *recordingPorterLog) NotifyProofs(blobs ...proof.Blob) {
 }
 
 // recordingRegistryTx is a RegistryTx that records enqueued effects.
+// porterWitnessAt returns a witness for tx at the given height and index in
+// a block whose header commits to it, with the candidate carrying the block
+// enrichment the site verifies before repairing proofs.
+func porterWitnessAt(t *testing.T, tx *wire.MsgTx, nonce uint32,
+	height, txIndex uint32) (tapreorg.Witness, tapreorg.CandidateSpend) {
+
+	t.Helper()
+
+	txs := make([]*wire.MsgTx, int(txIndex)+1)
+	for i := range txs {
+		filler := wire.NewMsgTx(2)
+		filler.LockTime = nonce + uint32(i) + 1
+		txs[i] = filler
+	}
+	txs[txIndex] = tx
+
+	merkleProof, err := proof.NewTxMerkleProof(txs, int(txIndex))
+	require.NoError(t, err)
+	merkleRoot := tx.TxHash()
+	for i := range merkleProof.Nodes {
+		var left, right *chainhash.Hash
+		if merkleProof.Bits[i] {
+			left, right = &merkleRoot, &merkleProof.Nodes[i]
+		} else {
+			left, right = &merkleProof.Nodes[i], &merkleRoot
+		}
+		merkleRoot = blockchain.HashMerkleBranches(left, right)
+	}
+
+	header := &wire.BlockHeader{
+		Version:    2,
+		MerkleRoot: merkleRoot,
+		Nonce:      nonce,
+	}
+	w, err := tapreorg.NewWitness(tx, header.BlockHash(), height, txIndex)
+	require.NoError(t, err)
+
+	return w, tapreorg.CandidateSpend{
+		Verdict:     tapreorg.VerdictSatisfies,
+		W:           w,
+		OnChain:     true,
+		BlockHeader: header,
+		MerkleProof: merkleProof,
+	}
+}
+
 type recordingRegistryTx struct {
 	effects []tapreorg.OutboxEffect
 }
@@ -228,22 +282,12 @@ func TestPorterSiteActGating(t *testing.T) {
 	}
 	payload := encodePorterBlob(blob)
 
-	witness, err := tapreorg.NewWitness(
-		anchorTx, chainhash.Hash{0xcc}, 700, 1,
-	)
-	require.NoError(t, err)
-
+	witness, candidate := porterWitnessAt(t, anchorTx, 1, 700, 1)
 	anchoring := &tapreorg.Anchoring{
 		ID:      9,
 		Site:    PorterSiteID,
 		Payload: payload,
-		Spends: []tapreorg.CandidateSpend{{
-			Verdict:     tapreorg.VerdictSatisfies,
-			W:           witness,
-			OnChain:     true,
-			BlockHeader: &wire.BlockHeader{Nonce: 1},
-			MerkleProof: &proof.TxMerkleProof{},
-		}},
+		Spends:  []tapreorg.CandidateSpend{candidate},
 	}
 
 	loc := mirrorLocator(t, blob.AnchorTxid)

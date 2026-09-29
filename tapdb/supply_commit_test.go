@@ -1738,7 +1738,6 @@ func TestSupplyCommitState(t *testing.T) {
 		&supplycommit.CommitTxCreateState{},
 		&supplycommit.CommitTxSignState{},
 		&supplycommit.CommitBroadcastState{},
-		&supplycommit.CommitFinalizeState{},
 	}
 
 	// We'll now run through all the tests, then make sure that when we

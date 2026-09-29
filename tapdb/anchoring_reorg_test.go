@@ -296,19 +296,20 @@ func TestCrossSiteReorgLadderContract(t *testing.T) {
 				hash, header, merkle := blockContextFor(
 					t, w.anchorTx, rung.nonce,
 				)
-				require.NoError(rt, apply(
-					func(q *sqlc.Queries) error {
-						_, err := f.assetsStore.
-							ApplyReceiveReconfirm(
-								ctx, q,
-								w.anchorTxid,
-								hash,
-								rung.height, 0,
-								header, merkle,
-							)
-						return err
-					},
-				), where)
+				blockContext, err :=
+					proof.NewVerifiedBlockContext(
+						w.anchorTx, header,
+						rung.height, merkle,
+					)
+				require.NoError(rt, err)
+				persist := func(q *sqlc.Queries) error {
+					store := f.assetsStore
+					_, err := store.ApplyReceiveReconfirm(
+						ctx, q, blockContext,
+					)
+					return err
+				}
+				require.NoError(rt, apply(persist), where)
 
 				require.Equal(
 					rt, hash[:],
@@ -540,14 +541,22 @@ func TestReceiveReorgLadderContract(t *testing.T) {
 			header wire.BlockHeader,
 			merkle proof.TxMerkleProof) error {
 
+			blockContext, err := proof.NewVerifiedBlockContext(
+				w.anchorTx, header, height, merkle,
+			)
+			if err != nil {
+				return err
+			}
+			if blockContext.BlockHash() != hash {
+				return fmt.Errorf("block context hash mismatch")
+			}
+
 			return f.executor.ExecTx(
 				ctx, WriteTxOption(),
 				func(q *sqlc.Queries) error {
 					_, err := f.assetsStore.
 						ApplyReceiveReconfirm(
-							ctx, q, w.anchorTxid,
-							hash, height, 0,
-							header, merkle,
+							ctx, q, blockContext,
 						)
 					return err
 				},
@@ -577,15 +586,6 @@ func TestReceiveReorgLadderContract(t *testing.T) {
 					return err
 				},
 			)
-		}
-
-		// The passive holdings' stamps before the ladder runs. They
-		// are staked by the porter's transfer, so no receive rung
-		// may move them.
-		passiveBefore := make(map[int64]chainhash.Hash)
-		for _, dbID := range w.passiveDBIDs {
-			hash, _, _ := f.tipStamp(rt, dbID)
-			passiveBefore[dbID] = hash
 		}
 
 		numEvents := f.eventsWithStatus(
@@ -644,10 +644,10 @@ func TestReceiveReorgLadderContract(t *testing.T) {
 					break
 				}
 
-				// Freshness and scope. Only assets the
-				// receive staked are re-stamped.
-
-				for _, dbID := range w.outputDBIDs {
+				// Repair is transaction-wide. Every occurrence
+				// is re-stamped, even when another site owns
+				// the materialized asset.
+				for _, dbID := range w.assetDBIDs {
 					got, height, num := f.tipStamp(
 						rt, dbID,
 					)
@@ -718,19 +718,6 @@ func TestReceiveReorgLadderContract(t *testing.T) {
 			default:
 				rt.Fatalf("unhandled rung kind %d", rung.kind)
 			}
-
-			// Scope, checked after every rung rather than only
-			// at the end: a passive holding's stamp is the
-			// porter's, and no receive rung may move it.
-			for dbID, before := range passiveBefore {
-				got, _, _ := f.tipStamp(rt, dbID)
-				require.Equal(
-					rt, before, got,
-					"%s: re-stamped passive asset %d, "+
-						"which the receive never "+
-						"staked", where, dbID,
-				)
-			}
 		}
 	})
 }
@@ -755,8 +742,8 @@ func TestReceiveReorgLadderContract(t *testing.T) {
 // would otherwise fail and retry forever. A passive reference from
 // the transaction's own transfer is a different matter: that marks a
 // pre-existing holding the transfer carried along, restored by the
-// porter's compensation, and the world's own passives pin that it is
-// left alone.
+// porter's compensation. Its proof is still refreshed transaction-wide,
+// but receive or mint abandonment must leave the holding itself alone.
 func TestAnchoredSuccessorPassive(t *testing.T) {
 	t.Parallel()
 
@@ -783,41 +770,32 @@ func TestAnchoredSuccessorPassive(t *testing.T) {
 		rawBatchKey := bytes.Repeat([]byte{0x02}, 33)
 		resetStatus := int16(address.StatusTransactionDetected)
 
-		// Freshness: a re-confirmation re-stamps the adopted
-		// holding along with the rest of the transaction's
-		// outputs, and leaves the world's own passives alone.
+		// Freshness: a re-confirmation re-stamps every stored proof
+		// occurrence of the transaction, independent of which site
+		// owns the materialized asset.
 		hash, header, merkle := blockContextFor(t, w.anchorTx, 77)
-		passiveBefore := make(map[int64]chainhash.Hash)
-		for _, dbID := range w.passiveDBIDs {
-			before, _, _ := f.tipStamp(rt, dbID)
-			passiveBefore[dbID] = before
-		}
-		err := f.executor.ExecTx(
+		blockContext, err := proof.NewVerifiedBlockContext(
+			w.anchorTx, header, 777, merkle,
+		)
+		require.NoError(rt, err)
+		err = f.executor.ExecTx(
 			ctx, WriteTxOption(), func(q *sqlc.Queries) error {
 				_, err := f.assetsStore.ApplyReceiveReconfirm(
-					ctx, q, w.anchorTxid, hash, 777, 0,
-					header, merkle,
+					ctx, q, blockContext,
 				)
 				return err
 			},
 		)
 		require.NoError(rt, err)
 
-		got, height, _ := f.tipStamp(rt, adopted)
-		require.Equal(
-			rt, hash, got,
-			"successor-staked asset %d carries a stale block "+
-				"hash after re-confirmation", adopted,
-		)
-		require.EqualValues(rt, 777, height)
-		for dbID, before := range passiveBefore {
-			got, _, _ := f.tipStamp(rt, dbID)
+		for _, dbID := range w.assetDBIDs {
+			got, height, _ := f.tipStamp(rt, dbID)
 			require.Equal(
-				rt, before, got,
-				"re-stamped passive asset %d, which the "+
-					"transaction's own transfer carried",
-				dbID,
+				rt, hash, got,
+				"asset %d carries a stale block hash after "+
+					"re-confirmation", dbID,
 			)
+			require.EqualValues(rt, 777, height)
 		}
 
 		// Totality and scope: abandonment deletes the adopted

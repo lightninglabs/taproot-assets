@@ -32,6 +32,16 @@ type importProofChainBridge struct {
 	block *wire.MsgBlock
 }
 
+type archiveReceiveStaker struct {
+	archive proof.Archiver
+}
+
+func (s *archiveReceiveStaker) StakeReceive(ctx context.Context,
+	p *proof.AnnotatedProof) error {
+
+	return s.archive.ImportProofs(ctx, proof.MockVerifierCtx, false, p)
+}
+
 func (b *importProofChainBridge) GetBlockByHeight(context.Context,
 	int64) (*wire.MsgBlock, error) {
 
@@ -168,8 +178,8 @@ func TestImportOutputProofsMerge(t *testing.T) {
 	}
 	err := importOutputProofs(
 		ctx, lnwire.ShortChannelID{}, []*proof.Proof{&outputProof},
-		&url.URL{}, dispatch, chainBridge, proof.MockVerifierCtx,
-		archive,
+		&url.URL{}, dispatch, chainBridge, archive,
+		&archiveReceiveStaker{archive: archive},
 	)
 	require.NoError(t, err)
 	require.Len(t, recordingCourier.received, len(inputProofs))
@@ -571,6 +581,7 @@ func TestResolveContractNoAssetOutputs(t *testing.T) {
 			})
 
 			porter := &recordingPorter{}
+			proofArchive := proof.NewMockProofArchive()
 			sweeper := NewAuxSweeper(&AuxSweeperCfg{
 				AddrBook: address.NewBook(address.BookConfig{
 					Store: &scriptKeyStore{},
@@ -581,7 +592,10 @@ func TestResolveContractNoAssetOutputs(t *testing.T) {
 				ProofFetcher: &proof.MockProofCourierDispatcher{
 					Courier: channel.courier,
 				},
-				ProofArchive:   proof.NewMockProofArchive(),
+				ProofArchive: proofArchive,
+				AnchoringRegistrar: &archiveReceiveStaker{
+					archive: proofArchive,
+				},
 				HeaderVerifier: proof.MockHeaderVerifier,
 				GroupVerifier:  proof.MockGroupVerifier,
 				ChainBridge: &importProofChainBridge{

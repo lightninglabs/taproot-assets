@@ -7,6 +7,7 @@ import (
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
+	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 )
 
@@ -321,6 +322,39 @@ func WitnessContext(anchoring *Anchoring,
 		witness.TxHash())
 }
 
+// VerifiedProofContext binds a witness-bearing phase to the block evidence
+// sensed with it. The returned sealed value has already proved the witness
+// transaction against the header's merkle root and checked that the witness,
+// header and merkle proof describe one location.
+func VerifiedProofContext(anchoring *Anchoring,
+	phase Phase) (proof.VerifiedBlockContext, error) {
+
+	candidate, err := WitnessContext(anchoring, phase)
+	if err != nil {
+		return nil, err
+	}
+
+	blockContext, err := proof.NewVerifiedBlockContext(
+		candidate.W.Tx(), *candidate.BlockHeader,
+		candidate.W.Height(), *candidate.MerkleProof,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("invalid witness block context: %w", err)
+	}
+	if blockContext.BlockHash() != candidate.W.BlockHash() {
+		return nil, fmt.Errorf("witness block hash %v does not match "+
+			"header %v", candidate.W.BlockHash(),
+			blockContext.BlockHash())
+	}
+	if blockContext.TxIndex() != candidate.W.TxIndex() {
+		return nil, fmt.Errorf("witness transaction index %d does not "+
+			"match merkle proof index %d", candidate.W.TxIndex(),
+			blockContext.TxIndex())
+	}
+
+	return blockContext, nil
+}
+
 // ForeignSpend is an observed foreign spend of a trigger outpoint: the
 // spent outpoint plus the located spending transaction.
 type ForeignSpend struct {
@@ -410,6 +444,49 @@ type RegistrationSpec struct {
 	// separately — sets it, so the stake and the custody covering it
 	// commit together whether the anchoring is new or shared.
 	Phase1OnAttach bool
+}
+
+// AnchorNeedsProtection reports whether a confirmation is still shallower
+// than the site's act threshold at the given best height. Unknown policy or
+// location data is treated conservatively: it still needs protection.
+func AnchorNeedsProtection(bestHeight, blockHeight, threshold uint32) bool {
+	if threshold == 0 || blockHeight == 0 || blockHeight > bestHeight {
+		return true
+	}
+
+	// Subtract before adding one so heights near MaxUint32 cannot overflow.
+	depth := bestHeight - blockHeight + 1
+
+	return depth < threshold
+}
+
+// ProtectionFloor is the lowest known block height that still needs
+// protection at the given best height: a confirmation at or above it
+// satisfies AnchorNeedsProtection and one below it does not. A floor of
+// zero means every height does. Unknown heights are outside its scope and
+// always need protection.
+func ProtectionFloor(bestHeight, threshold uint32) uint32 {
+	switch {
+	case threshold == 0:
+		return 0
+
+	// Nothing at or below the best height is shallower than one block.
+	case threshold == 1:
+		if bestHeight == ^uint32(0) {
+			return bestHeight
+		}
+
+		return bestHeight + 1
+
+	// The chain is shorter than the threshold, so every height is young.
+	case bestHeight < threshold-2:
+		return 0
+
+	// depth < threshold, with depth = bestHeight - height + 1, holds
+	// exactly for heights of at least bestHeight - (threshold - 2).
+	default:
+		return bestHeight - (threshold - 2)
+	}
 }
 
 // Validate checks the spec's value-level invariants.
@@ -512,6 +589,10 @@ type Anchoring struct {
 	// Stuck indicates delivery has failed repeatedly; retries
 	// continue at low frequency, and the condition is surfaced.
 	Stuck bool
+
+	// StuckReason is the last delivery error, surfaced once the
+	// anchoring is flagged stuck. Empty otherwise.
+	StuckReason string
 
 	// DeliveryAttempts counts failed delivery attempts since the
 	// last successful delivery.

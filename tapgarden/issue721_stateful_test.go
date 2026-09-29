@@ -436,12 +436,19 @@ func TestIssue721PrepareSignResume(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.True(t, (*importedKey).IsEqual(expectedOutputKey))
-	confReq, err := fn.RecvOrTimeout(h.chain.ConfReqSignal, defaultTimeout)
-	require.NoError(t, err)
 	published, err := psbt.Extract(valid)
 	require.NoError(t, err)
+	h.assertAnchoringRegistered(published)
+	anchorings, err := h.registrar.AllAnchorings(
+		context.Background(), tapgarden.MintSiteID,
+	)
+	require.NoError(t, err)
+	require.Len(t, anchorings, 1)
+	points := anchorings[0].Triggers.OutPoints()
+	require.Len(t, points, len(published.TxIn))
+	require.Equal(t, published.TxIn[0].PreviousOutPoint, points[0].OutPoint)
 	require.Equal(
-		t, published.TxOut[1].PkScript, h.chain.ConfPkScripts[*confReq],
+		t, valid.Inputs[0].WitnessUtxo.PkScript, points[0].PkScript,
 	)
 	minted := h.assertFinalizeBatch(&wg, respChan, "")
 	require.Equal(t, original.UnsignedTx.TxIn[0].PreviousOutPoint,
@@ -459,6 +466,7 @@ func TestIssue721PrepareSignResume(t *testing.T) {
 	// A clean WalletKit acceptance clears the internal publication marker
 	// before the signed packet is committed in Broadcast.
 	persisted := h.fetchSingleBatch(prepared.BatchKey.PubKey)
+	require.Equal(t, uint32(1), persisted.GenesisPacket.AssetAnchorOutIdx)
 	for _, unknown := range persisted.GenesisPacket.Pkt.Unknowns {
 		require.NotEqual(
 			t, []byte{0xfc, 0x04, 't', 'a', 'p', 'd', 0x02},
@@ -498,6 +506,10 @@ func TestIssue721PublishRetry(t *testing.T) {
 		t, witnessScript,
 	)
 
+	// Registration returns only after release, so the lease failure is
+	// visible to the Broadcast retry that follows it. The anchoring is
+	// already stored when entered fires.
+	entered, release := h.registrar.PauseNextRegister()
 	h.chain.FailPublishOnce()
 	var wg sync.WaitGroup
 	respChan := make(chan *FinalizeBatchResp, 1)
@@ -517,6 +529,11 @@ func TestIssue721PublishRetry(t *testing.T) {
 		h.chain.PublishAttempts, defaultTimeout,
 	)
 	require.NoError(t, err)
+	select {
+	case <-entered:
+	case <-time.After(defaultTimeout):
+		t.Fatal("mint anchoring was not registered before publish retry")
+	}
 
 	// Degrade lease renewal before the first Broadcast retry. The watcher
 	// must still be installed, while active publication is suppressed until
@@ -524,8 +541,8 @@ func TestIssue721PublishRetry(t *testing.T) {
 	h.wallet.SetLeaseError(
 		ownedInput, fmt.Errorf("temporary broadcast renewal failure"),
 	)
-	_, err = fn.RecvOrTimeout(h.chain.ConfReqSignal, defaultTimeout)
-	require.NoError(t, err)
+	h.assertAnchoringRegistered(*firstAttempt)
+	release()
 	minted := h.assertFinalizeBatch(&wg, respChan, "")
 	require.Equal(t, tapgarden.BatchStateBroadcast, minted.State())
 	select {
@@ -624,10 +641,9 @@ func TestIssue721ClassifiedPublishFailureRemainsBroadcast(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, signedTx.WitnessHash(), (*attempt).WitnessHash())
 
-	// Before the byte-identical retry, the Broadcast watcher is installed
+	// Before the byte-identical retry, the Broadcast anchoring is staked
 	// and the recorded local input lease is renewed.
-	_, err = fn.RecvOrTimeout(h.chain.ConfReqSignal, defaultTimeout)
-	require.NoError(t, err)
+	h.assertAnchoringRegistered(signedTx)
 	broadcastLease, err := fn.RecvOrTimeout(
 		h.wallet.LeaseInputSignal, defaultTimeout,
 	)
@@ -669,10 +685,7 @@ func TestIssue721ClassifiedPublishFailureRemainsBroadcast(t *testing.T) {
 	// Restarting a durable Broadcast packet with the publication marker must
 	// reconstruct the same reservation before accepting API requests.
 	h.refreshChainPlanter()
-	restartConfReq, err := fn.RecvOrTimeout(
-		h.chain.ConfReqSignal, defaultTimeout,
-	)
-	require.NoError(t, err)
+	h.assertAnchoringRegistered(signedTx)
 	restartLease, err := fn.RecvOrTimeout(
 		h.wallet.LeaseInputSignal, defaultTimeout,
 	)
@@ -708,9 +721,7 @@ func TestIssue721ClassifiedPublishFailureRemainsBroadcast(t *testing.T) {
 	}
 	blockHash := block.BlockHash()
 	h.chain.SetBlock(blockHash, block)
-	h.chain.SendConfNtfn(
-		*restartConfReq, &blockHash, 1, 0, block, restartedTx,
-	)
+	h.confirmAnchoring(restartedTx, block)
 	h.assertNumCultivatorsActive(0)
 	available, err := h.planter.PendingBatch()
 	require.NoError(t, err)
@@ -774,8 +785,9 @@ func TestIssue721ImportRetry(t *testing.T) {
 		h.wallet.ImportPubKeySignal, defaultTimeout,
 	)
 	require.NoError(t, err)
-	_, err = fn.RecvOrTimeout(h.chain.ConfReqSignal, defaultTimeout)
+	published, err := psbt.Extract(signed)
 	require.NoError(t, err)
+	h.assertAnchoringRegistered(published)
 	minted := h.assertFinalizeBatch(&wg, respChan, "")
 	require.Equal(t, tapgarden.BatchStateBroadcast, minted.State())
 }
@@ -840,8 +852,9 @@ func TestIssue721ImportRetryAfterRestart(t *testing.T) {
 	require.Equal(t, ownedInput, *restartLease)
 	_, err = fn.RecvOrTimeout(h.wallet.ImportPubKeySignal, defaultTimeout)
 	require.NoError(t, err)
-	_, err = fn.RecvOrTimeout(h.chain.ConfReqSignal, defaultTimeout)
+	resumed, err := psbt.Extract(signed)
 	require.NoError(t, err)
+	h.assertAnchoringRegistered(resumed)
 	h.assertNumCultivatorsActive(1)
 }
 
@@ -1046,8 +1059,7 @@ func TestIssue721PublishFailureAfterRestartIsAdopted(t *testing.T) {
 		h.chain.PublishAttempts, defaultTimeout,
 	)
 	require.NoError(t, err)
-	_, err = fn.RecvOrTimeout(h.chain.ConfReqSignal, defaultTimeout)
-	require.NoError(t, err)
+	h.assertAnchoringRegistered(*firstAttempt)
 	retryLease, err := fn.RecvOrTimeout(
 		h.wallet.LeaseInputSignal, defaultTimeout,
 	)
@@ -1114,8 +1126,7 @@ func TestIssue721PublishPendingRestartLeaseFailure(t *testing.T) {
 	h.refreshChainPlanter()
 	_, err = fn.RecvOrTimeout(h.wallet.ImportPubKeySignal, defaultTimeout)
 	require.NoError(t, err)
-	_, err = fn.RecvOrTimeout(h.chain.ConfReqSignal, defaultTimeout)
-	require.NoError(t, err)
+	h.assertAnchoringRegistered(expected)
 	require.Eventually(t, func() bool {
 		return h.fetchSingleBatch(prepared.BatchKey.PubKey).State() ==
 			tapgarden.BatchStateBroadcast
@@ -1208,8 +1219,9 @@ func TestIssue721CorruptLeaseMarkerWatchesWithoutPublishing(t *testing.T) {
 	h.refreshChainPlanter()
 	_, err = fn.RecvOrTimeout(h.wallet.ImportPubKeySignal, defaultTimeout)
 	require.NoError(t, err)
-	_, err = fn.RecvOrTimeout(h.chain.ConfReqSignal, defaultTimeout)
+	watched, err := psbt.Extract(signed)
 	require.NoError(t, err)
+	h.assertAnchoringRegistered(watched)
 	require.Eventually(t, func() bool {
 		return h.fetchSingleBatch(prepared.BatchKey.PubKey).State() ==
 			tapgarden.BatchStateBroadcast
@@ -1404,8 +1416,9 @@ func TestIssue721ImportRestartLeaseFailureWatches(t *testing.T) {
 	h.refreshChainPlanter()
 	_, err = fn.RecvOrTimeout(h.wallet.ImportPubKeySignal, defaultTimeout)
 	require.NoError(t, err)
-	_, err = fn.RecvOrTimeout(h.chain.ConfReqSignal, defaultTimeout)
+	watched, err := psbt.Extract(signed)
 	require.NoError(t, err)
+	h.assertAnchoringRegistered(watched)
 	require.Eventually(t, func() bool {
 		return h.fetchSingleBatch(prepared.BatchKey.PubKey).State() ==
 			tapgarden.BatchStateBroadcast
@@ -1868,7 +1881,9 @@ func TestIssue721ConfirmationRegistrationRetry(t *testing.T) {
 		t, witnessScript,
 	)
 
-	h.chain.FailConfRegistrationOnce()
+	h.registrar.FailNextRegister(
+		fmt.Errorf("failed to register confirmation"),
+	)
 	var wg sync.WaitGroup
 	respChan := make(chan *FinalizeBatchResp, 1)
 	h.finalizeBatch(&wg, respChan, &tapgarden.FinalizeParams{
@@ -1907,8 +1922,7 @@ func TestIssue721ConfirmationRegistrationRetry(t *testing.T) {
 	h.finalizeBatch(&wg, respChan, &tapgarden.FinalizeParams{
 		SignedPsbt: retry,
 	})
-	_, err = fn.RecvOrTimeout(h.chain.ConfReqSignal, defaultTimeout)
-	require.NoError(t, err)
+	h.assertAnchoringRegistered(published)
 	h.assertTxPublished()
 	minted := h.assertFinalizeBatch(&wg, respChan, "")
 	require.Equal(t, tapgarden.BatchStateBroadcast, minted.State())
@@ -1941,6 +1955,7 @@ func TestIssue721RestartConfirmationFailureRetainsReservation(t *testing.T) {
 		t, witnessScript,
 	)
 
+	entered, release := h.registrar.PauseNextRegister()
 	h.chain.FailPublishOnce()
 	var wg sync.WaitGroup
 	respChan := make(chan *FinalizeBatchResp, 1)
@@ -1951,17 +1966,28 @@ func TestIssue721RestartConfirmationFailureRetainsReservation(t *testing.T) {
 	require.NoError(t, err)
 	_, err = fn.RecvOrTimeout(h.wallet.ImportPubKeySignal, defaultTimeout)
 	require.NoError(t, err)
-	_, err = fn.RecvOrTimeout(h.chain.PublishAttempts, defaultTimeout)
+	attempt, err := fn.RecvOrTimeout(h.chain.PublishAttempts, defaultTimeout)
 	require.NoError(t, err)
+	select {
+	case <-entered:
+	case <-time.After(defaultTimeout):
+		t.Fatal("mint anchoring was not registered before publish retry")
+	}
 	h.wallet.SetLeaseError(
 		ownedInput, fmt.Errorf("suppress publish retry during watcher test"),
 	)
-	_, err = fn.RecvOrTimeout(h.chain.ConfReqSignal, defaultTimeout)
-	require.NoError(t, err)
+	h.assertAnchoringRegistered(*attempt)
+	release()
 	minted := h.assertFinalizeBatch(&wg, respChan, "")
 	require.Equal(t, tapgarden.BatchStateBroadcast, minted.State())
 
-	h.chain.FailConfRegistrationOnce()
+	// The batch is Broadcast, but its anchoring did not survive into
+	// the next process. Registration failing there must leave the
+	// reservation in place.
+	h.registrar.DropAnchorings()
+	h.registrar.FailNextRegister(
+		fmt.Errorf("failed to register confirmation"),
+	)
 	h.refreshChainPlanter()
 	require.Eventually(t, func() bool {
 		n, err := h.planter.NumActiveBatches()
@@ -2132,8 +2158,9 @@ func TestIssue721CustomRestartStates(t *testing.T) {
 			h.wallet.ImportPubKeySignal, defaultTimeout,
 		)
 		require.NoError(t, err)
-		_, err = fn.RecvOrTimeout(h.chain.ConfReqSignal, defaultTimeout)
+		resumed, err := psbt.Extract(signed)
 		require.NoError(t, err)
+		h.assertAnchoringRegistered(resumed)
 		h.assertNumCultivatorsActive(1)
 	})
 
@@ -2321,8 +2348,7 @@ func TestIssue721LegacyRejectedMarkerIsPublicationPending(t *testing.T) {
 		h.chain.PublishAttempts, defaultTimeout,
 	)
 	require.NoError(t, err)
-	_, err = fn.RecvOrTimeout(h.chain.ConfReqSignal, defaultTimeout)
-	require.NoError(t, err)
+	h.assertAnchoringRegistered(*firstAttempt)
 	retryLease, err := fn.RecvOrTimeout(
 		h.wallet.LeaseInputSignal, defaultTimeout,
 	)

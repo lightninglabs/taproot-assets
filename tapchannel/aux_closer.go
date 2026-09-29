@@ -56,6 +56,10 @@ type AuxChanCloserCfg struct {
 	// ProofArchive is used to store import funding output proofs.
 	ProofArchive proof.Archiver
 
+	// AnchoringRegistrar imports funding proofs together with their re-org
+	// protection.
+	AnchoringRegistrar ReceiveAnchoringRegistrar
+
 	// HeaderVerifier is used to verify headers in a proof.
 	HeaderVerifier proof.HeaderVerifier
 
@@ -944,13 +948,6 @@ func (a *AuxChanCloser) FinalizeClose(desc types.AuxCloseDesc,
 				return &a.Proof.Val
 			},
 		)
-		vCtx := proof.VerifierCtx{
-			HeaderVerifier: a.cfg.HeaderVerifier,
-			MerkleVerifier: proof.DefaultMerkleVerifier,
-			GroupVerifier:  a.cfg.GroupVerifier,
-			ChainLookupGen: a.cfg.ChainBridge,
-			IgnoreChecker:  a.cfg.IgnoreChecker,
-		}
 		ctx, cancel := a.WithCtxQuitNoTimeout()
 		defer cancel()
 
@@ -960,7 +957,8 @@ func (a *AuxChanCloser) FinalizeClose(desc types.AuxCloseDesc,
 		err = importOutputProofs(
 			ctx, desc.ShortChanID, fundingInputProofs,
 			a.cfg.DefaultCourierAddr, a.cfg.ProofFetcher,
-			a.cfg.ChainBridge, vCtx, a.cfg.ProofArchive,
+			a.cfg.ChainBridge, a.cfg.ProofArchive,
+			a.cfg.AnchoringRegistrar,
 		)
 		if err != nil {
 			return fmt.Errorf("unable to import output "+

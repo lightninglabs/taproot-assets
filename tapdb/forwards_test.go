@@ -717,3 +717,78 @@ func TestQueryForwardsWithCount(t *testing.T) {
 		})
 	}
 }
+
+// TestSettledFillByRfqID verifies that SettledFillByRfqID returns the summed
+// outgoing amounts of settled forwarding events grouped by RFQ ID, excluding
+// pending and failed events.
+func TestSettledFillByRfqID(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	forwardStore, _, db := newForwardStore(t)
+
+	rfqID1 := randRfqID(t)
+	rfqID2 := randRfqID(t)
+	peer := randPeer(t)
+
+	insertTestPolicy(
+		t, ctx, db, rfqID1, rfq.RfqPolicyTypeAssetSale, peer, nil, nil,
+	)
+	insertTestPolicy(
+		t, ctx, db, rfqID2, rfq.RfqPolicyTypeAssetSale, peer, nil, nil,
+	)
+
+	openedAt := time.Now().UTC().Truncate(time.Second)
+	settledAt := openedAt.Add(10 * time.Second)
+	failedAt := openedAt.Add(20 * time.Second)
+
+	newForward := func(rfqID rfqmsg.ID, htlcID uint64,
+		amtOutMsat uint64) rfq.ForwardInput {
+
+		return rfq.ForwardInput{
+			OpenedAt:   openedAt,
+			RfqID:      rfqID,
+			ChanIDIn:   100,
+			ChanIDOut:  200,
+			HtlcID:     htlcID,
+			AssetAmt:   500,
+			AmtInMsat:  amtOutMsat + 1000,
+			AmtOutMsat: amtOutMsat,
+		}
+	}
+
+	// Two settled forwards for the first RFQ ID, which must be summed.
+	settled1 := newForward(rfqID1, 1, 41000)
+	settled1.SettledAt = fn.Some(settledAt)
+	settled2 := newForward(rfqID1, 2, 9000)
+	settled2.SettledAt = fn.Some(settledAt)
+
+	// A settled forward for the second RFQ ID.
+	settled3 := newForward(rfqID2, 3, 777)
+	settled3.SettledAt = fn.Some(settledAt)
+
+	// A pending and a failed forward, which must be excluded.
+	pending := newForward(rfqID1, 4, 12345)
+	failed := newForward(rfqID2, 5, 54321)
+	failed.FailedAt = fn.Some(failedAt)
+
+	inputs := []rfq.ForwardInput{
+		settled1, settled2, settled3, pending, failed,
+	}
+	for _, input := range inputs {
+		require.NoError(t, forwardStore.UpsertForward(ctx, input))
+	}
+
+	settledFill, err := forwardStore.SettledFillByRfqID(ctx)
+	require.NoError(t, err)
+
+	require.Len(t, settledFill, 2)
+	require.Equal(t, uint64(50000), settledFill[rfqID1])
+	require.Equal(t, uint64(777), settledFill[rfqID2])
+
+	// With no settled forwards at all, the result must be empty.
+	freshStore, _, _ := newForwardStore(t)
+	emptyFill, err := freshStore.SettledFillByRfqID(ctx)
+	require.NoError(t, err)
+	require.Empty(t, emptyFill)
+}

@@ -168,9 +168,8 @@ type SupplyAnchoringLog interface {
 // SupplySite is the supply-commit state machine's re-org watcher
 // site. Nothing is persisted or emitted before burial, so the
 // potency-tier handlers have nothing to converge. Burial performs
-// finalization — the same act the legacy machine runs in its finalize
-// state — inside the delivery transaction, from durable state alone,
-// and act-gates the remote-universe push behind the transactional
+// finalization inside the delivery transaction, from durable state
+// alone, and act-gates the remote-universe push behind the transactional
 // outbox. Abandonment compensates by returning the transition's
 // updates to the pipeline, and is surfaced loudly for the operator,
 // since it means the commitment's own inputs (prior commitment or

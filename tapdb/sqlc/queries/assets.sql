@@ -942,12 +942,96 @@ SELECT asset_id
 
 -- name: UpsertAssetProofByID :exec
 INSERT INTO asset_proofs (
-    asset_id, proof_file
+    asset_id, proof_file, provenance_indexed
 ) VALUES (
-    @asset_id, @proof_file
+    @asset_id, @proof_file, FALSE
 ) ON CONFLICT (asset_id)
     -- This is not a NOP, we always overwrite the proof with the new one.
-    DO UPDATE SET proof_file = EXCLUDED.proof_file;
+    DO UPDATE SET proof_file = EXCLUDED.proof_file,
+                  provenance_indexed = FALSE;
+
+-- name: FetchAssetProofID :one
+SELECT proof_id
+FROM asset_proofs
+WHERE asset_id = @asset_id;
+
+-- name: FetchAssetProofFileByProofID :one
+SELECT proof_file
+FROM asset_proofs
+WHERE proof_id = @proof_id;
+
+-- name: DeleteAssetProofAnchors :exec
+DELETE FROM asset_proof_anchors
+WHERE proof_id = @proof_id;
+
+-- name: InsertAssetProofAnchor :exec
+INSERT INTO asset_proof_anchors (
+    proof_id, anchor_txid
+) VALUES (
+    @proof_id, @anchor_txid
+) ON CONFLICT (proof_id, anchor_txid) DO NOTHING;
+
+-- name: MarkAssetProofProvenanceIndexed :exec
+UPDATE asset_proofs
+SET provenance_indexed = TRUE
+WHERE proof_id = @proof_id;
+
+-- name: FetchAssetProofsByAnchorTx :many
+SELECT asset_proofs.proof_id, asset_proofs.asset_id,
+       asset_proofs.proof_file, genesis_assets.asset_id AS genesis_asset_id,
+       script_keys.tweaked_script_key, managed_utxos.outpoint
+FROM asset_proof_anchors
+JOIN asset_proofs
+    ON asset_proofs.proof_id = asset_proof_anchors.proof_id
+JOIN assets
+    ON assets.asset_id = asset_proofs.asset_id
+JOIN genesis_assets
+    ON genesis_assets.gen_asset_id = assets.genesis_id
+JOIN script_keys
+    ON script_keys.script_key_id = assets.script_key_id
+JOIN managed_utxos
+    ON managed_utxos.utxo_id = assets.anchor_utxo_id
+WHERE asset_proof_anchors.anchor_txid = @anchor_txid
+  AND asset_proofs.provenance_indexed = TRUE
+ORDER BY asset_proofs.proof_id;
+
+-- name: FetchUnindexedAssetProofs :many
+SELECT proof_id, asset_id, proof_file
+FROM asset_proofs
+WHERE provenance_indexed = FALSE
+ORDER BY proof_id
+LIMIT @row_limit;
+
+-- name: ProofAnchorSiteOwnership :one
+-- Classify local subsystem state staked on one proof transition. Mint and
+-- porter rows require their own compensation. An address-event reference is
+-- independently receive-owned, including for a self-send that is also owned
+-- by the porter.
+SELECT
+    EXISTS (
+        SELECT 1
+        FROM asset_minting_batches batches
+        JOIN genesis_points points
+          ON points.genesis_id = batches.genesis_id
+        JOIN chain_txns txns
+          ON txns.txn_id = points.anchor_tx_id
+        WHERE txns.txid = @anchor_txid
+    ) AS mint_owned,
+    EXISTS (
+        SELECT 1
+        FROM asset_transfers transfers
+        JOIN chain_txns txns
+          ON txns.txn_id = transfers.anchor_txn_id
+        WHERE txns.txid = @anchor_txid
+          AND transfers.abandoned = FALSE
+    ) AS porter_owned,
+    EXISTS (
+        SELECT 1
+        FROM addr_event_proofs event_proofs
+        JOIN asset_proof_anchors anchors
+          ON anchors.proof_id = event_proofs.asset_proof_id
+        WHERE anchors.anchor_txid = @anchor_txid
+    ) AS receive_owned;
 
 -- name: FetchAssetProofs :many
 WITH asset_info AS (
@@ -960,6 +1044,20 @@ SELECT asset_info.tweaked_script_key AS script_key, asset_proofs.proof_file
 FROM asset_proofs
 JOIN asset_info
     ON asset_info.asset_id = asset_proofs.asset_id;
+
+-- name: FetchAssetProofsForAdoption :many
+SELECT asset_proofs.proof_file
+FROM asset_proofs
+JOIN assets
+    ON assets.asset_id = asset_proofs.asset_id
+LEFT JOIN managed_utxos
+    ON managed_utxos.utxo_id = assets.anchor_utxo_id
+LEFT JOIN chain_txns
+    ON chain_txns.txn_id = managed_utxos.txn_id
+WHERE chain_txns.block_height IS NULL
+   OR chain_txns.block_height = 0
+   OR chain_txns.block_height >= @min_block_height
+ORDER BY asset_proofs.proof_id;
 
 -- name: FetchAssetProofsSizes :many
 SELECT script_keys.tweaked_script_key AS script_key, 

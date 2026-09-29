@@ -40,6 +40,14 @@ var testCases = []*ccTestCase{
 		test: testCustomChannelsImmediateClose,
 	},
 	{
+		name: "force close sweep reorg",
+		test: testCustomChannelsForceCloseSweepReorg,
+	},
+	{
+		name: "funding reorg",
+		test: testCustomChannelsFundingReorg,
+	},
+	{
 		name: "group tranches force close",
 		test: testCustomChannelsGroupTranchesForceClose,
 	},

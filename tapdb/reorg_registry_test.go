@@ -81,6 +81,164 @@ func testSpec(t require.TestingT, site tapreorg.SiteID,
 	}
 }
 
+// TestRegistryBatchRegistrationAtomic verifies that every row exists before
+// the shared phase-1 write, that the write runs once, and that a phase-1 error
+// rolls the entire batch back.
+func TestRegistryBatchRegistrationAtomic(t *testing.T) {
+	t.Parallel()
+
+	store, _ := newReorgStore(t)
+	ctx := context.Background()
+
+	requests := []tapreorg.RegistrationRequest{
+		{Spec: testSpec(t, "receive", testOutPoint(1, 0))},
+		{Spec: testSpec(t, "receive", testOutPoint(2, 0))},
+	}
+	requests[0].Spec.MatchKey = []byte{1}
+	requests[1].Spec.MatchKey = []byte{2}
+
+	phase1Calls := 0
+	phase1 := func(ctx context.Context, tx tapreorg.RegistryTx,
+		ids []tapreorg.AnchoringID) error {
+
+		phase1Calls++
+		require.Len(t, ids, len(requests))
+		for _, id := range ids {
+			_, err := tx.Queries().FetchReorgAnchoring(
+				ctx, int64(id),
+			)
+			require.NoError(t, err)
+		}
+
+		return nil
+	}
+
+	ids, err := store.RegisterBatch(ctx, requests, 500, phase1)
+	require.NoError(t, err)
+	require.Len(t, ids, len(requests))
+	require.NotEqual(t, ids[0], ids[1])
+	require.Equal(t, 1, phase1Calls)
+
+	before, err := store.AllAnchorings(ctx)
+	require.NoError(t, err)
+	require.Len(t, before, len(requests))
+
+	rollbackRequests := []tapreorg.RegistrationRequest{
+		{Spec: testSpec(t, "receive", testOutPoint(3, 0))},
+		{Spec: testSpec(t, "receive", testOutPoint(4, 0))},
+	}
+	rollbackRequests[0].Spec.MatchKey = []byte{3}
+	rollbackRequests[1].Spec.MatchKey = []byte{4}
+	expectedErr := errors.New("phase one failed")
+	_, err = store.RegisterBatch(
+		ctx, rollbackRequests, 500,
+		func(context.Context, tapreorg.RegistryTx,
+			[]tapreorg.AnchoringID) error {
+
+			return expectedErr
+		},
+	)
+	require.ErrorIs(t, err, expectedErr)
+
+	after, err := store.AllAnchorings(ctx)
+	require.NoError(t, err)
+	require.Len(t, after, len(before))
+
+	// Pure idempotent attaches have no new speculative state, so phase one
+	// is skipped. Marking either attach as its own stake runs it once.
+	phase1Calls = 0
+	_, err = store.RegisterBatch(ctx, requests, 500, phase1)
+	require.NoError(t, err)
+	require.Zero(t, phase1Calls)
+
+	requests[0].Spec.Phase1OnAttach = true
+	_, err = store.RegisterBatch(ctx, requests, 500, phase1)
+	require.NoError(t, err)
+	require.Equal(t, 1, phase1Calls)
+
+	_, err = store.RegisterBatch(ctx, nil, 500, nil)
+	require.ErrorIs(t, err, tapreorg.ErrEmptyRegistrationBatch)
+}
+
+// TestRegistryBatchPreparesInIdentityOrder pins the batch's lock order:
+// rows are inserted in (site, match key) order whatever the request order,
+// so overlapping batches cannot deadlock on the identity index, while the
+// returned identifiers follow the requests. Request order carries no
+// dependency: a parent that sorts after its child still gets its edge,
+// derived when its seed is recorded.
+func TestRegistryBatchPreparesInIdentityOrder(t *testing.T) {
+	t.Parallel()
+
+	store, _ := newReorgStore(t)
+	ctx := context.Background()
+
+	parentWitness := testWitness(t, 7, 600, testOutPoint(7, 0))
+	parentOut := wire.OutPoint{Hash: parentWitness.TxHash(), Index: 0}
+	parent := testSpec(t, "receive", testOutPoint(7, 0))
+	parent.MatchKey = []byte{9}
+	parent.SeedCandidate = &tapreorg.CandidateSpend{
+		W:           parentWitness,
+		Verdict:     tapreorg.VerdictSatisfies,
+		OnChain:     true,
+		BlockHeader: &wire.BlockHeader{Nonce: 7},
+		MerkleProof: &proof.TxMerkleProof{},
+	}
+	child := testSpec(t, "receive", parentOut)
+	child.MatchKey = []byte{1}
+	other := testSpec(t, "receive", testOutPoint(3, 0))
+	other.MatchKey = []byte{3}
+
+	// Request order: parent, child, other. Identity order: child (1),
+	// other (3), parent (9).
+	requests := []tapreorg.RegistrationRequest{
+		{Spec: parent}, {Spec: child}, {Spec: other},
+	}
+	ids, err := store.RegisterBatch(ctx, requests, 700, nil)
+	require.NoError(t, err)
+	require.Len(t, ids, 3)
+
+	for idx, request := range requests {
+		anchoring, err := store.LookupByMatchKey(
+			ctx, request.Spec.Site, request.Spec.MatchKey,
+		)
+		require.NoError(t, err)
+		require.NotNil(t, anchoring)
+		require.Equal(t, ids[idx], anchoring.ID,
+			"identifier %d does not follow request order", idx)
+	}
+
+	// Row identifiers follow insertion, which follows identity order.
+	require.Less(t, ids[1], ids[2])
+	require.Less(t, ids[2], ids[0])
+
+	edges, err := store.DependencyEdges(ctx, ids[0])
+	require.NoError(t, err)
+	require.Len(t, edges, 1)
+	require.Equal(t, ids[1], edges[0].Child)
+
+	// A second batch attaches to all three, again in request order;
+	// its reconcile writes run in identity order too.
+	var reconciled [][]byte
+	record := func(key []byte) tapreorg.ReconcileFunc {
+		return func(context.Context, tapreorg.RegistryTx,
+			*tapreorg.Anchoring, []tapreorg.TriggerOutPoint) error {
+
+			reconciled = append(reconciled, key)
+
+			return nil
+		}
+	}
+	parentAgain := parent
+	parentAgain.SeedCandidate = nil
+	_, err = store.RegisterBatch(ctx, []tapreorg.RegistrationRequest{
+		{Spec: parentAgain, Reconcile: record(parent.MatchKey)},
+		{Spec: child, Reconcile: record(child.MatchKey)},
+		{Spec: other, Reconcile: record(other.MatchKey)},
+	}, 700, nil)
+	require.NoError(t, err)
+	require.Equal(t, [][]byte{{1}, {3}, {9}}, reconciled)
+}
+
 // testWitness returns a witness whose transaction spends the given
 // outpoints, located at the given height. The seed varies the
 // transaction (and therefore its txid).
@@ -341,8 +499,8 @@ func TestReorgRegistryHandlerAtomicity(t *testing.T) {
 }
 
 // TestReorgRegistryDependencies exercises automatic edge derivation,
-// the withdrawal guard, cascade foreclosure on abandonment, and the
-// child's resulting derivation.
+// cascade foreclosure on abandonment, and the child's resulting
+// derivation.
 func TestReorgRegistryDependencies(t *testing.T) {
 	t.Parallel()
 
@@ -383,10 +541,6 @@ func TestReorgRegistryDependencies(t *testing.T) {
 	require.Equal(t, childID, edges[0].Child)
 	require.Equal(t, wP.TxHash(), edges[0].ParentWitnessTxHash)
 	require.True(t, edges[0].Foreclosure.IsNone())
-
-	// A parent with live dependents cannot be withdrawn.
-	err = store.Withdraw(ctx, parentID, nil)
-	require.ErrorIs(t, err, tapreorg.ErrLiveDependents)
 
 	// A foreign spend of the parent's trigger buries; the parent
 	// abandons, and its delivery forecloses the child's edge in
@@ -437,37 +591,6 @@ func TestReorgRegistryDependencies(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, parentID, cause.Parent)
 	require.Equal(t, wF.TxHash(), cause.W.TxHash())
-
-	// Terminal anchorings cannot be withdrawn.
-	require.NoError(t, store.SetPhase(ctx, childID, childPhase))
-	err = store.Withdraw(ctx, childID, nil)
-	require.ErrorIs(t, err, tapreorg.ErrTerminalPhase)
-	err = store.Withdraw(ctx, parentID, nil)
-	require.ErrorIs(t, err, tapreorg.ErrTerminalPhase)
-
-	// A live, dependent-free anchoring withdraws cleanly, sensed
-	// and delivered advancing together.
-	loneID, err := store.Register(
-		ctx, testSpec(t, "porter", testOutPoint(9, 1)), 700, nil, nil,
-	)
-	require.NoError(t, err)
-	require.NoError(t, store.Withdraw(
-		ctx, loneID,
-		func(ctx context.Context,
-			tx tapreorg.RegistryTx) error {
-
-			return tx.EnqueueEffect(
-				ctx, testEffect(loneID, "undo"),
-			)
-		},
-	))
-
-	lone, err := store.GetAnchoring(ctx, loneID)
-	require.NoError(t, err)
-	require.True(t, tapreorg.PhaseEqual(tapreorg.Withdrawn{}, lone.Phase))
-	require.True(t, tapreorg.PhaseEqual(
-		tapreorg.Withdrawn{}, lone.DeliveredPhase,
-	))
 }
 
 // TestReorgRegistryEdgesBeforeParentObserved pins the ordinary
@@ -502,8 +625,7 @@ func TestReorgRegistryEdgesBeforeParentObserved(t *testing.T) {
 	require.Empty(t, edges)
 
 	// The parent's satisfying candidate wP is recorded (its first
-	// confirmation): the child's edge derives now, pinned to wP,
-	// and the live-dependent withdrawal guard holds from here on.
+	// confirmation): the child's edge derives now, pinned to wP.
 	satisfying := tapreorg.CandidateSpend{
 		Verdict:        tapreorg.VerdictSatisfies,
 		W:              wP,
@@ -517,9 +639,6 @@ func TestReorgRegistryEdgesBeforeParentObserved(t *testing.T) {
 	require.Len(t, edges, 1)
 	require.Equal(t, childID, edges[0].Child)
 	require.Equal(t, wP.TxHash(), edges[0].ParentWitnessTxHash)
-
-	err = store.Withdraw(ctx, parentID, nil)
-	require.ErrorIs(t, err, tapreorg.ErrLiveDependents)
 
 	// Re-recording the candidate (a re-confirmation) leaves the
 	// single edge untouched.
@@ -714,7 +833,8 @@ func TestReorgRegistryBurialSettlesEdges(t *testing.T) {
 // invariant: once an anchoring's sensed phase is terminal, SetPhase
 // refuses to move it, whatever the caller derived. The sensing loop's
 // terminal check reads in a different transaction than its write, so
-// the row itself must hold the line against a concurrent Withdraw.
+// the row itself must hold the line against a concurrent terminal
+// write.
 func TestReorgRegistryTerminalAbsorbing(t *testing.T) {
 	t.Parallel()
 
@@ -737,26 +857,6 @@ func TestReorgRegistryTerminalAbsorbing(t *testing.T) {
 	a, err := store.GetAnchoring(ctx, id)
 	require.NoError(t, err)
 	require.True(t, tapreorg.PhaseEqual(buried, a.Phase))
-
-	// The Withdraw shape of the same race: a withdrawal commits
-	// between the sensing loop's terminal check and its write. The
-	// straggling write must lose, and the withdrawal outcome must
-	// survive intact, sensed and delivered alike.
-	id2, err := store.Register(
-		ctx, testSpec(t, "porter", testOutPoint(32, 0)), 500, nil, nil,
-	)
-	require.NoError(t, err)
-	require.NoError(t, store.Withdraw(ctx, id2, nil))
-
-	err = store.SetPhase(ctx, id2, tapreorg.Witnessed{W: w})
-	require.ErrorIs(t, err, tapreorg.ErrTerminalPhase)
-
-	a2, err := store.GetAnchoring(ctx, id2)
-	require.NoError(t, err)
-	require.True(t, tapreorg.PhaseEqual(tapreorg.Withdrawn{}, a2.Phase))
-	require.True(t, tapreorg.PhaseEqual(
-		tapreorg.Withdrawn{}, a2.DeliveredPhase,
-	))
 }
 
 // TestReorgRegistryCertifiedForeclosureFrozen pins the edge-level
@@ -1853,6 +1953,83 @@ func TestReorgRegistryRegisterRace(t *testing.T) {
 	all, err := store.AllAnchorings(ctx)
 	require.NoError(t, err)
 	require.Len(t, all, 1)
+}
+
+// TestReorgRegistryAttachRefusesAbandoned pins the registry's guard
+// against staking onto an abandoned anchoring: an attach whose phase-1
+// write is its own is refused inside the transaction, with the write
+// never run, while a plain attach still resolves to the identity and an
+// own-stake attach onto a buried anchoring runs as usual.
+func TestReorgRegistryAttachRefusesAbandoned(t *testing.T) {
+	t.Parallel()
+
+	store, testClock := newReorgStore(t)
+	ctx := context.Background()
+
+	op := testOutPoint(0x62, 0)
+	spec := testSpec(t, "receiver", op)
+	spec.MatchKey = []byte("abandoned-stake")
+
+	var runs int
+	stake := func(ctx context.Context, tx tapreorg.RegistryTx,
+		id tapreorg.AnchoringID) error {
+
+		runs++
+
+		return tx.EnqueueEffect(
+			ctx, testEffect(id, fmt.Sprintf("stake-%d", runs)),
+		)
+	}
+
+	id, err := store.Register(ctx, spec, 500, stake, nil)
+	require.NoError(t, err)
+	require.Equal(t, 1, runs)
+
+	// A foreign spend of the trigger buries and the anchoring is
+	// abandoned and delivered as such.
+	wF := testWitness(t, 7, 610, op)
+	abandoned := tapreorg.Abandoned{Cause: tapreorg.ForeignBurial{
+		Spend: tapreorg.ForeignSpend{SpentOutPoint: op, W: wF},
+	}}
+	require.NoError(t, store.SetPhase(ctx, id, abandoned))
+	require.NoError(t, store.Deliver(ctx, id, abandoned, nil))
+
+	// An own-stake attach is refused before its phase-1 write runs.
+	spec.Phase1OnAttach = true
+	_, err = store.Register(ctx, spec, 500, stake, nil)
+	require.ErrorIs(t, err, tapreorg.ErrAnchoringAbandoned)
+	require.Equal(t, 1, runs)
+
+	pending, err := store.PendingEffects(ctx, testClock.Now(), 10)
+	require.NoError(t, err)
+	require.Len(t, pending, 1)
+
+	// A plain attach still resolves to the identity: the original
+	// stake stands and the site converges on the delivered phase.
+	spec.Phase1OnAttach = false
+	again, err := store.Register(ctx, spec, 500, stake, nil)
+	require.NoError(t, err)
+	require.Equal(t, id, again)
+	require.Equal(t, 1, runs)
+
+	// Burial is terminal too, but a stake onto a buried anchoring
+	// lands on state the chain has settled for, so it runs.
+	buriedOp := testOutPoint(0x63, 0)
+	buriedSpec := testSpec(t, "receiver", buriedOp)
+	buriedSpec.MatchKey = []byte("buried-stake")
+	buriedID, err := store.Register(ctx, buriedSpec, 500, stake, nil)
+	require.NoError(t, err)
+	require.Equal(t, 2, runs)
+
+	buried := tapreorg.Buried{W: testWitness(t, 8, 620, buriedOp)}
+	require.NoError(t, store.SetPhase(ctx, buriedID, buried))
+	require.NoError(t, store.Deliver(ctx, buriedID, buried, nil))
+
+	buriedSpec.Phase1OnAttach = true
+	again, err = store.Register(ctx, buriedSpec, 500, stake, nil)
+	require.NoError(t, err)
+	require.Equal(t, buriedID, again)
+	require.Equal(t, 3, runs)
 }
 
 // TestReorgRegistryPhase1OnAttach pins the phase-1 write's attach

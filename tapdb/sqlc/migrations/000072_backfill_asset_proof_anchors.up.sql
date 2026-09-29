@@ -1,0 +1,2 @@
+-- The associated programmatic migration traverses each legacy proof DAG and
+-- populates the reverse provenance index introduced by migration 71.

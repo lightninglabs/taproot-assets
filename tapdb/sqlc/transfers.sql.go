@@ -702,6 +702,17 @@ WHERE
     AND (transfers.label = $4 OR
             $4 IS NULL)
 
+    -- Optionally restrict to transfers confirmed at or above a block
+    -- height, so startup adoption reads only transfers that may still
+    -- be young rather than hydrating every transfer ever made.
+    AND (
+        (
+            txns.block_height >= $5
+            AND txns.block_height > 0
+        )
+        OR $5 IS NULL
+    )
+
     -- Optionally filter on outputs with a specific script key.
     AND (
       EXISTS (
@@ -709,9 +720,9 @@ WHERE
         FROM asset_transfer_outputs outputs
         JOIN script_keys sk ON outputs.script_key = sk.script_key_id
         WHERE outputs.transfer_id = transfers.id
-          AND sk.tweaked_script_key = $5
+          AND sk.tweaked_script_key = $6
       )
-      OR $5 IS NULL
+      OR $6 IS NULL
     )
 ORDER BY transfer_time_unix
 `
@@ -721,6 +732,7 @@ type QueryAssetTransfersParams struct {
 	PendingTransfersOnly interface{}
 	StartTime            sql.NullTime
 	FilterLabel          sql.NullString
+	MinBlockHeight       sql.NullInt32
 	FilterScriptKey      []byte
 }
 
@@ -740,6 +752,7 @@ func (q *Queries) QueryAssetTransfers(ctx context.Context, arg QueryAssetTransfe
 		arg.PendingTransfersOnly,
 		arg.StartTime,
 		arg.FilterLabel,
+		arg.MinBlockHeight,
 		arg.FilterScriptKey,
 	)
 	if err != nil {

@@ -307,13 +307,10 @@ func genContractWorld(rt *rapid.T, t *testing.T, f *contractFixture,
 		file, err := proof.NewFile(proof.V0, *tipProof)
 		require.NoError(t, err)
 
-		var fileBuf bytes.Buffer
-		require.NoError(t, file.Encode(&fileBuf))
-		require.NoError(t, f.db.UpsertAssetProofByID(
-			ctx, ProofUpdateByID{
-				AssetID:   dbID,
-				ProofFile: fileBuf.Bytes(),
-			},
+		indexedProof, err := NewIndexedProofFileFromFile(file)
+		require.NoError(t, err)
+		require.NoError(t, StoreIndexedAssetProof(
+			ctx, f.db, dbID, indexedProof,
 		))
 
 		var suffixBuf bytes.Buffer

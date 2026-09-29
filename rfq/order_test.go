@@ -2,6 +2,7 @@ package rfq
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"sync"
 	"sync/atomic"
@@ -517,4 +518,111 @@ func TestGenerateInterceptorResponseOverflow(t *testing.T) {
 			require.NotZero(t, resp.IncomingAmount)
 		})
 	}
+}
+
+// mockForwardStore is a minimal ForwardStore implementation that only serves
+// settled fill lookups.
+type mockForwardStore struct {
+	settledFill map[rfqmsg.ID]uint64
+	err         error
+}
+
+func (m *mockForwardStore) UpsertForward(context.Context, ForwardInput) error {
+	return nil
+}
+
+func (m *mockForwardStore) PendingForwards(
+	context.Context) ([]ForwardInput, error) {
+
+	return nil, nil
+}
+
+func (m *mockForwardStore) QueryForwardsWithCount(context.Context,
+	QueryForwardsParams) ([]ForwardingEvent, int64, error) {
+
+	return nil, 0, nil
+}
+
+func (m *mockForwardStore) SettledFillByRfqID(
+	context.Context) (map[rfqmsg.ID]uint64, error) {
+
+	return m.settledFill, m.err
+}
+
+// TestRestoreSettledFill tests that restoreSettledFill applies the persisted
+// settled fill to restored policies, so that settled quote capacity stays
+// consumed across a restart.
+func TestRestoreSettledFill(t *testing.T) {
+	t.Parallel()
+
+	// Rate of 100 asset units per BTC, so 1 unit = 1e9 msat. The quote cap
+	// is 100 units, hence the policy max is 1e11 msat.
+	const unitMsat = lnwire.MilliSatoshi(1_000_000_000)
+
+	spec := asset.NewSpecifierFromId(asset.ID{0x01})
+	peer := route.Vertex{0x0A}
+	rate := rfqmsg.NewAssetRate(
+		rfqmath.NewBigIntFixedPoint(100, 0),
+		time.Now().Add(time.Hour),
+	)
+
+	buyReq := &rfqmsg.BuyRequest{
+		Peer:           peer,
+		AssetSpecifier: spec,
+		AssetMaxAmt:    100,
+	}
+	accept := rfqmsg.BuyAccept{
+		Peer:      peer,
+		Request:   *buyReq,
+		AssetRate: rate,
+	}
+
+	policy := NewAssetSalePolicy(accept, false, nil)
+
+	// 80 units (8e10 msat) settled before the restart.
+	settledFill := map[rfqmsg.ID]uint64{
+		policy.RfqID(): uint64(80 * unitMsat),
+		// An entry for an unknown RFQ ID must be ignored.
+		{0xFF}: uint64(50 * unitMsat),
+	}
+
+	handler, err := NewOrderHandler(OrderHandlerCfg{
+		ForwardStore: &mockForwardStore{settledFill: settledFill},
+	})
+	require.NoError(t, err)
+
+	handler.policies.Store(policy.AcceptedQuoteId.Scid(), policy)
+
+	ctx := context.Background()
+	require.NoError(t, handler.restoreSettledFill(ctx))
+
+	scid := lnwire.NewShortChanIDFromInt(
+		uint64(policy.AcceptedQuoteId.Scid()),
+	)
+
+	// A new 80-unit HTLC must be rejected: only 20 units of lifetime
+	// capacity remain.
+	require.Error(t, policy.CheckHtlcCompliance(
+		ctx, capTestHtlc(scid, 1, 80), nil,
+	))
+
+	// A 20-unit HTLC must still be accepted.
+	require.NoError(t, policy.CheckHtlcCompliance(
+		ctx, capTestHtlc(scid, 2, 20), nil,
+	))
+
+	// An error from the forward store must be propagated.
+	handler, err = NewOrderHandler(OrderHandlerCfg{
+		ForwardStore: &mockForwardStore{err: fmt.Errorf("db error")},
+	})
+	require.NoError(t, err)
+	require.ErrorContains(
+		t, handler.restoreSettledFill(ctx), "db error",
+	)
+
+	// A nil forward store (forwarding event logging disabled) must be a
+	// no-op.
+	handler, err = NewOrderHandler(OrderHandlerCfg{})
+	require.NoError(t, err)
+	require.NoError(t, handler.restoreSettledFill(ctx))
 }

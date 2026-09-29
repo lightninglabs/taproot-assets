@@ -28,9 +28,10 @@ Its primary purpose is to:
     blockchain. This transaction spends the previous commitment output (if one
     exists) and any relevant pre-commitment outputs (from minting transactions).
 
-5.  **Finalize State:** Wait for the commitment transaction to confirm on-chain
-    and then finalize the state update, making the new commitment the canonical
-    one for the asset.
+5.  **Finalize State:** Stake the commitment transaction on the re-org
+    watcher, which finalizes the state update once the transaction is
+    buried past the safe depth, making the new commitment the canonical one
+    for the asset.
 
 This ensures that there is a publicly verifiable, tamper-proof record reflecting
 the known supply changes for an asset within the Universe.
@@ -46,8 +47,8 @@ cycle for a *specific asset specifier*. It manages:
     *   Derive keys for commitment outputs.
     *   Fund the commitment transaction.
     *   Sign the commitment transaction.
-*   Interacting with the `ChainBridge` to broadcast the transaction and monitor
-    for confirmation.
+*   Interacting with the `ChainBridge` to broadcast the transaction, and with
+    the re-org watcher to stake it until it is buried.
 
 *   Persisting its state and pending updates via the `StateMachineStore` to
     ensure resilience across restarts.
@@ -73,9 +74,12 @@ transition or stored as "dangling updates" to be bound to the next transition.
 When the state machine has pending updates and receives a `CommitTickEvent`, it
 triggers the commitment process, moving through states for tree creation
 (`CommitTreeCreateState`), transaction creation (`CommitTxCreateState`), signing
-(`CommitTxSignState`), broadcasting (`CommitBroadcastState`), and finally
-finalization (`CommitFinalizeState`) upon confirmation, before returning to the
-`DefaultState`.
+(`CommitTxSignState`) and broadcasting (`CommitBroadcastState`), where it rests.
+Finalization is not a state of the machine: the re-org watcher applies the
+pending transition to the durable supply trees in its own delivery transaction
+once the commitment transaction is buried, then nudges the machine, which
+re-derives its position from the durable record on the next `CommitTickEvent`
+and returns to the `DefaultState` or starts the next cycle.
 
 ### States and Transitions
 
@@ -93,17 +97,17 @@ stateDiagram-v2
         CommitTreeCreateState --> CommitTxCreateState: CreateTreeEvent
         CommitTxCreateState --> CommitTxSignState: CreateTxEvent
         CommitTxSignState --> CommitBroadcastState: SignTxEvent
-        CommitBroadcastState --> CommitFinalizeState: ConfEvent
     }
     
-    CommitFinalizeState --> DefaultState: FinalizeEvent<br/>(no dangling updates)
-    CommitFinalizeState --> CommitTreeCreateState: FinalizeEvent<br/>(has dangling updates)
+    CommitBroadcastState --> DefaultState: CommitTickEvent<br/>(watcher finalized, no dangling updates)
+    CommitBroadcastState --> UpdatesPendingState: CommitTickEvent<br/>(watcher finalized or abandoned, updates bound)
 
     %% Self-transitions
     DefaultState --> DefaultState: CommitTickEvent
     UpdatesPendingState --> UpdatesPendingState: SupplyUpdateEvent
     CommitTreeCreateState --> CommitTreeCreateState: CommitTickEvent
     CommitBroadcastState --> CommitBroadcastState: BroadcastEvent
+    CommitBroadcastState --> CommitBroadcastState: CommitTickEvent<br/>(not yet buried)
 ```
 
 **Key State Transitions:**
@@ -117,10 +121,17 @@ stateDiagram-v2
    - `UpdatesPendingState` + CommitTickEvent → `CommitTreeCreateState`
    - Internal events drive the cycle through creation, signing, and broadcasting
 
-3. **Critical Optimization:**
-   - `CommitFinalizeState` checks for dangling updates:
-     - If none → `DefaultState` (idle)
-     - If present → `CommitTreeCreateState` (immediate new cycle)
+3. **Finalization by the Watcher:**
+   - The re-org watcher finalizes the transition at burial, in its own
+     delivery transaction, and binds any dangling updates to a fresh
+     transition in the durable record.
+   - `CommitBroadcastState` + CommitTickEvent re-derives the machine's
+     position from that record:
+     - Not yet finalized → self (keep resting)
+     - Finalized, no dangling updates → `DefaultState` (idle)
+     - Updates bound → `UpdatesPendingState`, re-ticked (immediate new cycle)
+   - An abandoned commitment is compensated the same way: its updates return
+     to the pipeline and the machine is nudged into the next cycle.
 
 This design ensures no supply updates are lost and allows continuous processing without returning to idle states when updates accumulate during commitment processing.
 
@@ -148,14 +159,13 @@ This design ensures no supply updates are lost and allows continuous processing 
     as dangling updates.
 
 *   **CommitBroadcastState:** Triggered by `SignTxEvent`. Broadcasts the signed
-    transaction and registers for its confirmation. Waits for the `ConfEvent`.
-    Supply updates received during this state are stored as dangling updates.
-
-*   **CommitFinalizeState:** Triggered by `ConfEvent`. The commitment
-    transaction is confirmed. Finalizes the state transition by updating the
-    canonical supply trees and commitment details in persistent storage.
-    Transitions back to `DefaultState`. Supply updates received during this state
-    are stored as dangling updates.
+    transaction and stakes it on the re-org watcher, then rests. The watcher
+    finalizes the transition in its delivery transaction once the transaction
+    is buried, updating the canonical supply trees and commitment details in
+    persistent storage and enqueueing the push to remote universes; if the
+    transaction is abandoned, it compensates instead. A `CommitTickEvent`
+    re-derives the machine's position from the durable record. Supply updates
+    received during this state are stored as dangling updates.
 
 ### Dangling Updates
 

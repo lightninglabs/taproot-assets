@@ -19,6 +19,17 @@ import (
 // per-anchoring reads. Implemented by *Watcher; subsystem tests use
 // MockRegistrar.
 type Registrar interface {
+	// BestHeight returns the latest chain height observed by the watcher.
+	// A zero before startup is conservative for callers deciding whether a
+	// confirmed anchor still needs protection.
+	BestHeight() uint32
+
+	// RegisterBatch stakes anchorings with one shared phase-1 write.
+	// The registry rows and speculative state commit or roll back together.
+	// Returned identifiers preserve specification order.
+	RegisterBatch(ctx context.Context, specs []RegistrationSpec,
+		phase1 BatchPhase1Func) ([]AnchoringID, error)
+
 	// Register stakes a new anchoring, running the optional phase-1
 	// write in the registration transaction. Registration is
 	// idempotent per (site, match key): a registration that finds
@@ -29,7 +40,11 @@ type Registrar interface {
 	// are unioned in,
 	// and the delivered phase is re-delivered to the site in the
 	// same transaction, so the caller's freshly materialized state
-	// lands on what earlier stakes already reflect.
+	// lands on what earlier stakes already reflect. An attach whose
+	// phase-1 write is its own is refused with ErrAnchoringAbandoned
+	// when the anchoring is abandoned, inside the transaction, so
+	// an abandonment that lands after the caller's own checks
+	// cannot commit a stake that is compensated in the same breath.
 	Register(ctx context.Context, spec RegistrationSpec,
 		phase1 func(context.Context, RegistryTx,
 			AnchoringID) error) (AnchoringID, error)
@@ -73,9 +88,35 @@ var _ Registrar = (*Watcher)(nil)
 type MockRegistrar struct {
 	mu         sync.Mutex
 	nextID     AnchoringID
+	bestHeight uint32
 	failNext   error
 	anchorings map[AnchoringID]*Anchoring
 	phase1Tx   RegistryTx
+
+	// pauseEntered is closed once the next registration has been
+	// stored and before Register returns. pauseRelease is closed by
+	// the test to let that registration return. Both are nil unless
+	// a test armed PauseNextRegister. The gap is the synchronization
+	// point between "anchoring is visible" and "the caller continues
+	// into publish".
+	pauseEntered chan struct{}
+	pauseRelease chan struct{}
+}
+
+// BestHeight returns the mock's chain height.
+func (m *MockRegistrar) BestHeight() uint32 {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.bestHeight
+}
+
+// SetBestHeight sets the chain height exposed to subsystem tests.
+func (m *MockRegistrar) SetBestHeight(height uint32) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.bestHeight = height
 }
 
 // MockRegistryTx is a RegistryTx for phase-1 writes against fake
@@ -113,69 +154,176 @@ func (m *MockRegistrar) Register(ctx context.Context, spec RegistrationSpec,
 	phase1 func(context.Context, RegistryTx,
 		AnchoringID) error) (AnchoringID, error) {
 
+	batchPhase1 := func(ctx context.Context, tx RegistryTx,
+		ids []AnchoringID) error {
+
+		if phase1 == nil {
+			return nil
+		}
+
+		return phase1(ctx, tx, ids[0])
+	}
+	ids, err := m.RegisterBatch(
+		ctx, []RegistrationSpec{spec}, batchPhase1,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return ids[0], nil
+}
+
+// RegisterBatch records all registrations and runs the phase-1 write once.
+func (m *MockRegistrar) RegisterBatch(ctx context.Context,
+	specs []RegistrationSpec,
+	phase1 BatchPhase1Func) ([]AnchoringID, error) {
+
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	ids, entered, release, err := m.registerBatchLocked(
+		ctx, specs, phase1,
+	)
+	m.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+
+	// Wait without the lock so a test can observe the stored
+	// anchoring and inject a failure before the caller publishes.
+	if release != nil {
+		close(entered)
+		select {
+		case <-release:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+
+	return ids, nil
+}
+
+// registerBatchLocked is RegisterBatch while m.mu is held. On success
+// it may return the pause channels the caller must wait on after
+// releasing the lock.
+func (m *MockRegistrar) registerBatchLocked(ctx context.Context,
+	specs []RegistrationSpec, phase1 BatchPhase1Func) ([]AnchoringID,
+	chan struct{}, chan struct{}, error) {
+
+	if len(specs) == 0 {
+		return nil, nil, nil, ErrEmptyRegistrationBatch
+	}
 
 	if m.failNext != nil {
 		err := m.failNext
 		m.failNext = nil
 
-		return 0, err
+		return nil, nil, nil, err
 	}
 
-	runPhase1 := func(id AnchoringID) error {
-		if phase1 == nil || m.phase1Tx == nil {
-			return nil
-		}
-
-		return phase1(ctx, m.phase1Tx, id)
+	working := make(map[AnchoringID]*Anchoring, len(m.anchorings))
+	for id, anchoring := range m.anchorings {
+		working[id] = snapshot(anchoring)
 	}
+	nextID := m.nextID
+	ids := make([]AnchoringID, 0, len(specs))
+	needsPhase1 := false
 
-	// Mirror the production registrar's identity idempotency: a
-	// match-key collision returns the existing anchoring rather
-	// than registering a second one, running the phase-1 write only
-	// when the spec marks the stake as this registration's own.
-	if len(spec.MatchKey) > 0 {
-		for _, existing := range m.anchorings {
-			if existing.Site == spec.Site &&
-				bytes.Equal(existing.MatchKey, spec.MatchKey) {
-
-				if spec.Phase1OnAttach {
-					err := runPhase1(existing.ID)
-					if err != nil {
-						return 0, err
-					}
+	for _, spec := range specs {
+		var existing *Anchoring
+		if len(spec.MatchKey) > 0 {
+			for _, candidate := range working {
+				sameKey := bytes.Equal(
+					candidate.MatchKey, spec.MatchKey,
+				)
+				if candidate.Site == spec.Site && sameKey {
+					existing = candidate
+					break
 				}
-
-				return existing.ID, nil
 			}
 		}
+
+		if existing != nil {
+			if spec.Phase1OnAttach && anchoringAbandoned(existing) {
+				return nil, nil, nil, fmt.Errorf(
+					"anchoring %d: %w", existing.ID,
+					ErrAnchoringAbandoned)
+			}
+
+			ids = append(ids, existing.ID)
+			needsPhase1 = needsPhase1 || spec.Phase1OnAttach
+			continue
+		}
+
+		nextID++
+		id := nextID
+		anchoring := &Anchoring{
+			ID:             id,
+			Site:           spec.Site,
+			Triggers:       spec.Triggers,
+			MatchData:      spec.MatchData,
+			Payload:        spec.Payload,
+			MatchKey:       append([]byte(nil), spec.MatchKey...),
+			Threshold:      spec.Threshold,
+			Phase:          Unwitnessed{},
+			DeliveredPhase: Unwitnessed{},
+		}
+		if spec.SeedCandidate != nil {
+			anchoring.Spends = []CandidateSpend{*spec.SeedCandidate}
+			anchoring.Phase = Witnessed{W: spec.SeedCandidate.W}
+			anchoring.DeliveredPhase = Witnessed{
+				W: spec.SeedCandidate.W,
+			}
+		}
+		working[id] = anchoring
+		ids = append(ids, id)
+		needsPhase1 = true
 	}
 
-	m.nextID++
-	id := m.nextID
-	anchoring := &Anchoring{
-		ID:             id,
-		Site:           spec.Site,
-		Triggers:       spec.Triggers,
-		MatchData:      spec.MatchData,
-		Payload:        spec.Payload,
-		MatchKey:       append([]byte(nil), spec.MatchKey...),
-		Threshold:      spec.Threshold,
-		Phase:          Unwitnessed{},
-		DeliveredPhase: Unwitnessed{},
+	if needsPhase1 && phase1 != nil && m.phase1Tx != nil {
+		if err := phase1(ctx, m.phase1Tx, ids); err != nil {
+			return nil, nil, nil, err
+		}
 	}
-	if spec.SeedCandidate != nil {
-		anchoring.Spends = []CandidateSpend{*spec.SeedCandidate}
-		anchoring.Phase = Witnessed{W: spec.SeedCandidate.W}
-		anchoring.DeliveredPhase = Witnessed{W: spec.SeedCandidate.W}
-	}
-	if err := runPhase1(id); err != nil {
-		return 0, err
-	}
-	m.anchorings[id] = anchoring
 
-	return id, nil
+	m.anchorings = working
+	m.nextID = nextID
+
+	entered := m.pauseEntered
+	release := m.pauseRelease
+	m.pauseEntered = nil
+	m.pauseRelease = nil
+
+	return ids, entered, release, nil
+}
+
+// PauseNextRegister makes the next successful registration block after
+// the anchoring is stored and before Register returns. The entered
+// channel is closed at that point. Calling release lets Register
+// return. release is idempotent.
+func (m *MockRegistrar) PauseNextRegister() (<-chan struct{}, func()) {
+	entered := make(chan struct{})
+	releaseCh := make(chan struct{})
+	var once sync.Once
+
+	m.mu.Lock()
+	m.pauseEntered = entered
+	m.pauseRelease = releaseCh
+	m.mu.Unlock()
+
+	return entered, func() {
+		once.Do(func() {
+			close(releaseCh)
+		})
+	}
+}
+
+// anchoringAbandoned reports whether an anchoring is abandoned in its
+// sensed or delivered phase. Abandonment is absorbing, so a sensed
+// abandonment is as decisive as a delivered one.
+func anchoringAbandoned(anchoring *Anchoring) bool {
+	_, sensed := anchoring.Phase.(Abandoned)
+	_, delivered := anchoring.DeliveredPhase.(Abandoned)
+
+	return sensed || delivered
 }
 
 // RunPhase1 makes the mock run registrations' phase-1 writes against
@@ -198,6 +346,16 @@ func (m *MockRegistrar) FailNextRegister(err error) {
 	defer m.mu.Unlock()
 
 	m.failNext = err
+}
+
+// DropAnchorings forgets every recorded anchoring. Tests use it to
+// simulate a restart on which the batch is already Broadcast but its
+// anchoring was never persisted.
+func (m *MockRegistrar) DropAnchorings() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.anchorings = make(map[AnchoringID]*Anchoring)
 }
 
 // snapshot copies an anchoring deeply enough that a caller holding the

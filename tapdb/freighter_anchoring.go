@@ -45,7 +45,9 @@ func (a *AssetStore) ApplyPendingParcel(ctx context.Context,
 	)
 }
 
-// applyPendingParcel is the extracted body of LogPendingParcel.
+// applyPendingParcel stakes an outbound parcel within the caller's
+// transaction: the transfer row, its inputs and outputs, and the
+// input leases.
 func (a *AssetStore) applyPendingParcel(ctx context.Context,
 	q ActiveAssetsStore, spend *tapfreighter.OutboundParcel,
 	finalLeaseOwner [32]byte, finalLeaseExpiry time.Time) error {
@@ -161,8 +163,9 @@ func (a *AssetStore) ApplyAnchorTxConfirm(ctx context.Context,
 	return a.applyAnchorTxConfirm(ctx, q, conf, burns)
 }
 
-// applyAnchorTxConfirm is the extracted, convergent body of
-// LogAnchorTxConfirm.
+// applyAnchorTxConfirm applies an anchor transaction's confirmation
+// within the caller's transaction, convergently: the transfer's block
+// context, its outputs' assets and proofs, and its burns.
 func (a *AssetStore) applyAnchorTxConfirm(ctx context.Context,
 	q ActiveAssetsStore, conf *tapfreighter.AssetConfirmEvent,
 	burns []*tapfreighter.AssetBurn) ([]tapfreighter.OutputIdentifier,
@@ -390,10 +393,13 @@ func (a *AssetStore) applyAnchorTxConfirm(ctx context.Context,
 		// Upload proof by the dbAssetId, which is the _primary
 		// key_ of the asset in table assets, not the BIPS
 		// concept of `asset_id`.
-		err = q.UpsertAssetProofByID(ctx, ProofUpdateByID{
-			AssetID:   newAssetID,
-			ProofFile: receiverProof.Blob,
-		})
+		indexed, err := NewIndexedProofFile(receiverProof.Blob)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"unable to index output proof: %w", err,
+			)
+		}
+		err = StoreIndexedAssetProof(ctx, q, newAssetID, indexed)
 		if err != nil {
 			return nil, err
 		}
@@ -1105,10 +1111,13 @@ func (a *AssetStore) rollBackPassiveFile(ctx context.Context,
 	}
 
 	// And the truncated proof file.
-	err = q.UpsertAssetProofByID(ctx, ProofUpdateByID{
-		AssetID:   assetID,
-		ProofFile: truncatedBuf.Bytes(),
-	})
+	indexed, err := NewIndexedProofFile(truncatedBuf.Bytes())
+	if err != nil {
+		return nil, fmt.Errorf(
+			"unable to index truncated proof: %w", err,
+		)
+	}
+	err = StoreIndexedAssetProof(ctx, q, assetID, indexed)
 	if err != nil {
 		return nil, fmt.Errorf("unable to store truncated proof: %w",
 			err)

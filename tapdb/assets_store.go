@@ -209,6 +209,15 @@ type ActiveAssetsStore interface {
 	// assets.
 	UpsertAssetStore
 
+	// AssetProofStore houses the atomic proof blob and provenance index
+	// operations.
+	AssetProofStore
+
+	// InsertReorgEffect records durable proof-mirror work for safe receives
+	// imported without an anchoring registration.
+	InsertReorgEffect(ctx context.Context,
+		arg sqlc.InsertReorgEffectParams) (int64, error)
+
 	// TransferOutputAssetID returns the asset row a transfer output
 	// materialized into, if any.
 	TransferOutputAssetID(ctx context.Context,
@@ -252,6 +261,17 @@ type ActiveAssetsStore interface {
 	// disk.
 	FetchAssetProofs(ctx context.Context) ([]AssetProof, error)
 
+	// FetchAssetProofsForAdoption fetches the proof files whose anchor
+	// transaction confirmed at or above the given height, or whose
+	// confirmation height is unknown.
+	FetchAssetProofsForAdoption(ctx context.Context,
+		minBlockHeight sql.NullInt32) ([][]byte, error)
+
+	// ProofAnchorSiteOwnership classifies local subsystem state bound to
+	// one proof anchor transaction.
+	ProofAnchorSiteOwnership(ctx context.Context,
+		anchorTxid []byte) (sqlc.ProofAnchorSiteOwnershipRow, error)
+
 	// FetchAssetProofsSizes fetches all the asset proofs lengths that are
 	// stored on disk.
 	FetchAssetProofsSizes(ctx context.Context) ([]AssetProofSize, error)
@@ -291,10 +311,6 @@ type ActiveAssetsStore interface {
 	// table for a given asset identified by `Outpoint` and
 	// `TweakedScriptKey`.
 	FetchAssetID(ctx context.Context, arg FetchAssetID) ([]int64, error)
-
-	// UpsertAssetProofByID inserts a new or updates an existing asset
-	// proof on disk.
-	UpsertAssetProofByID(ctx context.Context, arg ProofUpdateByID) error
 
 	// UpsertAssetWitness upserts a new prev input for an asset into the
 	// database.
@@ -2175,12 +2191,14 @@ func (a *AssetStore) importAssetFromProof(ctx context.Context,
 		return fmt.Errorf("unable to insert asset witness: %w", err)
 	}
 
+	indexedProof, err := NewIndexedProofFile(proof.Blob)
+	if err != nil {
+		return fmt.Errorf("unable to index asset proof: %w", err)
+	}
+
 	// Upload proof by the dbAssetId, which is the _primary key_ of the
 	// asset in table assets, not the BIPS concept of `asset_id`.
-	return db.UpsertAssetProofByID(ctx, ProofUpdateByID{
-		AssetID:   assetIDs[0],
-		ProofFile: proof.Blob,
-	})
+	return StoreIndexedAssetProof(ctx, db, assetIDs[0], indexedProof)
 }
 
 // restoreGroupWitness restores the group witness of a transferred asset from
@@ -2305,12 +2323,14 @@ func (a *AssetStore) upsertAssetProof(ctx context.Context,
 			"ids %v", len(dbAssetIds), dbAssetIds)
 	}
 
+	indexedProof, err := NewIndexedProofFile(proof.Blob)
+	if err != nil {
+		return fmt.Errorf("unable to index asset proof: %w", err)
+	}
+
 	// Upload proof by the dbAssetId, which is the _primary key_ of the
 	// asset in table assets, not the BIPS concept of `asset_id`.
-	return db.UpsertAssetProofByID(ctx, ProofUpdateByID{
-		AssetID:   dbAssetIds[0],
-		ProofFile: proof.Blob,
-	})
+	return StoreIndexedAssetProof(ctx, db, dbAssetIds[0], indexedProof)
 }
 
 // ImportProofs attempts to store fully populated proofs on disk. The previous
@@ -2947,24 +2967,6 @@ func (a *AssetStore) queryCommitments(ctx context.Context,
 	return selectedAssets, nil
 }
 
-// LogPendingParcel marks an outbound parcel as pending on disk. This commits
-// the set of changes to disk (the pending inputs and outputs) but doesn't mark
-// the batched spend as being finalized. The final lease owner and expiry are
-// the lease parameters that are set on the input UTXOs, since we assume the
-// parcel will be broadcast after this call. So we'll want to lock the input
-// UTXOs for forever, which means the expiry should be far in the future.
-func (a *AssetStore) LogPendingParcel(ctx context.Context,
-	spend *tapfreighter.OutboundParcel, finalLeaseOwner [32]byte,
-	finalLeaseExpiry time.Time) error {
-
-	var writeTxOpts AssetStoreTxOptions
-	return a.db.ExecTx(ctx, &writeTxOpts, func(q ActiveAssetsStore) error {
-		return a.applyPendingParcel(
-			ctx, q, spend, finalLeaseOwner, finalLeaseExpiry,
-		)
-	})
-}
-
 // insertAssetTransferInput inserts a new asset transfer input into the DB.
 func insertAssetTransferInput(ctx context.Context, q ActiveAssetsStore,
 	transferID int64, input tapfreighter.TransferInput,
@@ -3535,48 +3537,6 @@ func (a *AssetStore) ConfirmProofDelivery(ctx context.Context,
 	return nil
 }
 
-// LogAnchorTxConfirm updates the send package state on disk to reflect the
-// confirmation of the anchor transaction, ensuring the on-chain reference
-// information is up to date.
-func (a *AssetStore) LogAnchorTxConfirm(ctx context.Context,
-	conf *tapfreighter.AssetConfirmEvent,
-	burns []*tapfreighter.AssetBurn) error {
-
-	var (
-		writeTxOpts    AssetStoreTxOptions
-		localProofKeys []tapfreighter.OutputIdentifier
-	)
-	err := a.db.ExecTx(ctx, &writeTxOpts, func(q ActiveAssetsStore) error {
-		var err error
-		localProofKeys, err = a.applyAnchorTxConfirm(
-			ctx, q, conf, burns,
-		)
-
-		return err
-	})
-	if err != nil {
-		return fmt.Errorf("failed to confirm transfer: %w", err)
-	}
-
-	// Notify any event subscribers that there are new proofs. We do this
-	// outside of the transaction to avoid the subscribers trying to look up
-	// the proofs before they are committed.
-	for idx := range localProofKeys {
-		localKey := localProofKeys[idx]
-		finalProof := conf.FinalProofs[localKey]
-		a.eventDistributor.NotifySubscribers(finalProof.Blob)
-	}
-	for assetID := range conf.PassiveAssetProofFiles {
-		passiveProofs := conf.PassiveAssetProofFiles[assetID]
-		for idx := range passiveProofs {
-			passiveProof := passiveProofs[idx]
-			a.eventDistributor.NotifySubscribers(passiveProof.Blob)
-		}
-	}
-
-	return nil
-}
-
 // shouldSkipAssetCreation determines whether we should skip creating an asset
 // in our local database for a given transfer output. This is based on the
 // script key type, the amount, and whether the output is controlled by the
@@ -3686,10 +3646,14 @@ func (a *AssetStore) reAnchorPassiveAssets(ctx context.Context,
 				err)
 		}
 		if fileTip != nil && *fileTip != newAnchor {
-			err = q.UpsertAssetProofByID(ctx, ProofUpdateByID{
-				AssetID:   passiveAsset.AssetID,
-				ProofFile: proofFile,
-			})
+			indexed, err := NewIndexedProofFile(proofFile)
+			if err != nil {
+				return fmt.Errorf("unable to index passive "+
+					"asset proof file: %w", err)
+			}
+			err = StoreIndexedAssetProof(
+				ctx, q, passiveAsset.AssetID, indexed,
+			)
 			if err != nil {
 				return fmt.Errorf("unable to update passive "+
 					"asset proof file: %w", err)
@@ -3724,10 +3688,14 @@ func (a *AssetStore) reAnchorPassiveAssets(ctx context.Context,
 		}
 
 		// Update the asset proof.
-		err = q.UpsertAssetProofByID(ctx, ProofUpdateByID{
-			AssetID:   passiveAsset.AssetID,
-			ProofFile: proofFile,
-		})
+		indexed, err := NewIndexedProofFile(proofFile)
+		if err != nil {
+			return fmt.Errorf("unable to index passive "+
+				"asset proof file: %w", err)
+		}
+		err = StoreIndexedAssetProof(
+			ctx, q, passiveAsset.AssetID, indexed,
+		)
 		if err != nil {
 			return fmt.Errorf("unable to update passive asset "+
 				"proof file: %w", err)
@@ -3767,16 +3735,30 @@ func (a *AssetStore) QueryParcels(ctx context.Context,
 
 	return a.queryParcelsWithFilters(
 		ctx, anchorTxHash, pendingOnly, time.Time{}, "", nil,
+		fn.None[uint32](),
+	)
+}
+
+// ParcelsForAdoption returns the confirmed parcels whose anchor transaction
+// may still need protection: those confirmed at or above the given block
+// height. Unconfirmed parcels are left to PendingParcels, and parcels
+// confirmed below the height are not read at all.
+func (a *AssetStore) ParcelsForAdoption(ctx context.Context,
+	minBlockHeight uint32) ([]*tapfreighter.OutboundParcel, error) {
+
+	return a.queryParcelsWithFilters(
+		ctx, nil, false, time.Time{}, "", nil, fn.Some(minBlockHeight),
 	)
 }
 
 // queryParcelsWithFilters returns the set of confirmed or unconfirmed parcels
-// with optional time, label, and script key filters applied at the database
-// level.
+// with optional time, label, script key and minimum confirmation height
+// filters applied at the database level.
 func (a *AssetStore) queryParcelsWithFilters(ctx context.Context,
 	anchorTxHash *chainhash.Hash, pendingOnly bool, startTime time.Time,
-	filterLabel string, filterScriptKey *btcec.PublicKey) (
-	[]*tapfreighter.OutboundParcel, error) {
+	filterLabel string, filterScriptKey *btcec.PublicKey,
+	minBlockHeight fn.Option[uint32]) ([]*tapfreighter.OutboundParcel,
+	error) {
 
 	var (
 		outboundParcels []*tapfreighter.OutboundParcel
@@ -3811,6 +3793,11 @@ func (a *AssetStore) queryParcelsWithFilters(ctx context.Context,
 			serializedKey := filterScriptKey.SerializeCompressed()
 			transferQuery.FilterScriptKey = serializedKey
 		}
+
+		// Add the minimum confirmation height if provided.
+		minBlockHeight.WhenSome(func(height uint32) {
+			transferQuery.MinBlockHeight = sqlInt32(height)
+		})
 
 		// Query for asset transfers with filters applied at database
 		// level.
@@ -3945,6 +3932,7 @@ func (a *AssetStore) QueryCompletedParcels(ctx context.Context,
 	// label and script key filters, then filter for truly completed ones.
 	allParcels, err := a.queryParcelsWithFilters(
 		ctx, nil, false, startTime, filterLabel, filterScriptKey,
+		fn.None[uint32](),
 	)
 	if err != nil {
 		return nil, err

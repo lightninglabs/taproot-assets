@@ -107,9 +107,15 @@ type AssetMintingBatch struct {
 }
 
 type AssetProof struct {
-	ProofID   int64
-	AssetID   int64
-	ProofFile []byte
+	ProofID           int64
+	AssetID           int64
+	ProofFile         []byte
+	ProvenanceIndexed bool
+}
+
+type AssetProofAnchor struct {
+	ProofID    int64
+	AnchorTxid []byte
 }
 
 type AssetSeedling struct {

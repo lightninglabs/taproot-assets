@@ -68,7 +68,6 @@ type Querier interface {
 	// The live gauge's rollup: counts grouped in the database, so a
 	// metrics scrape never materializes anchoring rows.
 	CountLiveReorgAnchoringsByPhase(ctx context.Context) ([]CountLiveReorgAnchoringsByPhaseRow, error)
-	CountLiveReorgDependents(ctx context.Context, parentID int64) (int64, error)
 	// The live claimants of an anchor point other than the given
 	// (abandoned) transfer: unconfirmed transfers, not superseded, that
 	// spend the point. A revived rival is one — its replacement is still
@@ -96,6 +95,7 @@ type Querier interface {
 	DeleteAddrEventProofsByAssetID(ctx context.Context, assetID sql.NullInt64) (int64, error)
 	DeleteAllNodes(ctx context.Context, namespace string) (int64, error)
 	DeleteAssetByID(ctx context.Context, assetID int64) error
+	DeleteAssetProofAnchors(ctx context.Context, proofID int64) error
 	DeleteAssetProofByAssetID(ctx context.Context, assetID int64) error
 	DeleteAssetWitnesses(ctx context.Context, assetID int64) error
 	DeleteAuthMailboxMessageByIDAndReceiver(ctx context.Context, arg DeleteAuthMailboxMessageByIDAndReceiverParams) (int64, error)
@@ -160,7 +160,10 @@ type Querier interface {
 	FetchAssetMetaByHash(ctx context.Context, metaDataHash []byte) (FetchAssetMetaByHashRow, error)
 	FetchAssetMetaForAsset(ctx context.Context, assetID []byte) (FetchAssetMetaForAssetRow, error)
 	FetchAssetProof(ctx context.Context, arg FetchAssetProofParams) ([]FetchAssetProofRow, error)
+	FetchAssetProofFileByProofID(ctx context.Context, proofID int64) ([]byte, error)
+	FetchAssetProofID(ctx context.Context, assetID int64) (int64, error)
 	FetchAssetProofs(ctx context.Context) ([]FetchAssetProofsRow, error)
+	FetchAssetProofsByAnchorTx(ctx context.Context, anchorTxid []byte) ([]FetchAssetProofsByAnchorTxRow, error)
 	FetchAssetProofsByAssetID(ctx context.Context, assetID []byte) ([]FetchAssetProofsByAssetIDRow, error)
 	// The proofs of all assets identified by the passed set of asset primary keys
 	// are fetched in a single query.
@@ -168,6 +171,7 @@ type Querier interface {
 	// The asset_ids argument must NEVER be an empty slice, otherwise this query
 	// will return no results.
 	FetchAssetProofsByIDs(ctx context.Context, assetIds []int64) ([]FetchAssetProofsByIDsRow, error)
+	FetchAssetProofsForAdoption(ctx context.Context, minBlockHeight sql.NullInt32) ([][]byte, error)
 	FetchAssetProofsSizes(ctx context.Context) ([]FetchAssetProofsSizesRow, error)
 	// The witnesses of all assets identified by the passed set of asset primary
 	// keys are fetched in a single query.
@@ -272,6 +276,7 @@ type Querier interface {
 	FetchTapscriptTree(ctx context.Context, rootHash []byte) ([]FetchTapscriptTreeRow, error)
 	FetchTransferInputs(ctx context.Context, transferID int64) ([]FetchTransferInputsRow, error)
 	FetchTransferOutputs(ctx context.Context, transferID int64) ([]FetchTransferOutputsRow, error)
+	FetchUnindexedAssetProofs(ctx context.Context, rowLimit int32) ([]FetchUnindexedAssetProofsRow, error)
 	// Note on hash construction: mssmt_nodes.hash_key on a compacted leaf
 	// commits to the subtree root at that leaf's tree height, which
 	// varies with the tree's shape and is therefore NOT canonical across
@@ -312,6 +317,7 @@ type Querier interface {
 	GenesisPoints(ctx context.Context) ([]GenesisPoint, error)
 	GetRootKey(ctx context.Context, id []byte) (Macaroon, error)
 	HasAssetProof(ctx context.Context, tweakedScriptKey []byte) (bool, error)
+	InsertAssetProofAnchor(ctx context.Context, arg InsertAssetProofAnchorParams) error
 	InsertAssetSeedling(ctx context.Context, arg InsertAssetSeedlingParams) error
 	InsertAssetSeedlingIntoBatch(ctx context.Context, arg InsertAssetSeedlingIntoBatchParams) error
 	InsertAssetTransfer(ctx context.Context, arg InsertAssetTransferParams) (int64, error)
@@ -326,7 +332,7 @@ type Querier interface {
 	InsertNewSyncEvent(ctx context.Context, arg InsertNewSyncEventParams) error
 	InsertPassiveAsset(ctx context.Context, arg InsertPassiveAssetParams) error
 	// Phase codes mirror tapreorg.PhaseCode: 0 unwitnessed, 1 witnessed,
-	// 2 conflicted, 3 buried, 4 abandoned, 5 withdrawn. Codes >= 3 are
+	// 2 conflicted, 3 buried, 4 abandoned. Codes >= 3 are
 	// terminal. Verdict codes mirror tapreorg.Verdict: 0 satisfies, 1
 	// foreign. The literals below must stay in sync with those enums.
 	InsertReorgAnchoring(ctx context.Context, arg InsertReorgAnchoringParams) (int64, error)
@@ -379,6 +385,7 @@ type Querier interface {
 	// production shape of "does this site already have an anchoring for
 	// this identity?"
 	LookupReorgAnchoringByMatchKey(ctx context.Context, arg LookupReorgAnchoringByMatchKeyParams) (ReorgAnchoring, error)
+	MarkAssetProofProvenanceIndexed(ctx context.Context, proofID int64) error
 	MarkManagedUTXOAsSwept(ctx context.Context, arg MarkManagedUTXOAsSweptParams) error
 	// Mark a supply pre-commitment output as spent by its outpoint. The
 	// pre-commitment corresponds to an asset issuance where the local node acted as
@@ -399,6 +406,11 @@ type Querier interface {
 	MarkTransferSuperseded(ctx context.Context, transferID int64) error
 	MaxUniverseLeafJournalSeq(ctx context.Context) (int64, error)
 	NewMintingBatch(ctx context.Context, arg NewMintingBatchParams) error
+	// Classify local subsystem state staked on one proof transition. Mint and
+	// porter rows require their own compensation. An address-event reference is
+	// independently receive-owned, including for a self-send that is also owned
+	// by the porter.
+	ProofAnchorSiteOwnership(ctx context.Context, anchorTxid []byte) (ProofAnchorSiteOwnershipRow, error)
 	QueryAddr(ctx context.Context, arg QueryAddrParams) (QueryAddrRow, error)
 	// We use a LEFT JOIN here as not every asset has a group key, so this'll
 	// generate rows that have NULL values for the group key fields if an asset
@@ -450,6 +462,7 @@ type Querier interface {
 	QueryPendingForwards(ctx context.Context) ([]QueryPendingForwardsRow, error)
 	QueryPendingSupplyCommitTransition(ctx context.Context, groupKey []byte) (QueryPendingSupplyCommitTransitionRow, error)
 	QueryProofTransferAttempts(ctx context.Context, arg QueryProofTransferAttemptsParams) ([]time.Time, error)
+	QuerySettledFillByRfqID(ctx context.Context) ([]QuerySettledFillByRfqIDRow, error)
 	QueryStartingSupplyCommitment(ctx context.Context, groupKey []byte) (QueryStartingSupplyCommitmentRow, error)
 	QuerySupersededTransferIDs(ctx context.Context) ([]int64, error)
 	QuerySupplyCommitStateMachine(ctx context.Context, groupKey []byte) (QuerySupplyCommitStateMachineRow, error)
@@ -511,8 +524,8 @@ type Querier interface {
 	// resets with it; a systematically failing handler re-sticks after
 	// the usual number of attempts. Terminal phases are absorbing at the
 	// row level: a write racing another writer's terminal transition
-	// (a site-initiated withdrawal, most likely) matches no rows, and
-	// the caller observes the refusal via the row count.
+	// matches no rows, and the caller observes the refusal via the row
+	// count.
 	SetReorgAnchoringPhase(ctx context.Context, arg SetReorgAnchoringPhaseParams) (int64, error)
 	// Sets the content-hash key for a single supply update event row.
 	// Used by the programmatic migration that backfills pre-existing

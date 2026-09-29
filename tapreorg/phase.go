@@ -18,7 +18,7 @@ import (
 // evidence) is unrepresentable.
 //
 // The live phases are Unwitnessed, Witnessed and Conflicted; the
-// terminal phases are Buried, Abandoned and Withdrawn. Unwitnessed is
+// terminal phases are Buried and Abandoned. Unwitnessed is
 // re-enterable: a witness reorged out with no successor returns the
 // anchoring to Unwitnessed rather than leaving a stale affirmative
 // standing.
@@ -64,16 +64,11 @@ type Abandoned struct {
 	Cause AbandonCause
 }
 
-// Withdrawn is the terminal phase entered when the owning site revokes
-// its own stake. It is never derived from chain evidence.
-type Withdrawn struct{}
-
 func (Unwitnessed) sealedPhase() {}
 func (Witnessed) sealedPhase()   {}
 func (Conflicted) sealedPhase()  {}
 func (Buried) sealedPhase()      {}
 func (Abandoned) sealedPhase()   {}
-func (Withdrawn) sealedPhase()   {}
 
 // String returns the phase name.
 func (Unwitnessed) String() string {
@@ -98,11 +93,6 @@ func (p Buried) String() string {
 // String returns the phase name and its cause.
 func (p Abandoned) String() string {
 	return fmt.Sprintf("abandoned(%v)", p.Cause)
-}
-
-// String returns the phase name.
-func (Withdrawn) String() string {
-	return "withdrawn"
 }
 
 // AbandonCause records what decided against an anchoring, as a sealed
@@ -172,7 +162,7 @@ func (c Foreclosed) String() string {
 // anchorings are no longer sensed and never leave their phase.
 func IsTerminal(p Phase) bool {
 	switch p.(type) {
-	case Buried, Abandoned, Withdrawn:
+	case Buried, Abandoned:
 		return true
 
 	case Unwitnessed, Witnessed, Conflicted:
@@ -203,9 +193,6 @@ const (
 
 	// PhaseCodeAbandoned tags Abandoned.
 	PhaseCodeAbandoned PhaseCode = 4
-
-	// PhaseCodeWithdrawn tags Withdrawn.
-	PhaseCodeWithdrawn PhaseCode = 5
 )
 
 // phaseEvidenceVersion versions the evidence encoding below, so that
@@ -236,9 +223,6 @@ func CodeOf(p Phase) PhaseCode {
 	case Abandoned:
 		return PhaseCodeAbandoned
 
-	case Withdrawn:
-		return PhaseCodeWithdrawn
-
 	default:
 		// Unreachable: the sum is sealed.
 		panic(fmt.Sprintf("unknown phase type %T", p))
@@ -266,9 +250,6 @@ func (c PhaseCode) String() string {
 	case PhaseCodeAbandoned:
 		return "abandoned"
 
-	case PhaseCodeWithdrawn:
-		return "withdrawn"
-
 	default:
 		return fmt.Sprintf("unknown<%d>", uint8(c))
 	}
@@ -293,9 +274,6 @@ func PhaseCodeFromName(name string) (PhaseCode, error) {
 
 	case "abandoned":
 		return PhaseCodeAbandoned, nil
-
-	case "withdrawn":
-		return PhaseCodeWithdrawn, nil
 
 	default:
 		return 0, fmt.Errorf("unknown phase name %q", name)
@@ -372,9 +350,6 @@ func EncodePhase(p Phase) (PhaseCode, []byte, error) {
 
 		return PhaseCodeAbandoned, buf.Bytes(), nil
 
-	case Withdrawn:
-		return PhaseCodeWithdrawn, nil, nil
-
 	default:
 		return 0, nil, fmt.Errorf("unknown phase type %T", p)
 	}
@@ -393,14 +368,6 @@ func DecodePhase(code PhaseCode, evidence []byte) (Phase, error) {
 		}
 
 		return Unwitnessed{}, nil
-
-	case PhaseCodeWithdrawn:
-		if len(evidence) != 0 {
-			return nil, fmt.Errorf("unexpected evidence for " +
-				"withdrawn phase")
-		}
-
-		return Withdrawn{}, nil
 
 	// Every other code carries evidence, decoded below.
 	default:

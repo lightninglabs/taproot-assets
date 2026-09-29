@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/url"
 
 	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/btcsuite/btcd/psbt/v2"
@@ -14,11 +13,9 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
-	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/tapreorg"
 	"github.com/lightninglabs/taproot-assets/tapsend"
-	"github.com/lightningnetwork/lnd/chainntnfs"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnutils"
@@ -948,43 +945,28 @@ func (s *CommitTxSignState) ProcessEvent(event Event,
 			OutputKey:   newCommit.OutputKey,
 			OutputIndex: newCommit.TxOutIdx,
 		}
-		// On the anchoring path the signed transaction is persisted
-		// by the phase-1 write of the re-org watcher's registration,
-		// so the durable broadcast state and the anchoring that
-		// watches over it commit together: a crash leaves neither
-		// or both, never a broadcast state without its stake. The
-		// legacy path persists it alone and subscribes for the
-		// confirmation at broadcast.
-		if env.AnchoringWatcher != nil {
-			spec, err := commitAnchoringSpec(
-				ctx, env, &stateTransition,
-			)
-			if err != nil {
-				return nil, fmt.Errorf("unable to build "+
-					"commit anchoring: %w", err)
-			}
-			stake := func(ctx context.Context,
-				tx tapreorg.RegistryTx,
-				_ tapreorg.AnchoringID) error {
+		// The signed transaction is persisted by the phase-1 write
+		// of the re-org watcher's registration, so the durable
+		// broadcast state and the anchoring that watches over it
+		// commit together: a crash leaves neither or both, never a
+		// broadcast state without its stake.
+		spec, err := commitAnchoringSpec(ctx, env, &stateTransition)
+		if err != nil {
+			return nil, fmt.Errorf("unable to build commit "+
+				"anchoring: %w", err)
+		}
+		stake := func(ctx context.Context, tx tapreorg.RegistryTx,
+			_ tapreorg.AnchoringID) error {
 
-				return env.StateLog.ApplyCommitTxStake(
-					ctx, tx.Queries(), env.AssetSpec,
-					commitTxnDetails,
-				)
-			}
-			_, err = env.AnchoringWatcher.Register(ctx, spec, stake)
-			if err != nil {
-				return nil, fmt.Errorf("unable to stake "+
-					"commit anchoring: %w", err)
-			}
-		} else {
-			err = env.StateLog.InsertSignedCommitTx(
-				ctx, env.AssetSpec, commitTxnDetails,
+			return env.StateLog.ApplyCommitTxStake(
+				ctx, tx.Queries(), env.AssetSpec,
+				commitTxnDetails,
 			)
-			if err != nil {
-				return nil, fmt.Errorf("unable to commit "+
-					"state transition: %w", err)
-			}
+		}
+		_, err = env.AnchoringWatcher.Register(ctx, spec, stake)
+		if err != nil {
+			return nil, fmt.Errorf("unable to stake commit "+
+				"anchoring: %w", err)
 		}
 
 		return &StateTransition{
@@ -1042,18 +1024,13 @@ func (c *CommitBroadcastState) ProcessEvent(event Event,
 			NextState: c,
 		}, nil
 
-	// On the anchoring path the re-org watcher finalizes or abandons
-	// the transition out-of-band, in its delivery transaction; a tick
-	// is the hint (the push dispatcher's nudge, the abandonment
-	// handler's nudge effect, or any later caller) to re-derive our
-	// position from the durable record. If the record has moved on,
-	// adopt it; otherwise keep resting.
+	// The re-org watcher finalizes or abandons the transition
+	// out-of-band, in its delivery transaction; a tick is the hint
+	// (the push dispatcher's nudge, the abandonment handler's nudge
+	// effect, or any later caller) to re-derive our position from the
+	// durable record. If the record has moved on, adopt it; otherwise
+	// keep resting.
 	case *CommitTickEvent:
-		if env.AnchoringWatcher == nil {
-			return nil, fmt.Errorf("%w: received %T while in %T",
-				ErrInvalidStateTransition, newEvent, c)
-		}
-
 		ctx := context.Background()
 		diskState, diskTransition, err := env.StateLog.FetchState(
 			ctx, env.AssetSpec,
@@ -1110,9 +1087,10 @@ func (c *CommitBroadcastState) ProcessEvent(event Event,
 			return &StateTransition{NextState: c}, nil
 		}
 
-	// We're at the final step of the state machine. We'll broadcast the
-	// signed commit tx, then register for a confirmation for when it
-	// confirms.
+	// We're at the final step of the state machine: broadcast the
+	// signed commit tx and make sure it is staked on the re-org
+	// watcher, which senses the chain and finalizes the transition in
+	// its delivery transaction once the transaction is buried.
 	case *BroadcastEvent:
 		if c.SupplyTransition.NewCommitment.Txn == nil {
 			return nil, fmt.Errorf("commitment transaction is nil")
@@ -1131,321 +1109,42 @@ func (c *CommitBroadcastState) ProcessEvent(event Event,
 			env.AssetSpec, c.SupplyTransition,
 		)
 
-		// We'll prep two daemon events: one to broadcast the
-		// transaction, and one to register for a confirmation event.
-		// For the conf event, we'll send our own custom conf event to
-		// signal that things have been confirmed.
 		broadcastReq := protofsm.BroadcastTxn{
 			Tx:    commitTx,
 			Label: label,
 		}
 
-		confMapper := func(conf *chainntnfs.TxConfirmation) Event {
-			return &ConfEvent{
-				Tx:          conf.Tx,
-				TxIndex:     conf.TxIndex,
-				BlockHeight: conf.BlockHeight,
-				Block:       conf.Block,
-			}
-		}
-
-		var pkScript []byte
-		if len(commitTx.TxOut) > 0 {
-			pkScript = commitTx.TxOut[0].PkScript
-		}
-
 		ctx := context.Background()
 
-		// On the anchoring path the re-org watcher is the sole
-		// sensor: the commitment was staked as a speculative
-		// anchoring when it was signed, and the confirmation event
-		// arrives through the watcher's outbox once the transaction
-		// is *buried* — the machine's finalization publishes
-		// irrevocably to remote universes, so it is act-gated
-		// rather than firing at a single confirmation. The
-		// registration here is the safety net for a record that
-		// lacks its anchoring.
-		if env.AnchoringWatcher != nil {
-			registered, err := registerCommitAnchoring(
-				ctx, env, &c.SupplyTransition,
-			)
-			if err != nil {
-				return nil, fmt.Errorf("unable to register "+
-					"commit anchoring: %w", err)
-			}
-			if registered {
-				prefixedLog.Infof("Registered missing commit "+
-					"anchoring for txid=%v at broadcast",
-					commitTxid)
-			}
-
-			return &StateTransition{
-				NextState: &CommitBroadcastState{
-					SupplyTransition: c.SupplyTransition,
-				},
-				NewEvents: lfn.Some(FsmEvent{
-					ExternalEvents: protofsm.DaemonEventSet{
-						&broadcastReq,
-					}}),
-			}, nil
-		}
-
-		currentHeight, err := env.Chain.CurrentHeight(ctx)
+		// The re-org watcher is the sole sensor: the commitment was
+		// staked as a speculative anchoring when it was signed, and
+		// the confirmation event arrives through the watcher's
+		// outbox once the transaction is *buried* — the machine's
+		// finalization publishes irrevocably to remote universes, so
+		// it is act-gated rather than firing at a single
+		// confirmation. The registration here is the safety net for
+		// a record that lacks its anchoring.
+		registered, err := registerCommitAnchoring(
+			ctx, env, &c.SupplyTransition,
+		)
 		if err != nil {
-			return nil, fmt.Errorf("unable to get current "+
-				"height: %w", err)
+			return nil, fmt.Errorf("unable to register commit "+
+				"anchoring: %w", err)
 		}
-
-		confEvent := &protofsm.RegisterConf[Event]{
-			Txid:       commitTx.TxHash(),
-			PkScript:   pkScript,
-			HeightHint: currentHeight,
-			NumConfs:   lfn.Some(uint32(1)),
-			FullBlock:  true,
-			PostConfMapper: lfn.Some[protofsm.ConfMapper[Event]](
-				confMapper,
-			),
+		if registered {
+			prefixedLog.Infof("Registered missing commit "+
+				"anchoring for txid=%v at broadcast",
+				commitTxid)
 		}
-
-		// From here we'll wait in the broadcast state until we receive
-		// the conf event.
-		nextSupplyTransition := c.SupplyTransition
 
 		return &StateTransition{
 			NextState: &CommitBroadcastState{
-				SupplyTransition: nextSupplyTransition,
+				SupplyTransition: c.SupplyTransition,
 			},
 			NewEvents: lfn.Some(FsmEvent{
 				ExternalEvents: protofsm.DaemonEventSet{
-					&broadcastReq, confEvent,
+					&broadcastReq,
 				}}),
-		}, nil
-
-	// If we get the conf event, then we're done here. We''ll transition to
-	// the CommitFinalizeState, which will finalize our supply transition
-	// with the new root and sub-tree information.
-	case *ConfEvent:
-		stateTransition := c.SupplyTransition
-
-		merkleProof, err := proof.NewTxMerkleProof(
-			newEvent.Block.Transactions, int(newEvent.TxIndex),
-		)
-		if err != nil {
-			return nil, fmt.Errorf("unable to create merkle "+
-				"proof: %w", err)
-		}
-
-		// Now that the transaction has been confirmed, we'll construct
-		// a merkle proof for the commitment transaction. This'll be
-		// used to prove that the supply commit is canonical.
-		stateTransition.ChainProof = lfn.Some(ChainProof{
-			Header:      newEvent.Block.Header,
-			BlockHeight: newEvent.BlockHeight,
-			MerkleProof: *merkleProof,
-			TxIndex:     newEvent.TxIndex,
-		})
-
-		prefixedLog.Tracef("Supply commitment txn confirmed "+
-			"in block %d (hash=%v): %v",
-			newEvent.BlockHeight, newEvent.Block.Header.BlockHash(),
-			limitSpewer.Sdump(c.SupplyTransition.NewCommitment.Txn))
-
-		// The commitment has been confirmed, so we'll transition to the
-		// finalize state, but also log on disk that we no longer need
-		// to request confirmations on restart.
-		ctx := context.Background()
-		err = env.StateLog.CommitState(
-			ctx, env.AssetSpec, &CommitFinalizeState{},
-		)
-		if err != nil {
-			return nil, fmt.Errorf("unable to commit "+
-				"state transition: %w", err)
-		}
-
-		return &StateTransition{
-			NextState: &CommitFinalizeState{
-				SupplyTransition: stateTransition,
-			},
-			NewEvents: lfn.Some(FsmEvent{
-				InternalEvent: []Event{&FinalizeEvent{}}},
-			),
-		}, nil
-
-	// Any other messages in this state will result in an error, as this is
-	// an undefined state transition.
-	default:
-		return nil, fmt.Errorf("%w: received %T while in %T",
-			ErrInvalidStateTransition, newEvent, c)
-	}
-}
-
-// ProcessEvent processes incoming events for the CommitFinalizeState. From
-// here, we'll finalize the supply transition by updating the state machine
-// state on disk, and updating the supply trees.
-func (c *CommitFinalizeState) ProcessEvent(event Event,
-	env *Environment) (*StateTransition, error) {
-
-	prefixedLog := env.Logger()
-
-	switch newEvent := event.(type) {
-	// If we get a supply update event while we're finalizing the commit,
-	// we'll just insert it as a dangling update and do a self-transition.
-	case SyncSupplyUpdateEvent:
-		prefixedLog.Infof("Received new supply update %T while "+
-			"finalizing prior commitment, inserting as dangling "+
-			"update", newEvent)
-
-		ctx := context.Background()
-		err := env.StateLog.InsertPendingUpdate(
-			ctx, env.AssetSpec, newEvent,
-		)
-
-		// A deduped insert means an identical event is already in the
-		// update log. Since we don't cache the event here, that's
-		// indistinguishable from a successful insert for our
-		// purposes.
-		if err != nil && !errors.Is(err, ErrDuplicateUpdate) {
-			newEvent.SignalDone(err)
-
-			return nil, fmt.Errorf("unable to insert "+
-				"pending update: %w", err)
-		}
-
-		newEvent.SignalDone(nil)
-
-		return &StateTransition{
-			NextState: c,
-		}, nil
-
-	// We'll receive the FinalizeEvent that contains the supply transition
-	// to finalize. We'll update the state machine state on disk, then
-	// update the supply trees.
-	case *FinalizeEvent:
-		ctx := context.Background()
-
-		prefixedLog.Infof("Finalizing supply commitment transition")
-
-		// Insert the finalized supply transition into the remote
-		// universe server via the syncer.
-		chainProof, err := c.SupplyTransition.ChainProof.UnwrapOrErr(
-			fmt.Errorf("supply transition in finalize state " +
-				"must have chain proof"),
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		// Retrieve latest canonical universe list from the latest
-		// metadata for the asset group.
-		metadata, err := FetchLatestAssetMetadata(
-			ctx, env.AssetLookup, env.AssetSpec,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("unable to fetch latest asset "+
-				"metadata: %w", err)
-		}
-
-		// Insert the supply commitment into the remote universes. This
-		// call should block until push is complete.
-		canonicalUniverses := metadata.CanonicalUniverses.UnwrapOr(
-			[]url.URL{},
-		)
-
-		supplyLeaves, err := NewSupplyLeavesFromEvents(
-			c.SupplyTransition.PendingUpdates,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("unable to create "+
-				"supply leaves from pending updates: %w", err)
-		}
-
-		serverErrors, err := env.SupplySyncer.PushSupplyCommitment(
-			ctx, env.AssetSpec, c.SupplyTransition.NewCommitment,
-			supplyLeaves, chainProof, canonicalUniverses,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("unable to insert "+
-				"supply commitment into remote universe "+
-				"server via syncer: %w", err)
-		}
-
-		// Log any per-server errors but continue with the operation.
-		//
-		// TODO(ffranr): Handle the case where we fail to push to
-		//  all servers. Also, if push fails because of
-		//  ErrPrevCommitmentNotFound then we need to sync older
-		//  commitments first.
-		for serverHost, serverErr := range serverErrors {
-			prefixedLog.Warnf("Failed to push supply commitment "+
-				"to server %s: %v", serverHost, serverErr)
-		}
-
-		// At this point, the commitment has been confirmed on disk, so
-		// we can update: the state machine state on disk, and swap in
-		// all the new supply tree information.
-		//
-		// First, we'll update the supply state on disk. This way when
-		// we restart his is idempotent.
-		err = env.StateLog.ApplyStateTransition(
-			ctx, env.AssetSpec, c.SupplyTransition,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("unable to apply "+
-				"state transition: %w", err)
-		}
-
-		groupKey, err := env.AssetSpec.UnwrapGroupKeyOrErr()
-		if err != nil {
-			return nil, fmt.Errorf("group key must be specified "+
-				"for supply tree: %w", err)
-		}
-
-		// We know our tree has been updated, so we need to make sure
-		// the negative lookup cache of the ignore checker is flushed
-		// and the new ignore leaves are loaded from disk.
-		hasIgnoreUpdates := fn.Any(
-			c.SupplyTransition.PendingUpdates,
-			func(u SupplyUpdateEvent) bool {
-				return u.SupplySubTreeType() == IgnoreTreeType
-			},
-		)
-		if hasIgnoreUpdates {
-			env.IgnoreCheckerCache.InvalidateCache(*groupKey)
-		}
-
-		// Now that the prior transition is finalized, we'll check if
-		// any new "dangling" updates came in while we were busy.
-		//
-		//nolint:lll
-		danglingUpdates, err := env.StateLog.BindDanglingUpdatesToTransition(
-			ctx, env.AssetSpec,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("unable to process "+
-				"dangling updates: %w", err)
-		}
-
-		// If there are no dangling updates, we can transition back to
-		// our idle default state.
-		if len(danglingUpdates) == 0 {
-			return &StateTransition{
-				NextState: &DefaultState{},
-			}, nil
-		}
-
-		prefixedLog.Infof("Dangling updates found: %d",
-			len(danglingUpdates))
-
-		// Otherwise, we have more work to do! We'll kick off a new
-		// commitment cycle right away by transitioning to the tree
-		// creation state.
-		return &StateTransition{
-			NextState: &CommitTreeCreateState{},
-			NewEvents: lfn.Some(FsmEvent{
-				InternalEvent: []Event{&CreateTreeEvent{
-					updatesToCommit: danglingUpdates,
-				}},
-			}),
 		}, nil
 
 	// Any other messages in this state will result in an error, as this is

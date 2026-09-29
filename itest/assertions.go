@@ -2206,11 +2206,21 @@ func AssertAssetsMintedAtOutpoint(t *testing.T,
 
 		metaHash := metaReveal.MetaHash()
 
+		// An explicitly requested script key may be external to the
+		// minting daemon's wallet, so locality is only asserted for
+		// wallet-derived keys.
+		scriptKeyLocalCheck := AssetScriptKeyIsLocalCheck(true)
+		if assetRequest.Asset.ScriptKey != nil {
+			scriptKeyLocalCheck = func(*taprpc.Asset) error {
+				return nil
+			}
+		}
+
 		mintedAsset := AssertAssetState(
 			t, confirmedAssets, assetRequest.Asset.Name,
 			metaHash[:],
 			AssetAnchorOutpointCheck(mintOutpoint, blockHash),
-			AssetScriptKeyIsLocalCheck(true),
+			scriptKeyLocalCheck,
 			AssetVersionCheck(assetRequest.Asset.AssetVersion),
 			func(a *taprpc.Asset) error {
 				anchor := a.ChainAnchor

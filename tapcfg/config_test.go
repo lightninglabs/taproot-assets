@@ -20,11 +20,6 @@ func TestValidateReOrgSafeDepth(t *testing.T) {
 	testCases := []struct {
 		name  string
 		depth int32
-
-		// disabled runs the case with the anchoring watcher off,
-		// the state a node is in after the kill switch is set.
-		disabled bool
-
 		valid bool
 	}{
 		{name: "negative", depth: -1, valid: false},
@@ -42,41 +37,11 @@ func TestValidateReOrgSafeDepth(t *testing.T) {
 			depth: maxConfs + 1,
 			valid: false,
 		},
-
-		// The ceiling is a property of the anchoring watcher's
-		// registration path. The legacy watcher subscribes for a
-		// single confirmation and counts depth itself, so a node
-		// that has rolled back onto it must still start on a depth
-		// the anchoring path would have refused — otherwise the
-		// kill switch cannot be used for the one thing it is
-		// documented to do.
-		{
-			name:     "beyond notifier maximum, watcher disabled",
-			depth:    maxConfs + 1,
-			disabled: true,
-			valid:    true,
-		},
-		{
-			name:     "far beyond notifier maximum, disabled",
-			depth:    10 * maxConfs,
-			disabled: true,
-			valid:    true,
-		},
-
-		// A nonsensical depth is refused on either path.
-		{
-			name:     "zero, watcher disabled",
-			depth:    0,
-			disabled: true,
-			valid:    false,
-		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := validateReOrgSafeDepth(
-				tc.depth, tc.disabled, btclog.Disabled,
-			)
+			err := validateReOrgSafeDepth(tc.depth, btclog.Disabled)
 			if tc.valid {
 				require.NoError(t, err)
 			} else {

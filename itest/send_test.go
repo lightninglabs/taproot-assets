@@ -1121,9 +1121,9 @@ func testSpendChangeOutputWhenProofTransferFail(t *harnessTest) {
 	// delay, we use require.Eventually to ensure the transfer details are
 	// correctly listed after confirmation.
 	// We poll until the transfer is confirmed on-chain and the anchor
-	// tx block hash is populated. The block hash is set by
-	// LogAnchorTxConfirm which runs asynchronously after the chain
-	// porter processes the block confirmation.
+	// tx block hash is populated. The block hash is set when the
+	// anchoring watcher delivers the confirmation, asynchronously
+	// after the block.
 	require.Eventually(t.t, func() bool {
 		listTransfersResp, err := sendTapd.ListTransfers(
 			ctxb, &taprpc.ListTransfersRequest{},
@@ -1139,7 +1139,7 @@ func testSpendChangeOutputWhenProofTransferFail(t *harnessTest) {
 		firstTransfer := listTransfersResp.Transfers[0]
 
 		// Wait for the anchor tx block hash to be populated,
-		// which indicates LogAnchorTxConfirm has completed.
+		// which indicates the confirmation has been applied.
 		if firstTransfer.AnchorTxBlockHash == nil {
 			return false
 		}
@@ -1211,7 +1211,7 @@ func testSpendChangeOutputWhenProofTransferFail(t *harnessTest) {
 	// There may be a delay between mining the anchoring transaction and
 	// recognizing its on-chain confirmation. To handle this potential
 	// delay, we poll until both transfers are confirmed and their block
-	// hashes populated (set by LogAnchorTxConfirm).
+	// hashes populated (set when the confirmation is applied).
 	require.Eventually(t.t, func() bool {
 		listTransfersResp, err := sendTapd.ListTransfers(
 			ctxb, &taprpc.ListTransfersRequest{},

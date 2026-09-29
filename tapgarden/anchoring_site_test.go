@@ -99,12 +99,11 @@ type recordingMintLog struct {
 }
 
 func (l *recordingMintLog) ApplyReceiveReconfirm(_ context.Context,
-	_ *sqlc.Queries, anchorTxid chainhash.Hash, _ chainhash.Hash,
-	_, _ uint32, _ wire.BlockHeader,
-	_ proof.TxMerkleProof) ([]proof.Locator, error) {
+	_ *sqlc.Queries,
+	blockContext proof.VerifiedBlockContext) ([]proof.Locator, error) {
 
 	l.reconfirms++
-	l.lastTxid = anchorTxid
+	l.lastTxid = blockContext.AnchorTxID()
 
 	return l.locators, nil
 }
@@ -229,22 +228,13 @@ func TestMintSiteActGating(t *testing.T) {
 	blob.GenesisTxid = genesisTx.TxHash()
 	payload := encodeMintBlob(blob)
 
-	witness, err := tapreorg.NewWitness(
-		genesisTx, chainhash.Hash{0xbb}, 700, 1,
-	)
-	require.NoError(t, err)
+	witness, candidate := mintWitnessAt(t, genesisTx, 1, 700, 1)
 
 	anchoring := &tapreorg.Anchoring{
 		ID:      7,
 		Site:    MintSiteID,
 		Payload: payload,
-		Spends: []tapreorg.CandidateSpend{{
-			Verdict:     tapreorg.VerdictSatisfies,
-			W:           witness,
-			OnChain:     true,
-			BlockHeader: &wire.BlockHeader{Nonce: 1},
-			MerkleProof: &proof.TxMerkleProof{},
-		}},
+		Spends:  []tapreorg.CandidateSpend{candidate},
 	}
 
 	loc := mirrorLocator(t, blob.GenesisTxid)

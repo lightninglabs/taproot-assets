@@ -53,19 +53,38 @@ type KeyRegistrar interface {
 		keyType asset.ScriptKeyType) error
 }
 
+// ProofStaker imports a proof together with every young anchoring it depends
+// on. The boundary deliberately does not expose a raw archive write: restored
+// wallet state must not exist without its re-org protection. The group
+// verifier lets a restore prove groups the wallet has never seen from the
+// genesis reveals in the backup's own proofs.
+type ProofStaker interface {
+	StakeReceiveWithGroupVerifier(ctx context.Context,
+		p *proof.AnnotatedProof,
+		groupVerifier proof.GroupVerifier) error
+}
+
 // ImportConfig holds the dependencies needed to import a backup.
 type ImportConfig struct {
 	// SpendChecker is used to detect stale backup entries whose anchor
 	// outpoints have already been spent.
 	SpendChecker SpendChecker
 
+	// SpendCheckTimeout is how long an anchor outpoint's spend
+	// notification may stay silent before the outpoint is taken as
+	// unspent. Zero means the default of ten seconds.
+	SpendCheckTimeout time.Duration
+
 	// ChainQuerier provides access to blockchain data for rehydrating
 	// stripped proofs.
 	ChainQuerier ChainQuerier
 
 	// ProofArchive is used to check for existing proofs and to import
-	// new proofs.
+	// proof data fetched from a universe.
 	ProofArchive proof.Archiver
+
+	// ProofStaker imports restored proofs with their re-org protection.
+	ProofStaker ProofStaker
 
 	// KeyRegistrar is used to register anchor internal keys and script
 	// keys so the wallet can sign for imported assets.
@@ -454,8 +473,12 @@ func ImportBackup(ctx context.Context, backupBlob []byte,
 	// spent. We register spend notifications for all outpoints
 	// concurrently and wait once, so stale assets are detected
 	// without adding per-asset latency.
+	spendTimeout := cfg.SpendCheckTimeout
+	if spendTimeout == 0 {
+		spendTimeout = spendCheckTimeout
+	}
 	spentOutpoints, err := detectSpentOutpoints(
-		ctx, cfg.SpendChecker, walletBackup.Assets,
+		ctx, cfg.SpendChecker, walletBackup.Assets, spendTimeout,
 	)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to check outpoint "+
@@ -505,13 +528,10 @@ func ImportBackup(ctx context.Context, backupBlob []byte,
 		return origGroupVerifier(gk)
 	}
 
-	// Two verifier contexts: one for pre-verification (data
-	// checks only, no infrastructure dependencies) and one for
-	// the actual import (full verification including chain
-	// backend). Pre-verification catches per-asset data issues
-	// (unknown group keys, bad proofs) which are skippable.
-	// Import verification catches everything including chain
-	// and storage errors which are fatal.
+	// Pre-verification performs data checks without infrastructure
+	// dependencies. The staking boundary below repeats full verification,
+	// with the same augmented group verifier, while atomically importing
+	// the proof and its young anchorings.
 	//
 	// The pre-verify context uses no-op header verification
 	// and a mock chain lookup so it never hits the chain
@@ -529,15 +549,6 @@ func ImportBackup(ctx context.Context, backupBlob []byte,
 		GroupAnchorVerifier: cfg.ProofVerifier.GroupAnchorVerifier,
 		ChainLookupGen:      proof.MockChainLookup,
 		IgnoreChecker:       lfn.None[proof.IgnoreChecker](),
-	}
-
-	importVCtx := proof.VerifierCtx{
-		HeaderVerifier:      cfg.ProofVerifier.HeaderVerifier,
-		MerkleVerifier:      cfg.ProofVerifier.MerkleVerifier,
-		GroupVerifier:       augmentedVerifier,
-		GroupAnchorVerifier: cfg.ProofVerifier.GroupAnchorVerifier,
-		ChainLookupGen:      cfg.ProofVerifier.ChainLookupGen,
-		IgnoreChecker:       cfg.ProofVerifier.IgnoreChecker,
 	}
 
 	var (
@@ -782,17 +793,16 @@ func ImportBackup(ctx context.Context, backupBlob []byte,
 			continue
 		}
 
-		// Import the verified proof into the archive. The
+		// Stake the verified proof as wallet state. The
 		// locator is derived from the same backup entry as
 		// the proof blob, so the asset ID and script key
 		// are guaranteed to be consistent. Errors here are
 		// storage/infrastructure issues — fail fast.
-		err = cfg.ProofArchive.ImportProofs(
-			ctx, importVCtx, false,
-			&proof.AnnotatedProof{
+		err = cfg.ProofStaker.StakeReceiveWithGroupVerifier(
+			ctx, &proof.AnnotatedProof{
 				Locator: locator,
 				Blob:    assetBackup.ProofFileBlob,
-			},
+			}, augmentedVerifier,
 		)
 		if err != nil {
 			return numImported, numSkipped,
@@ -855,13 +865,12 @@ func ImportBackup(ctx context.Context, backupBlob []byte,
 			continue
 		}
 
-		// Import — storage errors are fatal.
-		err = cfg.ProofArchive.ImportProofs(
-			ctx, importVCtx, false,
-			&proof.AnnotatedProof{
+		// Stake — storage or registration errors are fatal.
+		err = cfg.ProofStaker.StakeReceiveWithGroupVerifier(
+			ctx, &proof.AnnotatedProof{
 				Locator: retryLocator,
 				Blob:    ab.ProofFileBlob,
-			},
+			}, augmentedVerifier,
 		)
 		if err != nil {
 			return numImported, numSkipped,
@@ -893,8 +902,8 @@ func ImportBackup(ctx context.Context, backupBlob []byte,
 // anchor outpoint concurrently, giving each outpoint its own timeout.
 // Returns a slice indexed by asset position: true = spent.
 func detectSpentOutpoints(ctx context.Context,
-	spendChecker SpendChecker,
-	assets []*AssetBackup) ([]bool, error) {
+	spendChecker SpendChecker, assets []*AssetBackup,
+	timeout time.Duration) ([]bool, error) {
 
 	spent := make([]bool, len(assets))
 	if len(assets) == 0 {
@@ -943,7 +952,7 @@ func detectSpentOutpoints(ctx context.Context,
 			defer func() { <-sem }()
 
 			assetCtx, cancel := context.WithTimeout(
-				detectCtx, spendCheckTimeout,
+				detectCtx, timeout,
 			)
 			defer cancel()
 

@@ -34,6 +34,12 @@ const (
 	// column. SQLite has no native SHA-256, so the work cannot be
 	// expressed as portable SQL.
 	Migration65BackfillEventKeys = 65
+
+	// Migration72BackfillProofProvenance is the version of the
+	// programmatic migration that derives the anchor transaction index
+	// for proof files written before the index existed. Proof files are
+	// recursive values, so this cannot be expressed as portable SQL.
+	Migration72BackfillProofProvenance = 72
 )
 
 // programmaticMigration is a function type for a function that performs a
@@ -46,11 +52,57 @@ var (
 	// These functions are used to perform additional checks on the
 	// database state that are not fully expressible in SQL.
 	programmaticMigrations = map[uint]programmaticMigration{
-		Migration50ScriptKeyType:     determineAndAssignScriptKeyType,
-		Migration51InsertAssetBurns:  insertAssetBurns,
+		Migration50ScriptKeyType: determineAndAssignScriptKeyType,
+
+		Migration51InsertAssetBurns: insertAssetBurns,
+
 		Migration65BackfillEventKeys: backfillSupplyUpdateEventKeys,
+
+		Migration72BackfillProofProvenance: backfillProofProvenance,
 	}
 )
+
+const proofProvenanceBackfillPageSize = 128
+
+// backfillProofProvenance rebuilds the derived transaction-to-proof index for
+// every legacy proof blob. It runs inside the migration's single transaction:
+// bounded pages keep memory flat, and indexing marks each row complete, so the
+// unindexed set shrinks to nothing or the whole migration rolls back.
+func backfillProofProvenance(ctx context.Context, q sqlc.Querier) error {
+	for {
+		rows, err := q.FetchUnindexedAssetProofs(
+			ctx, proofProvenanceBackfillPageSize,
+		)
+		if err != nil {
+			return fmt.Errorf(
+				"fetching unindexed proof files: %w", err,
+			)
+		}
+		if len(rows) == 0 {
+			return nil
+		}
+
+		for _, row := range rows {
+			indexed, err := NewIndexedProofFile(row.ProofFile)
+			if err != nil {
+				return fmt.Errorf(
+					"indexing legacy proof %d: %w",
+					row.ProofID, err,
+				)
+			}
+
+			err = IndexStoredAssetProof(
+				ctx, q, row.ProofID, indexed,
+			)
+			if err != nil {
+				return fmt.Errorf(
+					"storing legacy proof %d index: %w",
+					row.ProofID, err,
+				)
+			}
+		}
+	}
+}
 
 // makeProgrammaticMigrations turns the programmatic migrations into a map of
 // ProgrammaticMigrEntry instances that can be used with the migrate package.

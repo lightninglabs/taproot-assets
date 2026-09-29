@@ -49,6 +49,13 @@ FROM forwards f
 WHERE f.settled_at IS NULL AND f.failed_at IS NULL
 ORDER BY f.opened_at DESC;
 
+-- name: QuerySettledFillByRfqID :many
+SELECT
+    f.rfq_id, CAST(SUM(f.amt_out_msat) AS BIGINT) AS settled_amt_msat
+FROM forwards f
+WHERE f.settled_at IS NOT NULL
+GROUP BY f.rfq_id;
+
 -- name: QueryForwards :many
 SELECT
     f.id, f.opened_at, f.settled_at, f.failed_at, f.rfq_id,

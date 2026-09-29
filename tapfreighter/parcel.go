@@ -14,7 +14,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/tapreorg"
 	"github.com/lightninglabs/taproot-assets/tapsend"
-	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"golang.org/x/exp/maps"
@@ -576,10 +575,6 @@ type sendPackage struct {
 	// to be stored on disk, one for each output in the outbound parcel,
 	// keyed by their unique output key (hash of asset ID and script key).
 	FinalProofs map[OutputIdentifier]*proof.AnnotatedProof
-
-	// TransferTxConfEvent contains transfer transaction on-chain
-	// confirmation data.
-	TransferTxConfEvent *chainntnfs.TxConfirmation
 
 	// Label is a user provided short label for this transfer.
 	Label string

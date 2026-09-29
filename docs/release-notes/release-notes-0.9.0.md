@@ -155,6 +155,11 @@
   once and the event failed with `ErrMultipleProofs` on every attempt.
   The proof is now looked up by asset as well.
 
+* [PR#2317](https://github.com/lightninglabs/taproot-assets/pull/2317)
+  updates RFQ quote accounting to track settled amounts separately from
+  pending HTLC reservations and restore settled usage from forwarding records
+  on startup. Failed HTLCs continue to release their reservations.
+
 # New Features
 
 ## Functional Enhancements
@@ -221,6 +226,11 @@
   default, 1000 at most). A new Prometheus collector exports live
   anchorings by site and phase, plus stuck and lagging deliveries
   counted over live and terminal anchorings alike.
+
+* The `Anchoring` message of `ListAnchorings` gains a `stuck_reason`
+  field carrying the last delivery error once the anchoring is
+  flagged stuck, so an operator can see why delivery keeps failing
+  without reading the daemon's log.
 
 ## tapcli Additions
 
@@ -294,25 +304,20 @@
   server before forcing a full enumeration sync as an audit (default:
   24h).
 
-- The new `--disable-anchoring-watcher` flag disables the anchoring
-  watcher service, serving as a kill switch for anchoring-based
-  processing in the migrated transfer, receive, minting, and
-  supply-commit paths. The registry's read surfaces (the
-  `ListAnchorings` RPC and the Prometheus collector) stay available
-  with the watcher disabled.
+- The `--disable-anchoring-watcher` flag is removed along with the
+  legacy proof watcher it fell back to: every chain-dependent path now
+  runs through the anchoring watcher only. A configuration file that
+  still carries the flag is refused at startup as an unknown option;
+  delete the line before upgrading.
 
 - [PR#2287](https://github.com/lightninglabs/taproot-assets/pull/2287)
   validates `--reorgsafedepth` at startup. It must be at least
-  one, and — while the anchoring watcher is running — at most 144, the
-  chain notifier's maximum confirmation depth, since the depth doubles
-  as every anchoring's confirmation threshold. A larger value
-  previously passed startup and then failed every registration after
-  its transaction had already broadcast. The upper bound does not
-  apply with `--disable-anchoring-watcher` set: the legacy watcher
-  subscribes for a single confirmation and counts depth itself, so a
-  node rolling back onto it still starts on a depth the anchoring path
-  would refuse. Nodes configured above 144 that keep the watcher
-  enabled will refuse to start; lower the value before upgrading.
+  one and at most 144, the chain notifier's maximum confirmation
+  depth, since the depth doubles as every anchoring's confirmation
+  threshold. A larger value previously passed startup and then failed
+  every registration after its transaction had already broadcast.
+  Nodes configured above 144 will refuse to start; lower the value
+  before upgrading.
 
 ## Code Health
 
@@ -333,6 +338,18 @@
   wrapper, and `PendingAssetGroup`'s embedded `asset.GroupKeyRequest`
   and `asset.GroupVirtualTx` are now the named fields `KeyRequest`
   and `VirtualTx`.
+
+* The `--disable-anchoring-watcher` flag is removed. The supply-commit
+  state machine loses its finalize state: rows persisted in that state
+  by an earlier release load as the broadcast state, whose resume path
+  re-derives what it needs from the durable record, so no migration is
+  required.
+
+* The legacy proof watcher is deleted from the exported Go API:
+  `proof.Watcher` and `proof.UpdateCallback`, `tapreorg.LegacyWatcher`
+  with `LegacyConfig` and `NewLegacyWatcher`, the
+  `tapconfig.Config.ReOrgWatcher` field, and `tapgarden.MockProofWatcher`
+  are gone.
 
 ## Performance Improvements
 
@@ -411,6 +428,14 @@
   then resumed at startup and rebroadcast an anchor that can never
   confirm. Existing rows default to `false`; no backfill or operator
   action is required.
+
+* [PR#2315](https://github.com/lightninglabs/taproot-assets/pull/2315)
+  updates the SQLite driver to v1.59.0, embedding SQLite 3.53.4, which
+  fixes the WAL-reset data-corruption bug affecting SQLite versions
+  through 3.51.2 when concurrent connections write and checkpoint a
+  WAL-mode database, and updates the PostgreSQL driver to v5.11.0,
+  bringing in its security hardening and correctness fixes. No migration
+  or operator action is required.
 
 ## Code Health
 

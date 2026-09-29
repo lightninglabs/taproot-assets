@@ -87,7 +87,29 @@ make gen
 | `mssmt` | Merkle-Sum Sparse Merkle Tree implementation |
 | `vm` | Taproot Assets virtual machine for script execution |
 | `tapchannel` | Lightning channel integration |
+| `tapreorg` | Re-org watcher: sensing, phase derivation, delivery |
 | `fn` | Functional utilities (Option, Either, Result types) |
+
+### Re-org watcher
+
+Every subsystem that stakes local state on a future chain outcome
+registers with the re-org watcher as a speculative anchoring: chain
+porter, receive-side (custodian, sweeper, RPC RegisterTransfer),
+mint, supply commit. Registration is atomic with the subsystem's
+speculative write; delivery of phase changes (unwitnessed / witnessed
+/ conflicted / buried / abandoned) runs inside a transaction with
+the subsystem's convergent handler.
+
+The `--reorgsafedepth` flag (default 6 mainnet, 120 testnet)
+configures the burial threshold. Buried and Abandoned are absorbing:
+past the threshold the watcher's contract is that state is
+chain-final, and act-gated emissions (universe publishes, supply
+commits, burn events) hang on that. A re-org deeper than the
+threshold is outside the watcher's contract and is neither detected
+nor recovered. An anchoring whose phase delivery keeps failing is
+flagged stuck on `ListAnchorings` and counted by the Prometheus
+collector's stuck gauge; retries continue regardless. See
+`tapreorg/doc.go` for the full terminal-absorption policy.
 
 ### Database Layer
 

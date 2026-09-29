@@ -85,22 +85,6 @@ func (q *Queries) CountLiveReorgAnchoringsByPhase(ctx context.Context) ([]CountL
 	return items, nil
 }
 
-const CountLiveReorgDependents = `-- name: CountLiveReorgDependents :one
-SELECT COUNT(*)
-FROM reorg_dependencies d
-JOIN reorg_anchorings child
-  ON child.id = d.child_id
-WHERE d.parent_id = $1
-  AND child.phase_code < 3
-`
-
-func (q *Queries) CountLiveReorgDependents(ctx context.Context, parentID int64) (int64, error) {
-	row := q.db.QueryRowContext(ctx, CountLiveReorgDependents, parentID)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
-}
-
 const CountStuckReorgAnchorings = `-- name: CountStuckReorgAnchorings :one
 SELECT COUNT(*)
 FROM reorg_anchorings
@@ -418,7 +402,7 @@ type InsertReorgAnchoringParams struct {
 }
 
 // Phase codes mirror tapreorg.PhaseCode: 0 unwitnessed, 1 witnessed,
-// 2 conflicted, 3 buried, 4 abandoned, 5 withdrawn. Codes >= 3 are
+// 2 conflicted, 3 buried, 4 abandoned. Codes >= 3 are
 // terminal. Verdict codes mirror tapreorg.Verdict: 0 satisfies, 1
 // foreign. The literals below must stay in sync with those enums.
 func (q *Queries) InsertReorgAnchoring(ctx context.Context, arg InsertReorgAnchoringParams) (int64, error) {
@@ -952,8 +936,8 @@ type SetReorgAnchoringPhaseParams struct {
 // resets with it; a systematically failing handler re-sticks after
 // the usual number of attempts. Terminal phases are absorbing at the
 // row level: a write racing another writer's terminal transition
-// (a site-initiated withdrawal, most likely) matches no rows, and
-// the caller observes the refusal via the row count.
+// matches no rows, and the caller observes the refusal via the row
+// count.
 func (q *Queries) SetReorgAnchoringPhase(ctx context.Context, arg SetReorgAnchoringPhaseParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, SetReorgAnchoringPhase,
 		arg.PhaseCode,

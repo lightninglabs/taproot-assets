@@ -6,11 +6,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/psbt/v2"
 	"github.com/btcsuite/btcd/wire/v2"
+	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/tapnode/tapnodemock"
@@ -43,18 +46,16 @@ type ladderMintLog struct {
 }
 
 func (l *ladderMintLog) ApplyReceiveReconfirm(_ context.Context,
-	_ *sqlc.Queries, anchorTxid chainhash.Hash,
-	blockHash chainhash.Hash, blockHeight, txIndex uint32,
-	header wire.BlockHeader,
-	_ proof.TxMerkleProof) ([]proof.Locator, error) {
+	_ *sqlc.Queries,
+	blockContext proof.VerifiedBlockContext) ([]proof.Locator, error) {
 
 	l.calls = append(l.calls, mintCall{
 		kind:        "reconfirm",
-		txid:        anchorTxid,
-		blockHash:   blockHash,
-		blockHeight: blockHeight,
-		txIndex:     txIndex,
-		header:      header,
+		txid:        blockContext.AnchorTxID(),
+		blockHash:   blockContext.BlockHash(),
+		blockHeight: blockContext.BlockHeight(),
+		txIndex:     blockContext.TxIndex(),
+		header:      blockContext.BlockHeader(),
 	})
 
 	return l.locators, nil
@@ -99,7 +100,32 @@ func mintWitnessAt(t *testing.T, tx *wire.MsgTx, nonce uint32,
 
 	t.Helper()
 
-	header := &wire.BlockHeader{Version: 2, Nonce: nonce}
+	txs := make([]*wire.MsgTx, int(txIndex)+1)
+	for i := range txs {
+		filler := wire.NewMsgTx(2)
+		filler.LockTime = nonce + uint32(i) + 1
+		txs[i] = filler
+	}
+	txs[txIndex] = tx
+
+	merkleProof, err := proof.NewTxMerkleProof(txs, int(txIndex))
+	require.NoError(t, err)
+	merkleRoot := tx.TxHash()
+	for i := range merkleProof.Nodes {
+		var left, right *chainhash.Hash
+		if merkleProof.Bits[i] {
+			left, right = &merkleRoot, &merkleProof.Nodes[i]
+		} else {
+			left, right = &merkleProof.Nodes[i], &merkleRoot
+		}
+		merkleRoot = blockchain.HashMerkleBranches(left, right)
+	}
+
+	header := &wire.BlockHeader{
+		Version:    2,
+		MerkleRoot: merkleRoot,
+		Nonce:      nonce,
+	}
 	w, err := tapreorg.NewWitness(tx, header.BlockHash(), height, txIndex)
 	require.NoError(t, err)
 
@@ -108,7 +134,7 @@ func mintWitnessAt(t *testing.T, tx *wire.MsgTx, nonce uint32,
 		W:           w,
 		OnChain:     true,
 		BlockHeader: header,
-		MerkleProof: &proof.TxMerkleProof{},
+		MerkleProof: merkleProof,
 	}
 }
 
@@ -484,6 +510,38 @@ func TestMintAnchoringWaitNudged(t *testing.T) {
 	case <-time.After(timeout):
 		t.Fatal("wait on a delivered anchoring did not resolve")
 	}
+}
+
+// TestMintSeedFromProof asserts that legacy mint adoption carries complete
+// proof repair evidence and cannot be seeded by another transaction's proof.
+func TestMintSeedFromProof(t *testing.T) {
+	t.Parallel()
+
+	anchorTx := wire.NewMsgTx(2)
+	anchorTx.AddTxIn(wire.NewTxIn(&wire.OutPoint{}, nil, nil))
+	anchorTx.AddTxOut(wire.NewTxOut(1_000, []byte{0x51}))
+	block := wire.MsgBlock{
+		Header:       wire.BlockHeader{Version: 1},
+		Transactions: []*wire.MsgTx{anchorTx},
+	}
+	mintProof := proof.RandProof(
+		t, asset.RandGenesis(t, asset.Normal), test.RandPubKey(t),
+		block, 0, 101,
+	)
+	mintProof.BlockHeight = 101
+	blob, err := proof.EncodeAsProofFile(&mintProof)
+	require.NoError(t, err)
+
+	anchorTxid := mintProof.AnchorTx.TxHash()
+	seed, err := mintSeedFromProof(blob, anchorTxid)
+	require.NoError(t, err)
+	require.Equal(t, anchorTxid, seed.W.TxHash())
+	require.EqualValues(t, 101, seed.W.Height())
+	require.NotNil(t, seed.BlockHeader)
+	require.NotNil(t, seed.MerkleProof)
+
+	_, err = mintSeedFromProof(blob, chainhash.Hash{0xff})
+	require.ErrorContains(t, err, "expected")
 }
 
 // broadcastBatchStore serves one batch, whatever key is asked for.

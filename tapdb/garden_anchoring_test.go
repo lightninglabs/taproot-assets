@@ -6,8 +6,9 @@ import (
 	"database/sql"
 	"testing"
 
-	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/psbt/v2"
 	"github.com/btcsuite/btcd/wire/v2"
+	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
@@ -137,14 +138,20 @@ func TestMintAnchoringConfirmCycle(t *testing.T) {
 		tapgarden.MockBindDataForBatch(mintingBatch),
 	))
 
-	reconfirm := func(blockHash chainhash.Hash, header wire.BlockHeader,
+	reconfirm := func(header wire.BlockHeader,
 		merkle proof.TxMerkleProof, height uint32) error {
+
+		blockContext, err := proof.NewVerifiedBlockContext(
+			genesisTx, header, height, merkle,
+		)
+		if err != nil {
+			return err
+		}
 
 		return executor.ExecTx(
 			ctx, WriteTxOption(), func(q *sqlc.Queries) error {
 				_, err := assetsStore.ApplyReceiveReconfirm(
-					ctx, q, genesisTxid, blockHash,
-					height, 0, header, merkle,
+					ctx, q, blockContext,
 				)
 				return err
 			},
@@ -155,8 +162,8 @@ func TestMintAnchoringConfirmCycle(t *testing.T) {
 	// any proof file: the chain row converges, nothing fails.
 	// Applied twice equals once.
 	blockHashA, headerA, merkleA := blockContextFor(t, genesisTx, 30)
-	require.NoError(t, reconfirm(blockHashA, headerA, merkleA, 900))
-	require.NoError(t, reconfirm(blockHashA, headerA, merkleA, 900))
+	require.NoError(t, reconfirm(headerA, merkleA, 900))
+	require.NoError(t, reconfirm(headerA, merkleA, 900))
 
 	chainTx, err := db.FetchChainTx(ctx, genesisTxid[:])
 	require.NoError(t, err)
@@ -175,9 +182,6 @@ func TestMintAnchoringConfirmCycle(t *testing.T) {
 	tipProof.BlockHeight = 900
 	file, err := proof.NewFile(proof.V0, *tipProof)
 	require.NoError(t, err)
-	var fileBuf bytes.Buffer
-	require.NoError(t, file.Encode(&fileBuf))
-
 	var assetDBID int64
 	err = db.DB.QueryRowContext(
 		ctx, "SELECT assets.asset_id FROM assets "+
@@ -187,17 +191,18 @@ func TestMintAnchoringConfirmCycle(t *testing.T) {
 		assets[0].ScriptKey.PubKey.SerializeCompressed(),
 	).Scan(&assetDBID)
 	require.NoError(t, err)
-	require.NoError(t, db.UpsertAssetProofByID(ctx, ProofUpdateByID{
-		AssetID:   assetDBID,
-		ProofFile: fileBuf.Bytes(),
-	}))
+	indexedProof, err := NewIndexedProofFileFromFile(file)
+	require.NoError(t, err)
+	require.NoError(t, StoreIndexedAssetProof(
+		ctx, db, assetDBID, indexedProof,
+	))
 
 	// A re-organized re-confirmation in block B refreshes the chain
 	// row and re-stamps the stored proof tip, without growing the
 	// file. Applied twice equals once.
 	blockHashB, headerB, merkleB := blockContextFor(t, genesisTx, 31)
-	require.NoError(t, reconfirm(blockHashB, headerB, merkleB, 901))
-	require.NoError(t, reconfirm(blockHashB, headerB, merkleB, 901))
+	require.NoError(t, reconfirm(headerB, merkleB, 901))
+	require.NoError(t, reconfirm(headerB, merkleB, 901))
 
 	chainTx, err = db.FetchChainTx(ctx, genesisTxid[:])
 	require.NoError(t, err)
@@ -236,7 +241,7 @@ func TestMintAnchoringConfirmCycle(t *testing.T) {
 	require.Len(t, assets, 1)
 
 	// Re-confirmation after the downgrade converges back.
-	require.NoError(t, reconfirm(blockHashB, headerB, merkleB, 901))
+	require.NoError(t, reconfirm(headerB, merkleB, 901))
 	chainTx, err = db.FetchChainTx(ctx, genesisTxid[:])
 	require.NoError(t, err)
 	require.Equal(t, blockHashB[:], chainTx.BlockHash)
@@ -365,4 +370,122 @@ func assertPreCommitReleased(t *testing.T, cancelled tapgarden.BatchState) {
 			"commitment would spend an outpoint that does not "+
 			"exist",
 	)
+}
+
+// TestMintPathReconfirmRestampsIssuanceProofs writes issuance proofs the way
+// batch confirmation writes them, then re-confirms the genesis in a new
+// block the way the mint site applies it, and checks every minted asset's
+// stored proof carries the new block context. Applied twice equals once.
+func TestMintPathReconfirmRestampsIssuanceProofs(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db := NewTestDB(t)
+	mintingStore, assetsStore := newAssetStoreFromDB(db.BaseDB)
+	executor := NewTransactionExecutor(
+		db, func(tx *sql.Tx) *sqlc.Queries {
+			return db.WithTx(tx)
+		},
+	)
+
+	// The batch confirms in block A, and its proofs are stored through
+	// the confirmation the cultivator applies.
+	randAssetCtx := addRandAssets(t, ctx, mintingStore, 3)
+	randAssetCtx.genesisPkt.Pkt.Inputs[0].FinalScriptSig = []byte{}
+	require.NoError(t, mintingStore.CommitSignedGenesisTx(
+		ctx, randAssetCtx.mintingBatch, randAssetCtx.genesisPkt, 0,
+		randAssetCtx.merkleRoot, randAssetCtx.scriptRoot,
+		randAssetCtx.tapSiblingBytes,
+	))
+	genesisTx, err := psbt.Extract(randAssetCtx.genesisPkt.Pkt)
+	require.NoError(t, err)
+	blockHashA, headerA, _ := blockContextFor(t, genesisTx, 30)
+
+	committed := randAssetCtx.assetRoot.CommittedAssets()
+	require.NotEmpty(t, committed)
+	blobs := make(proof.AssetBlobs, len(committed))
+	for _, a := range committed {
+		issuance := proof.RandProof(
+			t, a.Genesis, a.ScriptKey.PubKey, wire.MsgBlock{
+				Header:       headerA,
+				Transactions: []*wire.MsgTx{genesisTx},
+			}, 0, 0,
+		)
+		issuance.BlockHeight = 900
+		blob, err := proof.EncodeAsProofFile(&issuance)
+		require.NoError(t, err)
+		blobs[asset.ToSerialized(a.ScriptKey.PubKey)] = blob
+	}
+	require.NoError(t, mintingStore.MarkBatchConfirmed(
+		ctx, randAssetCtx.mintingBatch, &blockHashA, 900, 0, blobs,
+	))
+
+	// The genesis re-confirms in block B.
+	_, headerB, merkleB := blockContextFor(t, genesisTx, 31)
+	blockContext, err := proof.NewVerifiedBlockContext(
+		genesisTx, headerB, 901, merkleB,
+	)
+	require.NoError(t, err)
+	reconfirm := func() []proof.Locator {
+		t.Helper()
+
+		var restamped []proof.Locator
+		apply := assetsStore.ApplyReceiveReconfirm
+		err := executor.ExecTx(
+			ctx, WriteTxOption(), func(q *sqlc.Queries) error {
+				var err error
+				restamped, err = apply(ctx, q, blockContext)
+				return err
+			},
+		)
+		require.NoError(t, err)
+
+		return restamped
+	}
+	require.Len(t, reconfirm(), len(committed))
+
+	const assetIDByScriptKey = "SELECT assets.asset_id FROM assets " +
+		"JOIN script_keys ON assets.script_key_id = " +
+		"script_keys.script_key_id " +
+		"WHERE script_keys.tweaked_script_key = $1"
+	storedTips := func() map[asset.SerializedKey]*proof.Proof {
+		tips := make(map[asset.SerializedKey]*proof.Proof)
+		for _, a := range committed {
+			var assetDBID int64
+			err := db.DB.QueryRowContext(
+				ctx, assetIDByScriptKey,
+				a.ScriptKey.PubKey.SerializeCompressed(),
+			).Scan(&assetDBID)
+			require.NoError(t, err)
+
+			blob, err := db.AssetProofBlobByAssetID(ctx, assetDBID)
+			require.NoError(t, err)
+			file, err := proof.Blob(blob).AsFile()
+			require.NoError(t, err)
+			tip, err := file.LastProof()
+			require.NoError(t, err)
+			tips[asset.ToSerialized(a.ScriptKey.PubKey)] = tip
+		}
+
+		return tips
+	}
+	blockHashB := headerB.BlockHash()
+	for key, tip := range storedTips() {
+		require.Equal(t, blockHashB, tip.BlockHeader.BlockHash(),
+			"asset %x", key[:])
+		require.EqualValues(t, 901, tip.BlockHeight)
+		require.True(t, tip.TxMerkleProof.Verify(
+			genesisTx, tip.BlockHeader.MerkleRoot,
+		))
+	}
+
+	genesisTxid := genesisTx.TxHash()
+	chainTx, err := db.FetchChainTx(ctx, genesisTxid[:])
+	require.NoError(t, err)
+	require.Equal(t, blockHashB[:], chainTx.BlockHash)
+
+	require.Len(t, reconfirm(), len(committed))
+	for _, tip := range storedTips() {
+		require.Equal(t, blockHashB, tip.BlockHeader.BlockHash())
+	}
 }
