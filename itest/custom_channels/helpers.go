@@ -1550,7 +1550,9 @@ func closeAssetChannelWithFeeAndAssert(t *ccHarnessTest,
 	closeStream, err := local.CloseChannel(ctxb, closeReq)
 	require.NoError(t.t, err)
 
-	err = waitForClosePendingUpdate(t, net, closeStream)
+	err = waitForClosePendingUpdate(
+		t, net, closeStream, feeRateSatPerVbyte,
+	)
 	require.NoError(t.t, err)
 
 	sendEvents, err := local.SubscribeSendEvents(
@@ -1584,11 +1586,13 @@ func closeAssetChannelWithFeeAndAssert(t *ccHarnessTest,
 	assertClosedChannelAssetData(t.t, remote, chanPoint)
 }
 
-// waitForClosePendingUpdate waits for the first close pending update on the
-// close stream and ensures that the close transaction reaches the mempool.
+// waitForClosePendingUpdate waits for the close pending update of our own
+// close transaction at the given fee rate on the close stream and ensures
+// that the transaction reaches the mempool.
 func waitForClosePendingUpdate(t *ccHarnessTest,
 	net *itest.IntegratedNetworkHarness,
-	closeStream lnrpc.Lightning_CloseChannelClient) error {
+	closeStream lnrpc.Lightning_CloseChannelClient,
+	feeRateSatPerVbyte uint64) error {
 
 	t.t.Helper()
 
@@ -1596,31 +1600,40 @@ func waitForClosePendingUpdate(t *ccHarnessTest,
 	txidChan := make(chan *chainhash.Hash, 1)
 
 	go func() {
-		closeResp, err := closeStream.Recv()
-		if err != nil {
-			errChan <- fmt.Errorf("unable to recv from close "+
-				"stream: %w", err)
+		for {
+			closeResp, err := closeStream.Recv()
+			if err != nil {
+				errChan <- fmt.Errorf("unable to recv from "+
+					"close stream: %w", err)
+				return
+			}
+
+			pendingClose := closeResp.GetClosePending()
+			if pendingClose == nil {
+				errChan <- fmt.Errorf("expected close pending "+
+					"update, instead got %v", closeResp)
+				return
+			}
+
+			// With the RBF flow the remote party's transactions
+			// are reported as well, skip those.
+			if !itest.IsOwnRbfCloseUpdate(
+				pendingClose, feeRateSatPerVbyte,
+			) {
+
+				continue
+			}
+
+			closeTxid, err := chainhash.NewHash(pendingClose.Txid)
+			if err != nil {
+				errChan <- fmt.Errorf("unable to decode "+
+					"closeTxid: %w", err)
+				return
+			}
+
+			txidChan <- closeTxid
 			return
 		}
-
-		pendingClose, ok :=
-			closeResp.Update.(*lnrpc.CloseStatusUpdate_ClosePending)
-		if !ok {
-			errChan <- fmt.Errorf("expected close pending update, "+
-				"instead got %v", closeResp)
-			return
-		}
-
-		closeTxid, err := chainhash.NewHash(
-			pendingClose.ClosePending.Txid,
-		)
-		if err != nil {
-			errChan <- fmt.Errorf("unable to decode closeTxid: %w",
-				err)
-			return
-		}
-
-		txidChan <- closeTxid
 	}()
 
 	select {
@@ -1763,25 +1776,37 @@ func defaultCoOpCloseBalanceCheck(t *testing.T,
 		closeTx.TxOut[localAssetIndex].PkScript,
 	)
 
-	closedChans, err := local.ClosedChannels(
-		ctxt, &lnrpc.ClosedChannelsRequest{
-			Cooperative: true,
-		},
-	)
-	require.NoError(t, err)
-	require.NotEmpty(t, closedChans.Channels)
-
+	// With the RBF close flow, the final close update is sent as soon as
+	// the close transaction is seen to be confirmed, which can be before
+	// the channel is marked as closed in the database, so we wait for the
+	// closed channel to show up.
 	var closedJsonChannel *rfqmsg.JsonAssetChannel
-	for _, closedChan := range closedChans.Channels {
-		if closedChan.ClosingTxHash == closeTx.TxHash().String() {
+	err := wait.NoError(func() error {
+		closedChans, err := local.ClosedChannels(
+			ctxt, &lnrpc.ClosedChannelsRequest{
+				Cooperative: true,
+			},
+		)
+		if err != nil {
+			return err
+		}
+
+		for _, closedChan := range closedChans.Channels {
+			if closedChan.ClosingTxHash != closeTxid.String() {
+				continue
+			}
+
 			closedJsonChannel, err = parseChannelData(
 				closedChan.CustomChannelData,
 			)
-			require.NoError(t, err)
 
-			break
+			return err
 		}
-	}
+
+		return fmt.Errorf("closed channel with closing tx %v not "+
+			"found", closeTxid)
+	}, wait.DefaultTimeout)
+	require.NoError(t, err)
 	require.NotNil(t, closedJsonChannel)
 
 	var localAssetCloseOut rfqmsg.JsonCloseOutput
