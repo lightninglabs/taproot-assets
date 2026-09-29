@@ -187,7 +187,10 @@ type Querier interface {
 	FetchAuxCloseInfo(ctx context.Context, chanPoint []byte) ([]byte, error)
 	FetchChainTx(ctx context.Context, txid []byte) (ChainTxn, error)
 	FetchChainTxByID(ctx context.Context, txnID int64) (FetchChainTxByIDRow, error)
-	FetchChildren(ctx context.Context, arg FetchChildrenParams) ([]FetchChildrenRow, error)
+	// Returns the node with the given hash key alongside its direct children, in
+	// no particular order. Each row is a primary key lookup, so the cost is
+	// independent of the size of the subtree beneath the node.
+	FetchChildren(ctx context.Context, arg FetchChildrenParams) ([]MssmtNode, error)
 	FetchChildrenSelfJoin(ctx context.Context, arg FetchChildrenSelfJoinParams) ([]FetchChildrenSelfJoinRow, error)
 	FetchGenesisByAssetID(ctx context.Context, assetID []byte) (GenesisInfoView, error)
 	FetchGenesisByGroupKey(ctx context.Context, tweakedGroupKey []byte) (GenesisInfoView, error)

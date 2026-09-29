@@ -25,7 +25,7 @@ type (
 	NewCompactedLeaf = sqlc.InsertCompactedLeafParams
 
 	// StoredNode is a type alias for an arbitrary child of an mssmt branch.
-	StoredNode = sqlc.FetchChildrenRow
+	StoredNode = sqlc.MssmtNode
 
 	// DelNode wraps the args we need to delete a node.
 	DelNode = sqlc.DeleteNodeParams
@@ -293,22 +293,24 @@ func (t *taprootAssetTreeStoreTx) GetChildren(height int, hashKey mssmt.NodeHash
 		right mssmt.Node = mssmt.EmptyTree[height+1]
 	)
 
+	// The rows hold the node itself and its stored children in no
+	// particular order, so we first find the node to learn which child
+	// hashes to look for.
 	var lHashKey, rHashKey []byte
-
-	for i, row := range dbRows {
-		if i == 0 {
-			// The root of the subtree, we're looking for the
-			// children, so we skip this node.
+	for _, row := range dbRows {
+		if bytes.Equal(row.HashKey, hashKey[:]) {
 			lHashKey = row.LHashKey
 			rHashKey = row.RHashKey
-			continue
+			break
 		}
+	}
 
+	for _, row := range dbRows {
 		isLeft := bytes.Equal(row.HashKey, lHashKey)
 		isRight := bytes.Equal(row.HashKey, rHashKey)
 
 		if !isLeft && !isRight {
-			// Some child node further down the tree.
+			// This is the node itself.
 			continue
 		}
 
