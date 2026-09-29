@@ -86,25 +86,13 @@ func (q *Queries) FetchAllNodes(ctx context.Context) ([]MssmtNode, error) {
 }
 
 const FetchChildren = `-- name: FetchChildren :many
-WITH RECURSIVE mssmt_branches_cte (
-    hash_key, l_hash_key, r_hash_key, key, value, sum, namespace, depth
-)
-AS (
-    SELECT r.hash_key, r.l_hash_key, r.r_hash_key, r.key, r.value, r.sum, r.namespace, 0 as depth
-    FROM mssmt_nodes r
-    WHERE r.hash_key = $1 AND r.namespace = $2
-    UNION ALL
-        SELECT n.hash_key, n.l_hash_key, n.r_hash_key, n.key, n.value, n.sum, n.namespace, depth+1
-        FROM mssmt_nodes n, mssmt_branches_cte b
-        WHERE n.namespace=b.namespace AND (n.hash_key=b.l_hash_key OR n.hash_key=b.r_hash_key)
-    /*
-    Limit the result set to 3 items. The first is always the root node, while
-    the following 0, 1 or 2 nodes represent children of the root node. These
-    children can either be the next level children, or one next level and one
-    from the level after that. In the future we may use this limit to fetch
-    entire subtrees too.
-    */
-) SELECT hash_key, l_hash_key, r_hash_key, key, value, sum, namespace, depth FROM mssmt_branches_cte WHERE depth < 3
+SELECT n.hash_key, n.l_hash_key, n.r_hash_key, n.key, n.value, n.sum,
+       n.namespace
+FROM mssmt_nodes p
+JOIN mssmt_nodes n
+    ON n.namespace = p.namespace
+    AND n.hash_key IN (p.hash_key, p.l_hash_key, p.r_hash_key)
+WHERE p.hash_key = $1 AND p.namespace = $2
 `
 
 type FetchChildrenParams struct {
@@ -112,26 +100,18 @@ type FetchChildrenParams struct {
 	Namespace string
 }
 
-type FetchChildrenRow struct {
-	HashKey   []byte
-	LHashKey  []byte
-	RHashKey  []byte
-	Key       []byte
-	Value     []byte
-	Sum       int64
-	Namespace string
-	Depth     int32
-}
-
-func (q *Queries) FetchChildren(ctx context.Context, arg FetchChildrenParams) ([]FetchChildrenRow, error) {
+// Returns the node with the given hash key alongside its direct children, in
+// no particular order. Each row is a primary key lookup, so the cost is
+// independent of the size of the subtree beneath the node.
+func (q *Queries) FetchChildren(ctx context.Context, arg FetchChildrenParams) ([]MssmtNode, error) {
 	rows, err := q.db.QueryContext(ctx, FetchChildren, arg.HashKey, arg.Namespace)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []FetchChildrenRow
+	var items []MssmtNode
 	for rows.Next() {
-		var i FetchChildrenRow
+		var i MssmtNode
 		if err := rows.Scan(
 			&i.HashKey,
 			&i.LHashKey,
@@ -140,7 +120,6 @@ func (q *Queries) FetchChildren(ctx context.Context, arg FetchChildrenParams) ([
 			&i.Value,
 			&i.Sum,
 			&i.Namespace,
-			&i.Depth,
 		); err != nil {
 			return nil, err
 		}
