@@ -2024,14 +2024,7 @@ func (a *Asset) Copy() *Asset {
 		}
 	}
 
-	if a.GroupKey != nil {
-		assetCopy.GroupKey = &GroupKey{
-			RawKey:        a.GroupKey.RawKey,
-			GroupPubKey:   a.GroupKey.GroupPubKey,
-			TapscriptRoot: a.GroupKey.TapscriptRoot,
-			Witness:       a.GroupKey.Witness,
-		}
-	}
+	assetCopy.GroupKey = a.GroupKey.Copy()
 
 	return &assetCopy
 }
