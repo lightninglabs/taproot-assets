@@ -155,10 +155,7 @@ func CreateProofSuffixCustom(finalTx *wire.MsgTx, vPacket *tappsbt.VPacket,
 
 	inputPrevID := vPacket.Inputs[0].PrevID
 
-	cfg := proof.DefaultGenConfig()
-	for _, opt := range opts {
-		opt(&cfg)
-	}
+	cfg := proof.NewGenConfig(opts...)
 
 	params, err := proofParams(
 		finalTx, vPacket, outputCommitments, outIndex,
@@ -208,6 +205,27 @@ func CreateProofSuffixCustom(finalTx *wire.MsgTx, vPacket *tappsbt.VPacket,
 	}
 
 	return proofSuffix, nil
+}
+
+// rootLocatorProof extracts the MS-SMT inclusion proof of the root locator's
+// split leaf from the split root virtual output. The split root output retains
+// the canonical root locator split asset, whose split commitment witness
+// contains the proof.
+func rootLocatorProof(splitRootOut *tappsbt.VOutput) (*mssmt.Proof, error) {
+	if splitRootOut.SplitAsset == nil {
+		return nil, fmt.Errorf("split root output has no split asset")
+	}
+
+	if !splitRootOut.SplitAsset.HasSplitCommitmentWitness() {
+		return nil, fmt.Errorf("split root locator asset has no " +
+			"split commitment witness")
+	}
+
+	// Copy the proof to avoid aliasing the virtual packet's state.
+	locatorProof := splitRootOut.SplitAsset.PrevWitnesses[0].
+		SplitCommitment.Proof
+
+	return &locatorProof, nil
 }
 
 // newParams is used to create a set of new params for the final state
@@ -268,6 +286,18 @@ func proofParams(finalTx *wire.MsgTx, vPkt *tappsbt.VPacket,
 			rootOut.AnchorOutputInternalKey, rootTapTree,
 			rootOut.AnchorOutputTapscriptSibling,
 		)
+
+		// For a split, the root output retains the canonical root
+		// locator split asset, whose split commitment witness contains
+		// the root locator's inclusion proof into the split tree.
+		if rootOut.Type.IsSplitRoot() {
+			locatorProof, err := rootLocatorProof(rootOut)
+			if err != nil {
+				return nil, err
+			}
+
+			rootParams.RootLocatorProof = locatorProof
+		}
 
 		// Add exclusion proofs for all the other outputs.
 		err = addOtherOutputExclusionProofs(
@@ -333,6 +363,19 @@ func proofParams(finalTx *wire.MsgTx, vPkt *tappsbt.VPacket,
 	splitParams.RootInternalKey = splitRootOut.AnchorOutputInternalKey
 	splitParams.RootTapscriptSibling = splitRootPreimage
 	splitParams.RootTaprootAssetTree = splitRootTree
+
+	// The split root output retains the canonical root locator split
+	// asset, whose split commitment witness contains the root locator's
+	// inclusion proof into the split tree. The proof of a split/receiver
+	// asset must carry it as well, so a verifier can bind the root asset's
+	// amount to the split tree.
+	locatorProof, err := rootLocatorProof(splitRootOut)
+	if err != nil {
+		return nil, err
+	}
+
+	splitParams.RootLocatorProof = locatorProof
+
 	splitParams.ExclusionProofs = []proof.TaprootProof{{
 		OutputIndex: splitRootIndex,
 		InternalKey: splitRootOut.AnchorOutputInternalKey,

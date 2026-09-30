@@ -1816,6 +1816,13 @@ func createProofParams(t *testing.T, genesisTxIn wire.TxIn, state spendData,
 	)
 	require.NoError(t, err)
 
+	// The split root output retains the canonical root locator split
+	// asset, whose split commitment witness contains the root locator's
+	// inclusion proof into the split tree.
+	require.NotNil(t, pkt.Outputs[0].SplitAsset)
+	rootLocatorProof := pkt.Outputs[0].SplitAsset.PrevWitnesses[0].
+		SplitCommitment.Proof
+
 	senderParams := proof.TransitionParams{
 		BaseProofParams: proof.BaseProofParams{
 			Block: &wire.MsgBlock{
@@ -1837,7 +1844,8 @@ func createProofParams(t *testing.T, genesisTxIn wire.TxIn, state spendData,
 				},
 			}},
 		},
-		NewAsset: senderAsset,
+		NewAsset:         senderAsset,
+		RootLocatorProof: &rootLocatorProof,
 	}
 
 	receiverParams := proof.TransitionParams{
@@ -1864,6 +1872,7 @@ func createProofParams(t *testing.T, genesisTxIn wire.TxIn, state spendData,
 		RootOutputIndex:      0,
 		RootInternalKey:      &state.spenderPubKey,
 		RootTaprootAssetTree: senderTapTree,
+		RootLocatorProof:     &rootLocatorProof,
 	}
 
 	return []proof.TransitionParams{senderParams, receiverParams}

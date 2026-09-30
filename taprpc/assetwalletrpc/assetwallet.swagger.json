@@ -605,7 +605,7 @@
         },
         "transition_proof_version": {
           "$ref": "#/definitions/assetwalletrpcTransitionProofVersion",
-          "description": "The version to use when generating the state transition proof suffixes.\nThis defaults to TRANSITION_PROOF_VERSION_V0 for backward compatibility."
+          "description": "The version to use when generating the state transition proof suffixes.\nIf unset, the daemon's default proof version is used."
         }
       }
     },
@@ -953,7 +953,7 @@
         "TRANSITION_PROOF_VERSION_V1"
       ],
       "default": "TRANSITION_PROOF_VERSION_V0",
-      "description": " - TRANSITION_PROOF_VERSION_V0: The first version of the state transition proof. This is the default for\nbackward compatibility.\n - TRANSITION_PROOF_VERSION_V1: The second version of the state transition proof. This version adds spent\ntransaction output (STXO) inclusion and exclusion proofs."
+      "description": " - TRANSITION_PROOF_VERSION_V0: The first version of the state transition proof. As the zero value of\nthis enum it is also what an unset field carries, so selecting it\napplies the daemon's default proof version rather than V0.\n - TRANSITION_PROOF_VERSION_V1: The second version of the state transition proof. This version adds spent\ntransaction output (STXO) inclusion and exclusion proofs."
     },
     "assetwalletrpcTxTemplate": {
       "type": "object",
