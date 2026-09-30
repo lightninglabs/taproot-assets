@@ -84,10 +84,7 @@ func TestTransitionProofOptions(t *testing.T) {
 
 			require.NoError(t, err)
 
-			cfg := proof.DefaultGenConfig()
-			for _, opt := range opts {
-				opt(&cfg)
-			}
+			cfg := proof.NewGenConfig(opts...)
 			require.Equal(t, tc.wantVersion, cfg.TransitionVersion)
 		})
 	}
