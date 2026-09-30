@@ -80,8 +80,9 @@ func (CoinSelectType) EnumDescriptor() ([]byte, []int) {
 type TransitionProofVersion int32
 
 const (
-	// The first version of the state transition proof. This is the default for
-	// backward compatibility.
+	// The first version of the state transition proof. As the zero value of
+	// this enum it is also what an unset field carries, so selecting it
+	// applies the daemon's default proof version rather than V0.
 	TransitionProofVersion_TRANSITION_PROOF_VERSION_V0 TransitionProofVersion = 0
 	// The second version of the state transition proof. This version adds spent
 	// transaction output (STXO) inclusion and exclusion proofs.
@@ -686,7 +687,7 @@ type CommitVirtualPsbtsRequest struct {
 	// is to create a zero-fee transaction.
 	SkipFunding bool `protobuf:"varint,10,opt,name=skip_funding,json=skipFunding,proto3" json:"skip_funding,omitempty"`
 	// The version to use when generating the state transition proof suffixes.
-	// This defaults to TRANSITION_PROOF_VERSION_V0 for backward compatibility.
+	// If unset, the daemon's default proof version is used.
 	TransitionProofVersion TransitionProofVersion `protobuf:"varint,11,opt,name=transition_proof_version,json=transitionProofVersion,proto3,enum=assetwalletrpc.TransitionProofVersion" json:"transition_proof_version,omitempty"`
 	unknownFields          protoimpl.UnknownFields
 	sizeCache              protoimpl.SizeCache

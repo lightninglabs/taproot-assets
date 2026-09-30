@@ -2285,6 +2285,29 @@ func (a *Asset) Validate() error {
 		return fmt.Errorf("asset script key is missing")
 	}
 
+	switch a.Genesis.Type {
+	case Normal, Collectible:
+
+	default:
+		return fmt.Errorf("unknown asset type: %d", a.Genesis.Type)
+	}
+
+	if a.ScriptVersion != ScriptV0 {
+		return fmt.Errorf("unknown asset script version: %d",
+			a.ScriptVersion)
+	}
+
+	// The amount restriction enforced during local asset construction is
+	// also a proof validity rule. Proofs are decoded directly into Asset
+	// values, so constructor validation alone cannot enforce it for assets
+	// received from another node.
+	if a.IsGenesisAsset() && a.Genesis.Type == Collectible &&
+		a.Amount != 1 {
+
+		return fmt.Errorf("amount must be 1 for genesis asset of "+
+			"type %v", a.Genesis.Type)
+	}
+
 	return ValidateAssetName(a.Genesis.Tag)
 }
 

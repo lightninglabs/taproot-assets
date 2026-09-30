@@ -10,6 +10,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -30,6 +31,7 @@ const (
 	GenesisRevealType    tlv.Type = 23
 	GroupKeyRevealType   tlv.Type = 25
 	AltLeavesType        tlv.Type = 27
+	RootLocatorProofType tlv.Type = 29
 
 	TaprootProofOutputIndexType     tlv.Type = 0
 	TaprootProofInternalKeyType     tlv.Type = 2
@@ -88,6 +90,7 @@ var KnownProofTypes = fn.NewSet(
 	ExclusionProofsType, SplitRootProofType, MetaRevealType,
 	AdditionalInputsType, ChallengeWitnessType, BlockHeightType,
 	GenesisRevealType, GroupKeyRevealType, AltLeavesType,
+	RootLocatorProofType,
 )
 
 // KnownTaprootProofTypes is a set of all known Taproot proof TLV types. This
@@ -196,6 +199,13 @@ func SplitRootProofRecord(proof **TaprootProof) tlv.Record {
 	return asset.EncodeOnceRecord(
 		SplitRootProofType, proof,
 		SplitRootProofEncoder, SplitRootProofDecoder,
+	)
+}
+
+func RootLocatorProofRecord(proof **mssmt.Proof) tlv.Record {
+	return asset.EncodeOnceRecord(
+		RootLocatorProofType, proof, RootLocatorProofEncoder,
+		RootLocatorProofDecoder,
 	)
 }
 

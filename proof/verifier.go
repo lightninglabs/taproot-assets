@@ -3,6 +3,7 @@ package proof
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"runtime"
@@ -66,6 +67,10 @@ type VerifierCtx struct {
 	ChainLookupGen ChainLookupGenerator
 
 	IgnoreChecker lfn.Option[IgnoreChecker]
+
+	// trustedRoot propagates the trust boundary used by VerifyProofSuffix
+	// into its nested input files.
+	trustedRoot bool
 }
 
 // Verifier abstracts away from the task of verifying a proof file blob.
@@ -95,6 +100,11 @@ type verifyOptions struct {
 	// file. This is used when verifying proofs without access to the
 	// chain backend (e.g. during backup pre-verification).
 	skipTimeLockValidation bool
+
+	// trustedRoot permits a proof file to start at a proof other than a
+	// genesis proof. This is reserved for suffix verification, where the
+	// caller supplies the current input states as its trust boundary.
+	trustedRoot bool
 }
 
 // defaultVerifyOptions returns a default set of proof verification options.
@@ -127,9 +137,39 @@ func WithSkipTimeLockValidationForAllProofs() VerifyOption {
 	}
 }
 
+// withTrustedRoot permits a proof file to start at a state whose history is
+// not established by the file itself. Only VerifyProofSuffix uses this option
+// because its caller supplies the trusted input boundary.
+func withTrustedRoot() VerifyOption {
+	return func(o *verifyOptions) {
+		o.trustedRoot = true
+	}
+}
+
 // BaseVerifier implements a simple verifier that loads the entire proof file
 // into memory and then verifies it all at once.
 type BaseVerifier struct {
+}
+
+// verifyAnchorInputs checks that the anchor transaction spends each outpoint
+// referenced by the asset's input witnesses.
+func verifyAnchorInputs(anchorTx *wire.MsgTx, proofAsset *asset.Asset) error {
+	for idx, witness := range proofAsset.Witnesses() {
+		if witness.PrevID == nil {
+			return fmt.Errorf("%w: input witness %d has no "+
+				"previous ID",
+				commitment.ErrInvalidTaprootProof, idx)
+		}
+
+		if !TxSpendsPrevOut(anchorTx, &witness.PrevID.OutPoint) {
+			return fmt.Errorf("%w: anchor transaction does not "+
+				"spend input %v",
+				commitment.ErrInvalidTaprootProof,
+				*witness.PrevID)
+		}
+	}
+
+	return nil
 }
 
 // VerifyProofSuffix verifies an unconfirmed transition proof suffix against
@@ -201,6 +241,11 @@ func VerifyProofSuffix(ctx context.Context, suffix *Proof,
 	// that the caller will persist.
 	suffixCopy := *suffix
 
+	err = verifyAnchorInputs(&suffix.AnchorTx, &suffix.Asset)
+	if err != nil {
+		return nil, err
+	}
+
 	witnesses := suffix.Asset.Witnesses()
 	seenInputs := make(map[asset.PrevID]struct{}, len(witnesses))
 	var primaryInputFile *File
@@ -216,15 +261,6 @@ func VerifyProofSuffix(ctx context.Context, suffix *Proof,
 				*prevID)
 		}
 		seenInputs[*prevID] = struct{}{}
-
-		// The anchor transaction must actually consume every claimed
-		// input, not just the primary one. Multiple assets may reside
-		// in a single UTXO, so re-checking an already spent outpoint
-		// for another witness is fine.
-		if !TxSpendsPrevOut(&suffix.AnchorTx, &prevID.OutPoint) {
-			return nil, fmt.Errorf("anchor transaction does not "+
-				"spend input %v", *prevID)
-		}
 
 		inputFile, ok := inputProofFiles[*prevID]
 		if !ok || inputFile == nil {
@@ -279,6 +315,7 @@ func VerifyProofSuffix(ctx context.Context, suffix *Proof,
 		ctx, bytes.NewReader(proofFileBuf.Bytes()), vCtx,
 		WithSkipChainVerificationForFinalProof(),
 		WithSkipTimeLockValidationForFinalProof(),
+		withTrustedRoot(),
 	)
 }
 
@@ -876,6 +913,23 @@ func (p *Proof) verifyAssetStateTransition(ctx context.Context,
 		splitAssets = append(splitAssets, splitAsset)
 	}
 
+	// If the root asset carries a split commitment root, the VM's
+	// non-inflation check only compares the sum of the inputs against the
+	// split tree's sum. The root asset's own amount is not part of that
+	// comparison, so we additionally need to prove that the split tree
+	// contains a root locator leaf that matches the root asset's amount,
+	// script key and anchor output index exactly.
+	if newAsset.SplitCommitmentRoot != nil {
+		rootLocatorSplit, err := p.rootLocatorSplitAsset(newAsset)
+		if err != nil {
+			return false, err
+		}
+
+		if rootLocatorSplit != nil {
+			splitAssets = append(splitAssets, rootLocatorSplit)
+		}
+	}
+
 	verifyOpts := []vm.NewEngineOpt{
 		vm.WithChainLookup(chainLookup),
 		vm.WithBlockHeight(p.BlockHeight),
@@ -888,6 +942,55 @@ func (p *Proof) verifyAssetStateTransition(ctx context.Context,
 		return false, err
 	}
 	return splitAsset != nil, engine.Execute()
+}
+
+// rootLocatorSplitAsset reconstructs the canonical root locator split asset
+// for a split transition and returns it as a SplitAsset that carries the root
+// locator inclusion proof, such that the VM can validate its inclusion in the
+// split commitment tree. A nil SplitAsset is returned (without error) if the
+// proof doesn't carry a root locator proof.
+func (p *Proof) rootLocatorSplitAsset(
+	rootAsset *asset.Asset) (*commitment.SplitAsset, error) {
+
+	if p.RootLocatorProof == nil {
+		return nil, nil
+	}
+
+	// Determine the anchor output index of the root asset. For a proof of
+	// the root asset itself, this is the inclusion proof's output index.
+	// For a proof of a split asset, it is the output index of the split
+	// root proof.
+	rootOutputIndex := p.InclusionProof.OutputIndex
+	if p.Asset.HasSplitCommitmentWitness() {
+		if p.SplitRootProof == nil {
+			return nil, ErrMissingSplitRootProof
+		}
+
+		rootOutputIndex = p.SplitRootProof.OutputIndex
+	}
+
+	// Reconstruct the canonical root locator split asset: it is identical
+	// to the root asset, except that it carries the canonical zero prev ID
+	// split witness and does not carry the split commitment root itself.
+	// The VM strips the split commitment and normalizes the lock times
+	// before computing the split leaf, exactly as it does for any other
+	// split asset, and then verifies the inclusion proof against the split
+	// commitment root.
+	splitAsset := rootAsset.Copy()
+	splitAsset.SplitCommitmentRoot = nil
+	splitAsset.PrevWitnesses = []asset.Witness{{
+		PrevID:    &asset.ZeroPrevID,
+		TxWitness: nil,
+		SplitCommitment: &asset.SplitCommitment{
+			Proof:     *p.RootLocatorProof,
+			RootAsset: *rootAsset,
+		},
+	}}
+
+	return &commitment.SplitAsset{
+		Asset:       *splitAsset,
+		OutputIndex: rootOutputIndex,
+	}, nil
 }
 
 // verifyChallengeWitness verifies the challenge witness by constructing a
@@ -973,6 +1076,17 @@ func (p *Proof) verifyGenesisReveal() error {
 	reveal := p.GenesisReveal
 	if reveal == nil {
 		return ErrGenesisRevealRequired
+	}
+
+	// Existing issuances carry hash-consistent metadata that external
+	// minting tools mangled before committing to it, most often JSON that
+	// was hex-encoded first. Nothing in verification parses the document,
+	// so malformed JSON is tolerated here and rejected at mint time only.
+	// Every other metadata rule still applies.
+	if err := p.MetaReveal.Validate(); err != nil &&
+		!errors.Is(err, ErrInvalidJSON) {
+
+		return fmt.Errorf("invalid meta reveal: %w", err)
 	}
 
 	// Make sure the genesis reveal is consistent with the TLV fields in
@@ -1219,17 +1333,14 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 			commitment.ErrInvalidTaprootProof)
 	}
 
-	// 8. Either a set of asset inputs with valid witnesses is included that
-	// satisfy the resulting state transition or a challenge witness is
-	// provided as part of an ownership proof.
+	// 8. Verify the asset state transition. A standalone non-genesis
+	// ownership proof carries no prior state and is verified through its
+	// challenge witness alone. Genesis proofs are fully verifiable without
+	// a prior snapshot, so they always run the transition checks.
 	var splitAsset bool
-	switch {
-	case prev == nil && p.ChallengeWitness != nil:
-		splitAsset, err = p.verifyChallengeWitness(
-			ctx, chainLookup, verificationParams.ChallengeBytes,
-		)
-
-	default:
+	ownershipRoot := prev == nil && p.ChallengeWitness != nil &&
+		!p.Asset.IsGenesisAsset()
+	if !ownershipRoot {
 		splitAsset, err = p.verifyAssetStateTransition(
 			ctx, prev, chainLookup, vCtx,
 			verificationParams.SkipTimeLockValidation,
@@ -1237,6 +1348,19 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 	}
 	if err != nil {
 		return nil, err
+	}
+
+	// A challenge witness is verified whenever it is present.
+	if p.ChallengeWitness != nil {
+		ownershipSplit, err := p.verifyChallengeWitness(
+			ctx, chainLookup, verificationParams.ChallengeBytes,
+		)
+		if err != nil {
+			return nil, err
+		}
+		if ownershipRoot {
+			splitAsset = ownershipSplit
+		}
 	}
 
 	// 8. At this point we know there is an inclusion proof, which must be
@@ -1314,6 +1438,15 @@ func (p *Proof) VerifyProofIntegrity(ctx context.Context, vCtx VerifierCtx,
 	if !TxSpendsPrevOut(&p.AnchorTx, &p.PrevOut) {
 		return nil, fmt.Errorf("%w: doesn't spend prev output",
 			commitment.ErrInvalidTaprootProof)
+	}
+
+	// Genesis witnesses reference the zero PrevID. Their chain outpoint is
+	// p.PrevOut, which was checked above.
+	if !p.Asset.IsGenesisAsset() {
+		err = verifyAnchorInputs(&p.AnchorTx, &p.Asset)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	if !verificationParams.SkipChainVerification {
@@ -1575,14 +1708,14 @@ func (f *File) Verify(ctx context.Context,
 	for _, opt := range opts {
 		opt(verifyOpts)
 	}
+	trustedRoot := verifyOpts.trustedRoot || vCtx.trustedRoot
+	vCtx.trustedRoot = trustedRoot
 
-	// Check only for the proof file version and not file emptiness,
-	// since an empty proof file should return a nil error.
-	if f.IsUnknownVersion() {
-		return nil, ErrUnknownVersion
+	// A proof file must contain at least one proof to establish an asset
+	// state.
+	if err := f.IsValid(); err != nil {
+		return nil, err
 	}
-
-	chainLookup := vCtx.ChainLookupGen.GenFileChainLookup(f)
 
 	// Decode all proofs upfront so we can batch-verify block
 	// headers in parallel before the sequential verification
@@ -1595,6 +1728,34 @@ func (f *File) Verify(ctx context.Context,
 		}
 		decoded[idx] = p
 	}
+
+	// A full proof file links every state back to a genesis proof. The
+	// suffix verifier is the only caller that supplies an already trusted
+	// input state as the file root.
+	if len(decoded) > 0 && !trustedRoot &&
+		!decoded[0].Asset.IsGenesisAsset() {
+
+		return nil, fmt.Errorf("%w: proof file does not start at "+
+			"genesis", ErrProofFileInvalid)
+	}
+
+	// A challenge witness proves control of a script key for a standalone
+	// ownership proof. A full proof file establishes provenance instead
+	// and has no use for one, so its presence marks the file as invalid.
+	// The suffix verifier is exempt, as its input files may be rooted at
+	// an ownership proof.
+	if !trustedRoot {
+		for idx, p := range decoded {
+			if p.ChallengeWitness == nil {
+				continue
+			}
+
+			return nil, fmt.Errorf("%w: proof %d carries a "+
+				"challenge witness", ErrProofFileInvalid, idx)
+		}
+	}
+
+	chainLookup := vCtx.ChainLookupGen.GenFileChainLookup(f)
 
 	// Wrap the header verifier with a cache and pre-fetch all
 	// unique block headers in parallel. Nested File.Verify calls
