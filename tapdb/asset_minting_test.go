@@ -955,6 +955,107 @@ func TestAddSproutsToBatch(t *testing.T) {
 	}))
 }
 
+// TestAddSproutsGroupKeyV1 tests that a committed batch read back from disk
+// carries the full group key of a version 1 group anchor, so the anchor's
+// group key reveal can still be built from it, as it must be to produce the
+// minting proofs once the batch confirms.
+func TestAddSproutsGroupKeyV1(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	assetStore, _, _ := newAssetStore(t)
+
+	mintingBatch := tapgarden.RandMintingBatch(
+		t, tapgarden.WithTotalSeedlings(1),
+	)
+	require.NoError(t, assetStore.CommitMintingBatch(
+		ctx, mintingBatch, tapgarden.MockBindDataForBatch(mintingBatch),
+	))
+
+	// Mint the batch's single asset as the anchor of a version 1 group
+	// with a custom tapscript subtree.
+	seedling := maps.Values(mintingBatch.Seedlings)[0]
+	genesisPacket := mintingBatch.GenesisPacket
+	assetGen := asset.Genesis{
+		FirstPrevOut: genesisPacket.Pkt.UnsignedTx.TxIn[0].
+			PreviousOutPoint,
+		Tag:      seedling.AssetName,
+		MetaHash: seedling.Meta.MetaHash(),
+		Type:     seedling.AssetType,
+	}
+	anchorID := assetGen.ID()
+
+	rawKey, _ := test.RandKeyDesc(t)
+	customRoot := test.RandHash()
+	reveal, err := asset.NewGroupKeyRevealV1(
+		asset.PedersenVersion, *rawKey.PubKey, anchorID,
+		fn.Some(customRoot),
+	)
+	require.NoError(t, err)
+	groupPubKey, err := reveal.GroupPubKey(anchorID)
+	require.NoError(t, err)
+
+	groupKey := &asset.GroupKey{
+		Version:             asset.GroupKeyV1,
+		RawKey:              rawKey,
+		GroupPubKey:         *groupPubKey,
+		TapscriptRoot:       reveal.TapscriptRoot(),
+		CustomTapscriptRoot: fn.Some(customRoot),
+		Witness:             wire.TxWitness{test.RandBytes(64)},
+	}
+
+	amount := seedling.Amount
+	if seedling.AssetType == asset.Collectible {
+		amount = 1
+	}
+	anchor, err := asset.New(
+		assetGen, amount, 0, 0, seedling.ScriptKey, groupKey,
+		asset.WithAssetVersion(seedling.AssetVersion),
+	)
+	require.NoError(t, err)
+
+	assetCommitment, err := commitment.NewAssetCommitment(anchor)
+	require.NoError(t, err)
+	assetRoot, err := commitment.NewTapCommitment(nil, assetCommitment)
+	require.NoError(t, err)
+
+	// Commit the anchor output to the asset root so the batch validates
+	// when it is read back.
+	anchorOutputIndex := uint32(0)
+	if genesisPacket.ChangeOutputIndex == 0 {
+		anchorOutputIndex = 1
+	}
+	script, err := tapscript.PayToAddrScript(
+		*mintingBatch.BatchKey.PubKey, nil, *assetRoot,
+	)
+	require.NoError(t, err)
+	genesisPacket.Pkt.UnsignedTx.TxOut[anchorOutputIndex].PkScript = script
+
+	require.NoError(t, assetStore.AddSproutsToBatch(
+		ctx, mintingBatch, genesisPacket, assetRoot,
+		tapgarden.MockBindDataForBatch(mintingBatch),
+	))
+
+	// Read the batch back, as a restart would.
+	mintingBatches := noError1(t, assetStore.FetchNonFinalBatches, ctx)
+	require.Len(t, mintingBatches, 1)
+	assertBatchState(t, mintingBatches[0], tapgarden.BatchStateCommitted)
+	assertAssetsEqual(t, assetRoot, mintingBatches[0].RootAssetCommitment)
+
+	// The anchor's group key reveal, built from the asset read back, must
+	// derive the group key.
+	dbAssets := mintingBatches[0].RootAssetCommitment.CommittedAssets()
+	require.Len(t, dbAssets, 1)
+	dbGroupKey := dbAssets[0].GroupKey
+	require.NotNil(t, dbGroupKey)
+
+	dbReveal, err := asset.NewGroupKeyReveal(*dbGroupKey, anchorID)
+	require.NoError(t, err)
+	derivedKey, err := dbReveal.GroupPubKey(anchorID)
+	require.NoError(t, err)
+	require.True(t, derivedKey.IsEqual(groupPubKey))
+}
+
 type randAssetCtx struct {
 	groupKey        *btcec.PublicKey
 	groupGenAmt     uint64
