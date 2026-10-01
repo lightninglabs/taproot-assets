@@ -102,6 +102,7 @@ func proveAssets(t *testing.T, commit *TapCommitment, assets []*asset.Asset,
 		case !includesAsset && includesAssetGroup:
 			tapCommitment, err = proof.DeriveByAssetExclusion(
 				asset.AssetCommitmentKey(),
+				asset.TapCommitmentKey(),
 			)
 		case !includesAsset && !includesAssetGroup:
 			tapCommitment, err = proof.
@@ -1922,4 +1923,132 @@ func TestTaprootAssetProofUnknownOddType(t *testing.T) {
 			require.Equal(t, knownTaprootAssetProof, parsedProof)
 		},
 	)
+}
+
+// TestTaprootAssetProofVersionDecoding tests that a Taproot Asset proof only
+// decodes with a known tap commitment version.
+func TestTaprootAssetProofVersionDecoding(t *testing.T) {
+	t.Parallel()
+
+	genesis := asset.RandGenesis(t, asset.Normal)
+	asset1 := randAsset(t, genesis, nil)
+
+	tapCommitment, err := FromAssets(nil, asset1)
+	require.NoError(t, err)
+
+	_, commitmentProof, err := tapCommitment.Proof(
+		asset1.TapCommitmentKey(), asset1.AssetCommitmentKey(),
+	)
+	require.NoError(t, err)
+
+	roundTrip := func(version TapCommitmentVersion) (TaprootAssetProof,
+		error) {
+
+		proof := commitmentProof.TaprootAssetProof
+		proof.Version = version
+
+		var buf bytes.Buffer
+		err := TaprootAssetProofEncoder(&buf, &proof, nil)
+		require.NoError(t, err)
+
+		var parsedProof TaprootAssetProof
+		err = TaprootAssetProofDecoder(
+			&buf, &parsedProof, nil, uint64(buf.Len()),
+		)
+
+		return parsedProof, err
+	}
+
+	for _, version := range []TapCommitmentVersion{
+		TapCommitmentV0, TapCommitmentV1, TapCommitmentV2,
+	} {
+		parsedProof, err := roundTrip(version)
+		require.NoError(t, err)
+		require.Equal(t, version, parsedProof.Version)
+	}
+
+	for _, version := range []TapCommitmentVersion{
+		LatestCommitVersion + 1, 255,
+	} {
+		_, err := roundTrip(version)
+		require.ErrorIs(t, err, ErrInvalidTapCommitmentVersion)
+	}
+}
+
+// TestNewTapCommitmentWithRootVersion tests that a Taproot Asset commitment
+// backed by a root node requires a known tap commitment version.
+func TestNewTapCommitmentWithRootVersion(t *testing.T) {
+	t.Parallel()
+
+	root := mssmt.NewBranch(
+		mssmt.NewLeafNode([]byte("leaf"), 1), mssmt.EmptyLeafNode,
+	)
+
+	for _, version := range []TapCommitmentVersion{
+		TapCommitmentV0, TapCommitmentV1, TapCommitmentV2,
+	} {
+		tapCommitment, err := NewTapCommitmentWithRoot(version, root)
+		require.NoError(t, err)
+		require.Equal(t, version, tapCommitment.Version)
+	}
+
+	for _, version := range []TapCommitmentVersion{
+		LatestCommitVersion + 1, 255,
+	} {
+		tapCommitment, err := NewTapCommitmentWithRoot(version, root)
+		require.Nil(t, tapCommitment)
+		require.ErrorIs(t, err, ErrInvalidTapCommitmentVersion)
+	}
+}
+
+// TestProofTapKeyBinding tests that an asset proof is only accepted if it
+// speaks of the asset commitment that the asset under proof belongs to.
+func TestProofTapKeyBinding(t *testing.T) {
+	t.Parallel()
+
+	target := randAsset(t, asset.RandGenesis(t, asset.Normal), nil)
+	other := randAsset(t, asset.RandGenesis(t, asset.Normal), nil)
+	foreignKey := other.TapCommitmentKey()
+
+	// An asset committed to under a foreign tap key must not be provably
+	// included.
+	t.Run("inclusion", func(t *testing.T) {
+		t.Parallel()
+
+		assetCommitment, err := NewAssetCommitment(target)
+		require.NoError(t, err)
+		assetCommitment.TapKey = foreignKey
+
+		tapCommitment, err := NewTapCommitment(nil, assetCommitment)
+		require.NoError(t, err)
+
+		proofAsset, proof, err := tapCommitment.Proof(
+			foreignKey, target.AssetCommitmentKey(),
+		)
+		require.NoError(t, err)
+		require.NotNil(t, proofAsset)
+
+		_, err = proof.DeriveByAssetInclusion(target)
+		require.ErrorIs(t, err, ErrTapKeyMismatch)
+	})
+
+	// The absence of an asset from a foreign asset commitment must not
+	// prove its absence from the Taproot Asset commitment.
+	t.Run("exclusion", func(t *testing.T) {
+		t.Parallel()
+
+		tapCommitment, err := FromAssets(nil, target, other)
+		require.NoError(t, err)
+
+		proofAsset, proof, err := tapCommitment.Proof(
+			foreignKey, target.AssetCommitmentKey(),
+		)
+		require.NoError(t, err)
+		require.Nil(t, proofAsset)
+
+		_, err = proof.DeriveByAssetExclusion(
+			target.AssetCommitmentKey(), target.TapCommitmentKey(),
+		)
+		require.ErrorIs(t, err, ErrTapKeyMismatch)
+	})
 }

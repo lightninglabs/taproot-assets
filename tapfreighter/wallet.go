@@ -1215,7 +1215,9 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 
 	allPackets := append([]*tappsbt.VPacket{}, params.ActivePackets...)
 	allPackets = append(allPackets, params.PassivePackets...)
-	outputCommitments, err := tapsend.CreateOutputCommitments(allPackets)
+	outputCommitments, err := tapsend.CreateOutputCommitments(
+		allPackets, tapsend.WithSpenderLeaves(),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create new output "+
 			"commitments: %w", err)

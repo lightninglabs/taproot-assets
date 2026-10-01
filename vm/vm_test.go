@@ -15,6 +15,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/maps"
@@ -236,14 +237,18 @@ func genNormalStateTransition(currentHeight uint32, sequence,
 
 		return normalStateTransition(
 			t, currentHeight, sequence, lockTime, addCsvScript,
-			addCltvScript,
+			addCltvScript, false,
 		)
 	}
 }
 
+// normalStateTransition merges two inputs into a single new asset. If
+// mixedInputs is set, the second input is of a different asset than the first
+// input and the new asset.
 func normalStateTransition(t testing.TB, currentHeight uint32, sequence,
-	lockTime uint64, addCsvScript, addCltvScript bool) (*asset.Asset,
-	commitment.SplitSet, commitment.InputSet, uint32) {
+	lockTime uint64, addCsvScript, addCltvScript,
+	mixedInputs bool) (*asset.Asset, commitment.SplitSet,
+	commitment.InputSet, uint32) {
 
 	privKey1 := test.RandPrivKey()
 	scriptKey1 := txscript.ComputeTaprootKeyNoScript(
@@ -278,6 +283,10 @@ func normalStateTransition(t testing.TB, currentHeight uint32, sequence,
 	genesisOutPoint := wire.OutPoint{}
 	genesisAsset1 := randAsset(t, asset.Normal, scriptKey1)
 	genesisAsset2 := randAsset(t, asset.Normal, scriptKey2)
+	if !mixedInputs {
+		genesisAsset2.Genesis = genesisAsset1.Genesis
+		genesisAsset2.GroupKey = genesisAsset1.GroupKey
+	}
 
 	prevID1 := &asset.PrevID{
 		OutPoint: genesisOutPoint,
@@ -409,6 +418,132 @@ func customScriptStateTransition(t testing.TB, currentHeight uint32, sequence,
 	newAsset.PrevWitnesses[0].TxWitness = newWitness
 
 	return newAsset, nil, inputs, currentHeight
+}
+
+// foreignAssetStateTransition returns a validly signed state transition whose
+// new asset, as altered by the given function, does not carry the asset ID or
+// group key of its input. The function is also given an unrelated asset to
+// draw foreign parameters from.
+func foreignAssetStateTransition(
+	alter func(newAsset, other *asset.Asset)) stateTransitionFunc {
+
+	return func(t testing.TB) (*asset.Asset, commitment.SplitSet,
+		commitment.InputSet, uint32) {
+
+		privKey := test.RandPrivKey()
+		scriptKey := txscript.ComputeTaprootKeyNoScript(
+			privKey.PubKey(),
+		)
+
+		genesisAsset := randAsset(t, asset.Normal, scriptKey)
+		otherAsset := randAsset(t, asset.Normal, scriptKey)
+
+		prevID := &asset.PrevID{
+			OutPoint: wire.OutPoint{},
+			ID:       genesisAsset.Genesis.ID(),
+			ScriptKey: asset.ToSerialized(
+				genesisAsset.ScriptKey.PubKey,
+			),
+		}
+		newAsset := genesisAsset.Copy()
+		alter(newAsset, otherAsset)
+		newAsset.ScriptKey = asset.NewScriptKey(test.RandPubKey(t))
+		newAsset.PrevWitnesses = []asset.Witness{{
+			PrevID: prevID,
+		}}
+
+		inputs := commitment.InputSet{*prevID: genesisAsset}
+		virtualTx, _, err := tapscript.VirtualTx(newAsset, inputs)
+		require.NoError(t, err)
+		newAsset.PrevWitnesses[0].TxWitness = genTaprootKeySpend(
+			t, *privKey, virtualTx, genesisAsset, newAsset, 0,
+		)
+
+		return newAsset, nil, inputs, 0
+	}
+}
+
+// foreignSplitStateTransition returns a validly signed split whose external
+// split asset is committed to by the split commitment root, but carries a
+// genesis other than that of the input and the root asset.
+func foreignSplitStateTransition(t testing.TB) (*asset.Asset,
+	commitment.SplitSet, commitment.InputSet, uint32) {
+
+	ctx := context.Background()
+	privKey := test.RandPrivKey()
+	scriptKey := txscript.ComputeTaprootKeyNoScript(privKey.PubKey())
+
+	genesisAsset := randAsset(t, asset.Normal, scriptKey)
+	genesisAsset.Amount = 3
+	otherGenesis := asset.RandGenesis(t, asset.Normal)
+
+	rootLocator := commitment.SplitLocator{
+		OutputIndex: 0,
+		AssetID:     genesisAsset.ID(),
+		ScriptKey:   asset.ToSerialized(genesisAsset.ScriptKey.PubKey),
+		Amount:      1,
+	}
+	externalLocator := commitment.SplitLocator{
+		OutputIndex: 1,
+		AssetID:     genesisAsset.ID(),
+		ScriptKey:   asset.RandSerializedKey(t),
+		Amount:      2,
+	}
+	splitCommitment, err := commitment.NewSplitCommitment(
+		ctx, []commitment.SplitCommitmentInput{{
+			Asset:    genesisAsset,
+			OutPoint: wire.OutPoint{},
+		}}, &rootLocator, &externalLocator,
+	)
+	require.NoError(t, err)
+
+	// Swap the genesis of the external split asset, and commit to the
+	// result.
+	foreignSplit := splitCommitment.SplitAssets[externalLocator]
+	foreignSplit.Genesis = otherGenesis
+	foreignSplit.PrevWitnesses[0].SplitCommitment = nil
+	foreignLocator := externalLocator
+	foreignLocator.AssetID = otherGenesis.ID()
+
+	rootSplit := splitCommitment.SplitAssets[rootLocator]
+	rootSplit.PrevWitnesses[0].SplitCommitment = nil
+
+	splitSet := commitment.SplitSet{
+		rootLocator:    rootSplit,
+		foreignLocator: foreignSplit,
+	}
+	splitTree := mssmt.NewCompactedTree(mssmt.NewDefaultStore())
+	for locator, split := range splitSet {
+		leaf, err := split.Asset.Leaf()
+		require.NoError(t, err)
+
+		_, err = splitTree.Insert(ctx, locator.Hash(), leaf)
+		require.NoError(t, err)
+	}
+
+	rootAsset := splitCommitment.RootAsset
+	rootAsset.SplitCommitmentRoot, err = splitTree.Root(ctx)
+	require.NoError(t, err)
+
+	virtualTx, _, err := tapscript.VirtualTx(
+		rootAsset, splitCommitment.PrevAssets,
+	)
+	require.NoError(t, err)
+	rootAsset.PrevWitnesses[0].TxWitness = genTaprootKeySpend(
+		t, *privKey, virtualTx, genesisAsset, rootAsset, 0,
+	)
+
+	for locator, split := range splitSet {
+		proof, err := splitTree.MerkleProof(ctx, locator.Hash())
+		require.NoError(t, err)
+
+		split.PrevWitnesses[0].SplitCommitment = &asset.SplitCommitment{
+			Proof:     *proof,
+			RootAsset: *rootAsset,
+		}
+	}
+
+	return rootAsset, splitSet, splitCommitment.PrevAssets, 0
 }
 
 func splitStateTransition(t testing.TB) (*asset.Asset, commitment.SplitSet,
@@ -891,6 +1026,51 @@ func TestVM(t *testing.T) {
 			name: "normal state transition",
 			f:    genNormalStateTransition(6, 0, 0, false, false),
 			err:  nil,
+		},
+		{
+			name: "normal state transition with inputs of " +
+				"different assets",
+			f: func(t testing.TB) (*asset.Asset,
+				commitment.SplitSet, commitment.InputSet,
+				uint32) {
+
+				return normalStateTransition(
+					t, 6, 0, 0, false, false, true,
+				)
+			},
+			err: newErrKind(ErrIDMismatch),
+		},
+		{
+			name: "state transition to foreign asset id",
+			f: foreignAssetStateTransition(
+				func(newAsset, other *asset.Asset) {
+					newAsset.Genesis = other.Genesis
+				},
+			),
+			err: newErrKind(ErrIDMismatch),
+		},
+		{
+			name: "state transition to foreign group key",
+			f: foreignAssetStateTransition(
+				func(newAsset, other *asset.Asset) {
+					newAsset.GroupKey = other.GroupKey
+				},
+			),
+			err: newErrKind(ErrIDMismatch),
+		},
+		{
+			name: "state transition dropping group key",
+			f: foreignAssetStateTransition(
+				func(newAsset, _ *asset.Asset) {
+					newAsset.GroupKey = nil
+				},
+			),
+			err: newErrKind(ErrIDMismatch),
+		},
+		{
+			name: "split state transition to foreign asset id",
+			f:    foreignSplitStateTransition,
+			err:  newErrKind(ErrIDMismatch),
 		},
 		{
 			name: "normal state transition with csv locked asset",

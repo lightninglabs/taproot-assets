@@ -547,6 +547,7 @@ func checkTapCommitment(t *testing.T, assets []*asset.Asset,
 		case includesAssetCommitment:
 			tapCommitment, err = proof.DeriveByAssetExclusion(
 				asset.AssetCommitmentKey(),
+				asset.TapCommitmentKey(),
 			)
 
 		default:
@@ -1155,6 +1156,97 @@ var signVirtualTransactionTestCases = []testCase{{
 	},
 	err: nil,
 }}
+
+// TestValidateSplitRootLocators tests that a split root asset is rejected once
+// it no longer matches the root locator leaf committed to by its split tree.
+func TestValidateSplitRootLocators(t *testing.T) {
+	t.Parallel()
+
+	// signedSplit returns a signed packet that splits asset 2 between the
+	// sender's change, which is the split root at output 0, and a receiver.
+	signedSplit := func(t *testing.T) *tappsbt.VPacket {
+		state := initSpendScenario(t)
+
+		pkt := createPacket(
+			t, state.address1, state.asset2PrevID, state,
+			state.asset2InputAssets, false,
+		)
+		err := tapsend.PrepareOutputAssets(context.Background(), pkt)
+		require.NoError(t, err)
+
+		err = tapsend.SignVirtualTransaction(
+			pkt, state.signer, state.witnessValidator,
+		)
+		require.NoError(t, err)
+
+		return pkt
+	}
+
+	invalidProof := vm.Error{Kind: vm.ErrInvalidSplitCommitmentProof}
+
+	testCases := []struct {
+		name        string
+		modify      func(t *testing.T, root *tappsbt.VOutput)
+		expectedErr error
+	}{{
+		name:   "unmodified split root",
+		modify: func(*testing.T, *tappsbt.VOutput) {},
+	}, {
+		name: "script key changed",
+		modify: func(t *testing.T, root *tappsbt.VOutput) {
+			root.Asset.ScriptKey = asset.NewScriptKey(
+				test.RandPubKey(t),
+			)
+		},
+		expectedErr: invalidProof,
+	}, {
+		name: "script key changed in root and locator copy",
+		modify: func(t *testing.T, root *tappsbt.VOutput) {
+			scriptKey := asset.NewScriptKey(test.RandPubKey(t))
+			root.Asset.ScriptKey = scriptKey
+			root.SplitAsset.ScriptKey = scriptKey
+		},
+		expectedErr: invalidProof,
+	}, {
+		name: "amount changed",
+		modify: func(t *testing.T, root *tappsbt.VOutput) {
+			root.Asset.Amount--
+		},
+		expectedErr: invalidProof,
+	}, {
+		name: "anchor output index changed",
+		modify: func(t *testing.T, root *tappsbt.VOutput) {
+			root.AnchorOutputIndex++
+		},
+		expectedErr: invalidProof,
+	}}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			pkt := signedSplit(t)
+			require.True(t, pkt.Outputs[0].Type.IsSplitRoot())
+
+			tc.modify(t, pkt.Outputs[0])
+
+			err := tapsend.ValidateSplitRootLocators(
+				[]*tappsbt.VPacket{pkt},
+			)
+			require.ErrorIs(t, err, tc.expectedErr)
+		})
+	}
+
+	// Without the root locator split asset the split root can't be
+	// checked, so it is rejected.
+	t.Run("locator copy missing", func(t *testing.T) {
+		pkt := signedSplit(t)
+		pkt.Outputs[0].SplitAsset = nil
+
+		err := tapsend.ValidateSplitRootLocators(
+			[]*tappsbt.VPacket{pkt},
+		)
+		require.ErrorContains(t, err, "no split asset")
+	})
+}
 
 // TestCreateOutputCommitments tests edge cases around creating TapCommitments
 // to represent an asset transfer.

@@ -706,6 +706,18 @@ func runPsbtInteractiveFullValueSendTest(ctxt context.Context, t *harnessTest,
 
 				stxoAltLeaves = append(stxoAltLeaves, altLeaf)
 			}
+
+			// Next to the STXO of each input, we expect the alt
+			// leaf that names the output asset as its spender.
+			spenderLeaves, err := asset.CollectSpenders(
+				output.Asset,
+			)
+			require.NoError(t.t, err)
+
+			stxoAltLeaves = append(
+				stxoAltLeaves,
+				asset.FromAltLeaves(spenderLeaves)...,
+			)
 		}
 		leafMap[string(receiverScriptKeyBytes)] = append(
 			leafMap[string(receiverScriptKeyBytes)],
@@ -2747,7 +2759,8 @@ func testPsbtSTXOExclusionProofs(t *harnessTest) {
 // testPsbtExternalCommit tests the ability to fully customize the BTC level of
 // an asset transfer using a PSBT. This exercises the CommitVirtualPsbts and
 // PublishAndLogTransfer RPCs. The test case moves some assets into an output
-// that has a hash lock tapscript.
+// that has a hash lock tapscript. It also makes sure both RPCs reject a split
+// root that was changed after signing.
 func testPsbtExternalCommit(t *harnessTest) {
 	ctx := context.Background()
 
@@ -2858,6 +2871,35 @@ func testPsbtExternalCommit(t *harnessTest) {
 	btcPacket, err := tapsend.PrepareAnchoringTemplate(allPackets)
 	require.NoError(t.t, err)
 
+	// The witness of a split only signs the split commitment root. So a
+	// split root that is pointed to another script key after signing, at
+	// the same amount, must be rejected when committing.
+	btcPacketBytes, err := fn.Serialize(btcPacket)
+	require.NoError(t.t, err)
+	repointedBytes, err := tappsbt.Encode(
+		repointSplitRoot(t.t, activeAssets[0]),
+	)
+	require.NoError(t.t, err)
+	passiveBytes := make([][]byte, len(passiveAssets))
+	for idx := range passiveAssets {
+		passiveBytes[idx], err = tappsbt.Encode(passiveAssets[idx])
+		require.NoError(t.t, err)
+	}
+	_, err = aliceTapd.CommitVirtualPsbts(
+		ctx, &wrpc.CommitVirtualPsbtsRequest{
+			VirtualPsbts:      [][]byte{repointedBytes},
+			PassiveAssetPsbts: passiveBytes,
+			AnchorPsbt:        btcPacketBytes,
+			Fees: &wrpc.CommitVirtualPsbtsRequest_SatPerVbyte{
+				SatPerVbyte: uint64(feeRateSatPerKVByte / 1000),
+			},
+			AnchorChangeOutput: &wrpc.CommitVirtualPsbtsRequest_Add{
+				Add: true,
+			},
+		},
+	)
+	require.ErrorContains(t.t, err, "error validating split roots")
+
 	var commitResp *wrpc.CommitVirtualPsbtsResponse
 	btcPacket, activeAssets, passiveAssets, commitResp = CommitVirtualPsbts(
 		t.t, aliceTapd, btcPacket, activeAssets, passiveAssets, -1,
@@ -2882,6 +2924,15 @@ func testPsbtExternalCommit(t *harnessTest) {
 
 	btcPacket = signPacket(t.t, aliceLnd, btcPacket)
 	btcPacket = FinalizeFullySigned(t.t, btcPacket)
+
+	// The same holds for a split root that is changed between committing
+	// and publishing.
+	PublishAndLogTransfer(
+		t.t, aliceTapd, btcPacket,
+		[]*tappsbt.VPacket{repointSplitRoot(t.t, activeAssets[0])},
+		passiveAssets, commitResp,
+		withExpectedErr("error validating split roots"),
+	)
 
 	transferLabel := "itest-psbt-external-commit"
 
@@ -2979,6 +3030,22 @@ func testPsbtExternalCommit(t *harnessTest) {
 		WithAssetID(passiveAsset.AssetGenesis.AssetId), WithNumUtxos(1),
 		WithScriptKeyType(asset.ScriptKeyBip86),
 	)
+}
+
+// repointSplitRoot returns a copy of the given virtual packet, with its split
+// root pointed to a random script key at the same amount.
+func repointSplitRoot(t *testing.T, vPkt *tappsbt.VPacket) *tappsbt.VPacket {
+	repointed := vPkt.Copy()
+
+	root, err := repointed.SplitRootOutput()
+	require.NoError(t, err)
+
+	scriptKey := asset.NewScriptKey(test.RandPubKey(t))
+	root.ScriptKey = scriptKey
+	root.Asset = root.Asset.Copy()
+	root.Asset.ScriptKey = scriptKey
+
+	return repointed
 }
 
 // testPsbtLockTimeSend tests that we can send minted assets into a ScriptKey

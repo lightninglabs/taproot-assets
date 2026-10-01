@@ -332,3 +332,259 @@ func addBip86Output(t *testing.T, packet *psbt.Packet) {
 	packet.UnsignedTx.AddTxOut(txOut)
 	packet.Outputs = append(packet.Outputs, pOut)
 }
+
+// randTransferAsset returns a random asset of the given type that doesn't look
+// like a genesis asset.
+func randTransferAsset(t *testing.T, assetType asset.Type) *asset.Asset {
+	a := asset.RandAsset(t, assetType)
+	a.PrevWitnesses[0].PrevID = &asset.PrevID{
+		ID:        a.ID(),
+		ScriptKey: asset.ToSerialized(a.ScriptKey.PubKey),
+	}
+
+	return a
+}
+
+// anchorPackets commits the given packets to a fresh anchor transaction with
+// the given number of asset outputs, followed by a BIP-86 output.
+func anchorPackets(t *testing.T, numOutputs int,
+	vPackets ...*tappsbt.VPacket) (*psbt.Packet,
+	map[uint32]*commitment.TapCommitment) {
+
+	wireTx := wire.NewMsgTx(2)
+	wireTx.TxIn = []*wire.TxIn{{
+		PreviousOutPoint: wire.OutPoint{},
+	}}
+	for i := 0; i < numOutputs; i++ {
+		wireTx.TxOut = append(wireTx.TxOut, CreateDummyOutput())
+	}
+
+	pkt, err := psbt.NewFromUnsignedTx(wireTx)
+	require.NoError(t, err)
+	anchorTx := &AnchorTransaction{
+		FundedPsbt: &FundedPsbt{
+			Pkt:               pkt,
+			ChangeOutputIndex: int32(numOutputs),
+		},
+		FinalTx: pkt.UnsignedTx,
+	}
+
+	outputCommitments := make(map[uint32]*commitment.TapCommitment)
+	addOutputCommitment(t, anchorTx, outputCommitments, true, vPackets...)
+	addBip86Output(t, anchorTx.FundedPsbt.Pkt)
+
+	return pkt, outputCommitments
+}
+
+// assertProofsValid asserts that the inclusion and exclusion proofs of the
+// given proof suffix are valid. The test packets are not signed, so a proof
+// that passes those checks fails on the transfer witness, which is verified
+// last.
+func assertProofsValid(t *testing.T, vPkt *tappsbt.VPacket,
+	proofSuffix *proof.Proof) {
+
+	_, err := proofSuffix.Verify(
+		context.Background(), &proof.AssetSnapshot{
+			Asset: vPkt.Inputs[0].Asset(),
+		}, proof.MockChainLookup, proof.MockVerifierCtx,
+	)
+	require.ErrorIs(t, err, vm.Error{
+		Kind: vm.ErrInvalidTransferWitness,
+		Inner: txscript.Error{
+			ErrorCode: txscript.ErrTaprootSigInvalid,
+		},
+	})
+}
+
+// TestCreateProofSuffixSharedOutput tests the creation of suffix proofs for a
+// split whose root and split asset are committed to the same anchor output.
+func TestCreateProofSuffixSharedOutput(t *testing.T) {
+	vPkt := createPacket(
+		t, randTransferAsset(t, asset.Normal), true,
+		test.RandPubKey(t), 0,
+	)
+	pkt, outputCommitments := anchorPackets(t, 1, vPkt)
+
+	for outIdx := range vPkt.Outputs {
+		vOut := vPkt.Outputs[outIdx]
+		require.Zero(t, vOut.AnchorOutputIndex)
+
+		proofSuffix, err := CreateProofSuffix(
+			pkt.UnsignedTx, pkt.Outputs, vPkt, outputCommitments,
+			outIdx, []*tappsbt.VPacket{vPkt},
+			proof.WithVersion(proof.TransitionV1),
+		)
+		require.NoError(t, err)
+
+		// The only other output is the BIP-86 one. In particular, the
+		// split asset needs no exclusion proof for the output it
+		// shares with its root.
+		require.Len(t, proofSuffix.ExclusionProofs, 1)
+		exclusionProof := proofSuffix.ExclusionProofs[0]
+		require.EqualValues(t, 1, exclusionProof.OutputIndex)
+		require.NotNil(t, exclusionProof.TapscriptProof)
+
+		assertProofsValid(t, vPkt, proofSuffix)
+
+		// The shared output commits to the STXO, so either proof
+		// carries its inclusion proof, and nothing else.
+		inclusionProof := proofSuffix.InclusionProof.CommitmentProof
+		if vOut.Type.IsSplitRoot() {
+			require.Len(t, inclusionProof.STXOProofs, 1)
+			continue
+		}
+
+		rootProof := proofSuffix.SplitRootProof.CommitmentProof
+		require.Len(t, rootProof.STXOProofs, 1)
+		require.Empty(t, inclusionProof.STXOProofs)
+	}
+}
+
+// TestCreateProofSuffixMissingSplitWitness checks that a malformed receiver
+// is rejected when another receiver makes the packet appear to be a split.
+func TestCreateProofSuffixMissingSplitWitness(t *testing.T) {
+	a := randTransferAsset(t, asset.Normal)
+	a.Amount = 12
+	internalKey := test.RandPubKey(t)
+	vPkt := createPacket(t, a, true, internalKey, 1)
+	vPkt.Outputs[0].Amount = 4
+	vPkt.Outputs[1].Amount = 4
+	vPkt.Outputs = append(vPkt.Outputs, &tappsbt.VOutput{
+		Amount:                  4,
+		AssetVersion:            a.Version,
+		Type:                    tappsbt.TypeSimple,
+		ScriptKey:               asset.RandScriptKey(t),
+		AnchorOutputIndex:       2,
+		AnchorOutputInternalKey: internalKey,
+	})
+	require.NoError(t, PrepareOutputAssets(context.Background(), vPkt))
+	vPkt.Outputs[0].Asset.PrevWitnesses[0].TxWitness =
+		a.PrevWitnesses[0].TxWitness
+	for _, out := range vPkt.Outputs[1:] {
+		splitCommitment := out.Asset.PrevWitnesses[0].SplitCommitment
+		splitCommitment.RootAsset.PrevWitnesses[0].TxWitness =
+			a.PrevWitnesses[0].TxWitness
+	}
+
+	// Keep the second receiver's amount and keys, but remove its split
+	// witness. The first receiver still identifies the packet as a split.
+	vPkt.Outputs[2].Asset.PrevWitnesses[0].SplitCommitment = nil
+	encoded, err := tappsbt.Encode(vPkt)
+	require.NoError(t, err)
+	vPkt, err = tappsbt.Decode(encoded)
+	require.NoError(t, err)
+
+	packets := []*tappsbt.VPacket{vPkt}
+	commitments, err := CreateOutputCommitments(packets)
+	require.NoError(t, err)
+	tx := wire.NewMsgTx(2)
+	tx.AddTxIn(&wire.TxIn{
+		PreviousOutPoint: vPkt.Inputs[0].PrevID.OutPoint,
+	})
+	for range vPkt.Outputs {
+		tx.AddTxOut(CreateDummyOutput())
+	}
+	anchor, err := psbt.NewFromUnsignedTx(tx)
+	require.NoError(t, err)
+	for i := range anchor.Outputs {
+		anchor.Outputs[i].TaprootInternalKey =
+			schnorr.SerializePubKey(internalKey)
+	}
+	require.NoError(t, UpdateTaprootOutputKeys(
+		anchor, vPkt, commitments,
+	))
+
+	suffix, err := CreateProofSuffix(
+		anchor.UnsignedTx, anchor.Outputs, vPkt, commitments, 2,
+		packets,
+	)
+	require.Nil(t, suffix)
+	require.ErrorContains(t, err,
+		"split output 2 has no split commitment witness")
+}
+
+// TestCreateProofSuffixSplitSTXOProofs tests that the suffix proof of a split
+// asset carries the STXO proofs for the input spent by its root asset.
+func TestCreateProofSuffixSplitSTXOProofs(t *testing.T) {
+	const (
+		rootOutput = iota
+		splitOutput
+		otherOutput
+		numOutputs
+	)
+
+	// Next to the split, we anchor an unrelated transfer.
+	internalKey := test.RandPubKey(t)
+	vPkt := createPacket(
+		t, randTransferAsset(t, asset.Normal), true, internalKey,
+		splitOutput,
+	)
+	otherPkt := createPacket(
+		t, randTransferAsset(t, asset.Normal), false,
+		test.RandPubKey(t), otherOutput,
+	)
+	vPackets := []*tappsbt.VPacket{vPkt, otherPkt}
+	pkt, outputCommitments := anchorPackets(t, numOutputs, vPackets...)
+
+	proofSuffix, err := CreateProofSuffix(
+		pkt.UnsignedTx, pkt.Outputs, vPkt, outputCommitments, 1,
+		vPackets, proof.WithVersion(proof.TransitionV1),
+	)
+	require.NoError(t, err)
+	require.True(t, proofSuffix.Asset.HasSplitCommitmentWitness())
+
+	assertProofsValid(t, vPkt, proofSuffix)
+
+	// The STXO is included in the split root output, and excluded from
+	// all the other asset outputs, including the one of the split asset.
+	rootProof := proofSuffix.SplitRootProof.CommitmentProof
+	require.EqualValues(
+		t, rootOutput, proofSuffix.SplitRootProof.OutputIndex,
+	)
+	require.Len(t, rootProof.STXOProofs, 1)
+
+	ownProof := proofSuffix.InclusionProof.CommitmentProof
+	require.EqualValues(
+		t, splitOutput, proofSuffix.InclusionProof.OutputIndex,
+	)
+	require.Len(t, ownProof.STXOProofs, 1)
+
+	for _, exclusionProof := range proofSuffix.ExclusionProofs {
+		switch exclusionProof.OutputIndex {
+		case rootOutput:
+			require.Empty(
+				t, exclusionProof.CommitmentProof.STXOProofs,
+			)
+
+		case otherOutput:
+			require.Len(
+				t, exclusionProof.CommitmentProof.STXOProofs,
+				1,
+			)
+
+		default:
+			require.NotNil(t, exclusionProof.TapscriptProof)
+		}
+	}
+
+	// Without STXO proofs, the proof carries none of them.
+	outputCommitments[rootOutput], err = commitment.FromAssets(
+		nil, vPkt.Outputs[0].Asset,
+	)
+	require.NoError(t, err)
+
+	proofSuffix, err = CreateProofSuffix(
+		pkt.UnsignedTx, pkt.Outputs, vPkt, outputCommitments, 1,
+		vPackets, proof.WithNoSTXOProofs(),
+	)
+	require.NoError(t, err)
+	require.Empty(t, proofSuffix.SplitRootProof.CommitmentProof.STXOProofs)
+	require.Empty(t, proofSuffix.InclusionProof.CommitmentProof.STXOProofs)
+	for _, exclusionProof := range proofSuffix.ExclusionProofs {
+		if exclusionProof.CommitmentProof == nil {
+			continue
+		}
+
+		require.Empty(t, exclusionProof.CommitmentProof.STXOProofs)
+	}
+}

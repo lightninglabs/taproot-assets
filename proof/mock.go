@@ -881,6 +881,7 @@ func NewTestFromCommitmentProof(t testing.TB,
 			t, p.TapSiblingPreimage,
 		),
 		STXOProofs:      NewTestFromSTXOProofs(t, p),
+		SpenderProofs:   NewTestFromSpenderProofs(t, p),
 		UnknownOddTypes: p.UnknownOddTypes,
 	}
 }
@@ -898,11 +899,29 @@ func NewTestFromSTXOProofs(t testing.TB,
 	return &stxoProofs
 }
 
+func NewTestFromSpenderProofs(t testing.TB,
+	p *CommitmentProof) *map[string]commitment.TestProof {
+
+	t.Helper()
+
+	if len(p.SpenderProofs) == 0 {
+		return nil
+	}
+
+	spenderProofs := make(map[string]commitment.TestProof)
+	for key, proof := range p.SpenderProofs {
+		keyHex := hex.EncodeToString(key[:])
+		spenderProofs[keyHex] = *commitment.NewTestFromProof(t, &proof)
+	}
+	return &spenderProofs
+}
+
 // nolint: lll
 type TestCommitmentProof struct {
 	Proof            *commitment.TestProof            `json:"proof"`
 	TapscriptSibling string                           `json:"tapscript_sibling"`
 	STXOProofs       *map[string]commitment.TestProof `json:"stxo_proofs"`
+	SpenderProofs    *map[string]commitment.TestProof `json:"spender_proofs,omitempty"`
 	UnknownOddTypes  tlv.TypeMap                      `json:"unknown_odd_types"`
 }
 
@@ -929,6 +948,18 @@ func (tcp *TestCommitmentProof) ToCommitmentProof(
 
 	if len(stxoProofs) > 0 {
 		cp.STXOProofs = stxoProofs
+	}
+
+	if tcp.SpenderProofs != nil {
+		cp.SpenderProofs = make(
+			map[asset.SerializedKey]commitment.Proof,
+		)
+		for key, proof := range *tcp.SpenderProofs {
+			keyBytes, err := hex.DecodeString(key)
+			require.NoError(t, err)
+			key := asset.SerializedKey(keyBytes)
+			cp.SpenderProofs[key] = *proof.ToProof(t)
+		}
 	}
 
 	return cp

@@ -391,6 +391,8 @@ type Config struct {
 
 	ReOrgSafeDepth int32 `long:"reorgsafedepth" description:"The number of confirmations we'll wait for before considering a transaction safely buried in the chain."`
 
+	ProofActivationHeight uint32 `long:"proofactivationheight" hidden:"true" description:"Override the block height from which transition proofs must satisfy the activation rules. Not available on mainnet."`
+
 	// The following options are used to configure the proof courier.
 	DefaultProofCourierAddr string                       `long:"proofcourieraddr" description:"Default proof courier service address."`
 	HashMailCourier         *proof.HashMailCourierCfg    `group:"hashmailcourier" namespace:"hashmailcourier"`
@@ -813,6 +815,14 @@ func ValidateConfig(cfg Config, cfgLogger btclog.Logger) (*Config, error) {
 	default:
 		return nil, mkErr(fmt.Sprintf("invalid network: %v",
 			cfg.ChainConf.Network))
+	}
+
+	// The activation height of mainnet is fixed.
+	if cfg.ProofActivationHeight != 0 &&
+		cfg.ActiveNetParams.Name == chaincfg.MainNetParams.Name {
+
+		return nil, mkErr("proofactivationheight can't be set on " +
+			"mainnet")
 	}
 
 	// Validate profile port or host:port.

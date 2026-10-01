@@ -124,41 +124,6 @@ func New(newAsset *asset.Asset, splitAssets []*commitment.SplitAsset,
 	}, nil
 }
 
-// matchesPrevGenesis determines whether certain key parameters of the new
-// asset continue to hold its previous genesis.
-func matchesPrevGenesis(prevID asset.ID, groupKey *asset.GroupKey,
-	tag string, prevAsset *asset.Asset) bool {
-
-	switch {
-	// Matched genesis ID, gg.
-	case prevID == prevAsset.Genesis.ID():
-		return true
-
-	// Mismatched ID and nil GroupKey, ouch.
-	case groupKey == nil && prevAsset.GroupKey == nil:
-		fallthrough
-	case groupKey == nil && prevAsset.GroupKey != nil:
-		fallthrough
-	case groupKey != nil && prevAsset.GroupKey == nil:
-		return false
-
-	// Mismatched ID and non-nil GroupKey, there's hope!
-	case groupKey != nil && prevAsset.GroupKey != nil:
-		// Mismatched ID and GroupKey, sigh.
-		if !groupKey.IsEqual(prevAsset.GroupKey) {
-			return false
-		}
-
-		// Matched ID and GroupKey, there's still hope!
-		return tag == prevAsset.Genesis.Tag
-
-	// How did we get here?
-	default:
-		// TODO(roasbeef): actually make into an error?
-		panic("unreachable")
-	}
-}
-
 // matchesAssetParams ensures that a new asset continues to adhere to the
 // static parameters of its predecessor.
 func matchesAssetParams(newAsset, prevAsset *asset.Asset,
@@ -169,10 +134,24 @@ func matchesAssetParams(newAsset, prevAsset *asset.Asset,
 		return newErrKind(ErrScriptKeyMismatch)
 	}
 
-	if !matchesPrevGenesis(
-		prevAssetWitness.PrevID.ID, newAsset.GroupKey,
-		newAsset.Genesis.Tag, prevAsset,
-	) {
+	// The witness must reference its input, and the new asset must carry
+	// the asset ID and group key of that input: both are ungrouped, or
+	// both are grouped under the same tweaked group key, the only part of
+	// a group key that an asset commits to.
+	prevID := prevAsset.ID()
+	newGroup, prevGroup := newAsset.GroupKey, prevAsset.GroupKey
+	switch {
+	case prevAssetWitness.PrevID.ID != prevID:
+		return newErrKind(ErrIDMismatch)
+
+	case newAsset.ID() != prevID:
+		return newErrKind(ErrIDMismatch)
+
+	case (newGroup == nil) != (prevGroup == nil):
+		return newErrKind(ErrIDMismatch)
+
+	case newGroup != nil &&
+		!newGroup.GroupPubKey.IsEqual(&prevGroup.GroupPubKey):
 
 		return newErrKind(ErrIDMismatch)
 	}
@@ -281,7 +260,6 @@ func (vm *Engine) validateSplit(splitAsset *commitment.SplitAsset) error {
 		return fmt.Errorf("%w: prev witness zero", ErrNoInputs)
 	}
 	rootWitness := vm.newAsset.PrevWitnesses[0]
-	splitWitness := splitAsset.PrevWitnesses[0]
 
 	if rootWitness.PrevID == nil {
 		return fmt.Errorf("%w: nil prev_id on root witness",
@@ -321,6 +299,23 @@ func (vm *Engine) validateSplit(splitAsset *commitment.SplitAsset) error {
 
 	// Finally, verify that the split commitment proof for the split asset
 	// resolves to the split commitment root found within the change asset.
+	return VerifySplitCommitmentProof(vm.newAsset, splitAsset)
+}
+
+// VerifySplitCommitmentProof verifies that the split commitment proof carried
+// in the witness of the given split asset resolves to the split commitment
+// root of the given root asset.
+func VerifySplitCommitmentProof(rootAsset *asset.Asset,
+	splitAsset *commitment.SplitAsset) error {
+
+	if rootAsset.SplitCommitmentRoot == nil {
+		return newErrKind(ErrNoSplitCommitment)
+	}
+
+	if !splitAsset.Asset.HasSplitCommitmentWitness() {
+		return newErrKind(ErrInvalidSplitCommitmentWitness)
+	}
+
 	locator := &commitment.SplitLocator{
 		OutputIndex: splitAsset.OutputIndex,
 		AssetID:     splitAsset.Genesis.ID(),
@@ -338,17 +333,18 @@ func (vm *Engine) validateSplit(splitAsset *commitment.SplitAsset) error {
 	splitNoWitness.PrevWitnesses[0].SplitCommitment = nil
 
 	// Lock times should not invalidate the split commitment proof.
-	splitNoWitness.LockTime = vm.newAsset.LockTime
-	splitNoWitness.RelativeLockTime = vm.newAsset.RelativeLockTime
+	splitNoWitness.LockTime = rootAsset.LockTime
+	splitNoWitness.RelativeLockTime = rootAsset.RelativeLockTime
 
 	splitLeaf, err := splitNoWitness.Leaf()
 	if err != nil {
 		return err
 	}
 
+	splitWitness := splitAsset.PrevWitnesses[0]
 	if !mssmt.VerifyMerkleProof(
 		locator.Hash(), splitLeaf, &splitWitness.SplitCommitment.Proof,
-		vm.newAsset.SplitCommitmentRoot,
+		rootAsset.SplitCommitmentRoot,
 	) {
 
 		return newErrKind(ErrInvalidSplitCommitmentProof)

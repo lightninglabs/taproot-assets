@@ -209,6 +209,13 @@ func strippedEncodeRecords(p *proof.Proof) []tlv.Record {
 		))
 	}
 
+	// Type 29: RootLocatorProof (keep, optional).
+	if p.RootLocatorProof != nil {
+		records = append(records, proof.RootLocatorProofRecord(
+			&p.RootLocatorProof,
+		))
+	}
+
 	// Preserve any unknown odd types.
 	return asset.CombineRecords(records, p.UnknownOddTypes)
 }

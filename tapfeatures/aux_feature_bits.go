@@ -18,14 +18,24 @@ const (
 	// STXOOptional is a feature bit that declares the STXO proofs as an
 	// optional feature.
 	STXOOptional lnwire.FeatureBit = 3
+
+	// STXOSpenderRequired is a feature bit that declares the spender
+	// leaves, committed to next to the STXOs, as a required feature.
+	STXOSpenderRequired lnwire.FeatureBit = 4
+
+	// STXOSpenderOptional is a feature bit that declares the spender
+	// leaves, committed to next to the STXOs, as an optional feature.
+	STXOSpenderOptional lnwire.FeatureBit = 5
 )
 
 // featureNames keeps track of the string description of known features.
 var featureNames = map[lnwire.FeatureBit]string{
-	NoOpHTLCsRequired: "noop-htlcs",
-	NoOpHTLCsOptional: "noop-htlcs",
-	STXORequired:      "stxo-proofs",
-	STXOOptional:      "stxo-proofs",
+	NoOpHTLCsRequired:   "noop-htlcs",
+	NoOpHTLCsOptional:   "noop-htlcs",
+	STXORequired:        "stxo-proofs",
+	STXOOptional:        "stxo-proofs",
+	STXOSpenderRequired: "stxo-spender",
+	STXOSpenderOptional: "stxo-spender",
 }
 
 // ourFeatures returns a slice containing all of the locally supported features.
@@ -35,6 +45,7 @@ func ourFeatures() []lnwire.FeatureBit {
 	return []lnwire.FeatureBit{
 		NoOpHTLCsOptional,
 		STXOOptional,
+		STXOSpenderOptional,
 	}
 }
 

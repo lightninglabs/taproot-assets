@@ -3193,7 +3193,9 @@ func (r *RPCServer) CommitVirtualPsbts(ctx context.Context,
 
 	// We can now update the anchor outputs as we have the final
 	// commitments.
-	outputCommitments, err := tapsend.CreateOutputCommitments(allPackets)
+	outputCommitments, err := tapsend.CreateOutputCommitments(
+		allPackets, tapsend.WithSpenderLeaves(),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create new output "+
 			"commitments: %w", err)
@@ -3403,6 +3405,14 @@ func (r *RPCServer) validateInputAssets(ctx context.Context,
 	err = tapsend.ValidateAnchorInputs(btcPkt, vPackets, purgedAssets)
 	if err != nil {
 		return fmt.Errorf("error validating anchor inputs: %w", err)
+	}
+
+	// The witness of a split only signs the split commitment root, so we
+	// make sure each split root asset is the one its split tree commits
+	// to. Otherwise a split root could be changed after signing, for
+	// example to point to another script key at the same amount.
+	if err := tapsend.ValidateSplitRootLocators(vPackets); err != nil {
+		return fmt.Errorf("error validating split roots: %w", err)
 	}
 
 	// Now that we know the packet inputs match the anchored assets, we can

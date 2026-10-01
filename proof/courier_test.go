@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"sync/atomic"
 	"testing"
 
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -57,7 +58,10 @@ func TestUniverseRpcCourierLocalArchiveShortCut(t *testing.T) {
 		subscribers:   nil,
 	}
 
-	ctx := context.Background()
+	var progressCount atomic.Uint32
+	ctx := WithProgressCallback(context.Background(), func() {
+		progressCount.Add(1)
+	})
 	ctxt, cancel := context.WithTimeout(ctx, testTimeout)
 	defer cancel()
 
@@ -67,6 +71,7 @@ func TestUniverseRpcCourierLocalArchiveShortCut(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, proofBlob, annotatedProof.Blob)
+	require.Equal(t, uint32(1), progressCount.Load())
 
 	// If we query for a proof that the local archive doesn't have, we
 	// should end up in the code path that attempts to fetch the proof from

@@ -85,15 +85,29 @@ func TestBackwardsCompatChannels(t *testing.T) {
 	}
 }
 
-// runCompatScenario stands up the shared test infrastructure (miner, chain
-// backend, fee service and network harness) for a single historical version and
-// then runs the cooperative-close compat scenario against it.
+// runCompatScenario runs the cooperative-close compat scenario against a single
+// historical version.
 func runCompatScenario(t *testing.T, version string) {
 	t.Helper()
 
 	// Build or retrieve the old binary that Charlie will run.
 	oldBinary := buildCompatBinary(t, version)
 	t.Logf("Using compat binary for %s: %s", version, oldBinary)
+
+	runWithCompatHarness(t, func(ctx context.Context,
+		net *itest.IntegratedNetworkHarness, ht *ccHarnessTest) {
+
+		runBackwardsCompatLifecycle(ctx, net, ht, oldBinary, version)
+	})
+}
+
+// runWithCompatHarness stands up the shared test infrastructure (miner, chain
+// backend, fee service and network harness) and runs the given scenario
+// against it.
+func runWithCompatHarness(t *testing.T, scenario func(context.Context,
+	*itest.IntegratedNetworkHarness, *ccHarnessTest)) {
+
+	t.Helper()
 
 	lntest.MaxBlocksMinedPerTest = 250
 
@@ -148,7 +162,7 @@ func runCompatScenario(t *testing.T, version string) {
 	ctxt, cancelScenario := context.WithTimeout(ctx, 15*time.Minute)
 	defer cancelScenario()
 
-	runBackwardsCompatLifecycle(ctxt, net, ht, oldBinary, version)
+	scenario(ctxt, net, ht)
 }
 
 // runBackwardsCompatLifecycle exercises the core lifecycle of an asset channel

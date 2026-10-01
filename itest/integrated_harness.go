@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -124,6 +125,21 @@ func (h *IntegratedNetworkHarness) NewNodeWithBinary(name, binaryPath string,
 	h.activeNodes[name] = n
 
 	return n
+}
+
+// UpgradeNode restarts the given node on the harness's default binary, with
+// the given tapd args added, keeping its data directories. This simulates the
+// upgrade of a node that runs an older release to the current build.
+func (h *IntegratedNetworkHarness) UpgradeNode(node *IntegratedNode,
+	extraTapdArgs ...string) {
+
+	h.t.Helper()
+
+	node.Cfg.BinaryPath = h.binary
+	node.Cfg.ExtraTapdArgs = slices.Concat(
+		node.Cfg.ExtraTapdArgs, extraTapdArgs,
+	)
+	node.Restart()
 }
 
 // TearDown stops all active nodes managed by this harness.
