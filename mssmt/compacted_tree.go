@@ -198,11 +198,18 @@ func (t *CompactedTree) insert(tx TreeStoreUpdateTx, key *[hashSize]byte,
 	switch node := next.(type) {
 	case *BranchNode:
 		if node == EmptyTree[nextHeight] {
-			// Empty subtree: collapse to a single compacted leaf
-			// at nextHeight. No prior leaf existed at key.
-			newLeaf := NewCompactedLeafNode(nextHeight, key, leaf)
-			insertCompactedLeaf(muts, newLeaf)
-			newNode = newLeaf
+			// If we are deleting an absent key from an empty subtree,
+			// this is a no-op: return EmptyTree[nextHeight] without
+			// writing any empty leaf node to storage.
+			if leaf.IsEmpty() {
+				newNode = EmptyTree[nextHeight]
+			} else {
+				// Empty subtree: collapse to a single compacted leaf
+				// at nextHeight. No prior leaf existed at key.
+				newLeaf := NewCompactedLeafNode(nextHeight, key, leaf)
+				insertCompactedLeaf(muts, newLeaf)
+				newNode = newLeaf
+			}
 		} else {
 			// Not an empty subtree, recurse to find the
 			// insertion point.
@@ -215,11 +222,11 @@ func (t *CompactedTree) insert(tx TreeStoreUpdateTx, key *[hashSize]byte,
 		}
 
 	case *CompactedLeafNode:
-		// The compacted leaf at this position is always being
-		// rewritten — queue its delete first.
-		deleteCompactedLeaf(muts, node.NodeHash())
-
 		if *key == node.key {
+			// The compacted leaf at this position is being
+			// rewritten — queue its delete first.
+			deleteCompactedLeaf(muts, node.NodeHash())
+
 			// Replacement of an existing leaf at our key — its
 			// sum is the priorSum we report.
 			priorSum = node.LeafNode.NodeSum()
@@ -233,7 +240,14 @@ func (t *CompactedTree) insert(tx TreeStoreUpdateTx, key *[hashSize]byte,
 				insertCompactedLeaf(muts, newLeaf)
 				newNode = newLeaf
 			}
+		} else if leaf.IsEmpty() {
+			// Deleting an absent key: the existing leaf is untouched.
+			newNode = node
 		} else {
+			// The compacted leaf at this position is being
+			// rewritten — queue its delete first.
+			deleteCompactedLeaf(muts, node.NodeHash())
+
 			// Different key: the prior leaf isn't AT our key, so
 			// priorSum stays 0 (merge relocates the existing
 			// leaf into a new subtree alongside ours).
@@ -247,12 +261,6 @@ func (t *CompactedTree) insert(tx TreeStoreUpdateTx, key *[hashSize]byte,
 		}
 	}
 
-	// Queue the delete of the old root (unless it's the empty
-	// placeholder), and the insert of the new branch (unless empty).
-	if root != EmptyTree[height] {
-		deleteBranch(muts, root.NodeHash())
-	}
-
 	if isLeft {
 		branch, err = newCheckedBranch(newNode, sibling)
 	} else {
@@ -263,7 +271,25 @@ func (t *CompactedTree) insert(tx TreeStoreUpdateTx, key *[hashSize]byte,
 			"at height %d: %w", height, err)
 	}
 
-	if !IsEqualNode(branch, EmptyTree[height]) {
+	// Canonicalize empty branch return to the package sentinel.
+	if IsEqualNode(branch, EmptyTree[height]) {
+		branch = EmptyTree[height].(*BranchNode)
+	}
+
+	// Fast path: if the rebuilt branch matches the existing root,
+	// the storage state at this level is already correct — skip the
+	// delete + reinsert churn.
+	if branch.NodeHash() == root.NodeHash() {
+		return branch, priorSum, nil
+	}
+
+	// Queue the delete of the old root (unless it's the empty
+	// placeholder), and the insert of the new branch (unless empty).
+	if root != EmptyTree[height] {
+		deleteBranch(muts, root.NodeHash())
+	}
+
+	if branch != EmptyTree[height] {
 		insertBranch(muts, branch)
 	}
 
