@@ -110,6 +110,15 @@ func TestValidateMetaReveal(t *testing.T) {
 			expectedErr: ErrDecDisplayTooLarge,
 		},
 		{
+			name: "invalid JSON and invalid decimal display",
+			reveal: &MetaReveal{
+				Type:           MetaJson,
+				Data:           []byte("invalid"),
+				DecimalDisplay: fn.Some[uint32](999),
+			},
+			expectedErr: ErrDecDisplayTooLarge,
+		},
+		{
 			name: "correct decimal display",
 			reveal: &MetaReveal{
 				Type:           MetaJson,

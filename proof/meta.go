@@ -193,13 +193,6 @@ func (m *MetaReveal) Validate() error {
 		return err
 	}
 
-	// If the type is JSON, then it should be parseable as a JSON string.
-	if m.Type == MetaJson {
-		if !json.Valid(m.Data) {
-			return ErrInvalidJSON
-		}
-	}
-
 	// If the decimal display is set, it must be valid.
 	err = fn.MapOptionZ(m.DecimalDisplay, IsValidDecDisplay)
 	if err != nil {
@@ -235,7 +228,7 @@ func (m *MetaReveal) Validate() error {
 			"metadata but delegation key is unspecified")
 	}
 
-	return fn.MapOptionZ(m.DelegationKey, func(key btcec.PublicKey) error {
+	err = fn.MapOptionZ(m.DelegationKey, func(key btcec.PublicKey) error {
 		if key == emptyKey {
 			return ErrDelegationKeyEmpty
 		}
@@ -246,6 +239,20 @@ func (m *MetaReveal) Validate() error {
 
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+
+	// If the type is JSON, then it should be parseable as a JSON string.
+	// This is checked last, as proof verification tolerates malformed
+	// JSON but must still apply every other rule.
+	if m.Type == MetaJson {
+		if !json.Valid(m.Data) {
+			return ErrInvalidJSON
+		}
+	}
+
+	return nil
 }
 
 // SizableInteger is a subset of Integer that excludes int8, since we never use
