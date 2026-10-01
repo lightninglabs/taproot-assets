@@ -28,6 +28,17 @@ func TestGenesisProofMetaReveal(t *testing.T) {
 			},
 		},
 		{
+			name: "malformed JSON with decimal display too large",
+			metaReveal: &MetaReveal{
+				Type: MetaJson,
+				Data: []byte("{"),
+				DecimalDisplay: fn.Some(
+					MaxDecDisplay + 1,
+				),
+			},
+			expectErr: ErrDecDisplayTooLarge,
+		},
+		{
 			name: "decimal display too large",
 			metaReveal: &MetaReveal{
 				Type: MetaOpaque,
