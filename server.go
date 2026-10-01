@@ -1431,6 +1431,23 @@ func (s *Server) FinalizeClose(desc types.AuxCloseDesc,
 	return s.cfg.AuxChanCloser.FinalizeClose(desc, closeTx)
 }
 
+// SupportsRbfClose returns true if the channel can be closed with lnd's RBF
+// co-op close flow with the given peer.
+//
+// NOTE: This method is part of the chancloser.AuxChanCloser interface.
+func (s *Server) SupportsRbfClose(chanID lnwire.ChannelID,
+	peer route.Vertex) bool {
+
+	srvrLog.Tracef("SupportsRbfClose called, chanID=%v, peer=%x", chanID,
+		peer[:])
+
+	if err := s.waitForReady(); err != nil {
+		return false
+	}
+
+	return s.cfg.AuxChanCloser.SupportsRbfClose(chanID, peer)
+}
+
 // ResolveContract attempts to obtain a resolution blob for the specified
 // contract.
 //

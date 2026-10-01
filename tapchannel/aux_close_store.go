@@ -18,6 +18,15 @@ import (
 // given channel point.
 var ErrNoAuxCloseInfo = errors.New("no persisted aux close info")
 
+// closeAssetOutput identifies an asset carrying output of a co-op close
+// transaction candidate: its index and pkScript. FinalizeClose uses these to
+// find the candidate that matches the transaction that confirmed, as with the
+// RBF close flow there can be several candidates per channel.
+type closeAssetOutput struct {
+	outputIndex uint32
+	pkScript    []byte
+}
+
 // persistedCloseInfo carries the minimum state needed to reconstruct an
 // assetCloseInfo entry after a tapd restart between AuxCloseOutputs and
 // FinalizeClose.
@@ -45,6 +54,10 @@ type persistedCloseInfo struct {
 	// we don't need to round-trip the asset-typed allocations.
 	noAssetAllocs []noAssetAlloc
 
+	// assetOutputs are the asset carrying outputs of this close candidate,
+	// used to match the candidate against the confirmed transaction.
+	assetOutputs []closeAssetOutput
+
 	// closeFee is the BTC fee paid for the cooperative close transaction.
 	closeFee int64
 
@@ -66,16 +79,18 @@ type noAssetAlloc struct {
 
 // AuxCloseStore persists per-channel close info across restarts so that
 // FinalizeClose can recover when the in-memory closeInfo map has been wiped.
+// A channel can have several close candidates, one per RBF close round, as
+// any of them may end up confirming.
 type AuxCloseStore interface {
-	// Put writes the close info for the given channel point. Any existing
-	// entry is overwritten.
+	// Put writes the close candidates for the given channel point. Any
+	// existing entry is overwritten.
 	Put(ctx context.Context, chanPoint wire.OutPoint,
-		info *persistedCloseInfo) error
+		infos []*persistedCloseInfo) error
 
-	// Get returns the persisted close info for the given channel point.
-	// Returns ErrNoAuxCloseInfo if no entry exists.
-	Get(ctx context.Context, chanPoint wire.OutPoint) (*persistedCloseInfo,
-		error)
+	// Get returns the persisted close candidates for the given channel
+	// point. Returns ErrNoAuxCloseInfo if no entry exists.
+	Get(ctx context.Context,
+		chanPoint wire.OutPoint) ([]*persistedCloseInfo, error)
 
 	// Delete removes the persisted close info for the given channel
 	// point. A delete of a non-existent entry is a no-op.
@@ -121,10 +136,10 @@ func NewSQLAuxCloseStore(blobs AuxCloseBlobStore,
 
 // Put implements AuxCloseStore.
 func (s *SQLAuxCloseStore) Put(ctx context.Context, chanPoint wire.OutPoint,
-	info *persistedCloseInfo) error {
+	infos []*persistedCloseInfo) error {
 
 	var buf bytes.Buffer
-	if err := encodeCloseInfo(&buf, info); err != nil {
+	if err := encodeCloseInfos(&buf, infos); err != nil {
 		return fmt.Errorf("encode close info: %w", err)
 	}
 
@@ -133,7 +148,7 @@ func (s *SQLAuxCloseStore) Put(ctx context.Context, chanPoint wire.OutPoint,
 
 // Get implements AuxCloseStore.
 func (s *SQLAuxCloseStore) Get(ctx context.Context,
-	chanPoint wire.OutPoint) (*persistedCloseInfo, error) {
+	chanPoint wire.OutPoint) ([]*persistedCloseInfo, error) {
 
 	blob, err := s.blobs.FetchAuxCloseBlob(ctx, chanPoint)
 	switch {
@@ -143,12 +158,12 @@ func (s *SQLAuxCloseStore) Get(ctx context.Context,
 		return nil, fmt.Errorf("fetch aux close blob: %w", err)
 	}
 
-	info, err := decodeCloseInfo(bytes.NewReader(blob))
+	infos, err := decodeCloseInfos(bytes.NewReader(blob))
 	if err != nil {
 		return nil, fmt.Errorf("decode close info: %w", err)
 	}
 
-	return info, nil
+	return infos, nil
 }
 
 // Delete implements AuxCloseStore.
@@ -166,26 +181,47 @@ const (
 	maxVPacketCount      = 64
 	maxVPacketBytes      = 1 << 20 // 1 MiB per packet.
 	maxNoAssetAllocCount = 16
+	maxAssetOutputCount  = 16
+	maxPkScriptBytes     = 1000
+
+	// maxCloseCandidates caps the number of close candidates we keep per
+	// channel. Each RBF close round adds one, and the oldest ones are
+	// the lowest fee ones that have long been replaced in the mempool, so
+	// those are dropped first.
+	maxCloseCandidates = 64
 )
 
 // --- encoding ---
 
 // File format (all integers big-endian):
 //
-//	uint8   format version (currently 2)
-//	int64   closeFee
-//	uint8   supportSTXO (0 or 1)
-//	uint32  numVPackets         (post-mutation)
-//	  per vPacket:
-//	    uint32 length
-//	    bytes  VPacket.Serialize output
-//	uint32  numPristineVPackets (pre-mutation)
-//	  per vPacket: same encoding as above
-//	uint32  numNoAssetAllocs
-//	  per noAssetAlloc:
-//	    uint32 outputIndex
-//	    [33]byte compressed internalKey
-const closeInfoFormatVersion uint8 = 2
+//	uint8   format version (currently 3)
+//	uint32  numCandidates
+//	  per candidate:
+//	    int64   closeFee
+//	    uint8   supportSTXO (0 or 1)
+//	    uint32  numVPackets         (post-mutation)
+//	      per vPacket:
+//	        uint32 length
+//	        bytes  VPacket.Serialize output
+//	    uint32  numPristineVPackets (pre-mutation)
+//	      per vPacket: same encoding as above
+//	    uint32  numNoAssetAllocs
+//	      per noAssetAlloc:
+//	        uint32 outputIndex
+//	        [33]byte compressed internalKey
+//	    uint32  numAssetOutputs
+//	      per assetOutput:
+//	        uint32 outputIndex
+//	        uint16 pkScript length
+//	        bytes  pkScript
+//
+// Version 2 blobs hold a single candidate without the numCandidates prefix
+// and without the asset outputs, and are still read.
+const (
+	closeInfoFormatVersion       uint8 = 3
+	closeInfoFormatVersionSingle uint8 = 2
+)
 
 func writeVPacketList(w io.Writer, pkts []*tappsbt.VPacket) error {
 	if err := binary.Write(
@@ -244,11 +280,38 @@ func readVPacketList(r io.Reader) ([]*tappsbt.VPacket, error) {
 	return out, nil
 }
 
-func encodeCloseInfo(w io.Writer, info *persistedCloseInfo) error {
+// encodeCloseInfos writes the given close candidates in the current format.
+func encodeCloseInfos(w io.Writer, infos []*persistedCloseInfo) error {
+	if len(infos) > maxCloseCandidates {
+		return fmt.Errorf("close candidate count %d exceeds cap %d",
+			len(infos), maxCloseCandidates)
+	}
+
 	err := binary.Write(w, binary.BigEndian, closeInfoFormatVersion)
 	if err != nil {
 		return err
 	}
+	if err := binary.Write(
+		w, binary.BigEndian, uint32(len(infos)),
+	); err != nil {
+		return err
+	}
+
+	for _, info := range infos {
+		if err := encodeCloseInfoBody(w, info); err != nil {
+			return err
+		}
+		if err := writeAssetOutputs(w, info.assetOutputs); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// encodeCloseInfoBody writes the fields of a single candidate that are shared
+// between the single candidate (version 2) and the list (version 3) formats.
+func encodeCloseInfoBody(w io.Writer, info *persistedCloseInfo) error {
 	if err := binary.Write(w, binary.BigEndian, info.closeFee); err != nil {
 		return err
 	}
@@ -290,17 +353,130 @@ func encodeCloseInfo(w io.Writer, info *persistedCloseInfo) error {
 	return nil
 }
 
-func decodeCloseInfo(r io.Reader) (*persistedCloseInfo, error) {
+func writeAssetOutputs(w io.Writer, outputs []closeAssetOutput) error {
+	if err := binary.Write(
+		w, binary.BigEndian, uint32(len(outputs)),
+	); err != nil {
+		return err
+	}
+	for _, out := range outputs {
+		if len(out.pkScript) > maxPkScriptBytes {
+			return fmt.Errorf("pkScript size %d exceeds cap %d",
+				len(out.pkScript), maxPkScriptBytes)
+		}
+		if err := binary.Write(
+			w, binary.BigEndian, out.outputIndex,
+		); err != nil {
+			return err
+		}
+		if err := binary.Write(
+			w, binary.BigEndian, uint16(len(out.pkScript)),
+		); err != nil {
+			return err
+		}
+		if _, err := w.Write(out.pkScript); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func readAssetOutputs(r io.Reader) ([]closeAssetOutput, error) {
+	var count uint32
+	if err := binary.Read(r, binary.BigEndian, &count); err != nil {
+		return nil, err
+	}
+	if count > maxAssetOutputCount {
+		return nil, fmt.Errorf("asset output count %d exceeds cap %d",
+			count, maxAssetOutputCount)
+	}
+	out := make([]closeAssetOutput, 0, count)
+	for i := uint32(0); i < count; i++ {
+		var entry closeAssetOutput
+		if err := binary.Read(
+			r, binary.BigEndian, &entry.outputIndex,
+		); err != nil {
+			return nil, err
+		}
+		var sz uint16
+		if err := binary.Read(r, binary.BigEndian, &sz); err != nil {
+			return nil, err
+		}
+		if sz > maxPkScriptBytes {
+			return nil, fmt.Errorf("pkScript size %d exceeds "+
+				"cap %d", sz, maxPkScriptBytes)
+		}
+		entry.pkScript = make([]byte, sz)
+		if _, err := io.ReadFull(r, entry.pkScript); err != nil {
+			return nil, err
+		}
+		out = append(out, entry)
+	}
+
+	return out, nil
+}
+
+// decodeCloseInfos reads close candidates in either the current or the
+// previous single candidate format.
+func decodeCloseInfos(r io.Reader) ([]*persistedCloseInfo, error) {
 	var version uint8
 	if err := binary.Read(r, binary.BigEndian, &version); err != nil {
 		return nil, err
 	}
-	if version != closeInfoFormatVersion {
+
+	switch version {
+	// The previous format holds a single candidate without asset
+	// outputs. Such a candidate was written before RBF closes were
+	// supported, so it's the only one there is for the channel.
+	case closeInfoFormatVersionSingle:
+		info, err := decodeCloseInfoBody(r)
+		if err != nil {
+			return nil, err
+		}
+
+		return []*persistedCloseInfo{info}, nil
+
+	case closeInfoFormatVersion:
+		var count uint32
+		if err := binary.Read(
+			r, binary.BigEndian, &count,
+		); err != nil {
+			return nil, err
+		}
+		if count > maxCloseCandidates {
+			return nil, fmt.Errorf("close candidate count %d "+
+				"exceeds cap %d", count, maxCloseCandidates)
+		}
+
+		infos := make([]*persistedCloseInfo, 0, count)
+		for i := uint32(0); i < count; i++ {
+			info, err := decodeCloseInfoBody(r)
+			if err != nil {
+				return nil, err
+			}
+
+			info.assetOutputs, err = readAssetOutputs(r)
+			if err != nil {
+				return nil, fmt.Errorf("read asset "+
+					"outputs: %w", err)
+			}
+
+			infos = append(infos, info)
+		}
+
+		return infos, nil
+
+	default:
 		return nil, fmt.Errorf(
 			"unsupported close info version %d", version,
 		)
 	}
+}
 
+// decodeCloseInfoBody reads the fields of a single candidate that are shared
+// between the single candidate and the list formats.
+func decodeCloseInfoBody(r io.Reader) (*persistedCloseInfo, error) {
 	info := &persistedCloseInfo{}
 	if err := binary.Read(
 		r, binary.BigEndian, &info.closeFee,
