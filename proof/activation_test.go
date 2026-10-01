@@ -279,9 +279,16 @@ func TestNetworkActivationHeight(t *testing.T) {
 		t, lfn.Some(SigNetActivationHeight),
 		NetworkActivationHeight(chaincfg.SigNetParams.Name),
 	)
+	require.Equal(
+		t, lfn.Some(TestNet3ActivationHeight),
+		NetworkActivationHeight(chaincfg.TestNet3Params.Name),
+	)
+	require.Equal(
+		t, lfn.Some(TestNet4ActivationHeight),
+		NetworkActivationHeight(chaincfg.TestNet4Params.Name),
+	)
 
 	for _, params := range []chaincfg.Params{
-		chaincfg.TestNet3Params, chaincfg.TestNet4Params,
 		chaincfg.RegressionNetParams, chaincfg.SimNetParams,
 	} {
 		require.True(t, NetworkActivationHeight(params.Name).IsNone())

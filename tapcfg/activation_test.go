@@ -43,9 +43,13 @@ func TestProofActivationHeight(t *testing.T) {
 		challenge: "5121",
 		want:      lfn.None[uint32](),
 	}, {
-		name:    "testnet",
+		name:    "testnet3",
 		network: chaincfg.TestNet3Params,
-		want:    lfn.None[uint32](),
+		want:    lfn.Some(proof.TestNet3ActivationHeight),
+	}, {
+		name:    "testnet4",
+		network: chaincfg.TestNet4Params,
+		want:    lfn.Some(proof.TestNet4ActivationHeight),
 	}, {
 		name:    "regtest",
 		network: chaincfg.RegressionNetParams,

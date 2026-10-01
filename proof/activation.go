@@ -18,6 +18,14 @@ const (
 	// SigNetActivationHeight is the block height from which the
 	// activation rules apply to transition proofs on the default signet.
 	SigNetActivationHeight uint32 = 326_200
+
+	// TestNet3ActivationHeight is the block height from which the
+	// activation rules apply to transition proofs on testnet3.
+	TestNet3ActivationHeight uint32 = 5_183_000
+
+	// TestNet4ActivationHeight is the block height from which the
+	// activation rules apply to transition proofs on testnet4.
+	TestNet4ActivationHeight uint32 = 157_000
 )
 
 var (
@@ -54,6 +62,12 @@ func NetworkActivationHeight(network string) lfn.Option[uint32] {
 
 	case chaincfg.SigNetParams.Name:
 		return lfn.Some(SigNetActivationHeight)
+
+	case chaincfg.TestNet3Params.Name:
+		return lfn.Some(TestNet3ActivationHeight)
+
+	case chaincfg.TestNet4Params.Name:
+		return lfn.Some(TestNet4ActivationHeight)
 
 	default:
 		return lfn.None[uint32]()

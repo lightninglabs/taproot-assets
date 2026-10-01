@@ -1,20 +1,26 @@
 # Proof activation
 
 tapd v0.8.5 adds requirements to transition proofs. They apply to proofs
-anchored at or past an activation height. Proofs anchored before it
-verify as they did, so existing assets and their histories are
-unaffected.
+anchored at or past an activation height. A confirmed transition proof is
+exempt only when chain verification authenticates a non-zero block height
+below activation. A confirmed proof with an unknown zero height is treated as
+activated and must meet the new requirements.
 
 ## Activation heights
 
 - Mainnet: block 971,750, expected around 2026-10-17 12:00 UTC.
 - Signet, with the default challenge: block 326,200, expected around
   2026-10-13 12:00 UTC.
-- Testnet3, testnet4, regtest, simnet and custom signets: none. For
-  testing, the hidden `--proofactivationheight` option sets one. It is
-  rejected on mainnet.
+- Testnet3: block 5,183,000, expected around 2026-10-30 14:00 UTC.
+- Testnet4: block 157,000, expected around 2026-10-19 09:00 UTC.
+- Regtest, simnet and custom signets: none. For testing, the hidden
+  `--proofactivationheight` option sets one. It is rejected on mainnet.
 
-The expected times assume ten-minute blocks.
+The mainnet and signet estimates assume ten-minute blocks. The testnet
+estimates extrapolate the preceding 2,016 blocks as of 2026-10-02. Testnet3
+adds approximately twice the projected two-week block count because its
+preceding 2,016 blocks took only 47 hours. Testnet block production can vary
+materially, so the dates are approximate.
 
 ## The requirements
 
