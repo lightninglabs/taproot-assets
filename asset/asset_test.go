@@ -1068,6 +1068,25 @@ func TestCopySpendTemplate(t *testing.T) {
 	require.True(t, newAsset.DeepEqual(spendTemplate))
 }
 
+// TestCopyGroupKey tests that a copied asset carries every field of its group
+// key, including the version and custom subtree root of a version 1 key.
+func TestCopyGroupKey(t *testing.T) {
+	t.Parallel()
+
+	newAsset := RandAsset(t, Normal)
+	require.NotNil(t, newAsset.GroupKey)
+	newAsset.GroupKey.Version = GroupKeyV1
+	newAsset.GroupKey.CustomTapscriptRoot = fn.Some(test.RandHash())
+
+	assetCopy := newAsset.Copy()
+	require.Equal(t, newAsset.GroupKey, assetCopy.GroupKey)
+	require.NotSame(t, newAsset.GroupKey, assetCopy.GroupKey)
+
+	// An asset without a group key copies to one without a group key.
+	newAsset.GroupKey = nil
+	require.Nil(t, newAsset.Copy().GroupKey)
+}
+
 // TestExternalKeyPubKey tests that the public key can be derived from an
 // external key.
 func TestExternalKeyPubKey(t *testing.T) {
