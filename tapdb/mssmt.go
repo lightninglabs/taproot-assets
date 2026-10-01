@@ -188,6 +188,14 @@ func (t *taprootAssetTreeStoreTx) InsertBranch(branch *mssmt.BranchNode) error {
 
 // InsertLeaf stores a new leaf keyed by its NodeHash (not the insertion key).
 func (t *taprootAssetTreeStoreTx) InsertLeaf(leaf *mssmt.LeafNode) error {
+	// Empty leaves (and empty hashes) are never stored in the database,
+	// matching the invariant in UpdateRoot. Note that this adapter guard
+	// only prevents persisting the empty row; tree insert/merge logic
+	// in CompactedTree is what prevents queueing corrupted branch nodes.
+	if leaf.IsEmpty() {
+		return nil
+	}
+
 	hashKey := leaf.NodeHash()
 
 	if err := t.dbTx.InsertLeaf(t.ctx, NewLeaf{
@@ -206,6 +214,14 @@ func (t *taprootAssetTreeStoreTx) InsertLeaf(leaf *mssmt.LeafNode) error {
 // NodeHash (not the insertion key).
 func (t *taprootAssetTreeStoreTx) InsertCompactedLeaf(
 	leaf *mssmt.CompactedLeafNode) error {
+
+	// Empty compacted leaves are never stored in the database, matching the
+	// invariant in UpdateRoot. Note that this adapter guard only prevents
+	// persisting the empty row; tree insert/merge logic in CompactedTree is
+	// what prevents queueing corrupted branch nodes.
+	if leaf.IsEmpty() {
+		return nil
+	}
 
 	hashKey := leaf.NodeHash()
 	key := leaf.Key()
@@ -280,6 +296,10 @@ func newKey(data []byte) ([32]byte, error) {
 func (t *taprootAssetTreeStoreTx) GetChildren(height int, hashKey mssmt.NodeHash) (
 	mssmt.Node, mssmt.Node, error) {
 
+	if hashKey == mssmt.EmptyTree[height].NodeHash() {
+		return mssmt.EmptyTree[height+1], mssmt.EmptyTree[height+1], nil
+	}
+
 	dbRows, err := t.dbTx.FetchChildren(t.ctx, ChildQuery{
 		HashKey:   hashKey[:],
 		Namespace: t.namespace,
@@ -305,12 +325,22 @@ func (t *taprootAssetTreeStoreTx) GetChildren(height int, hashKey mssmt.NodeHash
 		}
 	}
 
+	emptyChildHash := mssmt.EmptyTree[height+1].NodeHash()
+
 	for _, row := range dbRows {
 		isLeft := bytes.Equal(row.HashKey, lHashKey)
 		isRight := bytes.Equal(row.HashKey, rHashKey)
 
 		if !isLeft && !isRight {
 			// This is the node itself.
+			continue
+		}
+
+		// A child whose hash matches the empty tree hash at height+1 is an
+		// empty subtree sentinel. Any row in the database matching this hash
+		// is stale (e.g. from an absent-delete bug) and must not be decoded
+		// as a leaf or branch.
+		if bytes.Equal(row.HashKey, emptyChildHash[:]) {
 			continue
 		}
 
@@ -347,9 +377,15 @@ func (t *taprootAssetTreeStoreTx) GetChildren(height int, hashKey mssmt.NodeHash
 			node = mssmt.NewComputedBranch(hashKey, uint64(row.Sum))
 		}
 
+		// In content-addressed storage, if both left and right children
+		// share the same hash (e.g. sibling leaves with identical value,
+		// sum, and suffix), a single mssmt_nodes row represents both
+		// children. We assign node to both sides rather than only setting
+		// the left side.
 		if isLeft {
 			left = node
-		} else {
+		}
+		if isRight {
 			right = node
 		}
 	}
@@ -376,6 +412,10 @@ func (t *taprootAssetTreeStoreTx) RootNode() (mssmt.Node, error) {
 	nodeHash, err := newKey(rootNode.HashKey)
 	if err != nil {
 		return nil, err
+	}
+
+	if nodeHash == mssmt.EmptyTree[0].NodeHash() {
+		return mssmt.EmptyTree[0], nil
 	}
 
 	root = mssmt.NewComputedBranch(nodeHash, uint64(rootNode.Sum))
