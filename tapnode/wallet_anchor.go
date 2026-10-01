@@ -58,3 +58,40 @@ type WalletAnchor interface {
 	// chain backend in sat/kw.
 	MinRelayFee(ctx context.Context) (chainfee.SatPerKWeight, error)
 }
+
+// CustomAnchorLeaseID identifies the minting batch that owns a custom anchor
+// input lease. Lease IDs must be stable across restarts and unique per batch.
+type CustomAnchorLeaseID [32]byte
+
+// CustomAnchorLeaser is the optional wallet capability required by custom
+// anchor minting. Keeping this separate from WalletAnchor allows existing
+// wallet implementations that don't support custom anchors to remain source
+// compatible.
+type CustomAnchorLeaser interface {
+	// LeaseInput leases the input for the specified batch if it belongs to
+	// the backing wallet. The returned boolean is false for inputs owned by
+	// an external signer. A lease held under another ID must be rejected.
+	LeaseInput(context.Context, CustomAnchorLeaseID, wire.OutPoint) (bool,
+		error)
+
+	// ReleaseInput releases only a lease owned by the specified batch. It
+	// must not release leases owned by another batch or subsystem.
+	ReleaseInput(context.Context, CustomAnchorLeaseID, wire.OutPoint) error
+}
+
+// CustomAnchorBatchLeaser is an optional optimized extension that snapshots
+// wallet ownership once for a complete custom-anchor input set. Implementations
+// must return successfully leased wallet inputs in request order, including a
+// partial result when a later lease fails. A lease owned by another subsystem
+// must be rejected before any requested input is mutated.
+type CustomAnchorBatchLeaser interface {
+	// LeaseInputs leases every wallet-owned input in ops and ignores inputs
+	// controlled by external signers.
+	LeaseInputs(context.Context, CustomAnchorLeaseID,
+		[]wire.OutPoint) ([]wire.OutPoint, error)
+
+	// ReleaseInputs releases only leases owned by leaseID and attempts
+	// every requested outpoint before returning any joined errors.
+	ReleaseInputs(context.Context, CustomAnchorLeaseID,
+		[]wire.OutPoint) error
+}

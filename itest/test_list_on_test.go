@@ -50,6 +50,14 @@ var allTestCases = []*testCase{
 		test: testMintFundSealAssets,
 	},
 	{
+		name: "mint custom anchor psbt",
+		test: testMintCustomAnchorPsbt,
+	},
+	{
+		name: "mint custom anchor foreign musig2 psbt",
+		test: testMintCustomAnchorMuSig2Psbt,
+	},
+	{
 		name: "mint external group key chantools",
 		test: testMintExternalGroupKeyChantools,
 	},
