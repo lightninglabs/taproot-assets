@@ -45,7 +45,7 @@ const (
 	AppMinor uint = 8
 
 	// AppPatch defines the application patch for this binary.
-	AppPatch uint = 4
+	AppPatch uint = 5
 
 	// AppStatus defines the release status of this binary (e.g. beta).
 	AppStatus = "alpha"
