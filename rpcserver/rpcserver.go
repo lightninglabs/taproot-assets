@@ -3227,15 +3227,20 @@ func (r *RPCServer) AnchorVirtualPsbts(ctx context.Context,
 	}, nil
 }
 
-func transitionProofOption(
-	version wrpc.TransitionProofVersion) (proof.GenOption, error) {
+// transitionProofOptions maps the requested transition proof version to
+// proof generation options. The enum's zero value is what an unset field
+// carries, so it selects the daemon's default version rather than V0.
+func transitionProofOptions(
+	version wrpc.TransitionProofVersion) ([]proof.GenOption, error) {
 
 	switch version {
 	case wrpc.TransitionProofVersion_TRANSITION_PROOF_VERSION_V0:
-		return proof.WithVersion(proof.TransitionV0), nil
+		return nil, nil
 
 	case wrpc.TransitionProofVersion_TRANSITION_PROOF_VERSION_V1:
-		return proof.WithVersion(proof.TransitionV1), nil
+		return []proof.GenOption{
+			proof.WithVersion(proof.TransitionV1),
+		}, nil
 
 	default:
 		return nil, status.Errorf(
@@ -3253,7 +3258,7 @@ func (r *RPCServer) CommitVirtualPsbts(ctx context.Context,
 	req *wrpc.CommitVirtualPsbtsRequest) (*wrpc.CommitVirtualPsbtsResponse,
 	error) {
 
-	proofOption, err := transitionProofOption(req.TransitionProofVersion)
+	proofOpts, err := transitionProofOptions(req.TransitionProofVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -3420,7 +3425,7 @@ func (r *RPCServer) CommitVirtualPsbts(ctx context.Context,
 			proofSuffix, err := tapsend.CreateProofSuffix(
 				fundedPacket.UnsignedTx, fundedPacket.Outputs,
 				vPkt, outputCommitments, vOutIdx, allPackets,
-				proofOption,
+				proofOpts...,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("unable to create "+

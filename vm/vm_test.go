@@ -414,12 +414,18 @@ func customScriptStateTransition(t testing.TB, currentHeight uint32, sequence,
 func splitStateTransition(t testing.TB) (*asset.Asset, commitment.SplitSet,
 	commitment.InputSet, uint32) {
 
+	return splitStateTransitionWithAmount(t, 3)
+}
+
+func splitStateTransitionWithAmount(t testing.TB, inputAmount uint64) (
+	*asset.Asset, commitment.SplitSet, commitment.InputSet, uint32) {
+
 	privKey := test.RandPrivKey()
 	scriptKey := txscript.ComputeTaprootKeyNoScript(privKey.PubKey())
 
 	genesisOutPoint := wire.OutPoint{}
 	genesisAsset := randAsset(t, asset.Normal, scriptKey)
-	genesisAsset.Amount = 3
+	genesisAsset.Amount = inputAmount
 
 	assetID := genesisAsset.Genesis.ID()
 	rootLocator := &commitment.SplitLocator{
@@ -437,7 +443,7 @@ func splitStateTransition(t testing.TB) (*asset.Asset, commitment.SplitSet,
 		OutputIndex: 2,
 		AssetID:     assetID,
 		ScriptKey:   asset.RandSerializedKey(t),
-		Amount:      1,
+		Amount:      inputAmount - 2,
 	}}
 	inputs := []commitment.SplitCommitmentInput{{
 		Asset:    genesisAsset,
@@ -724,6 +730,21 @@ func (m *mockChainLookup) MeanBlockTimestamp(context.Context,
 	uint32) (time.Time, error) {
 
 	return time.Unix(mockChainLookupMeanTime, 0).UTC(), nil
+}
+
+// TestSplitRootAmount ensures that the root asset of a split cannot claim
+// more than the total input amount.
+func TestSplitRootAmount(t *testing.T) {
+	t.Parallel()
+
+	newAsset, splitSet, inputSet, blockHeight :=
+		splitStateTransitionWithAmount(t, 100)
+	newAsset.Amount = 1_000_000
+
+	verifyTestCase(
+		t, newErrKind(ErrAmountMismatch), true, newAsset, splitSet,
+		inputSet, blockHeight,
+	)
 }
 
 func TestVM(t *testing.T) {

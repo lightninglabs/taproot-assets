@@ -43,9 +43,9 @@ func newTestServer() *RPCServer {
 	}
 }
 
-// TestTransitionProofOption tests the mapping from RPC proof versions to
+// TestTransitionProofOptions tests the mapping from RPC proof versions to
 // internal proof generation options.
-func TestTransitionProofOption(t *testing.T) {
+func TestTransitionProofOptions(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -55,9 +55,9 @@ func TestTransitionProofOption(t *testing.T) {
 		wantErr     bool
 	}{
 		{
-			name:        "default v0",
+			name:        "unset selects daemon default",
 			rpcVersion:  wrpc.TransitionProofVersion(0),
-			wantVersion: proof.TransitionV0,
+			wantVersion: proof.DefaultGenConfig().TransitionVersion,
 		},
 		{
 			name:        "v1",
@@ -76,7 +76,7 @@ func TestTransitionProofOption(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			option, err := transitionProofOption(tc.rpcVersion)
+			opts, err := transitionProofOptions(tc.rpcVersion)
 			if tc.wantErr {
 				assertCode(t, err, codes.InvalidArgument)
 				return
@@ -84,8 +84,7 @@ func TestTransitionProofOption(t *testing.T) {
 
 			require.NoError(t, err)
 
-			cfg := proof.DefaultGenConfig()
-			option(&cfg)
+			cfg := proof.NewGenConfig(opts...)
 			require.Equal(t, tc.wantVersion, cfg.TransitionVersion)
 		})
 	}

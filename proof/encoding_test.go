@@ -2,11 +2,14 @@ package proof
 
 import (
 	"bytes"
+	"io"
+	"slices"
 	"testing"
 
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
 
@@ -54,6 +57,30 @@ func TestCommitmentProofsDecoderRoundTrip(t *testing.T) {
 		return decodedProofs
 	}
 
+	// Helper function to decode the keys of an encoded map of commitment
+	// proofs, in the order they are encoded in.
+	decodeKeys := func(encoded []byte) []asset.SerializedKey {
+		r := bytes.NewReader(encoded)
+
+		numKeys, err := tlv.ReadVarInt(r, &buf)
+		require.NoError(t, err)
+
+		keys := make([]asset.SerializedKey, numKeys)
+		for i := range keys {
+			_, err := io.ReadFull(r, keys[i][:])
+			require.NoError(t, err)
+
+			var proofBytes []byte
+			err = asset.InlineVarBytesDecoder(
+				r, &proofBytes, &buf, MaxTaprootProofSizeBytes,
+			)
+			require.NoError(t, err)
+		}
+		require.Zero(t, r.Len())
+
+		return keys
+	}
+
 	// Test case: round trip encoding and decoding.
 	t.Run(
 		"encode and decode map of 4 random commitment proofs",
@@ -66,6 +93,27 @@ func TestCommitmentProofsDecoderRoundTrip(t *testing.T) {
 
 			// Assert the decoded proofs match the original.
 			require.Equal(t, proofs, decodedProofs)
+		},
+	)
+
+	// Test case: the proofs are encoded sorted by their key, whatever the
+	// iteration order of the map.
+	t.Run(
+		"encode map of 4 random commitment proofs in key order",
+		func(t *testing.T) {
+			byKey := func(a, b asset.SerializedKey) int {
+				return bytes.Compare(a[:], b[:])
+			}
+
+			// A single encoding may be sorted by chance, so we
+			// encode the proofs several times.
+			for range 10 {
+				keys := decodeKeys(encodeProofs(proofs))
+				require.Len(t, keys, numProofs)
+				require.True(
+					t, slices.IsSortedFunc(keys, byKey),
+				)
+			}
 		},
 	)
 
