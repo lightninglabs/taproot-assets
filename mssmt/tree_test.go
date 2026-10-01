@@ -637,6 +637,109 @@ func testBatchDeletion(t *testing.T, leaves []treeLeaf, tree mssmt.Tree) {
 	require.Equal(t, mssmt.EmptyTree[0], treeRoot)
 }
 
+func TestAbsentDeletion(t *testing.T) {
+	t.Parallel()
+
+	for storeName, makeStore := range genTestStores(t) {
+		t.Run(storeName, func(t *testing.T) {
+			t.Run("full SMT", func(t *testing.T) {
+				t.Parallel()
+
+				store, err := makeStore()
+				require.NoError(t, err)
+
+				testAbsentDeletion(t, mssmt.NewFullTree(store))
+			})
+
+			t.Run("smol SMT", func(t *testing.T) {
+				t.Parallel()
+
+				store, err := makeStore()
+				require.NoError(t, err)
+
+				testAbsentDeletion(t, mssmt.NewCompactedTree(store))
+			})
+		})
+	}
+}
+
+func testAbsentDeletion(t *testing.T, tree mssmt.Tree) {
+	ctx := context.TODO()
+
+	key := func(path ...byte) [32]byte {
+		var k [32]byte
+		_, _ = rand.Read(k[:])
+		for i, b := range path {
+			if b == 1 {
+				k[i/8] |= 1 << (i % 8)
+			} else {
+				k[i/8] &^= 1 << (i % 8)
+			}
+		}
+		return k
+	}
+	leaf := func(sum uint64) *mssmt.LeafNode {
+		v := make([]byte, 16)
+		_, _ = rand.Read(v)
+		return mssmt.NewLeafNode(v, sum)
+	}
+
+	absentKey := key(1, 1, 1, 1)
+
+	// 1. Deleting from empty tree is a no-op.
+	_, err := tree.Delete(ctx, absentKey)
+	require.NoError(t, err)
+
+	root, err := tree.Root(ctx)
+	require.NoError(t, err)
+	require.Equal(t, mssmt.EmptyTree[0], root)
+
+	// 2. Insert a leaf, then delete an absent key.
+	k1 := key(0, 0, 1)
+	l1 := leaf(5)
+	_, err = tree.Insert(ctx, k1, l1)
+	require.NoError(t, err)
+
+	rootBefore, err := tree.Root(ctx)
+	require.NoError(t, err)
+
+	absentKey2 := key(0, 0, 0)
+	_, err = tree.Delete(ctx, absentKey2)
+	require.NoError(t, err)
+
+	rootAfter, err := tree.Root(ctx)
+	require.NoError(t, err)
+	require.Equal(t, rootBefore.NodeHash(), rootAfter.NodeHash())
+
+	// 3. Insert more leaves that intersect the absent key's path.
+	y, z, w := key(1, 0, 0, 0), key(1, 0, 0, 1), key(1, 0, 1)
+	ly, lz, lw := leaf(2), leaf(3), leaf(4)
+
+	for _, kv := range []struct {
+		k [32]byte
+		l *mssmt.LeafNode
+	}{{y, ly}, {z, lz}, {w, lw}} {
+		_, err = tree.Insert(ctx, kv.k, kv.l)
+		require.NoError(t, err)
+	}
+
+	currentRoot, err := tree.Root(ctx)
+	require.NoError(t, err)
+
+	for _, kv := range []struct {
+		k [32]byte
+		l *mssmt.LeafNode
+	}{{k1, l1}, {y, ly}, {z, lz}, {w, lw}} {
+		got, err := tree.Get(ctx, kv.k)
+		require.NoError(t, err)
+		require.Equal(t, kv.l.Value, got.Value)
+
+		proof, err := tree.MerkleProof(ctx, kv.k)
+		require.NoError(t, err)
+		require.True(t, mssmt.VerifyMerkleProof(kv.k, kv.l, proof, currentRoot))
+	}
+}
+
 func assertEqualProofAfterCompression(t *testing.T, proof *mssmt.Proof) {
 	t.Helper()
 

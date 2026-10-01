@@ -2,6 +2,7 @@ package tapdb
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
 	"testing"
 
@@ -720,4 +721,401 @@ func TestTreeNamespaceIsolation(t *testing.T) {
 		return nil
 	})
 	require.NoError(t, err)
+}
+
+// TestCompactedTreeAbsentDelete deletes a key that is not in the tree, then
+// inserts keys whose path crosses the empty slot the delete wrote a row for.
+// The DB-backed tree must match the in-memory reference.
+func TestCompactedTreeAbsentDelete(t *testing.T) {
+	ctx := context.Background()
+
+	db := NewTestDB(t)
+	txCreator := func(tx *sql.Tx) TreeStore { return db.WithTx(tx) }
+	treeDB := NewTransactionExecutor(db, txCreator)
+
+	dbTree := mssmt.NewCompactedTree(
+		NewTaprootAssetTreeStore(treeDB, "absent-delete"),
+	)
+	refTree := mssmt.NewCompactedTree(mssmt.NewDefaultStore())
+
+	// key returns a random key whose leading bits are the given path.
+	key := func(path ...byte) [32]byte {
+		var k [32]byte
+		_, _ = rand.Read(k[:])
+		for i, b := range path {
+			if b == 1 {
+				k[i/8] |= 1 << (i % 8)
+			} else {
+				k[i/8] &^= 1 << (i % 8)
+			}
+		}
+		return k
+	}
+	leaf := func(sum uint64) *mssmt.LeafNode {
+		v := make([]byte, 16)
+		_, _ = rand.Read(v)
+		return mssmt.NewLeafNode(v, sum)
+	}
+
+	kx, absent := key(0, 0, 1), key(0, 0, 0)
+	y, z, w := key(1, 0, 0, 0), key(1, 0, 0, 1), key(1, 0, 1)
+	lx, ly, lz, lw := leaf(1), leaf(2), leaf(3), leaf(4)
+
+	for _, tree := range []*mssmt.CompactedTree{dbTree, refTree} {
+		_, err := tree.Insert(ctx, kx, lx)
+		require.NoError(t, err)
+
+		// The key is absent, so the root must not change.
+		_, err = tree.Delete(ctx, absent)
+		require.NoError(t, err)
+
+		for _, kv := range []struct {
+			k [32]byte
+			l *mssmt.LeafNode
+		}{{y, ly}, {z, lz}, {w, lw}} {
+			_, err = tree.Insert(ctx, kv.k, kv.l)
+			require.NoError(t, err)
+		}
+	}
+
+	refRoot, err := refTree.Root(ctx)
+	require.NoError(t, err)
+	dbRoot, err := dbTree.Root(ctx)
+	require.NoError(t, err)
+	require.Equal(t, refRoot.NodeHash(), dbRoot.NodeHash(), "root mismatch")
+
+	got, err := dbTree.Get(ctx, w)
+	require.NoError(t, err)
+	require.Equal(t, lw.Value, got.Value, "Get(w) returned wrong leaf")
+
+	proof, err := dbTree.MerkleProof(ctx, w)
+	require.NoError(t, err)
+	require.True(t, mssmt.VerifyMerkleProof(w, lw, proof, dbRoot))
+}
+
+// TestCompactedTreeAbsentDeleteEmptyAndSingleLeaf tests absent key deletion
+// on an empty tree and on a 1-leaf tree, verifying that no extraneous rows
+// are inserted into mssmt_nodes and roots match in-memory reference trees.
+// Specifically, it pins two distinct paths against a 1-leaf tree:
+// 1. An absent key that takes the empty sibling branch (node == EmptyTree[nextHeight]).
+// 2. An absent key that shares the leaf's prefix bit (*key != node.key).
+func TestCompactedTreeAbsentDeleteEmptyAndSingleLeaf(t *testing.T) {
+	ctx := context.Background()
+
+	db := NewTestDB(t)
+	txCreator := func(tx *sql.Tx) TreeStore { return db.WithTx(tx) }
+	treeDB := NewTransactionExecutor(db, txCreator)
+	namespace := "absent-delete-edge-cases"
+
+	treeStore := NewTaprootAssetTreeStore(treeDB, namespace)
+	dbTree := mssmt.NewCompactedTree(treeStore)
+	refTree := mssmt.NewCompactedTree(mssmt.NewDefaultStore())
+
+	countRows := func() int {
+		var count int
+		row := db.QueryRowContext(
+			ctx,
+			"SELECT COUNT(*) FROM mssmt_nodes WHERE namespace = $1",
+			namespace,
+		)
+		require.NoError(t, row.Scan(&count))
+		return count
+	}
+
+	key := func(path ...byte) [32]byte {
+		var k [32]byte
+		_, _ = rand.Read(k[:])
+		for i, b := range path {
+			if b == 1 {
+				k[i/8] |= 1 << (i % 8)
+			} else {
+				k[i/8] &^= 1 << (i % 8)
+			}
+		}
+		return k
+	}
+
+	// 1. Delete absent key from empty tree.
+	absentKey := key(0, 0, 0)
+	_, err := dbTree.Delete(ctx, absentKey)
+	require.NoError(t, err)
+	_, err = refTree.Delete(ctx, absentKey)
+	require.NoError(t, err)
+
+	dbRoot, err := dbTree.Root(ctx)
+	require.NoError(t, err)
+	refRoot, err := refTree.Root(ctx)
+	require.NoError(t, err)
+	require.Equal(t, mssmt.EmptyTree[0], dbRoot)
+	require.Equal(t, refRoot.NodeHash(), dbRoot.NodeHash())
+	require.Equal(t, 0, countRows(), "no rows should be written for empty tree delete")
+
+	// 2. Insert one leaf starting with bit 0 (left child at height 0).
+	k1 := key(0, 1)
+	leaf1 := mssmt.NewLeafNode([]byte("value1"), 10)
+
+	_, err = dbTree.Insert(ctx, k1, leaf1)
+	require.NoError(t, err)
+	_, err = refTree.Insert(ctx, k1, leaf1)
+	require.NoError(t, err)
+
+	rowsBefore := countRows()
+
+	// 3. Delete absent key that walks into the empty sibling branch
+	// (bit 0 is 1, so it takes the right child which is EmptyTree[1]).
+	absentEmptySibling := key(1, 0)
+	_, err = dbTree.Delete(ctx, absentEmptySibling)
+	require.NoError(t, err)
+	_, err = refTree.Delete(ctx, absentEmptySibling)
+	require.NoError(t, err)
+
+	dbRoot, err = dbTree.Root(ctx)
+	require.NoError(t, err)
+	refRoot, err = refTree.Root(ctx)
+	require.NoError(t, err)
+	require.Equal(t, refRoot.NodeHash(), dbRoot.NodeHash())
+	require.Equal(t, rowsBefore, countRows(), "no extra rows on empty-sibling absent delete")
+
+	// 4. Delete absent key that shares bit 0 with k1, hitting the existing
+	// compacted leaf with a differing key (*key != node.key).
+	absentCollidingLeaf := key(0, 0)
+	_, err = dbTree.Delete(ctx, absentCollidingLeaf)
+	require.NoError(t, err)
+	_, err = refTree.Delete(ctx, absentCollidingLeaf)
+	require.NoError(t, err)
+
+	dbRoot, err = dbTree.Root(ctx)
+	require.NoError(t, err)
+	refRoot, err = refTree.Root(ctx)
+	require.NoError(t, err)
+	require.Equal(t, refRoot.NodeHash(), dbRoot.NodeHash())
+	require.Equal(t, rowsBefore, countRows(), "no extra rows on colliding-leaf absent delete")
+
+	// Verify Get and MerkleProof for existing key.
+	got, err := dbTree.Get(ctx, k1)
+	require.NoError(t, err)
+	require.Equal(t, leaf1.Value, got.Value)
+
+	proof, err := dbTree.MerkleProof(ctx, k1)
+	require.NoError(t, err)
+	require.True(t, mssmt.VerifyMerkleProof(k1, leaf1, proof, dbRoot))
+}
+
+// TestCompactedTreeStaleEmptyRowResilience verifies that if a database already
+// contains a stale empty compacted leaf row (simulating dirty state from before
+// the fix), GetChildren ignores it, and subsequent inserts and proofs operate
+// correctly without state corruption.
+func TestCompactedTreeStaleEmptyRowResilience(t *testing.T) {
+	ctx := context.Background()
+
+	db := NewTestDB(t)
+	txCreator := func(tx *sql.Tx) TreeStore { return db.WithTx(tx) }
+	treeDB := NewTransactionExecutor(db, txCreator)
+	namespace := "stale-row-resilience"
+
+	treeStore := NewTaprootAssetTreeStore(treeDB, namespace)
+	dbTree := mssmt.NewCompactedTree(treeStore)
+	refTree := mssmt.NewCompactedTree(mssmt.NewDefaultStore())
+
+	key := func(path ...byte) [32]byte {
+		var k [32]byte
+		_, _ = rand.Read(k[:])
+		for i, b := range path {
+			if b == 1 {
+				k[i/8] |= 1 << (i % 8)
+			} else {
+				k[i/8] &^= 1 << (i % 8)
+			}
+		}
+		return k
+	}
+	leaf := func(sum uint64) *mssmt.LeafNode {
+		v := make([]byte, 16)
+		_, _ = rand.Read(v)
+		return mssmt.NewLeafNode(v, sum)
+	}
+
+	// Insert the stale empty leaf row at height 3 into mssmt_nodes using
+	// key(0,0,0), exactly mimicking what the pre-fix absent delete wrote.
+	emptyHashAt3 := mssmt.EmptyTree[3].NodeHash()
+	absentKey := key(0, 0, 0)
+
+	// Directly insert the stale row into the DB via raw SQL to bypass the
+	// new adapter guard.
+	_, err := db.ExecContext(
+		ctx,
+		"INSERT INTO mssmt_nodes (hash_key, l_hash_key, r_hash_key, key, value, sum, namespace) "+
+			"VALUES ($1, NULL, NULL, $2, $3, 0, $4)",
+		emptyHashAt3[:], absentKey[:], []byte{}, namespace,
+	)
+	require.NoError(t, err)
+
+	// Now insert keys whose path encounters EmptyTree[3].
+	kx := key(0, 0, 1)
+	y, z, w := key(1, 0, 0, 0), key(1, 0, 0, 1), key(1, 0, 1)
+	lx, ly, lz, lw := leaf(1), leaf(2), leaf(3), leaf(4)
+
+	for _, tree := range []*mssmt.CompactedTree{dbTree, refTree} {
+		_, err := tree.Insert(ctx, kx, lx)
+		require.NoError(t, err)
+
+		for _, kv := range []struct {
+			k [32]byte
+			l *mssmt.LeafNode
+		}{{y, ly}, {z, lz}, {w, lw}} {
+			_, err = tree.Insert(ctx, kv.k, kv.l)
+			require.NoError(t, err)
+		}
+	}
+
+	refRoot, err := refTree.Root(ctx)
+	require.NoError(t, err)
+	dbRoot, err := dbTree.Root(ctx)
+	require.NoError(t, err)
+	require.Equal(t, refRoot.NodeHash(), dbRoot.NodeHash(), "root mismatch despite stale row")
+
+	got, err := dbTree.Get(ctx, w)
+	require.NoError(t, err)
+	require.Equal(t, lw.Value, got.Value, "Get(w) returned wrong leaf")
+
+	proof, err := dbTree.MerkleProof(ctx, w)
+	require.NoError(t, err)
+	require.True(t, mssmt.VerifyMerkleProof(w, lw, proof, dbRoot))
+
+	// Assert that the stale empty row remains present on disk, proving
+	// that GetChildren ignored it rather than deleting or modifying it.
+	var staleRowCount int
+	row := db.QueryRowContext(
+		ctx,
+		"SELECT COUNT(*) FROM mssmt_nodes WHERE namespace = $1 AND hash_key = $2",
+		namespace, emptyHashAt3[:],
+	)
+	require.NoError(t, row.Scan(&staleRowCount))
+	require.Equal(t, 1, staleRowCount, "stale empty row must remain in DB (ignored)")
+}
+
+// TestTreeIdenticalSiblingHashes tests that when two sibling nodes share the
+// exact same node hash (for example, identical leaf value, sum, and remaining path),
+// tapdb.GetChildren sets both left and right children from the single shared
+// database row, and Get(), Root(), and MerkleProof() succeed for both keys on
+// both FullTree and CompactedTree.
+func TestTreeIdenticalSiblingHashes(t *testing.T) {
+	ctx := context.Background()
+
+	sharedLeaf := mssmt.NewLeafNode([]byte("shared-leaf-value"), 50)
+
+	t.Run("CompactedTree", func(t *testing.T) {
+		db := NewTestDB(t)
+		txCreator := func(tx *sql.Tx) TreeStore { return db.WithTx(tx) }
+		treeDB := NewTransactionExecutor(db, txCreator)
+		namespace := "identical-sibling-compacted"
+
+		treeStore := NewTaprootAssetTreeStore(treeDB, namespace)
+		dbTree := mssmt.NewCompactedTree(treeStore)
+		refTree := mssmt.NewCompactedTree(mssmt.NewDefaultStore())
+
+		// Construct two keys that differ only at bit 0.
+		// Since bits 1..255 are identical, their compacted leaf subtrees
+		// constructed at height 1 have identical node hashes.
+		var k0, k1 [32]byte
+		k0[0] = 0x00 // bit 0 = 0
+		k1[0] = 0x01 // bit 0 = 1
+		for i := 1; i < 32; i++ {
+			k0[i] = byte(i * 7)
+			k1[i] = byte(i * 7)
+		}
+
+		for _, tree := range []*mssmt.CompactedTree{dbTree, refTree} {
+			_, err := tree.Insert(ctx, k0, sharedLeaf)
+			require.NoError(t, err)
+			_, err = tree.Insert(ctx, k1, sharedLeaf)
+			require.NoError(t, err)
+		}
+
+		dbRoot, err := dbTree.Root(ctx)
+		require.NoError(t, err)
+		refRoot, err := refTree.Root(ctx)
+		require.NoError(t, err)
+		require.Equal(t, refRoot.NodeHash(), dbRoot.NodeHash())
+
+		// Verify that a single node row was stored for the compacted leaves
+		// because they share the same hash_key.
+		leafHash := mssmt.NewCompactedLeafNode(1, &k0, sharedLeaf).NodeHash()
+		var leafRowCount int
+		row := db.QueryRowContext(
+			ctx,
+			"SELECT COUNT(*) FROM mssmt_nodes WHERE namespace = $1 AND hash_key = $2",
+			namespace, leafHash[:],
+		)
+		require.NoError(t, row.Scan(&leafRowCount))
+		require.Equal(t, 1, leafRowCount)
+
+		// Both keys must be retrieved correctly from the database.
+		got0, err := dbTree.Get(ctx, k0)
+		require.NoError(t, err)
+		require.Equal(t, sharedLeaf.Value, got0.Value)
+
+		got1, err := dbTree.Get(ctx, k1)
+		require.NoError(t, err)
+		require.Equal(t, sharedLeaf.Value, got1.Value)
+
+		// Both Merkle proofs must verify against dbRoot.
+		proof0, err := dbTree.MerkleProof(ctx, k0)
+		require.NoError(t, err)
+		require.True(t, mssmt.VerifyMerkleProof(k0, sharedLeaf, proof0, dbRoot))
+
+		proof1, err := dbTree.MerkleProof(ctx, k1)
+		require.NoError(t, err)
+		require.True(t, mssmt.VerifyMerkleProof(k1, sharedLeaf, proof1, dbRoot))
+	})
+
+	t.Run("FullTree", func(t *testing.T) {
+		db := NewTestDB(t)
+		txCreator := func(tx *sql.Tx) TreeStore { return db.WithTx(tx) }
+		treeDB := NewTransactionExecutor(db, txCreator)
+		namespace := "identical-sibling-full"
+
+		treeStore := NewTaprootAssetTreeStore(treeDB, namespace)
+		dbTree := mssmt.NewFullTree(treeStore)
+		refTree := mssmt.NewFullTree(mssmt.NewDefaultStore())
+
+		// Construct two keys that differ only at bit 255 (the last bit).
+		var k0, k1 [32]byte
+		k0[31] = 0x00 // bit 255 = 0
+		k1[31] = 0x80 // bit 255 = 1 (bit 7 of byte 31)
+		for i := 0; i < 31; i++ {
+			k0[i] = byte(i * 3)
+			k1[i] = byte(i * 3)
+		}
+
+		for _, tree := range []*mssmt.FullTree{dbTree, refTree} {
+			_, err := tree.Insert(ctx, k0, sharedLeaf)
+			require.NoError(t, err)
+			_, err = tree.Insert(ctx, k1, sharedLeaf)
+			require.NoError(t, err)
+		}
+
+		dbRoot, err := dbTree.Root(ctx)
+		require.NoError(t, err)
+		refRoot, err := refTree.Root(ctx)
+		require.NoError(t, err)
+		require.Equal(t, refRoot.NodeHash(), dbRoot.NodeHash())
+
+		// Verify Get and MerkleProof for both sibling keys.
+		got0, err := dbTree.Get(ctx, k0)
+		require.NoError(t, err)
+		require.Equal(t, sharedLeaf.Value, got0.Value)
+
+		got1, err := dbTree.Get(ctx, k1)
+		require.NoError(t, err)
+		require.Equal(t, sharedLeaf.Value, got1.Value)
+
+		proof0, err := dbTree.MerkleProof(ctx, k0)
+		require.NoError(t, err)
+		require.True(t, mssmt.VerifyMerkleProof(k0, sharedLeaf, proof0, dbRoot))
+
+		proof1, err := dbTree.MerkleProof(ctx, k1)
+		require.NoError(t, err)
+		require.True(t, mssmt.VerifyMerkleProof(k1, sharedLeaf, proof1, dbRoot))
+	})
 }
