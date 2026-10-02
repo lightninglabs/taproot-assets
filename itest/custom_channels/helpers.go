@@ -1763,26 +1763,35 @@ func defaultCoOpCloseBalanceCheck(t *testing.T,
 		closeTx.TxOut[localAssetIndex].PkScript,
 	)
 
-	closedChans, err := local.ClosedChannels(
-		ctxt, &lnrpc.ClosedChannelsRequest{
-			Cooperative: true,
-		},
+	// The close stream reports the close as soon as the closing tx
+	// confirms, but lnd's channel arbitrator marks the channel closed in a
+	// separate goroutine, so the summary may not be listed yet.
+	var closedChan *lnrpc.ChannelCloseSummary
+	err := wait.Predicate(func() bool {
+		closedChans, err := local.ClosedChannels(
+			ctxt, &lnrpc.ClosedChannelsRequest{
+				Cooperative: true,
+			},
+		)
+		if err != nil {
+			return false
+		}
+
+		for _, c := range closedChans.Channels {
+			if c.ClosingTxHash == closeTx.TxHash().String() {
+				closedChan = c
+				return true
+			}
+		}
+
+		return false
+	}, wait.DefaultTimeout)
+	require.NoError(t, err)
+
+	closedJsonChannel, err := parseChannelData(
+		closedChan.CustomChannelData,
 	)
 	require.NoError(t, err)
-	require.NotEmpty(t, closedChans.Channels)
-
-	var closedJsonChannel *rfqmsg.JsonAssetChannel
-	for _, closedChan := range closedChans.Channels {
-		if closedChan.ClosingTxHash == closeTx.TxHash().String() {
-			closedJsonChannel, err = parseChannelData(
-				closedChan.CustomChannelData,
-			)
-			require.NoError(t, err)
-
-			break
-		}
-	}
-	require.NotNil(t, closedJsonChannel)
 
 	var localAssetCloseOut rfqmsg.JsonCloseOutput
 	err = json.Unmarshal(
