@@ -174,6 +174,17 @@
   already checked against the proof; the outpoint now has to match the
   anchor outpoint of the proof as well.
 
+- [Universe servers no longer reject supply commitments that carry
+  burns](https://github.com/lightninglabs/taproot-assets/pull/2331). A
+  burn leaf's proof is a bare state transition, with no provenance for the
+  input it consumes, and was verified as if it were self-contained, so
+  every such commitment failed with `missing asset input(s)` and the group
+  stopped publishing supply commitments. The verifier now checks the burn
+  against its input's provenance: a universe server takes it from its own
+  universe, and a node syncing supply commitments from the servers it pulls
+  from. The issuer publishes that provenance to each server before pushing
+  the commitment.
+
 # New Features
 
 ## Functional Enhancements
