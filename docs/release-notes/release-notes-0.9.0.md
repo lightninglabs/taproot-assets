@@ -168,6 +168,12 @@
   their universe leaves, and could reject a supply commitment for a burned
   asset that spent several inputs. Both are now encoded sorted by key.
 
+* [PR#2328](https://github.com/lightninglabs/taproot-assets/pull/2328)
+  makes a universe check the outpoint of a leaf key against the proof
+  inserted under it. The universe and the script key of a leaf key were
+  already checked against the proof; the outpoint now has to match the
+  anchor outpoint of the proof as well.
+
 # New Features
 
 ## Functional Enhancements
