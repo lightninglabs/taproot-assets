@@ -337,6 +337,9 @@ func (s *SyncVerifyState) ProcessEvent(event Event,
 				GroupFetcher:     env.GroupFetcher,
 				SupplyCommitView: env.SupplyCommitView,
 				SupplyTreeView:   env.SupplyTreeView,
+				Provenance: env.SupplySyncer.Provenance(
+					canonicalUniverses,
+				),
 			},
 		)
 		if err != nil {
