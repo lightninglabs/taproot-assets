@@ -446,6 +446,11 @@ func (a *Archive) verifyIssuanceProof(ctx context.Context, id Identifier,
 		return nil, fmt.Errorf("script key mismatch: expected %v, got "+
 			"%v", key.LeafScriptKey().PubKey.SerializeCompressed(),
 			newAsset.ScriptKey.PubKey.SerializeCompressed())
+
+	// The outpoint should match the anchor outpoint of the proof.
+	case key.LeafOutPoint() != assetSnapshot.OutPoint:
+		return nil, fmt.Errorf("outpoint mismatch: expected %v, got %v",
+			key.LeafOutPoint(), assetSnapshot.OutPoint)
 	}
 
 	return assetSnapshot, nil

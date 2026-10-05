@@ -598,3 +598,50 @@ func TestUpsertProofLeafLogsOnlyNewLeaf(t *testing.T) {
 		})
 	}
 }
+
+// TestUpsertProofLeafOutPointMismatch tests that a proof is rejected under a
+// leaf key whose outpoint differs from the anchor outpoint of the proof, on
+// both the single-leaf and batch paths.
+func TestUpsertProofLeafOutPointMismatch(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	newItem := func(t *testing.T) *Item {
+		item := mintTestAsset(t, false)
+
+		key, ok := item.Key.(BaseLeafKey)
+		require.True(t, ok)
+		key.OutPoint.Index++
+		item.Key = key
+
+		return item
+	}
+
+	newArchive := func() *Archive {
+		mv := &mockMultiverse{
+			knownRoots: make(map[IdentifierKey]Root),
+		}
+
+		return newTestArchiveWithStats(mv, &mockTelemetry{})
+	}
+
+	t.Run("single", func(t *testing.T) {
+		t.Parallel()
+
+		item := newItem(t)
+		_, err := newArchive().UpsertProofLeaf(
+			ctx, item.ID, item.Key, item.Leaf,
+		)
+		require.ErrorContains(t, err, "outpoint mismatch")
+	})
+
+	t.Run("batch", func(t *testing.T) {
+		t.Parallel()
+
+		err := newArchive().UpsertProofLeafBatch(
+			ctx, []*Item{newItem(t)},
+		)
+		require.ErrorContains(t, err, "outpoint mismatch")
+	})
+}
