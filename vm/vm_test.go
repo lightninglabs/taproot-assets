@@ -867,6 +867,69 @@ func (m *mockChainLookup) MeanBlockTimestamp(context.Context,
 	return time.Unix(mockChainLookupMeanTime, 0).UTC(), nil
 }
 
+// unknownHeightChainLookup is a chain lookup that reports a zero height for
+// every input.
+type unknownHeightChainLookup struct {
+	mockChainLookup
+}
+
+// TxBlockHeight returns a zero height for any transaction.
+func (m *unknownHeightChainLookup) TxBlockHeight(context.Context,
+	chainhash.Hash) (uint32, error) {
+
+	return 0, nil
+}
+
+// TestRelativeLockUnknownInputHeight ensures that an active relative time
+// lock is rejected if the confirmation height of its input is unknown, while a
+// disabled one is unaffected.
+func TestRelativeLockUnknownInputHeight(t *testing.T) {
+	t.Parallel()
+
+	const currentHeight = 1000
+
+	tests := []struct {
+		name     string
+		sequence uint64
+	}{{
+		name:     "block based",
+		sequence: 6,
+	}, {
+		name:     "time based",
+		sequence: wire.SequenceLockTimeIsSeconds | 6,
+	}, {
+		name:     "disabled",
+		sequence: wire.SequenceLockTimeDisabled | 6,
+	}}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			active := tc.sequence&wire.SequenceLockTimeDisabled == 0
+			newAsset, _, inputs, _ := normalStateTransition(
+				t, currentHeight, tc.sequence, 0, active, false,
+				false,
+			)
+
+			engine, err := New(
+				newAsset, nil, inputs,
+				WithChainLookup(&unknownHeightChainLookup{}),
+				WithBlockHeight(currentHeight),
+			)
+			require.NoError(t, err)
+
+			err = engine.Execute()
+			if !active {
+				require.NoError(t, err)
+				return
+			}
+
+			require.ErrorContains(t, err, "unknown confirm height")
+		})
+	}
+}
+
 // TestSplitRootAmount ensures that the root asset of a split cannot claim
 // more than the total input amount.
 func TestSplitRootAmount(t *testing.T) {
