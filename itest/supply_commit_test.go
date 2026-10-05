@@ -788,6 +788,7 @@ func MintAssetWithSupplyCommit(t *harnessTest,
 //  3. Burning assets creates burn leaves in the supply tree with negative
 //     amounts.
 //  4. All operations produce valid inclusion proofs that can be verified.
+//  5. The universe server accepts the commitment carrying the burn.
 func testSupplyCommitMintBurn(t *harnessTest) {
 	ctxb := context.Background()
 
@@ -952,6 +953,11 @@ func testSupplyCommitMintBurn(t *harnessTest) {
 	AssertSubtreeInclusionProof(
 		t, fetchResp.ChainData.SupplyRootHash,
 		fetchResp.BurnSubtreeRoot,
+	)
+
+	t.Log("Verifying universe server holds the burn commitment")
+	assertBurnCommit(
+		t, t.universeServer.service, groupKeyBytes, fetchResp, burnAmt,
 	)
 
 	t.Log("Fetching supply leaves for detailed verification")
@@ -1551,6 +1557,10 @@ func unmarshalRPCSupplyLeafKey(t *testing.T,
 //  8. Primary node mints another asset into the group and publishes the
 //     third supply commitment.
 //  9. Verifies the secondary node can fetch the third supply commitment.
+//  10. Primary node burns part of its change from the transfer and
+//     publishes the fourth supply commitment.
+//  11. Verifies the universe server and the secondary node both hold the
+//     fourth supply commitment.
 func testSupplyVerifyPeerNode(t *harnessTest) {
 	ctxb := context.Background()
 
@@ -1812,7 +1822,7 @@ func testSupplyVerifyPeerNode(t *harnessTest) {
 		firstMintReq.Asset.Amount + secondMintReq.Asset.Amount,
 	)
 	var thirdSupplyCommitResp *unirpc.FetchSupplyCommitResponse
-	thirdSupplyCommitResp, _ = WaitForSupplyCommit(
+	thirdSupplyCommitResp, supplyOutpoint = WaitForSupplyCommit(
 		t.t, ctxb, t.tapd, groupKeyBytes, fn.Some(supplyOutpoint),
 		func(resp *unirpc.FetchSupplyCommitResponse) bool {
 			actualRootSum :=
@@ -1862,4 +1872,110 @@ func testSupplyVerifyPeerNode(t *harnessTest) {
 	// Verify that the secondary node's third supply commitment matches the
 	// primary's.
 	assertFetchCommitResponse(t, thirdSupplyCommitResp, peerFetchResp3)
+
+	// Step 10: Primary node burns part of its change from the transfer to
+	// the secondary node. The change output never passed through the
+	// universe server, so the burn's input provenance reaches it only
+	// through the commitment push.
+	t.Log("Burning part of the change from the transfer")
+
+	const burnAmt = 500
+	burnResp, err := t.tapd.BurnAsset(ctxb, &taprpc.BurnAssetRequest{
+		AssetSpecifier: &taprpc.AssetSpecifier{
+			Id: &taprpc.AssetSpecifier_AssetId{
+				AssetId: rpcFirstAsset.AssetGenesis.AssetId,
+			},
+		},
+		AmountToBurn:     burnAmt,
+		ConfirmationText: rpcserver.AssetBurnConfirmationText,
+	})
+	require.NoError(t.t, err)
+
+	AssertAssetOutboundTransferWithOutputs(
+		t.t, t.lndHarness.Miner(), t.tapd, burnResp.BurnTransfer,
+		[][]byte{rpcFirstAsset.AssetGenesis.AssetId},
+		[]uint64{sendChangeAmount - burnAmt, burnAmt}, 1, 2, 2, true,
+	)
+
+	// The burn's supply-commit event is recorded asynchronously, and a
+	// tick with nothing pending is a no-op, so tick until the commitment
+	// transaction is broadcast.
+	t.Log("Updating supply commitment after burn (creating fourth " +
+		"supply commitment)")
+	lndMiner := t.lndHarness.Miner()
+	updateReq := &unirpc.UpdateSupplyCommitRequest{
+		GroupKey: &unirpc.UpdateSupplyCommitRequest_GroupKeyBytes{
+			GroupKeyBytes: groupKeyBytes,
+		},
+	}
+	deadline := time.Now().Add(defaultWaitTimeout)
+	for len(lndMiner.GetRawMempool()) == 0 {
+		require.True(
+			t.t, time.Now().Before(deadline),
+			"no commitment broadcast after the burn",
+		)
+
+		_, err = t.tapd.UpdateSupplyCommit(ctxb, updateReq)
+		require.NoError(t.t, err)
+
+		time.Sleep(2 * time.Second)
+	}
+	MineBlocks(t.t, lndMiner, 1, 1)
+
+	burnCommitResp, _ := WaitForSupplyCommit(
+		t.t, ctxb, t.tapd, groupKeyBytes, fn.Some(supplyOutpoint),
+		func(resp *unirpc.FetchSupplyCommitResponse) bool {
+			return resp.BurnSubtreeRoot != nil &&
+				resp.BurnSubtreeRoot.RootNode.RootSum == burnAmt
+		},
+	)
+
+	// Step 11: The universe server verifies the burn against the
+	// provenance the push published to it, and the secondary node
+	// against the provenance it fetches from the universe server.
+	t.Log("Verifying universe server holds the fourth supply commitment")
+	assertBurnCommit(
+		t, t.universeServer.service, groupKeyBytes, burnCommitResp,
+		burnAmt,
+	)
+
+	t.Log("Verifying secondary node holds the fourth supply commitment")
+	assertBurnCommit(t, secondTapd, groupKeyBytes, burnCommitResp, burnAmt)
+}
+
+// assertBurnCommit asserts that the given node holds the issuer's supply
+// commitment carrying burns, as identified by the commitment it spends, and
+// that its burn subtree sums to the expected amount.
+func assertBurnCommit(t *harnessTest, node unirpc.UniverseClient,
+	groupKeyBytes []byte, issuerResp *unirpc.FetchSupplyCommitResponse,
+	burnSum int64) {
+
+	t.t.Helper()
+
+	burnPred := func(resp *unirpc.FetchSupplyCommitResponse) error {
+		if resp.BurnSubtreeRoot == nil {
+			return fmt.Errorf("burn subtree root is nil")
+		}
+
+		actualSum := resp.BurnSubtreeRoot.RootNode.RootSum
+		if actualSum != burnSum {
+			return fmt.Errorf("expected burn RootSum %d, got %d",
+				burnSum, actualSum)
+		}
+
+		return nil
+	}
+	req := unirpc.FetchSupplyCommitRequest{
+		GroupKey: &unirpc.FetchSupplyCommitRequest_GroupKeyBytes{
+			GroupKeyBytes: groupKeyBytes,
+		},
+		Locator: &unirpc.FetchSupplyCommitRequest_SpentCommitOutpoint{
+			SpentCommitOutpoint: issuerResp.SpentCommitmentOutpoint,
+		},
+	}
+	resp := rpcassert.FetchSupplyCommitRPC(
+		t.t, context.Background(), node, burnPred, &req,
+	)
+
+	assertFetchCommitResponse(t, issuerResp, resp)
 }
