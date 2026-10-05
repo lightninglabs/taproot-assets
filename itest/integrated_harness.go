@@ -488,23 +488,36 @@ func (h *IntegratedNetworkHarness) CloseChannel(lnNode *IntegratedNode,
 				err)
 		}
 
-		// Consume the "close pending" update.
-		closeResp, err := closeRespStream.Recv()
-		if err != nil {
-			return fmt.Errorf("unable to recv from close "+
-				"stream: %w", err)
+		// Consume the "close pending" update. With the RBF co-op
+		// close flow, the remote party may propose its own close
+		// transaction as well, which is reported on the stream too,
+		// so we wait for the update of our own transaction at the
+		// requested fee rate.
+		var pendingClose *lnrpc.PendingUpdate
+		for pendingClose == nil {
+			closeResp, err := closeRespStream.Recv()
+			if err != nil {
+				return fmt.Errorf("unable to recv from "+
+					"close stream: %w", err)
+			}
+
+			update := closeResp.GetClosePending()
+			if update == nil {
+				return fmt.Errorf("expected close pending "+
+					"update, instead got %v", closeResp)
+			}
+
+			if !force && !IsOwnRbfCloseUpdate(
+				update, closeReq.SatPerVbyte,
+			) {
+
+				continue
+			}
+
+			pendingClose = update
 		}
 
-		pendingClose, ok :=
-			closeResp.Update.(*lnrpc.CloseStatusUpdate_ClosePending)
-		if !ok {
-			return fmt.Errorf("expected close pending update, "+
-				"instead got %v", closeResp)
-		}
-
-		closeTxid, err = chainhash.NewHash(
-			pendingClose.ClosePending.Txid,
-		)
+		closeTxid, err = chainhash.NewHash(pendingClose.Txid)
 		if err != nil {
 			return fmt.Errorf("unable to decode closeTxid: "+
 				"%v", err)
@@ -519,6 +532,22 @@ func (h *IntegratedNetworkHarness) CloseChannel(lnNode *IntegratedNode,
 	}
 
 	return closeRespStream, closeTxid, nil
+}
+
+// IsOwnRbfCloseUpdate returns true if a close pending update should be
+// taken as the update for our own co-op close transaction. The legacy close
+// negotiation reports a single transaction without a fee rate. The RBF flow
+// reports every transaction either party proposes, so there we only accept
+// our own transaction at the fee rate we requested.
+func IsOwnRbfCloseUpdate(update *lnrpc.PendingUpdate,
+	satPerVbyte uint64) bool {
+
+	if update.FeePerVbyte == 0 {
+		return true
+	}
+
+	return update.LocalCloseTx &&
+		update.FeePerVbyte == int64(satPerVbyte)
 }
 
 // WaitForChannelClose waits for a "channel close" notification on the given

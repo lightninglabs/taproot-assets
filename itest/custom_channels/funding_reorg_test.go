@@ -94,7 +94,7 @@ func testCustomChannelsFundingReorg(ctx context.Context,
 	)
 	require.NoError(t.t, err)
 
-	fundingAnchoring := findPorterAnchoring(t.t, charlie, preFund)
+	fundingAnchoring := findPorterAnchoring(t.t, charlie, preFund, nil)
 	assertAnchoringPhase(t.t, charlie, fundingAnchoring, "unwitnessed")
 
 	// One confirmation is potency, not act: the anchoring

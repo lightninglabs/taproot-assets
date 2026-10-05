@@ -3,6 +3,7 @@
 package custom_channels
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -126,16 +127,17 @@ func testCustomChannelsForceCloseSweepReorg(ctx context.Context,
 			FundingTxidStr: assetFundResp.Txid,
 		},
 	}
+	// Dave's porter site already carries anchorings from before the
+	// close (the channel funding among them); snapshot them before the
+	// close confirms, as Dave sweeps right away once it does, so the
+	// sweep forms below are identified by exclusion.
+	preSweep := listPorterAnchoringIDs(t.t, dave)
+
 	_, closeTxid, err := net.CloseChannel(charlie, charlieChanPoint, true)
 	require.NoError(t.t, err)
 	mineBlocks(t, net, 1, 1)
 
 	findForceCloseTransfer(t.t, charlie, dave, closeTxid)
-
-	// Dave's porter site already carries anchorings from before the
-	// sweep (the channel funding among them); snapshot them so the
-	// sweep forms below are identified by exclusion.
-	preSweep := listPorterAnchoringIDs(t.t, dave)
 
 	// Dave sweeps his non-delay commitment output: the first sweep
 	// form. Capture the raw transaction while it sits in the mempool;
@@ -150,7 +152,7 @@ func testCustomChannelsForceCloseSweepReorg(ctx context.Context,
 	// The porter staked the broadcast sweep as an anchoring the
 	// moment it was handed the parcel: one fresh anchoring, not yet
 	// witnessed.
-	anchoringA := findPorterAnchoring(t.t, dave, preSweep)
+	anchoringA := findPorterAnchoring(t.t, dave, preSweep, closeTxid)
 	assertAnchoringPhase(t.t, dave, anchoringA, "unwitnessed")
 
 	// Fee-bump the sweep while it is unconfirmed: lnd's sweeper
@@ -180,6 +182,7 @@ func testCustomChannelsForceCloseSweepReorg(ctx context.Context,
 
 	anchoringB := findPorterAnchoring(
 		t.t, dave, append(slices.Clone(preSweep), anchoringA),
+		closeTxid,
 	)
 	assertAnchoringPhase(t.t, dave, anchoringB, "unwitnessed")
 
@@ -365,9 +368,11 @@ func listPorterAnchoringIDs(t *testing.T,
 
 // findPorterAnchoring returns the ID of the node's single porter-site
 // anchoring not in the exclude list. The porter registers sweep
-// broadcasts as anchorings, so each sweep form shows up here.
+// broadcasts as anchorings, so each sweep form shows up here. The
+// anchoring of a force close transfer itself, witnessed by the given close
+// transaction, is left out as well.
 func findPorterAnchoring(t *testing.T, node *itest.IntegratedNode,
-	exclude []int64) int64 {
+	exclude []int64, closeTxid *chainhash.Hash) int64 {
 
 	t.Helper()
 
@@ -385,9 +390,16 @@ func findPorterAnchoring(t *testing.T, node *itest.IntegratedNode,
 
 		var fresh []int64
 		for _, a := range resp.Anchorings {
-			if !slices.Contains(exclude, a.Id) {
-				fresh = append(fresh, a.Id)
+			if slices.Contains(exclude, a.Id) {
+				continue
 			}
+			if closeTxid != nil &&
+				bytes.Equal(a.WitnessTxid, closeTxid[:]) {
+
+				continue
+			}
+
+			fresh = append(fresh, a.Id)
 		}
 		if len(fresh) != 1 {
 			return fmt.Errorf("want 1 fresh porter anchoring, "+

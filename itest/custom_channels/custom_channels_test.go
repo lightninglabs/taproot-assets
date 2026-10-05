@@ -144,6 +144,10 @@ var testCases = []*ccTestCase{
 		test: testCustomChannelsRestartCoopClose,
 	},
 	{
+		name: "rbf coop close",
+		test: testCustomChannelsRbfCoopClose,
+	},
+	{
 		name: "list invoices and payments",
 		test: testCustomChannelsListInvoicesAndPayments,
 	},

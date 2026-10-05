@@ -3,6 +3,7 @@ package tapchannel
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"testing"
@@ -94,6 +95,16 @@ func testSQLAuxCloseStoreRoundTrip(t *testing.T, supportSTXO bool) {
 				internalKey: test.RandPubKey(t),
 			},
 		},
+		assetOutputs: []closeAssetOutput{
+			{
+				outputIndex: 1,
+				pkScript:    test.RandBytes(34),
+			},
+			{
+				outputIndex: 2,
+				pkScript:    test.RandBytes(34),
+			},
+		},
 		closeFee:    12345,
 		supportSTXO: supportSTXO,
 	}
@@ -103,12 +114,15 @@ func testSQLAuxCloseStoreRoundTrip(t *testing.T, supportSTXO bool) {
 		Index: 7,
 	}
 
-	require.NoError(t, store.Put(ctx, chanPoint, original))
+	require.NoError(
+		t, store.Put(ctx, chanPoint, []*persistedCloseInfo{original}),
+	)
 
 	got, err := store.Get(ctx, chanPoint)
 	require.NoError(t, err)
+	require.Len(t, got, 1)
 
-	requirePersistedCloseInfoEqual(t, original, got)
+	requirePersistedCloseInfoEqual(t, original, got[0])
 
 	// Sanity: Delete removes the entry and subsequent Get returns
 	// ErrNoAuxCloseInfo.
@@ -132,6 +146,7 @@ func requirePersistedCloseInfoEqual(t *testing.T,
 	require.Len(t, got.vPackets, len(want.vPackets))
 	require.Len(t, got.pristineVPackets, len(want.pristineVPackets))
 	require.Len(t, got.noAssetAllocs, len(want.noAssetAllocs))
+	require.Equal(t, want.assetOutputs, got.assetOutputs)
 
 	for i := range want.vPackets {
 		requireVPacketBytesEqual(t, want.vPackets[i], got.vPackets[i])
@@ -164,4 +179,103 @@ func requireVPacketBytesEqual(t *testing.T, want, got *tappsbt.VPacket) {
 	require.NoError(t, want.Serialize(&wantBuf))
 	require.NoError(t, got.Serialize(&gotBuf))
 	require.Equal(t, wantBuf.Bytes(), gotBuf.Bytes())
+}
+
+// newTestCloseInfo returns a persisted close info with random content and the
+// given fee.
+func newTestCloseInfo(t *testing.T, closeFee int64) *persistedCloseInfo {
+	return &persistedCloseInfo{
+		vPackets: []*tappsbt.VPacket{
+			tappsbt.RandPacket(t, true, true),
+		},
+		pristineVPackets: []*tappsbt.VPacket{
+			tappsbt.RandPacket(t, true, true),
+		},
+		noAssetAllocs: []noAssetAlloc{{
+			outputIndex: 0,
+			internalKey: test.RandPubKey(t),
+		}},
+		assetOutputs: []closeAssetOutput{{
+			outputIndex: 1,
+			pkScript:    test.RandBytes(34),
+		}},
+		closeFee:    closeFee,
+		supportSTXO: true,
+	}
+}
+
+// TestSQLAuxCloseStoreCandidates verifies that several close candidates of a
+// channel survive a Put/Get round-trip in order, and that the candidate cap
+// is enforced.
+func TestSQLAuxCloseStoreCandidates(t *testing.T) {
+	t.Parallel()
+
+	store := NewSQLAuxCloseStore(newMemBlobStore(), errBlobMissing)
+	ctx := context.Background()
+	chanPoint := wire.OutPoint{Index: 1}
+
+	candidates := []*persistedCloseInfo{
+		newTestCloseInfo(t, 100),
+		newTestCloseInfo(t, 200),
+		newTestCloseInfo(t, 300),
+	}
+	require.NoError(t, store.Put(ctx, chanPoint, candidates))
+
+	got, err := store.Get(ctx, chanPoint)
+	require.NoError(t, err)
+	require.Len(t, got, len(candidates))
+	for i := range candidates {
+		requirePersistedCloseInfoEqual(t, candidates[i], got[i])
+	}
+
+	// An empty candidate list round-trips as well.
+	require.NoError(t, store.Put(ctx, chanPoint, nil))
+	got, err = store.Get(ctx, chanPoint)
+	require.NoError(t, err)
+	require.Empty(t, got)
+
+	// More candidates than the cap are refused.
+	tooMany := make([]*persistedCloseInfo, maxCloseCandidates+1)
+	for i := range tooMany {
+		tooMany[i] = newTestCloseInfo(t, int64(i))
+	}
+	require.Error(t, store.Put(ctx, chanPoint, tooMany))
+}
+
+// TestSQLAuxCloseStoreLegacyFormat verifies that a blob written in the
+// previous single candidate format is still read, as a single candidate
+// without asset outputs.
+func TestSQLAuxCloseStoreLegacyFormat(t *testing.T) {
+	t.Parallel()
+
+	blobs := newMemBlobStore()
+	store := NewSQLAuxCloseStore(blobs, errBlobMissing)
+	ctx := context.Background()
+	chanPoint := wire.OutPoint{Index: 2}
+
+	legacy := newTestCloseInfo(t, 4321)
+	legacy.assetOutputs = nil
+
+	// The legacy format is the version byte followed by a single
+	// candidate body.
+	var buf bytes.Buffer
+	require.NoError(
+		t, binary.Write(
+			&buf, binary.BigEndian, closeInfoFormatVersionSingle,
+		),
+	)
+	require.NoError(t, encodeCloseInfoBody(&buf, legacy))
+	require.NoError(t, blobs.PutAuxCloseBlob(ctx, chanPoint, buf.Bytes()))
+
+	got, err := store.Get(ctx, chanPoint)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	requirePersistedCloseInfoEqual(t, legacy, got[0])
+
+	// An unknown version is rejected.
+	buf.Reset()
+	require.NoError(t, binary.Write(&buf, binary.BigEndian, uint8(9)))
+	require.NoError(t, blobs.PutAuxCloseBlob(ctx, chanPoint, buf.Bytes()))
+	_, err = store.Get(ctx, chanPoint)
+	require.ErrorContains(t, err, "unsupported close info version")
 }
