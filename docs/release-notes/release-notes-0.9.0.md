@@ -233,6 +233,19 @@
   makes asset hold invoices created with pre-existing RFQ route hints
   carry those hints.
 
+- [Universe servers no longer reject supply commitments that carry
+  burns](https://github.com/lightninglabs/taproot-assets/pull/2331). A
+  burn leaf's proof is a bare state transition, with no provenance for the
+  input it consumes, and was verified as if it were self-contained, so
+  every such commitment failed with `missing asset input(s)` and the group
+  stopped publishing supply commitments. The verifier now checks the burn
+  against its input's provenance: a universe server takes it from its own
+  universe, and a node syncing supply commitments from the servers it pulls
+  from. The issuer publishes that provenance to each server before pushing
+  the commitment. A server accepts a commitment burning an output whose
+  provenance it doesn't already hold only if it allows proof inserts, via
+  `--universe.sync-all-assets` or `tapcli universe federation config`.
+
 # New Features
 
 ## Functional Enhancements
