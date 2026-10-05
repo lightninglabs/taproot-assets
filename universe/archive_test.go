@@ -456,7 +456,7 @@ func mintTestAsset(t *testing.T, grouped bool) *Item {
 			ProofType: ProofTypeIssuance,
 		},
 		Key: BaseLeafKey{
-			OutPoint:  assetGenesis.FirstPrevOut,
+			OutPoint:  assetProof.OutPoint(),
 			ScriptKey: &scriptKey,
 		},
 		Leaf: &Leaf{
