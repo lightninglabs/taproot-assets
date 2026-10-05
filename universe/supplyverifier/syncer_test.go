@@ -1,24 +1,36 @@
 package supplyverifier
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"sync"
 	"testing"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
 	"github.com/stretchr/testify/require"
 )
 
-// recordingUniverseClient counts inserts, optionally failing them.
+// recordingUniverseClient counts commitment inserts, optionally failing
+// them, records the single proofs inserted ahead of them, and serves the
+// single proofs it holds by locator hash.
 type recordingUniverseClient struct {
 	inserts int
 	fail    error
+	proofs  map[[32]byte]proof.Blob
+
+	// calls records the order of proof and commitment inserts.
+	calls []string
+
+	// inserted holds the single proofs inserted, in order.
+	inserted []*proof.Proof
 }
 
 func (c *recordingUniverseClient) InsertSupplyCommit(_ context.Context,
@@ -26,8 +38,18 @@ func (c *recordingUniverseClient) InsertSupplyCommit(_ context.Context,
 	_ supplycommit.SupplyLeaves, _ supplycommit.ChainProof) error {
 
 	c.inserts++
+	c.calls = append(c.calls, "commit")
 
 	return c.fail
+}
+
+func (c *recordingUniverseClient) InsertProof(_ context.Context,
+	p *proof.Proof) error {
+
+	c.calls = append(c.calls, "proof")
+	c.inserted = append(c.inserted, p)
+
+	return nil
 }
 
 func (c *recordingUniverseClient) FetchSupplyCommit(_ context.Context,
@@ -35,6 +57,22 @@ func (c *recordingUniverseClient) FetchSupplyCommit(_ context.Context,
 	supplycommit.FetchSupplyCommitResult, error) {
 
 	return supplycommit.FetchSupplyCommitResult{}, errors.New("unused")
+}
+
+func (c *recordingUniverseClient) FetchProof(_ context.Context,
+	loc proof.Locator) (proof.Blob, error) {
+
+	locHash, err := loc.Hash()
+	if err != nil {
+		return nil, err
+	}
+
+	blob, ok := c.proofs[locHash]
+	if !ok {
+		return nil, proof.ErrProofNotFound
+	}
+
+	return blob, nil
 }
 
 func (c *recordingUniverseClient) Close() error {
@@ -196,4 +234,174 @@ func TestManagerInsertSupplyCommitAbsorbsRePush(t *testing.T) {
 		ctx, spec, commitment, supplycommit.SupplyLeaves{},
 	)
 	require.ErrorContains(t, err, "db down")
+}
+
+// TestPushSupplyCommitmentPublishesBurnProvenance asserts that a commitment
+// carrying a burn is pushed only after the provenance of the burn's input:
+// the burn leaf's proof is a bare transition, which the server verifies
+// against the provenance its own universe holds. The burn itself travels in
+// the commitment, so only the proofs before it are published.
+func TestPushSupplyCommitmentPublishesBurnProvenance(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	groupPrivKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	delegPrivKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	burnProof, burnFile := randBurnProofWithGroupKey(
+		t, groupPrivKey, delegPrivKey.PubKey(),
+	)
+	genesisProof, err := burnFile.LastProof()
+	require.NoError(t, err)
+	require.NoError(t, burnFile.AppendProof(burnProof))
+
+	// The local archive holds the burn output's full proof file, keyed
+	// the way the chain porter imports it.
+	var buf bytes.Buffer
+	require.NoError(t, burnFile.Encode(&buf))
+	burnOutPoint := burnProof.OutPoint()
+	localProofs := proof.NewMockProofArchive()
+	err = localProofs.ImportProofs(
+		ctx, proof.VerifierCtx{}, false, &proof.AnnotatedProof{
+			Locator: proof.Locator{
+				AssetID:   fn.Ptr(burnProof.Asset.ID()),
+				ScriptKey: *burnProof.Asset.ScriptKey.PubKey,
+				OutPoint:  &burnOutPoint,
+			},
+			Blob: buf.Bytes(),
+		},
+	)
+	require.NoError(t, err)
+
+	addr := universe.NewServerAddrFromStr("a.example:10029")
+	client := &recordingUniverseClient{}
+	syncer := NewSupplySyncer(SupplySyncerConfig{
+		ClientFactory: func(
+			universe.ServerAddr) (UniverseClient, error) {
+
+			return client, nil
+		},
+		Store: &recordingSyncerStore{},
+		UniverseFederationView: &staticFederationView{
+			servers: []universe.ServerAddr{addr},
+		},
+		LocalProofs: localProofs,
+	})
+
+	leaves := supplycommit.SupplyLeaves{
+		BurnLeafEntries: []supplycommit.NewBurnEvent{{
+			BurnLeaf: universe.BurnLeaf{
+				BurnProof: &burnProof,
+			},
+		}},
+	}
+	errMap, err := syncer.PushSupplyCommitment(
+		ctx, asset.NewSpecifierFromGroupKey(*test.RandPubKey(t)),
+		supplycommit.RootCommitment{Txn: wire.NewMsgTx(2)}, leaves,
+		supplycommit.ChainProof{}, nil,
+	)
+	require.NoError(t, err)
+	require.Empty(t, errMap)
+
+	require.Equal(t, []string{"proof", "commit"}, client.calls)
+
+	wantGenesis, err := genesisProof.Bytes()
+	require.NoError(t, err)
+	gotGenesis, err := client.inserted[0].Bytes()
+	require.NoError(t, err)
+	require.Equal(t, wantGenesis, gotGenesis)
+}
+
+// TestProvenanceAcrossServers asserts that a syncing node assembles a burn's
+// full proof file from the single proofs of whichever target universe server
+// holds them, walking back from the burn to its genesis.
+func TestProvenanceAcrossServers(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	groupPrivKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	delegPrivKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	burnProof, inputFile := randBurnProofWithGroupKey(
+		t, groupPrivKey, delegPrivKey.PubKey(),
+	)
+	genesisProof, err := inputFile.LastProof()
+	require.NoError(t, err)
+
+	groupKey := &burnProof.Asset.GroupKey.GroupPubKey
+	singleProof := func(p *proof.Proof) ([32]byte, proof.Blob) {
+		outPoint := p.OutPoint()
+		loc := proof.Locator{
+			AssetID:   fn.Ptr(p.Asset.ID()),
+			GroupKey:  groupKey,
+			ScriptKey: *p.Asset.ScriptKey.PubKey,
+			OutPoint:  &outPoint,
+		}
+		locHash, err := loc.Hash()
+		require.NoError(t, err)
+
+		blob, err := p.Bytes()
+		require.NoError(t, err)
+
+		return locHash, blob
+	}
+	genesisHash, genesisBlob := singleProof(genesisProof)
+	burnHash, burnBlob := singleProof(&burnProof)
+
+	addrA := universe.NewServerAddrFromStr("a.example:10029")
+	addrB := universe.NewServerAddrFromStr("b.example:10029")
+	clients := map[string]*recordingUniverseClient{
+		addrA.HostStr(): {},
+		addrB.HostStr(): {
+			proofs: map[[32]byte]proof.Blob{
+				genesisHash: genesisBlob,
+				burnHash:    burnBlob,
+			},
+		},
+	}
+	syncer := NewSupplySyncer(SupplySyncerConfig{
+		ClientFactory: func(
+			sa universe.ServerAddr) (UniverseClient, error) {
+
+			return clients[sa.HostStr()], nil
+		},
+		UniverseFederationView: &staticFederationView{
+			servers: []universe.ServerAddr{addrA, addrB},
+		},
+	})
+
+	burnOutPoint := burnProof.OutPoint()
+	burnLoc := proof.Locator{
+		AssetID:   fn.Ptr(burnProof.Asset.ID()),
+		GroupKey:  groupKey,
+		ScriptKey: *burnProof.Asset.ScriptKey.PubKey,
+		OutPoint:  &burnOutPoint,
+	}
+
+	blob, err := syncer.Provenance(nil).FetchProof(ctx, burnLoc)
+	require.NoError(t, err)
+
+	file, err := blob.AsFile()
+	require.NoError(t, err)
+	require.Equal(t, 2, file.NumProofs())
+
+	rawGenesis, err := file.RawProofAt(0)
+	require.NoError(t, err)
+	require.Equal(t, []byte(genesisBlob), rawGenesis)
+
+	rawBurn, err := file.RawLastProof()
+	require.NoError(t, err)
+	require.Equal(t, []byte(burnBlob), rawBurn)
+
+	// Once no server holds the chain, the lookup fails with each
+	// server's reason.
+	clients[addrB.HostStr()].proofs = nil
+	_, err = syncer.Provenance(nil).FetchProof(ctx, burnLoc)
+	require.ErrorIs(t, err, proof.ErrProofNotFound)
 }
