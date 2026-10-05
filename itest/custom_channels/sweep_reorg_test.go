@@ -3,6 +3,7 @@
 package custom_channels
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -128,14 +129,23 @@ func testCustomChannelsForceCloseSweepReorg(ctx context.Context,
 	}
 	_, closeTxid, err := net.CloseChannel(charlie, charlieChanPoint, true)
 	require.NoError(t.t, err)
+
+	// Dave's porter site already carries anchorings from before the
+	// close (the channel funding among them); snapshot them so the
+	// sweep forms below are identified by exclusion. The snapshot
+	// precedes the close block: Dave stakes both the close import and
+	// his sweep in reaction to that block, in no fixed order.
+	preSweep := listPorterAnchoringIDs(t.t, dave)
+
 	mineBlocks(t, net, 1, 1)
 
 	findForceCloseTransfer(t.t, charlie, dave, closeTxid)
 
-	// Dave's porter site already carries anchorings from before the
-	// sweep (the channel funding among them); snapshot them so the
-	// sweep forms below are identified by exclusion.
-	preSweep := listPorterAnchoringIDs(t.t, dave)
+	// Dave's close import is the porter anchoring witnessed by the
+	// close transaction; excluding it leaves only the sweep forms.
+	preSweep = append(
+		preSweep, findWitnessedPorterAnchoring(t.t, dave, *closeTxid),
+	)
 
 	// Dave sweeps his non-delay commitment output: the first sweep
 	// form. Capture the raw transaction while it sits in the mempool;
@@ -361,6 +371,39 @@ func listPorterAnchoringIDs(t *testing.T,
 	}
 
 	return ids
+}
+
+// findWitnessedPorterAnchoring returns the ID of the node's porter-site
+// anchoring whose witness is the given transaction, once it is sensed.
+func findWitnessedPorterAnchoring(t *testing.T, node *itest.IntegratedNode,
+	txid chainhash.Hash) int64 {
+
+	t.Helper()
+
+	ctxb := context.Background()
+	var id int64
+	err := wait.NoError(func() error {
+		resp, err := asTapd(node).ListAnchorings(
+			ctxb, &taprpc.ListAnchoringsRequest{
+				Site: "tapfreighter.porter",
+			},
+		)
+		if err != nil {
+			return err
+		}
+
+		for _, a := range resp.Anchorings {
+			if bytes.Equal(a.WitnessTxid, txid[:]) {
+				id = a.Id
+				return nil
+			}
+		}
+
+		return fmt.Errorf("no porter anchoring witnessed by %v", txid)
+	}, wait.DefaultTimeout)
+	require.NoError(t, err)
+
+	return id
 }
 
 // findPorterAnchoring returns the ID of the node's single porter-site
