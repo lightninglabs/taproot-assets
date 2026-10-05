@@ -1780,6 +1780,18 @@ func FetchProofProvenance(ctx context.Context, localArchive Archiver,
 	// is a reversal of that found in the proof file.
 	var reversedProofs []Blob
 	for {
+		// The walk follows inputs named by the proofs it fetches, so
+		// nothing but the source guarantees it reaches a genesis proof.
+		// Stop once the context ends, or once the chain is longer than
+		// any proof file may be.
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if len(reversedProofs) >= FileMaxNumProofs {
+			return nil, fmt.Errorf("%w: provenance exceeds %d "+
+				"proofs", ErrProofFileInvalid, FileMaxNumProofs)
+		}
+
 		// Before we attempt to fetch the proof from the potentially
 		// remote universe, we'll check our local archive to see if we
 		// already have it. This doesn't make sense in all cases, so we
