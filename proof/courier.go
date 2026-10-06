@@ -1808,6 +1808,7 @@ func FetchProofProvenance(ctx context.Context, localArchive Archiver,
 				return nil, fmt.Errorf("unable to decode "+
 					"proof file: %w", err)
 			}
+			ReportProgress(ctx)
 
 			// So if this is the first proof we've fetched, we're
 			// already done.
@@ -1849,6 +1850,7 @@ func FetchProofProvenance(ctx context.Context, localArchive Archiver,
 		}
 
 		reversedProofs = append(reversedProofs, proofBlob)
+		ReportProgress(ctx)
 
 		// Break if we've reached the genesis point (the asset is the
 		// genesis asset).

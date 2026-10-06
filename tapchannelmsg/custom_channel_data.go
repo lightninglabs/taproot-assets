@@ -83,6 +83,8 @@ func (c *ChannelCustomData) AsJson() ([]byte, error) {
 		RemoteBalance:       c.LocalCommit.RemoteAssets.Val.Sum(),
 		OutgoingHtlcBalance: c.LocalCommit.OutgoingHtlcAssets.Val.Sum(),
 		IncomingHtlcBalance: c.LocalCommit.IncomingHtlcAssets.Val.Sum(),
+		SpenderLeaves: c.LocalCommit.STXO.Val &&
+			c.LocalCommit.Spender.Val,
 	}
 
 	c.OpenChan.GroupKey.ValOpt().WhenSome(func(key *btcec.PublicKey) {

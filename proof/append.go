@@ -234,87 +234,24 @@ func CreateTransitionProof(prevOut wire.OutPoint, params *TransitionParams,
 	}
 
 	if proof.Asset.IsTransferRoot() && !cfg.NoSTXOProofs {
-		assetCommitments := params.TaprootAssetRoot.Commitments()
-		altCommitment, ok := assetCommitments[asset.EmptyGenesisID]
-		if !ok {
-			return nil, fmt.Errorf("no alt leaves for transfer " +
-				"root asset")
-		}
-
-		// If this is a transfer root, then we also expect there to be
-		// prev witnesses.
-		if len(proof.Asset.PrevWitnesses) == 0 {
-			return nil, fmt.Errorf("no prev witnesses for " +
-				"transfer root asset")
-		}
-
-		// We should have at least as many alt leaves as we have
-		// prev witnesses. We may have additional alt leaves which are
-		// not related to stxo proofs.
-		//
-		// nolint: lll
-		if len(altCommitment.Assets()) < len(proof.Asset.PrevWitnesses) {
-			return nil, fmt.Errorf("not enough alt leaves for " +
-				"transfer root asset")
-		}
-
-		stxoInclusionProofs := make(
-			map[asset.SerializedKey]commitment.Proof,
-			len(proof.Asset.PrevWitnesses),
+		stxoProofs, err := stxoInclusionProofs(
+			&proof.Asset, params.TaprootAssetRoot,
 		)
-
-		for _, wit := range proof.Asset.PrevWitnesses {
-			spentAsset, err := asset.MakeSpentAsset(wit)
-			if err != nil {
-				return nil, fmt.Errorf("error creating "+
-					"altLeaf: %w", err)
-			}
-
-			// Generate an STXO inclusion proof for each prev
-			// witness.
-			_, stxoProof, err := params.TaprootAssetRoot.Proof(
-				asset.EmptyGenesisID,
-				spentAsset.AssetCommitmentKey(),
-			)
-			if err != nil {
-				return nil, err
-			}
-
-			// Sanity-check the STXO proof to ensure the asset proof
-			// is present. STXO inclusion proofs must always include
-			// a valid asset proof.
-			if stxoProof == nil {
-				return nil, fmt.Errorf("stxo inclusion proof " +
-					"is nil")
-			}
-
-			if stxoProof.AssetProof == nil {
-				return nil, commitment.ErrMissingAssetProof
-			}
-
-			keySerialized := asset.ToSerialized(
-				spentAsset.ScriptKey.PubKey,
-			)
-			stxoInclusionProofs[keySerialized] = *stxoProof
+		if err != nil {
+			return nil, err
 		}
 
-		// For assets representing a root transfer (normal assets), each
-		// spent input corresponds to an entry in PrevWitnesses.
-		// Therefore, the number of PrevWitnesses should match the
-		// number of STXO inclusion proofs.
-		if len(stxoInclusionProofs) != len(proof.Asset.PrevWitnesses) {
-			return nil, fmt.Errorf("stxo inclusion proof count "+
-				"mismatch: expected %d, got %d",
-				len(proof.Asset.PrevWitnesses),
-				len(stxoInclusionProofs))
+		proof.InclusionProof.CommitmentProof.STXOProofs = stxoProofs
+
+		spenderProofs, err := spenderInclusionProofs(
+			&proof.Asset, params.TaprootAssetRoot,
+		)
+		if err != nil {
+			return nil, err
 		}
 
-		if len(stxoInclusionProofs) == 0 {
-			return nil, fmt.Errorf("no stxo inclusion proofs")
-		}
-
-		proof.InclusionProof.CommitmentProof.STXOProofs =
-			stxoInclusionProofs
+		proof.InclusionProof.CommitmentProof.SpenderProofs =
+			spenderProofs
 	}
 
 	// If the asset is a split asset, we also need to generate MS-SMT
@@ -356,6 +293,16 @@ func CreateTransitionProof(prevOut wire.OutPoint, params *TransitionParams,
 				TapSiblingPreimage: params.RootTapscriptSibling,
 			},
 		}
+
+		// A split asset takes part in the transfer of its root asset,
+		// so its proof carries the STXO proofs for the inputs spent by
+		// the root asset.
+		if !cfg.NoSTXOProofs {
+			err := addSplitSTXOProofs(proof, params, rootAsset)
+			if err != nil {
+				return nil, err
+			}
+		}
 	}
 
 	// If this transition is a split, we also include the MS-SMT inclusion
@@ -373,4 +320,231 @@ func CreateTransitionProof(prevOut wire.OutPoint, params *TransitionParams,
 	}
 
 	return proof, nil
+}
+
+// addSplitSTXOProofs adds the STXO proofs for the inputs spent by the root
+// asset to the proof of one of its split assets. The anchor output of the root
+// asset commits to the STXOs, so the split root proof carries their inclusion
+// proofs. The anchor output of the split asset must not commit to them, so the
+// inclusion proof of the split asset carries their exclusion proofs, unless
+// the two assets share an anchor output. The split root proof also carries the
+// inclusion proofs of the spender leaves, if the anchor output of the root
+// asset commits to them.
+func addSplitSTXOProofs(proof *Proof, params *TransitionParams,
+	rootAsset *asset.Asset) error {
+
+	inclusionProofs, err := stxoInclusionProofs(
+		rootAsset, params.RootTaprootAssetTree,
+	)
+	if err != nil {
+		return err
+	}
+
+	proof.SplitRootProof.CommitmentProof.STXOProofs = inclusionProofs
+
+	spenderProofs, err := spenderInclusionProofs(
+		rootAsset, params.RootTaprootAssetTree,
+	)
+	if err != nil {
+		return err
+	}
+
+	proof.SplitRootProof.CommitmentProof.SpenderProofs = spenderProofs
+
+	if params.OutputIndex == int(params.RootOutputIndex) {
+		return nil
+	}
+
+	exclusionProofs, err := stxoExclusionProofs(
+		rootAsset, params.TaprootAssetRoot,
+	)
+	if err != nil {
+		return err
+	}
+
+	proof.InclusionProof.CommitmentProof.STXOProofs = exclusionProofs
+
+	return nil
+}
+
+// stxoInclusionProofs generates an STXO inclusion proof for each input spent
+// by the given root asset of a transfer, from the commitment of the anchor
+// output the root asset is committed to.
+func stxoInclusionProofs(rootAsset *asset.Asset,
+	rootTree *commitment.TapCommitment) (
+	map[asset.SerializedKey]commitment.Proof, error) {
+
+	assetCommitments := rootTree.Commitments()
+	altCommitment, ok := assetCommitments[asset.EmptyGenesisID]
+	if !ok {
+		return nil, fmt.Errorf("no alt leaves for transfer root asset")
+	}
+
+	// If this is a transfer root, then we also expect there to be prev
+	// witnesses.
+	if len(rootAsset.PrevWitnesses) == 0 {
+		return nil, fmt.Errorf("no prev witnesses for transfer root " +
+			"asset")
+	}
+
+	// We should have at least as many alt leaves as we have prev witnesses.
+	// We may have additional alt leaves which are not related to stxo
+	// proofs.
+	if len(altCommitment.Assets()) < len(rootAsset.PrevWitnesses) {
+		return nil, fmt.Errorf("not enough alt leaves for transfer " +
+			"root asset")
+	}
+
+	stxoProofs := make(
+		map[asset.SerializedKey]commitment.Proof,
+		len(rootAsset.PrevWitnesses),
+	)
+
+	for _, wit := range rootAsset.PrevWitnesses {
+		spentAsset, err := asset.MakeSpentAsset(wit)
+		if err != nil {
+			return nil, fmt.Errorf("error creating altLeaf: %w",
+				err)
+		}
+
+		// Generate an STXO inclusion proof for each prev witness.
+		_, stxoProof, err := rootTree.Proof(
+			asset.EmptyGenesisID, spentAsset.AssetCommitmentKey(),
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// Sanity-check the STXO proof to ensure the asset proof is
+		// present. STXO inclusion proofs must always include a valid
+		// asset proof.
+		if stxoProof == nil {
+			return nil, fmt.Errorf("stxo inclusion proof is nil")
+		}
+
+		if stxoProof.AssetProof == nil {
+			return nil, commitment.ErrMissingAssetProof
+		}
+
+		keySerialized := asset.ToSerialized(spentAsset.ScriptKey.PubKey)
+		stxoProofs[keySerialized] = *stxoProof
+	}
+
+	// For assets representing a root transfer (normal assets), each spent
+	// input corresponds to an entry in PrevWitnesses. Therefore, the number
+	// of PrevWitnesses should match the number of STXO inclusion proofs.
+	if len(stxoProofs) != len(rootAsset.PrevWitnesses) {
+		return nil, fmt.Errorf("stxo inclusion proof count mismatch: "+
+			"expected %d, got %d", len(rootAsset.PrevWitnesses),
+			len(stxoProofs))
+	}
+
+	if len(stxoProofs) == 0 {
+		return nil, fmt.Errorf("no stxo inclusion proofs")
+	}
+
+	return stxoProofs, nil
+}
+
+// stxoExclusionProofs generates an STXO exclusion proof for each input spent
+// by the given root asset of a transfer, from the commitment of an anchor
+// output other than the one the root asset is committed to.
+func stxoExclusionProofs(rootAsset *asset.Asset,
+	tapTree *commitment.TapCommitment) (
+	map[asset.SerializedKey]commitment.Proof, error) {
+
+	stxoAssets, err := asset.CollectSTXO(rootAsset)
+	if err != nil {
+		return nil, fmt.Errorf("error collecting STXO assets: %w", err)
+	}
+
+	stxoProofs := make(
+		map[asset.SerializedKey]commitment.Proof, len(stxoAssets),
+	)
+	for idx := range stxoAssets {
+		stxoAsset := stxoAssets[idx].(*asset.Asset)
+
+		_, stxoProof, err := tapTree.Proof(
+			stxoAsset.TapCommitmentKey(),
+			stxoAsset.AssetCommitmentKey(),
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		keySerialized := asset.ToSerialized(stxoAsset.ScriptKey.PubKey)
+		stxoProofs[keySerialized] = *stxoProof
+	}
+
+	return stxoProofs, nil
+}
+
+// spenderInclusionProofs generates an inclusion proof for the spender leaf of
+// each input spent by the given root asset of a transfer, from the commitment
+// of the anchor output the root asset is committed to. Not every anchor output
+// commits to spender leaves, so no proofs are returned if there are none.
+func spenderInclusionProofs(rootAsset *asset.Asset,
+	rootTree *commitment.TapCommitment) (
+	map[asset.SerializedKey]commitment.Proof, error) {
+
+	spenderAssets, err := asset.CollectSpenders(rootAsset)
+	if err != nil {
+		return nil, fmt.Errorf("error collecting spender assets: %w",
+			err)
+	}
+
+	spenderProofs := make(
+		map[asset.SerializedKey]commitment.Proof, len(spenderAssets),
+	)
+	for idx := range spenderAssets {
+		spenderAsset := spenderAssets[idx].(*asset.Asset)
+
+		committed, spenderProof, err := rootTree.Proof(
+			spenderAsset.TapCommitmentKey(),
+			spenderAsset.AssetCommitmentKey(),
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// The anchor output doesn't commit to a spender leaf for this
+		// input.
+		if committed == nil {
+			continue
+		}
+
+		// A spender leaf that names another asset can't be proven for
+		// the root asset.
+		committedLeaf, err := committed.Leaf()
+		if err != nil {
+			return nil, err
+		}
+		spenderLeaf, err := spenderAsset.Leaf()
+		if err != nil {
+			return nil, err
+		}
+		if !mssmt.IsEqualNode(committedLeaf, spenderLeaf) {
+			return nil, fmt.Errorf("spender leaf does not name " +
+				"transfer root asset")
+		}
+
+		keySerialized := asset.ToSerialized(
+			spenderAsset.ScriptKey.PubKey,
+		)
+		spenderProofs[keySerialized] = *spenderProof
+	}
+
+	// The spender leaves are committed to for all the inputs of a transfer
+	// or for none of them.
+	switch {
+	case len(spenderProofs) == 0:
+		return nil, nil
+
+	case len(spenderProofs) != len(rootAsset.PrevWitnesses):
+		return nil, fmt.Errorf("spender inclusion proof count "+
+			"mismatch: expected %d, got %d",
+			len(rootAsset.PrevWitnesses), len(spenderProofs))
+	}
+
+	return spenderProofs, nil
 }

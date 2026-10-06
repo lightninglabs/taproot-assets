@@ -34,6 +34,11 @@ const (
 	// TapCommitmentV2 is used by Taproot Asset Commitments that commit to
 	// V0 or V1 assets. A V2 commitment uses the V1 TapLeaf format.
 	TapCommitmentV2 TapCommitmentVersion = 2
+
+	// LatestCommitVersion is the latest known TapCommitmentVersion. Any
+	// version above it is rejected when decoded, or when a commitment is
+	// derived from a proof.
+	LatestCommitVersion = TapCommitmentV2
 )
 
 const (
@@ -275,6 +280,17 @@ func (c *TapCommitment) Delete(assetCommitment *AssetCommitment) error {
 	return nil
 }
 
+// validateTapCommitmentVersion returns an error if the given version is not a
+// known TapCommitmentVersion.
+func validateTapCommitmentVersion(version TapCommitmentVersion) error {
+	if version > LatestCommitVersion {
+		return fmt.Errorf("%w: %v", ErrInvalidTapCommitmentVersion,
+			version)
+	}
+
+	return nil
+}
+
 // IsSimilarTapCommitmentVersion returns true if both TapCommitmentVersions
 // are nil, equal, or would map to the same TapCommitmentVersion.
 func IsSimilarTapCommitmentVersion(a, b *TapCommitmentVersion) bool {
@@ -365,14 +381,18 @@ func (c *TapCommitment) Commitment(a *asset.Asset) (*AssetCommitment, bool) {
 // the root node. The resulting commitment will not be able to compute merkle
 // proofs as it only knows of the tree's root node, and not the tree itself.
 func NewTapCommitmentWithRoot(version TapCommitmentVersion,
-	root *mssmt.BranchNode) *TapCommitment {
+	root *mssmt.BranchNode) (*TapCommitment, error) {
+
+	if err := validateTapCommitmentVersion(version); err != nil {
+		return nil, err
+	}
 
 	return &TapCommitment{
 		Version:          version,
 		TreeRoot:         root,
 		assetCommitments: nil,
 		tree:             nil,
-	}
+	}, nil
 }
 
 // TapLeaf constructs a new `TapLeaf` for this `TapCommitment`.

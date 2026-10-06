@@ -24,7 +24,11 @@ func TapCommitmentVersionDecoder(r io.Reader, val any, buf *[8]byte,
 		if err := tlv.DUint8(r, &t, buf, l); err != nil {
 			return err
 		}
-		*typ = TapCommitmentVersion(t)
+		version := TapCommitmentVersion(t)
+		if err := validateTapCommitmentVersion(version); err != nil {
+			return err
+		}
+		*typ = version
 		return nil
 	}
 	return tlv.NewTypeForDecodingErr(val, "Version", l, 1)

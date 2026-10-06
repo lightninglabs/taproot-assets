@@ -20,6 +20,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/vm"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"golang.org/x/exp/maps"
@@ -71,6 +72,15 @@ type VerifierCtx struct {
 	// trustedRoot propagates the trust boundary used by VerifyProofSuffix
 	// into its nested input files.
 	trustedRoot bool
+
+	// ActivationHeight is the block height from which transition proofs
+	// must satisfy the activation rules. A confirmed proof anchored below
+	// it is exempt only if chain verification binds a non-zero claimed
+	// height to the anchor block. An unconfirmed proof is exempt only
+	// while the block after the verifier's chain tip lies below it.
+	//
+	// If unset, the default set by SetDefaultActivationHeight applies.
+	ActivationHeight lfn.Option[uint32]
 }
 
 // Verifier abstracts away from the task of verifying a proof file blob.
@@ -502,26 +512,48 @@ func (p *Proof) verifyInclusionProof() (*commitment.TapCommitment, error) {
 			ErrStxoInputProofMissing)
 	}
 
-	// We ignore the STXO proofs if they're not needed for this type of
-	// asset or if there are no STXO proofs. At this point we can be sure
-	// that if they are needed they also are present (because of the check
-	// above). If they are not needed, but still present we verify them for
-	// good measure.
-	if !p.Asset.IsTransferRoot() || !hasStxoProofs {
+	// Only the root asset of a transfer spends inputs, so there is nothing
+	// else to verify for any other type of asset.
+	if !p.Asset.IsTransferRoot() {
 		return v0Commitment, nil
 	}
 
+	// At this point we can be sure that if the STXO proofs are needed they
+	// also are present (because of the check above). If they are not
+	// needed, but still present we verify them for good measure.
+	if hasStxoProofs {
+		err = verifySTXOInclusion(
+			&p.AnchorTx, p.InclusionProof, &p.Asset,
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	err = verifySpenderInclusion(&p.AnchorTx, p.InclusionProof, &p.Asset)
+	if err != nil {
+		return nil, err
+	}
+
+	return v0Commitment, nil
+}
+
+// verifySTXOInclusion verifies that the STXO of every input spent by the given
+// transfer root is committed to in the anchor output of the root's proof.
+func verifySTXOInclusion(anchorTx *wire.MsgTx, rootProof TaprootProof,
+	root *asset.Asset) error {
+
 	// For an inclusion proof, there is only one output index that we need
 	// to check.
-	outIdx := p.InclusionProof.OutputIndex
+	outIdx := rootProof.OutputIndex
 	p2trOutputs := P2TROutputsSTXOs{
 		outIdx: make(fn.Set[asset.SerializedKey]),
 	}
 
-	// Collect the STXOs from the new asset.
-	stxoAssets, err := asset.CollectSTXO(&p.Asset)
+	// Collect the STXOs from the transfer root.
+	stxoAssets, err := asset.CollectSTXO(root)
 	if err != nil {
-		return nil, fmt.Errorf("error collecting STXO assets: %w", err)
+		return fmt.Errorf("error collecting STXO assets: %w", err)
 	}
 
 	// Map STXOs by serialized key.
@@ -534,32 +566,123 @@ func (p *Proof) verifyInclusionProof() (*commitment.TapCommitment, error) {
 	}
 
 	err = verifySTXOProofSet(
-		&p.AnchorTx, p.InclusionProof, assetMap, p2trOutputs, true,
+		anchorTx, rootProof, assetMap, p2trOutputs, true,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("error verifying v1 inclusion proof: %w",
-			err)
+		return fmt.Errorf("error verifying v1 inclusion proof: %w", err)
 	}
 
 	// Correctly validated proofs are removed from the set. That means, if
 	// there are any outputs left in the set, it means that there are
 	// missing proofs for those outputs.
 	if len(p2trOutputs) > 0 {
-		return nil, fmt.Errorf("%w: missing inclusion proof",
+		return fmt.Errorf("%w: missing inclusion proof",
 			ErrStxoInputProofMissing)
 	}
 
-	return v0Commitment, nil
+	return nil
+}
+
+// verifySpenderInclusion verifies that the anchor output of the root's proof
+// names the given transfer root as the spender of every input it spends. The
+// spender proofs are optional, so they are only verified if they are present,
+// in which case they must cover all the inputs.
+func verifySpenderInclusion(anchorTx *wire.MsgTx, rootProof TaprootProof,
+	root *asset.Asset) error {
+
+	if rootProof.CommitmentProof == nil ||
+		len(rootProof.CommitmentProof.SpenderProofs) == 0 {
+
+		return nil
+	}
+
+	// Collect the spender leaves that name the transfer root.
+	spenderAssets, err := asset.CollectSpenders(root)
+	if err != nil {
+		return fmt.Errorf("error collecting spender assets: %w", err)
+	}
+
+	// Map the spender leaves by serialized key.
+	assetMap := make(map[asset.SerializedKey]*asset.Asset)
+	for idx := range spenderAssets {
+		spenderAsset := spenderAssets[idx].(*asset.Asset)
+		key := asset.ToSerialized(spenderAsset.ScriptKey.PubKey)
+		assetMap[key] = spenderAsset
+	}
+
+	spenderProofs := rootProof.CommitmentProof.SpenderProofs
+	for key := range spenderProofs {
+		spenderProof := spenderProofs[key]
+		spenderAsset, ok := assetMap[key]
+		if !ok {
+			return fmt.Errorf("missing spender asset for key %x",
+				key[:])
+		}
+
+		combinedProof := MakeSTXOProof(rootProof, &spenderProof)
+
+		_, err := verifyTaprootProof(
+			anchorTx, &combinedProof, spenderAsset, true,
+		)
+		if err != nil {
+			return fmt.Errorf("error verifying spender proof: %w",
+				err)
+		}
+
+		delete(assetMap, key)
+	}
+
+	// Correctly validated proofs are removed from the map. That means, if
+	// there are any spender leaves left in the map, it means that there
+	// are missing proofs for those inputs.
+	if len(assetMap) > 0 {
+		return fmt.Errorf("%w: missing inclusion proof",
+			ErrSpenderProofMissing)
+	}
+
+	return nil
+}
+
+// splitRootAsset returns the root asset embedded in the split commitment
+// witness of a split asset.
+func (p *Proof) splitRootAsset() *asset.Asset {
+	return &p.Asset.PrevWitnesses[0].SplitCommitment.RootAsset
+}
+
+// hasSplitRootSTXOProofs returns true if the SplitRootProof carries STXO
+// proofs. A split asset takes part in the transfer of its root asset, so
+// their presence signals that the proof carries the full set of STXO proofs
+// for the inputs of the root asset.
+func (p *Proof) hasSplitRootSTXOProofs() bool {
+	return p.SplitRootProof != nil &&
+		p.SplitRootProof.CommitmentProof != nil &&
+		len(p.SplitRootProof.CommitmentProof.STXOProofs) > 0
 }
 
 // verifySplitRootProof verifies the SplitRootProof is valid.
 func (p *Proof) verifySplitRootProof() error {
-	rootAsset := &p.Asset.PrevWitnesses[0].SplitCommitment.RootAsset
+	rootAsset := p.splitRootAsset()
 	_, err := verifyTaprootProof(
 		&p.AnchorTx, p.SplitRootProof, rootAsset, true,
 	)
+	if err != nil {
+		return err
+	}
 
-	return err
+	// STXO proofs are optional for a split asset, so we only verify them
+	// if they are present.
+	if p.hasSplitRootSTXOProofs() {
+		err = verifySTXOInclusion(
+			&p.AnchorTx, *p.SplitRootProof, rootAsset,
+		)
+		if err != nil {
+			return err
+		}
+	}
+
+	return verifySpenderInclusion(
+		&p.AnchorTx, *p.SplitRootProof, rootAsset,
+	)
 }
 
 // verifyExclusionProofs verifies all ExclusionProofs are valid.
@@ -601,6 +724,20 @@ func (p *Proof) verifyExclusionProofs() (*commitment.TapCommitmentVersion,
 		return nil, nil
 	}
 
+	// A split asset carries the STXO proofs of its root asset, which are
+	// laid out relative to the anchor output of the root.
+	if p.Asset.HasSplitCommitmentWitness() {
+		if p.hasSplitRootSTXOProofs() {
+			err = p.verifySplitRootExclusionProofs()
+			if err != nil {
+				return nil, fmt.Errorf("error verifying v1 "+
+					"exclusion proof: %w", err)
+			}
+		}
+
+		return assertVersionConsistency(commitVersions)
+	}
+
 	// If we have any valid v0 proofs, and the proof signals v1 and the
 	// asset represents a root transfer, then we also _need_ to have v1
 	// proofs.
@@ -626,7 +763,10 @@ func (p *Proof) verifyExclusionProofs() (*commitment.TapCommitmentVersion,
 	}
 
 	// We know we need to check for v1 proofs, so we do that now.
-	err = p.verifyV1ExclusionProofs(maps.Clone(p2trOutputs))
+	err = verifySTXOExclusion(
+		&p.AnchorTx, &p.Asset, p.ExclusionProofs,
+		maps.Clone(p2trOutputs),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("error verifying v1 exclusion proof: %w",
 			err)
@@ -694,10 +834,52 @@ func (p *Proof) verifyV0ExclusionProofs(
 	return commitVersions, nil
 }
 
-// verifyV1ExclusionProofs verifies all version 1 exclusion proofs.
-func (p *Proof) verifyV1ExclusionProofs(p2trOutputs fn.Set[uint32]) error {
-	// Collect the STXOs from the new asset.
-	stxoAssets, err := asset.CollectSTXO(&p.Asset)
+// verifySplitRootExclusionProofs verifies that the STXOs of the inputs spent
+// by the root asset of a split asset are excluded from every P2TR output other
+// than the anchor output of the root. The proof for the anchor output of the
+// split asset itself is carried by the InclusionProof.
+func (p *Proof) verifySplitRootExclusionProofs() error {
+	rootIdx := p.SplitRootProof.OutputIndex
+
+	p2trOutputs := make(fn.Set[uint32])
+	for i, txOut := range p.AnchorTx.TxOut {
+		if uint32(i) == rootIdx {
+			continue
+		}
+		if !txscript.IsPayToTaproot(txOut.PkScript) {
+			continue
+		}
+
+		p2trOutputs.Add(uint32(i))
+	}
+
+	// The proofs are matched to the outputs by index, as the proof for the
+	// anchor output of the root carries no STXO proofs.
+	proofs := make([]TaprootProof, 0, len(p.ExclusionProofs)+1)
+	if p.InclusionProof.OutputIndex != rootIdx {
+		proofs = append(proofs, p.InclusionProof)
+	}
+	for idx := range p.ExclusionProofs {
+		if p.ExclusionProofs[idx].OutputIndex == rootIdx {
+			continue
+		}
+
+		proofs = append(proofs, p.ExclusionProofs[idx])
+	}
+
+	return verifySTXOExclusion(
+		&p.AnchorTx, p.splitRootAsset(), proofs, p2trOutputs,
+	)
+}
+
+// verifySTXOExclusion verifies that the STXO of every input spent by the given
+// transfer root is excluded from all the given P2TR outputs, based on the
+// STXO proofs carried by the given proofs.
+func verifySTXOExclusion(anchorTx *wire.MsgTx, root *asset.Asset,
+	proofs []TaprootProof, p2trOutputs fn.Set[uint32]) error {
+
+	// Collect the STXOs from the transfer root.
+	stxoAssets, err := asset.CollectSTXO(root)
 	if err != nil {
 		return fmt.Errorf("error collecting STXO assets: %w", err)
 	}
@@ -719,8 +901,8 @@ func (p *Proof) verifyV1ExclusionProofs(p2trOutputs fn.Set[uint32]) error {
 		}
 	}
 
-	for idx := range p.ExclusionProofs {
-		exclusionProof := p.ExclusionProofs[idx]
+	for idx := range proofs {
+		exclusionProof := proofs[idx]
 
 		// If an output does not contain any assets, we can skip it
 		// altogether. We've already checked that the non-asset
@@ -732,7 +914,7 @@ func (p *Proof) verifyV1ExclusionProofs(p2trOutputs fn.Set[uint32]) error {
 		}
 
 		err := verifySTXOProofSet(
-			&p.AnchorTx, exclusionProof, assetMap, p2trOutputsSTXOs,
+			anchorTx, exclusionProof, assetMap, p2trOutputsSTXOs,
 			false,
 		)
 		if err != nil {
@@ -969,6 +1151,17 @@ func (p *Proof) rootLocatorSplitAsset(
 		rootOutputIndex = p.SplitRootProof.OutputIndex
 	}
 
+	return RootLocatorSplitAsset(
+		rootAsset, *p.RootLocatorProof, rootOutputIndex,
+	), nil
+}
+
+// RootLocatorSplitAsset reconstructs the canonical root locator split asset of
+// the given root asset, anchored at the given output index and carrying the
+// given inclusion proof into the root asset's split commitment tree.
+func RootLocatorSplitAsset(rootAsset *asset.Asset, locatorProof mssmt.Proof,
+	rootOutputIndex uint32) *commitment.SplitAsset {
+
 	// Reconstruct the canonical root locator split asset: it is identical
 	// to the root asset, except that it carries the canonical zero prev ID
 	// split witness and does not carry the split commitment root itself.
@@ -982,7 +1175,7 @@ func (p *Proof) rootLocatorSplitAsset(
 		PrevID:    &asset.ZeroPrevID,
 		TxWitness: nil,
 		SplitCommitment: &asset.SplitCommitment{
-			Proof:     *p.RootLocatorProof,
+			Proof:     locatorProof,
 			RootAsset: *rootAsset,
 		},
 	}}
@@ -990,7 +1183,7 @@ func (p *Proof) rootLocatorSplitAsset(
 	return &commitment.SplitAsset{
 		Asset:       *splitAsset,
 		OutputIndex: rootOutputIndex,
-	}, nil
+	}
 }
 
 // verifyChallengeWitness verifies the challenge witness by constructing a
@@ -1402,6 +1595,13 @@ func (p *Proof) VerifyProofIntegrity(ctx context.Context, vCtx VerifierCtx,
 		return nil, ErrUnknownVersion
 	}
 
+	err := p.verifyActivation(
+		ctx, vCtx, verificationParams.SkipChainVerification,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	// Ensure proof asset is valid.
 	if err := p.Asset.Validate(); err != nil {
 		return nil, fmt.Errorf("failed to validate proof asset: %w",
@@ -1681,7 +1881,13 @@ func prefetchHeaders(ctx context.Context,
 			default:
 			}
 
-			return hv.verify(h.header, h.height)
+			if err := hv.verify(h.header, h.height); err != nil {
+				return err
+			}
+
+			ReportProgress(gCtx)
+
+			return nil
 		})
 	}
 
@@ -1829,6 +2035,7 @@ func (f *File) Verify(ctx context.Context,
 		if err != nil {
 			return nil, err
 		}
+		ReportProgress(ctx)
 
 		// At this point, we'll check to see if we can halt
 		// validation here, as the proof is already known to be

@@ -47,6 +47,10 @@ const (
 	// Exclusion proof CommitmentProof's STXOProofs field.
 	CommitmentProofSTXOProofsType tlv.Type = 7
 
+	// CommitmentProofSpenderProofsType is the type of the TLV record for
+	// the CommitmentProof's SpenderProofs field.
+	CommitmentProofSpenderProofsType tlv.Type = 9
+
 	TapscriptProofTapPreimage1 tlv.Type = 1
 	TapscriptProofTapPreimage2 tlv.Type = 3
 	TapscriptProofBip86        tlv.Type = 4
@@ -106,6 +110,7 @@ var KnownTaprootProofTypes = fn.NewSet(
 var KnownCommitmentProofTypes = fn.NewSet(
 	commitment.ProofAssetProofType, commitment.ProofTaprootAssetProofType,
 	CommitmentProofTapSiblingPreimageType, CommitmentProofSTXOProofsType,
+	CommitmentProofSpenderProofsType,
 )
 
 // KnownTapscriptProofTypes is a set of all known Tapscript proof TLV types.
@@ -268,6 +273,15 @@ func CommitmentProofSTXOProofsRecord(
 
 	return asset.EncodeOnceRecord(
 		CommitmentProofSTXOProofsType, stxoProofs,
+		CommitmentProofsEncoder, CommitmentProofsDecoder,
+	)
+}
+
+func CommitmentProofSpenderProofsRecord(
+	spenderProofs *map[asset.SerializedKey]commitment.Proof) tlv.Record {
+
+	return asset.EncodeOnceRecord(
+		CommitmentProofSpenderProofsType, spenderProofs,
 		CommitmentProofsEncoder, CommitmentProofsDecoder,
 	)
 }

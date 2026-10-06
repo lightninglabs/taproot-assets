@@ -49,6 +49,10 @@ type JsonAssetChannel struct {
 	RemoteBalance       uint64             `json:"remote_balance"`
 	OutgoingHtlcBalance uint64             `json:"outgoing_htlc_balance"`
 	IncomingHtlcBalance uint64             `json:"incoming_htlc_balance"`
+
+	// SpenderLeaves is set if the local commitment commits to the spender
+	// leaves of the inputs it spends, next to their STXOs.
+	SpenderLeaves bool `json:"spender_leaves"`
 }
 
 // HasAllAssetIDs checks if the OpenChannel contains all asset IDs in the
