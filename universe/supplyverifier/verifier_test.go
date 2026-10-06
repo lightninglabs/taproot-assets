@@ -7,6 +7,7 @@ import (
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapnode/tapnodemock"
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
 	"github.com/stretchr/testify/require"
@@ -25,6 +26,7 @@ func newTestVerifierCfg(t *testing.T) VerifierCfg {
 		GroupFetcher:     &MockGroupFetcher{},
 		SupplyCommitView: &MockSupplyCommitView{},
 		SupplyTreeView:   &MockSupplyTreeView{},
+		Provenance:       proof.NewMockProofArchive(),
 	}
 }
 
@@ -80,6 +82,13 @@ func TestVerifierCfgValidate(t *testing.T) {
 			name: "nil supply tree view",
 			mutate: func(cfg *VerifierCfg) {
 				cfg.SupplyTreeView = nil
+			},
+			expectError: true,
+		},
+		{
+			name: "nil provenance",
+			mutate: func(cfg *VerifierCfg) {
+				cfg.Provenance = nil
 			},
 			expectError: true,
 		},

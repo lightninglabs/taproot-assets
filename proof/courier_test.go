@@ -151,3 +151,49 @@ func TestCheckUniverseRpcCourierConnection(t *testing.T) {
 		})
 	}
 }
+
+// TestFetchProofProvenanceStopsOnContext tests that a provenance walk that
+// never reaches a genesis proof ends once its context does.
+func TestFetchProofProvenanceStopsOnContext(t *testing.T) {
+	t.Parallel()
+
+	testBlocks := readTestData(t)
+	genesis := asset.RandGenesis(t, asset.Collectible)
+	scriptKey := test.RandPubKey(t)
+	transfer := RandProof(t, genesis, scriptKey, testBlocks[0], 0, 1)
+
+	// A transfer that names its own output as its input: following its
+	// inputs back never arrives at a genesis proof.
+	outPoint := transfer.OutPoint()
+	transfer.Asset.PrevWitnesses = []asset.Witness{{
+		PrevID: &asset.PrevID{
+			OutPoint:  outPoint,
+			ID:        genesis.ID(),
+			ScriptKey: asset.ToSerialized(scriptKey),
+		},
+	}}
+	transferBlob, err := transfer.Bytes()
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	const cancelAfter = 3
+	var fetches int
+	fetchSingleProof := func(context.Context, Locator) (Blob, error) {
+		fetches++
+		if fetches == cancelAfter {
+			cancel()
+		}
+
+		return transferBlob, nil
+	}
+
+	_, err = FetchProofProvenance(ctx, nil, Locator{
+		AssetID:   fn.Ptr(genesis.ID()),
+		ScriptKey: *scriptKey,
+		OutPoint:  &outPoint,
+	}, fetchSingleProof)
+	require.ErrorIs(t, err, context.Canceled)
+	require.Equal(t, cancelAfter, fetches)
+}
