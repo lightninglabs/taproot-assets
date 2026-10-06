@@ -1,6 +1,6 @@
 module github.com/lightninglabs/taproot-assets
 
-go 1.26.0
+go 1.26.8
 
 require (
 	github.com/btcsuite/btcd v0.26.0
@@ -219,6 +219,9 @@ require (
 	modernc.org/memory v1.12.1 // indirect
 	sigs.k8s.io/yaml v1.2.0 // indirect
 )
+
+// Use the fixed TLV module until an upstream release includes the decoder fix.
+replace github.com/lightningnetwork/lnd/tlv => github.com/GeorgeTsagk/lnd/tlv v0.0.0-20260925020312-3f449ed4cd67
 
 // We want to format raw bytes as hex instead of base64. The forked version
 // allows us to specify that as an option.

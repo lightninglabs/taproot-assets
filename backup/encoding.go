@@ -908,14 +908,16 @@ func (g *GroupKeyBackup) Decode(r io.Reader) error {
 			asset.CompressedPubKeyEncoder,
 			asset.CompressedPubKeyDecoder,
 		),
-		tlv.MakePrimitiveRecord(
-			GroupKeyTapscriptRootType, &g.TapscriptRoot,
+		boundedBytesRecord(
+			GroupKeyTapscriptRootType, &g.TapscriptRoot, maxTLVSize,
 		),
 		tlv.MakeDynamicRecord(
 			GroupKeyWitnessType, &witness, nil,
 			asset.TxWitnessEncoder, asset.TxWitnessDecoder,
 		),
-		tlv.MakePrimitiveRecord(GroupKeyCustomRootType, &customRoot),
+		boundedBytesRecord(
+			GroupKeyCustomRootType, &customRoot, chainhash.HashSize,
+		),
 	}
 
 	stream, err := tlv.NewStream(records...)
