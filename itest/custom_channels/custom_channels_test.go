@@ -239,6 +239,11 @@ func TestCustomChannels(t *testing.T) {
 	for _, tc := range tests {
 		tc := tc
 		success := t.Run(tc.name, func(t1 *testing.T) {
+			// Fee tests modify this shared service. Restore the
+			// baseline before starting nodes for the next case.
+			feeService.Reset()
+			feeService.SetFeeRate(chainfee.FeePerKwFloor, 1)
+
 			ht := &ccHarnessTest{
 				t:          t1,
 				testCase:   tc,

@@ -130,16 +130,20 @@ func TestCheckUniverseRpcCourierConnection(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// We use a short timeout here, since we don't want to
-			// wait for the full default timeout of the funding
-			// controller
+			// Allow a real connection time to complete under the
+			// race detector. Only the unreachable-server case
+			// needs a short deadline to keep the test fast.
+			connectTimeout := testTimeout
+			if tt.expectErr != "" {
+				connectTimeout = test.StartupWaitTime
+			}
 			ctxt, cancel := context.WithTimeout(
-				context.Background(), test.StartupWaitTime*2,
+				context.Background(), connectTimeout*2,
 			)
 			defer cancel()
 
 			err := CheckUniverseRpcCourierConnection(
-				ctxt, test.StartupWaitTime, tt.courierAddr,
+				ctxt, connectTimeout, tt.courierAddr,
 			)
 			if tt.expectErr != "" {
 				require.ErrorContains(t, err, tt.expectErr)
