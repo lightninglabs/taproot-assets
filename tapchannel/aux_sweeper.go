@@ -470,6 +470,56 @@ type vPktsWithInput struct {
 	// tapSigDesc houses the information we'll need to re-sign the vPackets
 	// above. Note that this is only set if this is a second level packet.
 	tapSigDesc lfn.Option[cmsg.TapscriptSigDesc]
+
+	// stxoFeatures are the alt leaves the outputs of the vPkts commit to.
+	// For a pre-signed output they are the ones the output was signed
+	// for. Any other output is ours alone.
+	stxoFeatures STXOFeatures
+}
+
+// sweepOutputSTXOFeatures are the alt leaves an output that we alone create
+// to sweep assets commits to.
+var sweepOutputSTXOFeatures = STXOFeatures{STXO: true, Spender: true}
+
+// addAltLeaves adds the alt leaves of the STXO features of each packet set to
+// the outputs of its vPkts, so that their output commitments can be created
+// without adding any.
+func addAltLeaves(sets []vPktsWithInput) error {
+	for _, set := range sets {
+		for _, vPkt := range set.vPkts {
+			for _, vOut := range vPkt.Outputs {
+				if !set.stxoFeatures.STXO {
+					continue
+				}
+
+				stxoLeaves, err := asset.CollectSTXO(vOut.Asset)
+				if err != nil {
+					return fmt.Errorf("unable to collect "+
+						"STXO leaves: %w", err)
+				}
+				vOut.AltLeaves = append(
+					vOut.AltLeaves, stxoLeaves...,
+				)
+
+				if !set.stxoFeatures.Spender {
+					continue
+				}
+
+				spenderLeaves, err := asset.CollectSpenders(
+					vOut.Asset,
+				)
+				if err != nil {
+					return fmt.Errorf("unable to collect "+
+						"spender leaves: %w", err)
+				}
+				vOut.AltLeaves = append(
+					vOut.AltLeaves, spenderLeaves...,
+				)
+			}
+		}
+	}
+
+	return nil
 }
 
 // isPresigned returns true if the vPktsWithInput is presigned. This will be the
@@ -1621,9 +1671,130 @@ func fetchInputProofFiles(ctx context.Context, outputProof *proof.Proof,
 				request.prevID, actualPrevID,
 			)
 		}
+
+		expectedGroup := outputProof.Asset.GroupKey
+		actualGroup := lastProof.Asset.GroupKey
+		switch {
+		case expectedGroup == nil && actualGroup != nil:
+			return nil, fmt.Errorf("input proof group mismatch: " +
+				"expected ungrouped asset")
+
+		case expectedGroup != nil && actualGroup == nil:
+			return nil, fmt.Errorf("input proof group mismatch: " +
+				"expected grouped asset")
+
+		case expectedGroup != nil && !expectedGroup.GroupPubKey.IsEqual(
+			&actualGroup.GroupPubKey,
+		):
+
+			return nil, fmt.Errorf("input proof group mismatch: " +
+				"unexpected group key")
+		}
 	}
 
 	return inputProofFiles, nil
+}
+
+// importVerifiedFundingProofs retains the verified input histories and the
+// completed funding output proofs in the local archive. The primary history is
+// the completed file's prefix and merged histories are nested additional
+// inputs. They must not be imported as independent archive entries because the
+// multi-archiver would materialize the peer's pre-funding states as local
+// assets.
+func importVerifiedFundingProofs(ctx context.Context,
+	outputProofs []*proof.Proof, inputProofFiles [][]proof.File,
+	fundingParams proof.BaseProofParams,
+	registrar ReceiveAnchoringRegistrar) error {
+
+	if registrar == nil {
+		return fmt.Errorf("anchoring registrar is missing")
+	}
+	if len(outputProofs) == 0 {
+		return fmt.Errorf("funding output proofs are missing")
+	}
+	if len(inputProofFiles) != len(outputProofs) {
+		return fmt.Errorf("funding input proof set count mismatch: "+
+			"expected %d, got %d", len(outputProofs),
+			len(inputProofFiles))
+	}
+
+	annotatedProofs := make([]*proof.AnnotatedProof, 0, len(outputProofs))
+	for outputIdx, outputProof := range outputProofs {
+		if outputProof == nil {
+			return fmt.Errorf("funding output proof %d is nil",
+				outputIdx)
+		}
+		if outputProof.Asset.ScriptKey.PubKey == nil {
+			return fmt.Errorf("funding output proof %d has no "+
+				"script key", outputIdx)
+		}
+
+		inputFiles := inputProofFiles[outputIdx]
+		if len(inputFiles) == 0 {
+			return fmt.Errorf("funding output %d has no input "+
+				"proofs", outputIdx)
+		}
+
+		// Complete a copy of the peer-supplied suffix with the
+		// confirmed block data. The original channel state remains
+		// unchanged.
+		completedProof := *outputProof
+		if err := completedProof.UpdateTransitionProof(
+			&fundingParams,
+		); err != nil {
+			return fmt.Errorf("unable to complete funding output "+
+				"proof %d: %w", outputIdx, err)
+		}
+
+		// The first input is the direct proof-file lineage. The
+		// remaining histories are embedded as additional inputs for VM
+		// validation.
+		completedProof.AdditionalInputs = slices.Clone(inputFiles[1:])
+		proofBytes, err := completedProof.Bytes()
+		if err != nil {
+			return fmt.Errorf("unable to encode funding output "+
+				"proof %d: %w", outputIdx, err)
+		}
+		if len(proofBytes) > proof.FileMaxProofSizeBytes {
+			return fmt.Errorf("funding output proof %d is too "+
+				"large: %d bytes, max is %d", outputIdx,
+				len(proofBytes), proof.FileMaxProofSizeBytes)
+		}
+
+		completedFile := inputFiles[0]
+		if err := completedFile.AppendProofRaw(proofBytes); err != nil {
+			return fmt.Errorf("unable to append funding output "+
+				"proof %d: %w", outputIdx, err)
+		}
+
+		var completedProofBuf bytes.Buffer
+		if err := completedFile.Encode(&completedProofBuf); err != nil {
+			return fmt.Errorf("unable to encode completed funding "+
+				"proof %d: %w", outputIdx, err)
+		}
+
+		assetID := completedProof.Asset.ID()
+		outPoint := completedProof.OutPoint()
+		scriptKey := completedProof.Asset.ScriptKey.PubKey
+		annotatedProofs = append(
+			annotatedProofs, &proof.AnnotatedProof{
+				Locator: proof.Locator{
+					AssetID:   &assetID,
+					ScriptKey: *scriptKey,
+					OutPoint:  &outPoint,
+				},
+				Blob: completedProofBuf.Bytes(),
+			},
+		)
+	}
+
+	for _, annotated := range annotatedProofs {
+		if err := registrar.StakeReceive(ctx, annotated); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // importOutputProofs imports the output proofs into the pending asset funding
@@ -1699,22 +1870,28 @@ func importOutputProofs(ctx context.Context, scid lnwire.ShortChannelID,
 			continue
 		}
 
-		// Before we fetch or combine any proofs below, we'll be sure to
-		// update the transition proof to include the proper
-		// block+merkle proof information. This also replaces the
-		// peer-supplied anchor transaction with the confirmed one, so
-		// that the input validation done while fetching is bound to the
-		// funding transaction that actually made it into the chain.
-		err = updateProofsFromShortChanID(
-			ctx, chainBridge, scid, []*proof.Proof{proofToImport},
+		// Fetch the confirmed funding transaction before any input
+		// histories are combined with the output proof.
+		fundingParams, err := proofParamsForShortChanID(
+			ctx, chainBridge, scid,
 		)
 		if err != nil {
-			return fmt.Errorf("error updating transition "+
-				"proof: %w", err)
+			return fmt.Errorf("unable to fetch funding proof "+
+				"parameters: %w", err)
+		}
+
+		// Bind the input checks below to the transaction that actually
+		// confirmed. Keep the stored channel proof unchanged because
+		// the completed proof is assembled from a local copy.
+		confirmedProof := *proofToImport
+		err = confirmedProof.UpdateTransitionProof(&fundingParams)
+		if err != nil {
+			return fmt.Errorf("unable to update funding proof: "+
+				"%w", err)
 		}
 
 		inputProofFiles, err := fetchInputProofFiles(
-			ctx, proofToImport, courierAddr, proofDispatch,
+			ctx, &confirmedProof, courierAddr, proofDispatch,
 		)
 		if err != nil {
 			return fmt.Errorf(
@@ -1725,45 +1902,10 @@ func importOutputProofs(ctx context.Context, scid lnwire.ShortChannelID,
 		log.Infof("All %d input proofs fetched, importing locator=%v",
 			len(inputProofFiles), limitSpewer.Sdump(fundingLocator))
 
-		// The first input remains the direct proof-file lineage.
-		// Embed the remaining input proof files in the transition proof
-		// so the VM can verify the full virtual transaction.
-		proofWithInputs := *proofToImport
-		proofWithInputs.AdditionalInputs = slices.Clone(
-			inputProofFiles[1:],
-		)
-
-		proofBytes, err := proofWithInputs.Bytes()
-		if err != nil {
-			return fmt.Errorf(
-				"unable to encode output proof: %w", err,
-			)
-		}
-		if len(proofBytes) > proof.FileMaxProofSizeBytes {
-			return fmt.Errorf(
-				"output proof is too large: %d bytes, "+
-					"max is %d",
-				len(proofBytes), proof.FileMaxProofSizeBytes,
-			)
-		}
-
-		proofFile := &inputProofFiles[0]
-		if err := proofFile.AppendProofRaw(proofBytes); err != nil {
-			return fmt.Errorf("unable to append proof: %w", err)
-		}
-
-		// With the proof append, we'll serialize the proof file, then
-		// import it into our archive.
-		var finalProofBuf bytes.Buffer
-		if err := proofFile.Encode(&finalProofBuf); err != nil {
-			return fmt.Errorf("unable to encode proof: %w", err)
-		}
-
-		err = registrar.StakeReceive(
-			ctx, &proof.AnnotatedProof{
-				Locator: fundingLocator,
-				Blob:    finalProofBuf.Bytes(),
-			},
+		err = importVerifiedFundingProofs(
+			ctx, []*proof.Proof{&confirmedProof},
+			[][]proof.File{inputProofFiles}, fundingParams,
+			registrar,
 		)
 		if err != nil {
 			return err
@@ -2002,7 +2144,7 @@ func (a *AuxSweeper) importCommitTx(req lnwallet.ResolutionReq,
 		}
 	}
 
-	supportSTXO := commitState.STXO.Val
+	stxoFeatures := CommitmentSTXOFeatures(commitState)
 
 	// We can now add the witness for the OP_TRUE spend of the commitment
 	// output to the vPackets.
@@ -2012,15 +2154,8 @@ func (a *AuxSweeper) importCommitTx(req lnwallet.ResolutionReq,
 			"packets: %w", err)
 	}
 
-	var (
-		opts      []tapsend.OutputCommitmentOption
-		proofOpts []proof.GenOption
-	)
-
-	if !supportSTXO {
-		opts = append(opts, tapsend.WithNoSTXOProofs())
-		proofOpts = append(proofOpts, proof.WithNoSTXOProofs())
-	}
+	opts := stxoFeatures.CommitOpts()
+	proofOpts := stxoFeatures.ProofOpts()
 
 	outCommitments, err := tapsend.CreateOutputCommitments(
 		vPackets, opts...,
@@ -2413,8 +2548,12 @@ func (a *AuxSweeper) resolveContract(
 		)(tapSweepDesc.secondLevel)
 	}
 
+	// The pre-signed outputs commit to the alt leaves of the commitment
+	// they belong to, which the sweeper needs to reproduce.
+	stxoFeatures := CommitmentSTXOFeatures(commitState)
 	res := cmsg.NewContractResolution(
 		firstLevelPkts, secondLevelPkts, secondLevelSigDesc,
+		stxoFeatures.STXO, stxoFeatures.Spender,
 	)
 
 	var b bytes.Buffer
@@ -2566,11 +2705,26 @@ func prepVpkts(bRes blobWithWitnessInfo,
 		return nil, err
 	}
 
-	return &vPktsWithInput{
+	set := &vPktsWithInput{
 		vPkts:      pkts,
 		btcInput:   bRes.input,
 		tapSigDesc: tapSigDesc,
-	}, nil
+	}
+
+	// A pre-signed output commits to the alt leaves of the commitment it
+	// belongs to. A resolution that predates the record was made for an
+	// output that commits to the STXOs. Any other output is ours alone.
+	set.stxoFeatures = sweepOutputSTXOFeatures
+	if set.isPresigned() {
+		set.stxoFeatures = STXOFeatures{
+			STXO:    res.STXOLeaves().UnwrapOr(true),
+			Spender: res.SpenderLeaves().UnwrapOr(false),
+		}
+		set.stxoFeatures.Spender = set.stxoFeatures.STXO &&
+			set.stxoFeatures.Spender
+	}
+
+	return set, nil
 }
 
 // extractInputVPackets extracts the vPackets from the inputs passed in. If
@@ -2705,8 +2859,14 @@ func (a *AuxSweeper) sweepContracts(inputs []input.Input,
 	}
 
 	// Now that we have our set of resolutions, we'll make a new commitment
-	// out of all the vPackets contained.
-	outCommitments, err := tapsend.CreateOutputCommitments(directPkts)
+	// out of all the vPackets contained. The alt leaves of each output are
+	// set by the features of its packet set.
+	if err := addAltLeaves(sPkts.allVpktsWithInput()); err != nil {
+		return lfn.Err[returnType](err)
+	}
+	outCommitments, err := tapsend.CreateOutputCommitments(
+		directPkts, tapsend.WithNoSTXOProofs(),
+	)
 	if err != nil {
 		return lfn.Errf[returnType]("unable to create "+
 			"output commitments: %w", err)
@@ -2896,7 +3056,14 @@ func (a *AuxSweeper) registerAndBroadcastSweep(req *sweep.BumpRequest,
 	}
 
 	// Now that we have our vPkts, we'll re-create the output commitments.
-	outCommitments, err := tapsend.CreateOutputCommitments(vPkts.allPkts())
+	// The alt leaves of each output are set by the features of its packet
+	// set, as a pre-signed output must commit to what it was signed for.
+	if err := addAltLeaves(vPkts.allVpktsWithInput()); err != nil {
+		return err
+	}
+	outCommitments, err := tapsend.CreateOutputCommitments(
+		vPkts.allPkts(), tapsend.WithNoSTXOProofs(),
+	)
 	if err != nil {
 		return fmt.Errorf("unable to create output "+
 			"commitments: %w", err)
@@ -2927,27 +3094,20 @@ func (a *AuxSweeper) registerAndBroadcastSweep(req *sweep.BumpRequest,
 	//
 	// TODO(roasbeef): base off allocations? then can serialize, then
 	// re-use the logic
+	// The change output is always the last output in the commitment
+	// transaction, one index higher than the highest asset commitment
+	// output index.
+	exclusionCreator := sweepExclusionProofGen(
+		changeInternalKey, highestOutputIndex+1,
+	)
 	allVpkts := vPkts.allPkts()
-	for idx := range allVpkts {
-		vPkt := allVpkts[idx]
-		for outIdx := range vPkt.Outputs {
-			// The change output is always the last output in the
-			// commitment transaction, one index higher than the
-			// highest asset commitment output index.
-			exclusionCreator := sweepExclusionProofGen(
-				changeInternalKey, highestOutputIndex+1,
-			)
-
-			proofSuffix, err := tapsend.CreateProofSuffixCustom(
-				sweepTx, vPkt, outCommitments, outIdx, allVpkts,
-				exclusionCreator,
-			)
-			if err != nil {
-				return fmt.Errorf("unable to create proof "+
-					"suffix for output %d: %w", outIdx, err)
-			}
-
-			vPkt.Outputs[outIdx].ProofSuffix = proofSuffix
+	for _, set := range vPkts.allVpktsWithInput() {
+		err := createSweepProofSuffixes(
+			sweepTx, set, outCommitments, allVpkts,
+			exclusionCreator,
+		)
+		if err != nil {
+			return err
 		}
 	}
 
@@ -2974,6 +3134,31 @@ func (a *AuxSweeper) registerAndBroadcastSweep(req *sweep.BumpRequest,
 		a.cfg.TxSender, sweepTx, outCommitments, allVpkts, int64(fee),
 		heightHint,
 	)
+}
+
+// createSweepProofSuffixes creates the proof suffixes of the outputs of the
+// vPkts of the given packet set, for the given sweep transaction.
+func createSweepProofSuffixes(sweepTx *wire.MsgTx, set vPktsWithInput,
+	outCommitments tappsbt.OutputCommitments, allVpkts []*tappsbt.VPacket,
+	exclusionCreator tapsend.ExclusionProofGenerator) error {
+
+	proofOpts := set.stxoFeatures.ProofOpts()
+	for _, vPkt := range set.vPkts {
+		for outIdx := range vPkt.Outputs {
+			proofSuffix, err := tapsend.CreateProofSuffixCustom(
+				sweepTx, vPkt, outCommitments, outIdx, allVpkts,
+				exclusionCreator, proofOpts...,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to create proof "+
+					"suffix for output %d: %w", outIdx, err)
+			}
+
+			vPkt.Outputs[outIdx].ProofSuffix = proofSuffix
+		}
+	}
+
+	return nil
 }
 
 // contractResolver is the main loop that resolves contract resolution

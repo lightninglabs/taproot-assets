@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"net/url"
+	"sync"
 	"testing"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
@@ -11,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
@@ -53,6 +55,7 @@ func (b *importProofChainBridge) GetBlockByHeight(context.Context,
 type recordingProofCourier struct {
 	proof.Courier
 
+	mu       sync.Mutex
 	received []proof.Locator
 }
 
@@ -60,7 +63,10 @@ func (c *recordingProofCourier) ReceiveProof(ctx context.Context,
 	recipient proof.Recipient,
 	locator proof.Locator) (*proof.AnnotatedProof, error) {
 
+	c.mu.Lock()
 	c.received = append(c.received, locator)
+	c.mu.Unlock()
+
 	return c.Courier.ReceiveProof(ctx, recipient, locator)
 }
 
@@ -225,6 +231,40 @@ func TestImportOutputProofsMerge(t *testing.T) {
 	)
 }
 
+// TestImportOutputProofsUsesConfirmedFundingTx ensures the fallback import
+// validates funding inputs against the transaction identified by the short
+// channel ID, not the peer-supplied transaction stored in the proof suffix.
+func TestImportOutputProofsUsesConfirmedFundingTx(t *testing.T) {
+	t.Parallel()
+
+	outputProof, _ := fetchInputTestProof(t)
+	confirmedTx := wire.NewMsgTx(2)
+	confirmedTx.AddTxIn(&wire.TxIn{
+		PreviousOutPoint: test.RandOp(t),
+	})
+	confirmedTx.AddTxOut(&wire.TxOut{Value: 1_000})
+	chainBridge := &importProofChainBridge{
+		block: &wire.MsgBlock{
+			Transactions: []*wire.MsgTx{confirmedTx},
+		},
+	}
+	recordingCourier := &recordingProofCourier{
+		Courier: proof.NewMockProofCourier(),
+	}
+	dispatch := &proof.MockProofCourierDispatcher{
+		Courier: recordingCourier,
+	}
+
+	err := importOutputProofs(
+		context.Background(), lnwire.ShortChannelID{},
+		[]*proof.Proof{&outputProof}, &url.URL{}, dispatch,
+		chainBridge, proof.NewMockProofArchive(),
+		&archiveReceiveStaker{archive: proof.NewMockProofArchive()},
+	)
+	require.ErrorContains(t, err, "does not spend input")
+	require.Empty(t, recordingCourier.received)
+}
+
 // TestFetchInputProofFilesRejectsMalformed ensures malformed persisted funding
 // proofs fail before any courier is created.
 func TestFetchInputProofFilesRejectsMalformed(t *testing.T) {
@@ -345,6 +385,96 @@ func TestFetchInputProofFilesRejectsMismatchedProof(t *testing.T) {
 	require.ErrorContains(t, err, "input proof mismatch")
 }
 
+// TestFetchInputProofFilesRejectsGroupMismatch ensures an untrusted courier
+// cannot satisfy an input request with a history from another group namespace.
+func TestFetchInputProofFilesRejectsGroupMismatch(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name   string
+		mutate func(*proof.Proof, *proof.Proof)
+	}{
+		{
+			name: "different group key",
+			mutate: func(_ *proof.Proof, inputProof *proof.Proof) {
+				otherProof := randFundingProof(t)
+				inputProof.Asset.GroupKey =
+					otherProof.Asset.GroupKey
+			},
+		},
+		{
+			name: "grouped request with ungrouped history",
+			mutate: func(_ *proof.Proof, inputProof *proof.Proof) {
+				inputProof.Asset.GroupKey = nil
+			},
+		},
+		{
+			name: "ungrouped request with grouped history",
+			mutate: func(outputProof, _ *proof.Proof) {
+				outputProof.Asset.GroupKey = nil
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			inputProof := randFundingProof(t)
+			outputProof := randFundingProof(t)
+			outputProof.Asset.GroupKey = inputProof.Asset.GroupKey
+
+			prevID := asset.PrevID{
+				OutPoint: inputProof.OutPoint(),
+				ID:       inputProof.Asset.ID(),
+				ScriptKey: asset.ToSerialized(
+					inputProof.Asset.ScriptKey.PubKey,
+				),
+			}
+			outputProof.Asset.PrevWitnesses = []asset.Witness{{
+				PrevID: &prevID,
+			}}
+			outputProof.PrevOut = prevID.OutPoint
+			outputProof.AdditionalInputs = nil
+			outputProof.AnchorTx.TxIn = []*wire.TxIn{{
+				PreviousOutPoint: prevID.OutPoint,
+			}}
+
+			testCase.mutate(&outputProof, &inputProof)
+
+			inputFile, err := proof.NewFile(proof.V0, inputProof)
+			require.NoError(t, err)
+			var inputFileBuf bytes.Buffer
+			require.NoError(t, inputFile.Encode(&inputFileBuf))
+
+			inputScriptKey := inputProof.Asset.ScriptKey.PubKey
+			courier := proof.NewMockProofCourier()
+			err = courier.DeliverProof(
+				context.Background(), proof.Recipient{},
+				&proof.AnnotatedProof{
+					Locator: proof.Locator{
+						AssetID:   &prevID.ID,
+						ScriptKey: *inputScriptKey,
+						OutPoint:  &prevID.OutPoint,
+					},
+					Blob:          inputFileBuf.Bytes(),
+					AssetSnapshot: &proof.AssetSnapshot{},
+				}, nil,
+			)
+			require.NoError(t, err)
+
+			dispatch := &proof.MockProofCourierDispatcher{
+				Courier: courier,
+			}
+			_, err = fetchInputProofFiles(
+				context.Background(), &outputProof, &url.URL{},
+				dispatch,
+			)
+			require.ErrorContains(
+				t, err, "input proof group mismatch",
+			)
+		})
+	}
+}
+
 // TestAuxSweeperStop ensures that stopping the sweeper closes its quit
 // channel, which is what aborts any in-flight funding proof import.
 func TestAuxSweeperStop(t *testing.T) {
@@ -448,6 +578,19 @@ func newOneSidedChannel(t *testing.T) *oneSidedChannel {
 	fundingProof.PrevOut = prevID.OutPoint
 	fundingProof.AdditionalInputs = nil
 
+	// The commitment proof must speak of the asset as it now stands.
+	fundingCommitment, err := commitment.FromAssets(
+		nil, &fundingProof.Asset,
+	)
+	require.NoError(t, err)
+	_, fundingCommitmentProof, err := fundingCommitment.Proof(
+		fundingProof.Asset.TapCommitmentKey(),
+		fundingProof.Asset.AssetCommitmentKey(),
+	)
+	require.NoError(t, err)
+	fundingProof.InclusionProof.CommitmentProof.Proof =
+		*fundingCommitmentProof
+
 	inputFile, err := proof.NewFile(proof.V0, inputProof)
 	require.NoError(t, err)
 	var inputFileBuf bytes.Buffer
@@ -541,7 +684,7 @@ func TestResolveContractNoAssetOutputs(t *testing.T) {
 			}
 			commit := cmsg.NewCommitment(
 				localAssets, remoteAssets, nil, nil,
-				lnwallet.CommitAuxLeaves{}, false,
+				lnwallet.CommitAuxLeaves{}, false, false,
 			)
 			fundingProof := channel.fundingProof
 			funding := cmsg.NewOpenChannel(

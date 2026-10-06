@@ -25,6 +25,7 @@
    - [Completeness Checks](#completeness-checks)
 7. [Security Properties and Attack Prevention](#security-properties-and-attack-prevention)
    - [Double-Spend Prevention](#double-spend-prevention)
+   - [Spender Leaves](#spender-leaves)
    - [Replay Attack Protection](#replay-attack-protection)
    - [Burn Key Unspendability](#burn-key-unspendability)
    - [Collision Resistance](#collision-resistance)
@@ -705,6 +706,44 @@ graph LR
     style R fill:#f44336
     style P1 fill:#4caf50
 ```
+
+### Spender Leaves
+
+An STXO asset records that an input is spent in an output. A spender leaf
+records which asset of that output spends it. It is a second alternative leaf,
+committed to next to the STXO asset of the input, in the anchor output of the
+transfer's root asset.
+
+The script key of a spender leaf is derived from the `PrevID` of the input, the
+same way the burn key is, with the hash of a tag ahead of the tweak data:
+`spenderKey = NUMSKey + H(NUMSKey || SHA256("taproot-assets:stxo-spender") ||
+OutPoint || AssetID || ScriptKey) × G`. The key depends on the input alone, so
+an output holds at most one spender leaf per input. The tag keeps the key apart
+from the burn key of any input.
+
+The leaf carries a single witness element: `SHA256(TapCommitmentKey ||
+AssetCommitmentKey)` of the root asset. Those are the keys that locate the root
+asset within the commitment of its anchor output, and they locate one asset
+only. An output that commits to the spender leaf of an input therefore commits
+to a single spender of that input.
+
+The inclusion proofs of the spender leaves are carried by the `SpenderProofs`
+field of the `CommitmentProof` for the anchor output of the root asset: the
+`InclusionProof` of a root asset, or the `SplitRootProof` of a split asset. The
+field is encoded as an odd TLV record, so software that doesn't know of it
+retains it and verifies the rest of the proof as before.
+
+Spender leaves are committed to by `CreateOutputCommitments` if the
+`WithSpenderLeaves` option is given. Proof generation follows the commitment:
+the spender proofs are created whenever the anchor output of the root asset
+commits to the leaves. The verifier rebuilds the expected leaf for each input
+from the root asset and verifies its inclusion. Spender proofs are verified
+whenever they are present, in which case they must cover every input of the root
+asset. Both peers of an asset channel must arrive at the same commitments, so a
+channel commits to spender leaves only if both peers advertise the
+`stxo-spender` feature bit next to `stxo-proofs`. The choice is recorded with
+each commitment state and each cooperative close, so that proofs regenerated
+later match what is on chain.
 
 ### Replay Attack Protection
 

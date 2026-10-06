@@ -457,13 +457,17 @@ type Commitment struct {
 	// STXO is a flag indicating whether this commitment supports stxo
 	// proofs.
 	STXO tlv.RecordT[tlv.TlvType5, bool]
+
+	// Spender is a flag indicating whether this commitment also commits
+	// to the spender leaves of the inputs, next to their STXOs.
+	Spender tlv.RecordT[tlv.TlvType7, bool]
 }
 
 // NewCommitment creates a new Commitment record with the given local and remote
 // assets, and incoming and outgoing HTLCs.
 func NewCommitment(localAssets, remoteAssets []*AssetOutput, outgoingHtlcs,
 	incomingHtlcs map[input.HtlcIndex][]*AssetOutput,
-	auxLeaves lnwallet.CommitAuxLeaves, stxo bool) *Commitment {
+	auxLeaves lnwallet.CommitAuxLeaves, stxo, spender bool) *Commitment {
 
 	return &Commitment{
 		LocalAssets: tlv.NewRecordT[tlv.TlvType0](
@@ -489,7 +493,8 @@ func NewCommitment(localAssets, remoteAssets []*AssetOutput, outgoingHtlcs,
 				auxLeaves.IncomingHtlcLeaves,
 			),
 		),
-		STXO: tlv.NewPrimitiveRecord[tlv.TlvType5](stxo),
+		STXO:    tlv.NewPrimitiveRecord[tlv.TlvType5](stxo),
+		Spender: tlv.NewPrimitiveRecord[tlv.TlvType7](spender),
 	}
 }
 
@@ -502,6 +507,7 @@ func (c *Commitment) records() []tlv.Record {
 		c.IncomingHtlcAssets.Record(),
 		c.AuxLeaves.Record(),
 		c.STXO.Record(),
+		c.Spender.Record(),
 	}
 }
 
@@ -2171,10 +2177,12 @@ func eTapscriptSigDesc(w io.Writer, val interface{}, _ *[8]byte) error {
 
 // dTapscriptSigDesc is a decoder for tapscriptSigDesc.
 func dTapscriptSigDesc(r io.Reader, val interface{},
-	_ *[8]byte, _ uint64) error {
+	_ *[8]byte, l uint64) error {
 
 	if typ, ok := val.(*TapscriptSigDesc); ok {
-		return typ.Decode(r)
+		// The nested stream is decoded up to the end of its reader,
+		// so it must not see the records that follow this one.
+		return typ.Decode(io.LimitReader(r, int64(l)))
 	}
 
 	return tlv.NewTypeForEncodingErr(val, "*tapscriptSigDesc")
@@ -2219,16 +2227,34 @@ type ContractResolution struct {
 	// information we need to sign for each second level vPkt once the
 	// sweeping transaction is known.
 	secondLevelSigDescs tlv.OptionalRecordT[tlv.TlvType2, TapscriptSigDesc]
+
+	// stxoLeaves records whether the outputs the vPkts were pre-signed
+	// for commit to the STXOs of the inputs they spend. A resolution that
+	// predates the record doesn't carry it.
+	stxoLeaves tlv.OptionalRecordT[tlv.TlvType3, bool]
+
+	// spenderLeaves records whether the outputs the vPkts were pre-signed
+	// for commit to the spender leaves of the inputs they spend, next to
+	// the STXOs.
+	spenderLeaves tlv.OptionalRecordT[tlv.TlvType5, bool]
 }
 
 // NewContractResolution creates a new ContractResolution with the given list
-// of vpkts.
+// of vpkts. The flags record which alt leaves the outputs that the vPkts were
+// pre-signed for commit to.
 func NewContractResolution(firstLevelPkts, secondLevelPkts []*tappsbt.VPacket,
-	secondLevelSweepDesc lfn.Option[TapscriptSigDesc]) ContractResolution {
+	secondLevelSweepDesc lfn.Option[TapscriptSigDesc], stxoLeaves,
+	spenderLeaves bool) ContractResolution {
 
 	c := ContractResolution{
 		firstLevelSweepVpkts: tlv.NewRecordT[tlv.TlvType0](
 			NewVpktList(firstLevelPkts),
+		),
+		stxoLeaves: tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType3](stxoLeaves),
+		),
+		spenderLeaves: tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType5](spenderLeaves),
 		),
 	}
 
@@ -2265,6 +2291,12 @@ func (c *ContractResolution) Records() []tlv.Record {
 			records = append(records, r.Record())
 		},
 	)
+	c.stxoLeaves.WhenSome(func(r tlv.RecordT[tlv.TlvType3, bool]) {
+		records = append(records, r.Record())
+	})
+	c.spenderLeaves.WhenSome(func(r tlv.RecordT[tlv.TlvType5, bool]) {
+		records = append(records, r.Record())
+	})
 
 	return records
 }
@@ -2283,11 +2315,15 @@ func (c *ContractResolution) Encode(w io.Writer) error {
 func (c *ContractResolution) Decode(r io.Reader) error {
 	sweepZero := c.secondLevelSweepVpkts.Zero()
 	sigZero := c.secondLevelSigDescs.Zero()
+	stxoZero := c.stxoLeaves.Zero()
+	spenderZero := c.spenderLeaves.Zero()
 
 	tlvStream, err := tlv.NewStream(
 		c.firstLevelSweepVpkts.Record(),
 		sweepZero.Record(),
 		sigZero.Record(),
+		stxoZero.Record(),
+		spenderZero.Record(),
 	)
 	if err != nil {
 		return err
@@ -2304,6 +2340,12 @@ func (c *ContractResolution) Decode(r io.Reader) error {
 	if _, ok := tlvs[sigZero.TlvType()]; ok {
 		c.secondLevelSigDescs = tlv.SomeRecordT(sigZero)
 	}
+	if _, ok := tlvs[stxoZero.TlvType()]; ok {
+		c.stxoLeaves = tlv.SomeRecordT(stxoZero)
+	}
+	if _, ok := tlvs[spenderZero.TlvType()]; ok {
+		c.spenderLeaves = tlv.SomeRecordT(spenderZero)
+	}
 
 	return nil
 }
@@ -2311,6 +2353,19 @@ func (c *ContractResolution) Decode(r io.Reader) error {
 // SigDescs returns the list of tapscriptSigDescs.
 func (c *ContractResolution) SigDescs() lfn.Option[TapscriptSigDesc] {
 	return c.secondLevelSigDescs.ValOpt()
+}
+
+// STXOLeaves returns whether the outputs the vPkts were pre-signed for commit
+// to the STXOs of the inputs they spend, if the resolution records it.
+func (c *ContractResolution) STXOLeaves() lfn.Option[bool] {
+	return c.stxoLeaves.ValOpt()
+}
+
+// SpenderLeaves returns whether the outputs the vPkts were pre-signed for
+// commit to the spender leaves of the inputs they spend, if the resolution
+// records it.
+func (c *ContractResolution) SpenderLeaves() lfn.Option[bool] {
+	return c.spenderLeaves.ValOpt()
 }
 
 // Vpkts1 returns the set of first level Vpkts.

@@ -276,7 +276,7 @@ itest-cc: build-itest clean-cc-itest-logs
 itest-cc-compat: build-itest clean-cc-itest-logs
 	@$(call print, "Running backward compatibility integration tests.")
 	date
-	$(GOTEST) ./itest/custom_channels -v -tags="$(ITEST_TAGS)" -test.run=TestBackwardsCompatChannels -test.timeout=60m -logdir=regtest/.logs
+	$(GOTEST) ./itest/custom_channels -v -tags="$(ITEST_TAGS)" -test.run='TestBackwardsCompatChannels|TestSpenderLeafUpgrade' -test.timeout=60m -logdir=regtest/.logs
 
 build-compat-binary:
 	@$(call print, "Building compat binary for $(version).")

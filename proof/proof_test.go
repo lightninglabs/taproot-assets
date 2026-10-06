@@ -923,6 +923,33 @@ func TestProofVerification(t *testing.T) {
 	require.ErrorIs(t, err, ErrUnknownVersion)
 }
 
+// TestProofUnknownTapCommitmentVersion tests that a proof whose inclusion
+// proof declares an unknown tap commitment version is rejected.
+func TestProofUnknownTapCommitmentVersion(t *testing.T) {
+	proofHex, err := os.ReadFile(proofHexFileName)
+	require.NoError(t, err)
+
+	proofBytes, err := hex.DecodeString(
+		strings.Trim(string(proofHex), "\n"),
+	)
+	require.NoError(t, err)
+
+	p := &Proof{}
+	require.NoError(t, p.Decode(bytes.NewReader(proofBytes)))
+
+	p.InclusionProof.CommitmentProof.TaprootAssetProof.Version =
+		commitment.LatestCommitVersion + 1
+
+	_, err = p.VerifyProofIntegrity(context.Background(), MockVerifierCtx)
+	require.ErrorIs(t, err, commitment.ErrInvalidTapCommitmentVersion)
+
+	var buf bytes.Buffer
+	require.NoError(t, p.Encode(&buf))
+
+	err = (&Proof{}).Decode(&buf)
+	require.ErrorIs(t, err, commitment.ErrInvalidTapCommitmentVersion)
+}
+
 // TestProofFileVerificationIgnoreChecker tests that the ignore checker can be
 // used as a proof rejection cache.
 func TestProofFileVerificationIgnoreChecker(t *testing.T) {

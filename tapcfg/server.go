@@ -1,14 +1,17 @@
 package tapcfg
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"database/sql"
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btclog/v2"
 	"github.com/davecgh/go-spew/spew"
@@ -59,6 +62,14 @@ func genServerConfig(ctx context.Context, cfg *Config,
 		db     tapdb.DatabaseBackend
 		dbType sqlc.BackendType
 	)
+
+	// Every proof verifier of this daemon applies the activation height
+	// of its network.
+	activationHeight := proofActivationHeight(cfg)
+	proof.SetDefaultActivationHeight(activationHeight)
+	activationHeight.WhenSome(func(h uint32) {
+		cfgLogger.Infof("Transition proof activation height: %d", h)
+	})
 
 	// If we're using sqlite, we need to ensure that the temp directory is
 	// writable otherwise we might encounter an error at an unexpected
@@ -991,6 +1002,7 @@ func genServerConfig(ctx context.Context, cfg *Config,
 			RfqManager:         rfqManager,
 			TxSender:           chainPorter,
 			DefaultCourierAddr: proofCourierAddr,
+			ProofFetcher:       proofCourierDispatcher,
 			AssetSyncer:        addrBook,
 			FeatureBits:        lndFeatureBitsVerifier,
 			IgnoreChecker:      ignoreCheckerOpt,
@@ -1363,4 +1375,29 @@ func ConfigureSubServer(ctx context.Context, srv *tap.Server, cfg *Config,
 	srv.UpdateConfig(serverCfg)
 
 	return nil
+}
+
+// proofActivationHeight returns the block height from which transition proofs
+// must satisfy the activation rules on the configured network: the configured
+// override, or else the height of the network, if it has one. A custom signet
+// is not the default signet, so the height of the default signet doesn't
+// apply to it.
+func proofActivationHeight(cfg *Config) lfn.Option[uint32] {
+	if cfg.ProofActivationHeight != 0 {
+		return lfn.Some(cfg.ProofActivationHeight)
+	}
+
+	if cfg.ChainConf.Network == "signet" &&
+		cfg.ChainConf.SigNetChallenge != "" {
+
+		challenge, err := hex.DecodeString(
+			cfg.ChainConf.SigNetChallenge,
+		)
+		defaultChallenge := chaincfg.DefaultSignetChallenge
+		if err != nil || !bytes.Equal(challenge, defaultChallenge) {
+			return lfn.None[uint32]()
+		}
+	}
+
+	return proof.NetworkActivationHeight(cfg.ActiveNetParams.Name)
 }

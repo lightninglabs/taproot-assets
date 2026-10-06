@@ -21,6 +21,12 @@
 
 # Bug Fixes
 
+- [Forward-port the v0.8.5 proof upgrade](https://github.com/lightninglabs/taproot-assets/pull/2333)
+  to the btcd-v2 development line: spender commitments, split-root evidence,
+  asset identity checks, and network activation heights. Released spender
+  feature bits remain 4/5; the unreleased negotiated channel configuration
+  feature moves to 6/7.
+
 - [Importing an asset wallet
   backup](https://github.com/lightninglabs/taproot-assets/pull/2277) into a
   node whose database was wiped but whose proofs directory survived no longer
