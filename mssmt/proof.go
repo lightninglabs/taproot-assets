@@ -182,7 +182,17 @@ func (p *CompressedProof) Decompress() (*Proof, error) {
 			// EmptyTree starts at the root.
 			nodes[i] = EmptyTree[MaxTreeLevels-i]
 		} else {
-			nodes[i] = p.Nodes[nextNodeIdx]
+			// An explicit node may not have the hash of the
+			// empty node at its height.
+			node := p.Nodes[nextNodeIdx]
+			emptyHash := EmptyTree[MaxTreeLevels-i].NodeHash()
+			if node.NodeHash() == emptyHash {
+				return nil, fmt.Errorf("%w, explicit empty "+
+					"node at index %v",
+					ErrInvalidCompressedProof, i)
+			}
+
+			nodes[i] = node
 			nextNodeIdx++
 		}
 	}

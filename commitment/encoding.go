@@ -151,17 +151,12 @@ func TreeProofDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 		if err := tlv.DVarBytes(r, &proofBytes, buf, l); err != nil {
 			return err
 		}
-		var proof mssmt.CompressedProof
-		if err := proof.Decode(bytes.NewReader(proofBytes)); err != nil {
-			return err
-		}
-
-		fullProof, err := proof.Decompress()
+		fullProof, err := mssmt.NewProofFromCompressedBytes(proofBytes)
 		if err != nil {
 			return err
 		}
 
-		*typ = *fullProof
+		*typ = fullProof
 		return nil
 	}
 	return tlv.NewTypeForEncodingErr(val, "mssmt.Proof")

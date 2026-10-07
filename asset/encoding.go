@@ -606,8 +606,8 @@ func SplitCommitmentDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error 
 			return err
 		}
 
-		var proof mssmt.CompressedProof
-		if err := proof.Decode(bytes.NewReader(proofBytes)); err != nil {
+		proof, err := mssmt.NewProofFromCompressedBytes(proofBytes)
+		if err != nil {
 			return err
 		}
 
@@ -623,13 +623,8 @@ func SplitCommitmentDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error 
 			return err
 		}
 
-		fullProof, err := proof.Decompress()
-		if err != nil {
-			return err
-		}
-
 		*typ = &SplitCommitment{
-			Proof:     *fullProof,
+			Proof:     proof,
 			RootAsset: rootAsset,
 		}
 
