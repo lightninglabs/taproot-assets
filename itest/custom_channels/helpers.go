@@ -1513,13 +1513,15 @@ func closeAssetChannelAndAssert(t *ccHarnessTest,
 
 	waitForSendEvent(t.t, sendEvents, tapfreighter.SendStateComplete)
 
+	// The close event can precede persistence of the closed-channel
+	// summary. Wait for it before balance checks query that summary.
+	assertClosedChannelAssetData(t.t, local, chanPoint)
+	assertClosedChannelAssetData(t.t, remote, chanPoint)
+
 	balanceCheck(
 		t.t, local, remote, closeTx, closeUpdate, assetIDs, groupKey,
 		universeTap,
 	)
-
-	assertClosedChannelAssetData(t.t, local, chanPoint)
-	assertClosedChannelAssetData(t.t, remote, chanPoint)
 }
 
 // closeAssetChannelWithFeeAndAssert closes an asset channel at the given fee
@@ -1575,13 +1577,15 @@ func closeAssetChannelWithFeeAndAssert(t *ccHarnessTest,
 
 	waitForSendEvent(t.t, sendEvents, tapfreighter.SendStateComplete)
 
+	// The close event can precede persistence of the closed-channel
+	// summary. Wait for it before balance checks query that summary.
+	assertClosedChannelAssetData(t.t, local, chanPoint)
+	assertClosedChannelAssetData(t.t, remote, chanPoint)
+
 	balanceCheck(
 		t.t, local, remote, closeTx, closeUpdate, assetIDs, groupKey,
 		universeTap,
 	)
-
-	assertClosedChannelAssetData(t.t, local, chanPoint)
-	assertClosedChannelAssetData(t.t, remote, chanPoint)
 }
 
 // waitForClosePendingUpdate waits for the first close pending update on the

@@ -27,9 +27,9 @@
   feature bits remain 4/5; the unreleased negotiated channel configuration
   feature moves to 6/7.
 
-- Bound decoder lengths and counts before allocating memory for malformed
-  asset, proof, backup, RFQ, and channel records. Backup imports continue to
-  accept valid compressed and uncompressed public keys.
+- [Align decoder bounds](https://github.com/lightninglabs/taproot-assets/pull/2335)
+  across asset, proof, backup, RFQ, and channel records. Backup imports
+  continue to accept valid compressed and uncompressed public keys.
 
 - [Importing an asset wallet
   backup](https://github.com/lightninglabs/taproot-assets/pull/2277) into a
