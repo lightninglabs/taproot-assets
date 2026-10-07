@@ -2282,3 +2282,60 @@ X'0303030303030303030303030303030303030303030303030303030303030303',
 	require.EqualValues(t, 5, preProofs)
 	require.EqualValues(t, 2, preSyncs)
 }
+
+// TestMigration73DropsOrphanedMailboxClaims makes sure that migration 73
+// drops the mailbox outpoint claims whose message row was deleted, and keeps
+// those that still have one.
+func TestMigration73DropsOrphanedMailboxClaims(t *testing.T) {
+	ctx := context.Background()
+
+	db := NewTestDBWithVersion(t, 72)
+
+	// Two claimed outpoints, of which only the first still has its
+	// message.
+	_, err := db.ExecContext(ctx, transformByteLiterals(t, db.BaseDB, `
+	  INSERT INTO tx_proof_claimed_outpoints (
+	      outpoint, block_hash, block_height, internal_key
+	  ) VALUES (
+	    X'01', X'aa', 100,
+X'020000000000000000000000000000000000000000000000000000000000000001'
+	  ), (
+	    X'02', X'aa', 100,
+X'020000000000000000000000000000000000000000000000000000000000000002'
+	  );
+
+	  INSERT INTO authmailbox_messages (
+	      id, claimed_outpoint, receiver_key, encrypted_payload,
+	      arrival_timestamp
+	  ) VALUES (
+	    1, X'01',
+X'030000000000000000000000000000000000000000000000000000000000000003',
+	    X'ff', 1704067200
+	  );
+	`))
+	require.NoError(t, err)
+
+	require.NoError(t, db.ExecuteMigrations(TargetLatest))
+
+	var outpoints [][]byte
+	rows, err := db.QueryContext(ctx, `
+		SELECT outpoint FROM tx_proof_claimed_outpoints
+	`)
+	require.NoError(t, err)
+	defer rows.Close()
+
+	for rows.Next() {
+		var op []byte
+		require.NoError(t, rows.Scan(&op))
+		outpoints = append(outpoints, op)
+	}
+	require.NoError(t, rows.Err())
+	require.Equal(t, [][]byte{{0x01}}, outpoints)
+
+	var messages int64
+	err = db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM authmailbox_messages
+	`).Scan(&messages)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, messages)
+}
