@@ -192,6 +192,20 @@ func TestNewProofFromCompressedBytes(t *testing.T) {
 			expectError:    false,
 			expectNumNodes: MaxTreeLevels,
 		},
+		{
+			name: "truncated bits",
+			input: func() []byte {
+				// Every node is explicit, so every byte of the
+				// bits is zero. Drop the last one.
+				validBytes := compressedProofBytes(
+					t, MaxTreeLevels,
+				)
+				return validBytes[:len(validBytes)-1]
+			}(),
+			expectError:    true,
+			errorMsg:       "decode compressed proof",
+			expectNumNodes: 0,
+		},
 	}
 
 	for idx := range testCases {

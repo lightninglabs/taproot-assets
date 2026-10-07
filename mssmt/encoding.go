@@ -76,7 +76,7 @@ func (p *CompressedProof) Decode(r io.Reader) error {
 	nodes := make([]Node, 0, numNodes)
 	for i := uint16(0); i < numNodes; i++ {
 		var keyBytes [sha256.Size]byte
-		if _, err := r.Read(keyBytes[:]); err != nil {
+		if _, err := io.ReadFull(r, keyBytes[:]); err != nil {
 			return err
 		}
 		var sum uint64
@@ -87,7 +87,7 @@ func (p *CompressedProof) Decode(r io.Reader) error {
 	}
 
 	var bitsBytes [MaxTreeLevels / 8]byte
-	if _, err := r.Read(bitsBytes[:]); err != nil {
+	if _, err := io.ReadFull(r, bitsBytes[:]); err != nil {
 		return err
 	}
 	bits := UnpackBits(bitsBytes[:])
