@@ -56,6 +56,11 @@ type Querier interface {
 	// transaction commits, serializing journal appends so that seq order
 	// equals commit order.
 	BumpUniverseLeafJournalTail(ctx context.Context, delta int64) (int64, error)
+	// Removes a message from its receiver's mailbox by emptying its payload. The
+	// row itself stays until its claimed outpoint is deleted, so that a resend of
+	// the same message is still recognized as one. substr yields an empty value of
+	// the column's own type on both database backends.
+	ClearAuthMailboxMessagePayload(ctx context.Context, arg ClearAuthMailboxMessagePayloadParams) (int64, error)
 	// A certified foreclosure is absorbing and never cleared.
 	ClearReorgDependencyForeclosure(ctx context.Context, arg ClearReorgDependencyForeclosureParams) error
 	ConfirmChainAnchorTx(ctx context.Context, arg ConfirmChainAnchorTxParams) error
@@ -98,7 +103,6 @@ type Querier interface {
 	DeleteAssetProofAnchors(ctx context.Context, proofID int64) error
 	DeleteAssetProofByAssetID(ctx context.Context, assetID int64) error
 	DeleteAssetWitnesses(ctx context.Context, assetID int64) error
-	DeleteAuthMailboxMessageByIDAndReceiver(ctx context.Context, arg DeleteAuthMailboxMessageByIDAndReceiverParams) (int64, error)
 	DeleteAuxCloseInfo(ctx context.Context, chanPoint []byte) error
 	DeleteBurnsByTransferID(ctx context.Context, transferID int64) error
 	DeleteExpiredUTXOLeases(ctx context.Context, now sql.NullTime) error
@@ -187,6 +191,9 @@ type Querier interface {
 	// around that needs to be used with this query until a sqlc bug is fixed.
 	FetchAssetsForBatch(ctx context.Context, rawKey []byte) ([]FetchAssetsForBatchRow, error)
 	FetchAuthMailboxMessage(ctx context.Context, id int64) (FetchAuthMailboxMessageRow, error)
+	// Unlike the other message queries, this also returns a message that its
+	// receiver has deleted, as the row records that the outpoint was used to send
+	// it.
 	FetchAuthMailboxMessageByOutpoint(ctx context.Context, claimedOutpoint []byte) (FetchAuthMailboxMessageByOutpointRow, error)
 	FetchAuxCloseInfo(ctx context.Context, chanPoint []byte) ([]byte, error)
 	FetchChainTx(ctx context.Context, txid []byte) (ChainTxn, error)

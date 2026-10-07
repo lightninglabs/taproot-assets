@@ -24,9 +24,15 @@ SELECT
 FROM authmailbox_messages m
 JOIN tx_proof_claimed_outpoints op
     ON m.claimed_outpoint = op.outpoint
-WHERE id = $1;
+WHERE id = $1
+    -- A message whose receiver deleted it keeps its row but has an empty
+    -- payload, and is no longer in the mailbox.
+    AND length(m.encrypted_payload) > 0;
 
 -- name: FetchAuthMailboxMessageByOutpoint :one
+-- Unlike the other message queries, this also returns a message that its
+-- receiver has deleted, as the row records that the outpoint was used to send
+-- it.
 SELECT
     m.id,
     m.claimed_outpoint,
@@ -52,6 +58,7 @@ JOIN tx_proof_claimed_outpoints op
     ON m.claimed_outpoint = op.outpoint
 WHERE
     m.receiver_key = $1
+    AND length(m.encrypted_payload) > 0
     -- The after_time and after_id are exclusive, so we query greater than.
     AND (
         m.arrival_timestamp > sqlc.narg('after_time')
@@ -69,7 +76,8 @@ WHERE
 
 -- name: CountAuthMailboxMessages :one
 SELECT COUNT(*) AS count
-FROM authmailbox_messages m;
+FROM authmailbox_messages m
+WHERE length(m.encrypted_payload) > 0;
 
 -- name: ListClaimedOutpoints :many
 SELECT outpoint, internal_key, merkle_root, block_height
@@ -81,6 +89,12 @@ LIMIT @num_limit OFFSET @num_offset;
 DELETE FROM tx_proof_claimed_outpoints
 WHERE outpoint = $1;
 
--- name: DeleteAuthMailboxMessageByIDAndReceiver :execrows
-DELETE FROM authmailbox_messages
-WHERE id = @message_id AND receiver_key = @receiver_key;
+-- name: ClearAuthMailboxMessagePayload :execrows
+-- Removes a message from its receiver's mailbox by emptying its payload. The
+-- row itself stays until its claimed outpoint is deleted, so that a resend of
+-- the same message is still recognized as one. substr yields an empty value of
+-- the column's own type on both database backends.
+UPDATE authmailbox_messages
+SET encrypted_payload = substr(encrypted_payload, 1, 0)
+WHERE id = @message_id AND receiver_key = @receiver_key
+    AND length(encrypted_payload) > 0;

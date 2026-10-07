@@ -239,7 +239,7 @@ func (s *Server) SendMessage(ctx context.Context,
 	log.DebugS(ctx, "Received SendMessage message")
 
 	if len(req.EncryptedPayload) == 0 {
-		return nil, fmt.Errorf("empty payload")
+		return nil, ErrEmptyPayload
 	}
 	if len(req.EncryptedPayload) > MsgMaxSize {
 		return nil, ErrMessageTooLong
@@ -294,7 +294,9 @@ func (s *Server) SendMessage(ctx context.Context,
 			// same message each time, we cannot compare the actual
 			// message itself. So we have to assume that using the
 			// same outpoint in the proof for the same recipient
-			// means it's also the same message.
+			// means it's also the same message. This holds even
+			// once the recipient has deleted the message, so a
+			// sender retrying after delivery still succeeds.
 			if !existingMsg.ReceiverKey.IsEqual(&msg.ReceiverKey) {
 				// It's a different recipient, so someone is
 				// attempting to re-use a proof for a different

@@ -807,13 +807,26 @@ func TestV2AddressHandling(t *testing.T) {
 	require.NoError(t, err)
 	t.Logf("Sending message for address %s", addrStr)
 
-	mockServer.PublishMessage(&authmailbox.Message{
-		ID:               1,
-		ReceiverKey:      *receiverKey.PubKey,
-		EncryptedPayload: encryptedFragment,
-		ArrivalTimestamp: time.Now(),
-		ProofBlockHeight: 123,
-	})
+	msgStore := mockServer.MsgStore()
+	publish := func() {
+		msg := &authmailbox.Message{
+			ReceiverKey:      *receiverKey.PubKey,
+			EncryptedPayload: encryptedFragment,
+			ArrivalTimestamp: time.Now(),
+			ProofBlockHeight: 123,
+		}
+		msg.ID, err = msgStore.StoreMessage(
+			ctxb, *proof.MockTxProof(t), msg,
+		)
+		require.NoError(t, err)
+
+		mockServer.PublishMessage(msg)
+	}
+	noMessages := func() bool {
+		return msgStore.NumMessages(ctxb) == 0
+	}
+
+	publish()
 
 	// We expect one event to be created, and it should be completed.
 	h.assertEventsPresent(1, address.StatusCompleted)
@@ -821,6 +834,15 @@ func TestV2AddressHandling(t *testing.T) {
 	dbProof, err := h.assetDB.FetchProof(ctxb, mockProof.Locator)
 	require.NoError(t, err)
 	require.EqualValues(t, mockProof.Blob, dbProof)
+
+	// Having received its proofs, the custodian removes the message.
+	require.Eventually(t, noMessages, testTimeout, testPollInterval)
+
+	// A second message for the same transfer is skipped, as the transfer
+	// was already fully processed, and removed as well.
+	publish()
+	require.Eventually(t, noMessages, testTimeout, testPollInterval)
+	h.assertEventsPresent(1, address.StatusCompleted)
 }
 
 // TestBookAssetSyncer makes sure that addresses can be created for assets
