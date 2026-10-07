@@ -644,6 +644,7 @@ type Querier interface {
 	UpsertReorgDependency(ctx context.Context, arg UpsertReorgDependencyParams) error
 	UpsertRfqPolicy(ctx context.Context, arg UpsertRfqPolicyParams) error
 	UpsertRootNode(ctx context.Context, arg UpsertRootNodeParams) error
+	UpsertWalletVerifiedInternalKey(ctx context.Context, arg UpsertWalletVerifiedInternalKeyParams) (int64, error)
 	UpsertScriptKey(ctx context.Context, arg UpsertScriptKeyParams) (int64, error)
 	// Return the ID of the state that was actually set (either inserted or updated),
 	// and the latest commitment ID that was set.
