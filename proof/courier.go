@@ -1532,6 +1532,7 @@ func (c *UniverseRpcCourier) DeliverProof(ctx context.Context,
 		}
 
 		// Setup delivery routine and start backoff procedure.
+		lastProof := i == proofFile.NumProofs()-1
 		deliverFunc := func() error {
 			// Connect to the courier service if a connection hasn't
 			// been established yet.
@@ -1553,18 +1554,6 @@ func (c *UniverseRpcCourier) DeliverProof(ctx context.Context,
 			)
 			defer subCtxCancel()
 
-			// Sending a message to the courier is idempotent, so we
-			// can safely retry it every time before we insert the
-			// proofs.
-			if sendFragment != nil {
-				err = c.deliverFragment(subCtx, sendFragment)
-				if err != nil {
-					return fmt.Errorf("error delivering "+
-						"send fragment to courier "+
-						"service: %w", err)
-				}
-			}
-
 			assetProof := unirpc.AssetProof{
 				Key:       &universeKey,
 				AssetLeaf: &assetLeaf,
@@ -1574,6 +1563,19 @@ func (c *UniverseRpcCourier) DeliverProof(ctx context.Context,
 				return fmt.Errorf("error inserting proof "+
 					"into universe courier service: %w",
 					err)
+			}
+
+			// The send fragment tells the receiver to fetch its
+			// proofs, so we send it once, after the last of them is
+			// in the universe. A retry after a failed send inserts
+			// that proof again, which the universe accepts.
+			if lastProof && sendFragment != nil {
+				err = c.deliverFragment(subCtx, sendFragment)
+				if err != nil {
+					return fmt.Errorf("error delivering "+
+						"send fragment to courier "+
+						"service: %w", err)
+				}
 			}
 
 			return nil
