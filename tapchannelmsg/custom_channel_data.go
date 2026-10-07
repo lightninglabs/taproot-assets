@@ -304,6 +304,14 @@ func ReadBalanceCustomData(balanceData []byte) (*BalanceCustomData, error) {
 			"channels: %w", err)
 	}
 
+	// Each commitment needs at least one byte for its length prefix,
+	// even when its TLV stream is empty. Bound the allocation by the
+	// remaining input rather than imposing a fixed channel limit.
+	if numOpenChannels > uint64(balanceDataReader.Len()) {
+		return nil, fmt.Errorf("open channel count exceeds remaining "+
+			"data: %w", io.ErrUnexpectedEOF)
+	}
+
 	result := &BalanceCustomData{
 		OpenChannels: make([]*Commitment, numOpenChannels),
 	}
@@ -322,6 +330,13 @@ func ReadBalanceCustomData(balanceData []byte) (*BalanceCustomData, error) {
 	if err != nil {
 		return nil, fmt.Errorf("unable to read number of pending "+
 			"channels: %w", err)
+	}
+
+	// Apply the same bound after consuming the open commitments and
+	// pending count, so already-consumed bytes cannot back this allocation.
+	if numPendingChannels > uint64(balanceDataReader.Len()) {
+		return nil, fmt.Errorf("pending channel count exceeds "+
+			"remaining data: %w", io.ErrUnexpectedEOF)
 	}
 
 	result.PendingChannels = make([]*Commitment, numPendingChannels)
