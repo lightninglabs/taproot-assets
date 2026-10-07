@@ -1077,41 +1077,27 @@ func fetchAssetSprouts(ctx context.Context, q PendingAssetStore,
 		// requirement of on going emission.
 		var groupKey *asset.GroupKey
 		if sprout.TweakedGroupKey != nil {
-			tweakedGroupKey, err := btcec.ParsePubKey(
-				sprout.TweakedGroupKey,
+			// The version and custom subtree root belong to the
+			// group rather than to this asset's witness row, so we
+			// read them from the group.
+			groupInfo, err := q.FetchGroupByGroupKey(
+				ctx, sprout.TweakedGroupKey,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("unable to fetch group "+
+					"of sprout: %w", err)
+			}
+
+			groupKey, err = parseGroupKeyInfo(
+				groupInfo.Version, sprout.TweakedGroupKey,
+				sprout.GroupKeyRaw, sprout.WitnessStack,
+				sprout.TapscriptRoot,
+				extractSqlInt32[int32](sprout.GroupKeyFamily),
+				extractSqlInt32[int32](sprout.GroupKeyIndex),
+				groupInfo.CustomSubtreeRoot,
 			)
 			if err != nil {
 				return nil, err
-			}
-			rawGroupKey, err := btcec.ParsePubKey(sprout.GroupKeyRaw)
-			if err != nil {
-				return nil, err
-			}
-			groupWitness, err := asset.ParseGroupWitness(
-				sprout.WitnessStack,
-			)
-			if err != nil {
-				return nil, err
-			}
-
-			groupKey = &asset.GroupKey{
-				RawKey: keychain.KeyDescriptor{
-					PubKey: rawGroupKey,
-					KeyLocator: keychain.KeyLocator{
-						Index: extractSqlInt32[uint32](
-							sprout.GroupKeyIndex,
-						),
-						Family: extractSqlInt32[keychain.KeyFamily](
-							sprout.GroupKeyFamily,
-						),
-					},
-				},
-				GroupPubKey: *tweakedGroupKey,
-				Witness:     groupWitness,
-			}
-
-			if len(sprout.TapscriptRoot) != 0 {
-				groupKey.TapscriptRoot = sprout.TapscriptRoot
 			}
 		}
 

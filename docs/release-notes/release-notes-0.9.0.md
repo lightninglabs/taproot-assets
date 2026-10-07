@@ -180,6 +180,14 @@
   already checked against the proof; the outpoint now has to match the
   anchor outpoint of the proof as well.
 
+* [PR#2323](https://github.com/lightninglabs/taproot-assets/pull/2323)
+  fixes a bug in which a batch minting the anchor of a version 1 asset
+  group, such as one with an external group key, never finished if the
+  daemon restarted after the batch was committed but before it
+  confirmed. The group key read back from disk lacked its version and
+  custom tapscript root, so building the anchor's minting proof failed
+  with `group key reveal doesn't match group key` on every retry.
+
 # New Features
 
 ## Functional Enhancements
