@@ -513,11 +513,13 @@ func (b *Cultivator) registerMintAnchoring(ctx context.Context,
 		if idx >= len(pkt.UnsignedTx.TxIn) {
 			break
 		}
-		if pkt.Inputs[idx].WitnessUtxo == nil {
-			continue
+		prevOut, err := customAnchorInputPrevOut(pkt, signedTx, idx)
+		if err != nil {
+			return fmt.Errorf("unable to resolve input %d script: %w",
+				idx, err)
 		}
 		op := pkt.UnsignedTx.TxIn[idx].PreviousOutPoint
-		scripts[op] = pkt.Inputs[idx].WitnessUtxo.PkScript
+		scripts[op] = prevOut.PkScript
 	}
 
 	points := make([]tapreorg.TriggerOutPoint, 0, len(signedTx.TxIn))
