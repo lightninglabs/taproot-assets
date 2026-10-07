@@ -233,18 +233,12 @@ func RootLocatorProofDecoder(r io.Reader, val any, buf *[8]byte,
 			return err
 		}
 
-		var proof mssmt.CompressedProof
-		err = proof.Decode(bytes.NewReader(proofBytes))
+		fullProof, err := mssmt.NewProofFromCompressedBytes(proofBytes)
 		if err != nil {
 			return err
 		}
 
-		fullProof, err := proof.Decompress()
-		if err != nil {
-			return err
-		}
-
-		*typ = fullProof
+		*typ = &fullProof
 
 		return nil
 	}

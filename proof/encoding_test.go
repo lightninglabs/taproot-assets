@@ -9,6 +9,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
@@ -134,4 +135,32 @@ func TestCommitmentProofsDecoderRoundTrip(t *testing.T) {
 			require.Equal(t, emptyMap, decodedMap)
 		},
 	)
+}
+
+// TestRootLocatorProofDecoderTrailingData checks that a root locator proof
+// record is rejected when bytes follow the compressed proof it holds.
+func TestRootLocatorProofDecoderTrailingData(t *testing.T) {
+	t.Parallel()
+
+	var compressed bytes.Buffer
+	err := mssmt.RandProof(t).Compress().Encode(&compressed)
+	require.NoError(t, err)
+
+	var buf [8]byte
+	decode := func(proofBytes []byte) error {
+		var record bytes.Buffer
+		err := asset.InlineVarBytesEncoder(&record, &proofBytes, &buf)
+		require.NoError(t, err)
+
+		var decoded *mssmt.Proof
+		return RootLocatorProofDecoder(
+			bytes.NewReader(record.Bytes()), &decoded, &buf,
+			uint64(record.Len()),
+		)
+	}
+
+	require.NoError(t, decode(compressed.Bytes()))
+
+	err = decode(append(bytes.Clone(compressed.Bytes()), 0))
+	require.ErrorContains(t, err, "trailing data")
 }
