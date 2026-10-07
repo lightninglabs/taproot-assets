@@ -184,7 +184,7 @@
 
 ## Functional Enhancements
 
-* [PR#9](https://github.com/lightninglabs/taproot-assets/pull/9)
+* [PR#2238](https://github.com/lightninglabs/taproot-assets/pull/2238)
   adds a caller-controlled Bitcoin anchor PSBT flow for minting batches,
   including a prepare/finalize signing boundary, durable restart recovery,
   and wallet-input lease management.
