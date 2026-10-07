@@ -5,12 +5,15 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
+	mboxrpc "github.com/lightninglabs/taproot-assets/taprpc/authmailboxrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"github.com/lightningnetwork/lnd/lntest/port"
 	"github.com/stretchr/testify/require"
@@ -150,4 +153,132 @@ func TestCheckUniverseRpcCourierConnection(t *testing.T) {
 			require.NoError(t, err)
 		})
 	}
+}
+
+// recordingCourierServer is a mock universe and auth mailbox server that
+// records the order of the proof inserts and messages it receives.
+type recordingCourierServer struct {
+	MockUniverseServer
+
+	mu    sync.Mutex
+	calls []string
+}
+
+// InsertProof records a proof insert.
+func (s *recordingCourierServer) InsertProof(context.Context,
+	*universerpc.AssetProof) (*universerpc.AssetProofResponse, error) {
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.calls = append(s.calls, "insert")
+
+	return &universerpc.AssetProofResponse{}, nil
+}
+
+// SendMessage records a message.
+func (s *recordingCourierServer) SendMessage(context.Context,
+	*mboxrpc.SendMessageRequest) (*mboxrpc.SendMessageResponse, error) {
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.calls = append(s.calls, "send")
+
+	return &mboxrpc.SendMessageResponse{MessageId: 1}, nil
+}
+
+// noopTransferLog is a TransferLog that records nothing.
+type noopTransferLog struct{}
+
+// LogProofTransferAttempt does nothing.
+func (noopTransferLog) LogProofTransferAttempt(context.Context, Locator,
+	TransferType) error {
+
+	return nil
+}
+
+// QueryProofTransferLog returns no attempts.
+func (noopTransferLog) QueryProofTransferLog(context.Context, Locator,
+	TransferType) ([]time.Time, error) {
+
+	return nil, nil
+}
+
+// TestUniverseRpcCourierDeliverFragmentOnce tests that delivering a proof
+// file along with a send fragment inserts every proof of the file before
+// sending the fragment, and sends it only once.
+func TestUniverseRpcCourierDeliverFragmentOnce(t *testing.T) {
+	grpcServer := grpc.NewServer(
+		grpc.Creds(insecure.NewCredentials()),
+	)
+	server := &recordingCourierServer{}
+	universerpc.RegisterUniverseServer(grpcServer, server)
+	mboxrpc.RegisterMailboxServer(grpcServer, server)
+
+	serverAddr, cleanup, err := test.StartMockGRPCServer(
+		t, grpcServer, true,
+	)
+	require.NoError(t, err)
+	t.Cleanup(cleanup)
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	courierAddr := MockCourierURL(
+		t, AuthMailboxUniRpcCourierType, serverAddr,
+	)
+	courier, err := NewUniverseRpcCourier(
+		ctx, &UniverseRpcCourierCfg{
+			BackoffCfg: &BackoffCfg{
+				SkipInitDelay: true,
+				NumTries:      1,
+			},
+			ServiceRequestTimeout: testTimeout,
+		}, noopTransferLog{}, nil, courierAddr, false,
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, courier.Close())
+	})
+
+	// A proof file with three proofs, the last of which is the one being
+	// delivered.
+	testBlocks := readTestData(t)
+	genesis := asset.RandGenesis(t, asset.Normal)
+	scriptKey := test.RandPubKey(t)
+	randProof := func() Proof {
+		return RandProof(t, genesis, scriptKey, testBlocks[0], 0, 1)
+	}
+	file, err := NewFile(V0, randProof(), randProof(), randProof())
+	require.NoError(t, err)
+
+	var fileBuf bytes.Buffer
+	require.NoError(t, file.Encode(&fileBuf))
+
+	txProof := MockTxProof(t)
+	txProof.BlockHeight = 100
+	manifest := &SendManifest{
+		TxProof:    *txProof,
+		Receiver:   *test.RandPubKey(t),
+		CourierURL: *courierAddr,
+		Fragment: SendFragment{
+			Version:     SendFragmentV1,
+			BlockHeight: 100,
+		},
+	}
+
+	err = courier.DeliverProof(
+		ctx, Recipient{AssetID: genesis.ID()}, &AnnotatedProof{
+			Blob: fileBuf.Bytes(),
+		}, manifest,
+	)
+	require.NoError(t, err)
+
+	server.mu.Lock()
+	defer server.mu.Unlock()
+	require.Equal(
+		t, []string{"insert", "insert", "insert", "send"},
+		server.calls,
+	)
 }
