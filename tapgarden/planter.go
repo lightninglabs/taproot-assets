@@ -900,6 +900,9 @@ func getCustomAnchorPublishState(
 				customAnchorImportPending:
 
 				return state
+
+			case customAnchorPublishRejected:
+				return customAnchorPublishPending
 			}
 		}
 
