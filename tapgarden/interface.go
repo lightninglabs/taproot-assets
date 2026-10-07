@@ -1,3 +1,4 @@
+//nolint:lll
 package tapgarden
 
 import (
@@ -305,6 +306,66 @@ type MintingRefReader interface {
 	// FetchAssetMeta fetches the meta reveal for an asset genesis.
 	FetchAssetMeta(ctx context.Context, ID asset.ID) (*proof.MetaReveal,
 		error)
+}
+
+// SignedGenesisPsbtStore is an optional BatchStore extension that durably
+// records a signed custom genesis packet before publication is attempted.
+type SignedGenesisPsbtStore interface {
+	StoreSignedGenesisPsbt(ctx context.Context, batchKey *btcec.PublicKey,
+		genesisTx *tapsend.FundedPsbt) error
+}
+
+// MintingInternalKeyStore is an optional BatchStore extension that persists
+// the wallet-proven internal key for a mint anchor. Custom anchors require this
+// capability because their internal key can differ from the batch key.
+type MintingInternalKeyStore interface {
+	CommitSignedGenesisTxWithKey(ctx context.Context, batch *MintingBatch,
+		mintingInternalKey keychain.KeyDescriptor,
+		genesisTx *tapsend.FundedPsbt, anchorOutputIndex uint32,
+		merkleRoot, tapTreeRoot, tapSibling []byte) error
+}
+
+func storeSignedGenesisPsbt(ctx context.Context, store BatchStore,
+	batchKey *btcec.PublicKey, genesisTx *tapsend.FundedPsbt) error {
+
+	signedStore, ok := store.(SignedGenesisPsbtStore)
+	if !ok {
+		return fmt.Errorf("minting store does not support signed custom " +
+			"genesis persistence")
+	}
+	if genesisTx != nil && isCustomAnchorPsbt(genesisTx.Pkt) {
+		if _, ok := store.(MintingInternalKeyStore); !ok {
+			return fmt.Errorf("minting store does not support custom anchor " +
+				"internal keys")
+		}
+	}
+
+	return signedStore.StoreSignedGenesisPsbt(
+		ctx, batchKey, genesisTx,
+	)
+}
+
+func commitSignedGenesisTx(ctx context.Context, store BatchStore,
+	batch *MintingBatch, mintingInternalKey keychain.KeyDescriptor,
+	genesisTx *tapsend.FundedPsbt, anchorOutputIndex uint32,
+	merkleRoot, tapTreeRoot, tapSibling []byte) error {
+
+	if keyStore, ok := store.(MintingInternalKeyStore); ok {
+		return keyStore.CommitSignedGenesisTxWithKey(
+			ctx, batch, mintingInternalKey, genesisTx,
+			anchorOutputIndex, merkleRoot, tapTreeRoot, tapSibling,
+		)
+	}
+
+	if genesisTx != nil && isCustomAnchorPsbt(genesisTx.Pkt) {
+		return fmt.Errorf("minting store does not support custom anchor " +
+			"internal keys")
+	}
+
+	return store.CommitSignedGenesisTx(
+		ctx, batch, genesisTx, anchorOutputIndex, merkleRoot,
+		tapTreeRoot, tapSibling,
+	)
 }
 
 var (

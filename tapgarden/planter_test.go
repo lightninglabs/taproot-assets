@@ -1,3 +1,4 @@
+//nolint:lll
 package tapgarden_test
 
 import (
@@ -96,7 +97,7 @@ type mintingTestHarness struct {
 
 	chain *tapnodemock.ChainBridge
 
-	store *tapdb.AssetMintingStore
+	store testMintingStore
 
 	treeStore *tapgarden.FallibleTapscriptTreeMgr
 
@@ -133,12 +134,20 @@ type mintingTestHarness struct {
 	testing.TB
 
 	errChan chan error
+
+	leaseRenewalInterval time.Duration
+}
+
+type testMintingStore interface {
+	tapgarden.BatchStore
+	tapgarden.MintingRefReader
+	asset.TapscriptTreeManager
 }
 
 // newMintingTestHarness creates a new test harness from an active minting
 // store and an existing testing context.
 func newMintingTestHarness(t testing.TB,
-	store *tapdb.AssetMintingStore) *mintingTestHarness {
+	store testMintingStore) *mintingTestHarness {
 
 	keyRing := tapnodemock.NewKeyRing()
 	genSigner := tapgarden.NewMockGenSigner(keyRing)
@@ -189,9 +198,10 @@ func (t *mintingTestHarness) refreshChainPlanter() {
 			AnchoringWatcher:   t.registrar,
 			GenesisTxAugmenter: t.augmenter,
 		},
-		ChainParams:  *chainParams,
-		ProofUpdates: t.proofFiles,
-		ErrChan:      t.errChan,
+		ChainParams:                      *chainParams,
+		ProofUpdates:                     t.proofFiles,
+		ErrChan:                          t.errChan,
+		CustomAnchorLeaseRenewalInterval: t.leaseRenewalInterval,
 	})
 	require.NoError(t, t.planter.Start())
 }
@@ -517,14 +527,12 @@ func (t *mintingTestHarness) progressCaretaker(isFunded bool,
 	// sign this PSBT packet generated above.
 	t.assertGenesisPsbtFinalized(batchSibling)
 
-	// With the PSBT packet finalized for the caretaker, we should now
-	// receive a request to publish a transaction followed by a
-	// confirmation request.
+	// Registration completes before the unbuffered publish, so accepting
+	// the publish proves the anchoring was staked first.
 	tx := t.assertTxPublished()
 
-	// With the transaction published, we should now receive a confirmation
-	// request. To ensure the file proof is constructed properly, we'll
-	// also make a "fake" block that includes our transaction.
+	// Build a block that includes the genesis transaction so the
+	// confirmation closure can witness the anchoring.
 	merkleTree := blockchain.BuildMerkleTreeStore(
 		[]*btcutil.Tx{btcutil.NewTx(tx)}, false,
 	)
@@ -1198,6 +1206,11 @@ func (t *mintingTestHarness) assertAnchoringRegistered(tx *wire.MsgTx) {
 	require.Eventually(t, func() bool {
 		return len(t.mintAnchorings(tx)) > 0
 	}, defaultTimeout, 10*time.Millisecond)
+
+	// The re-org watcher replaced the cultivator's confirmation
+	// subscription. A non-zero request count means the legacy
+	// RegisterConfirmationsNtfn path ran.
+	require.Zero(t, t.chain.ReqCount.Load())
 }
 
 // confirmAnchoring flips the anchoring's delivered phase to witnessed
@@ -2040,6 +2053,12 @@ func testFundFailureReleasesWalletLeases(t *mintingTestHarness) {
 	)
 	require.NoError(t, err)
 	require.Equal(t, funded.LockedUTXOs[0], *unlocked)
+	select {
+	case released := <-t.wallet.ReleaseInputSignal:
+		t.Fatalf("wallet-funded input used custom release path: %v",
+			released)
+	default:
+	}
 }
 
 // testCancelFundedBatchReleasesLeases verifies that cancelling a funded

@@ -3886,8 +3886,10 @@ INSERT INTO internal_keys (
 ) VALUES (
     $1, $2, $3
 ) ON CONFLICT (raw_key)
-    -- This is a NOP, raw_key is the unique field that caused the conflict.
-    DO UPDATE SET raw_key = EXCLUDED.raw_key
+    -- Generic imports must never mutate a locator already associated with a
+    -- raw key. They only need the stable key ID, while the wallet-verified
+    -- query below owns locator promotion and conflict validation.
+    DO UPDATE SET raw_key = internal_keys.raw_key
 RETURNING key_id
 `
 
@@ -4171,4 +4173,34 @@ func (q *Queries) UpsertTapscriptTreeRootHash(ctx context.Context, arg UpsertTap
 	var root_id int64
 	err := row.Scan(&root_id)
 	return root_id, err
+}
+
+const UpsertWalletVerifiedInternalKey = `-- name: UpsertWalletVerifiedInternalKey :one
+INSERT INTO internal_keys (
+    raw_key, key_family, key_index
+) VALUES (
+    $1, $2, $3
+) ON CONFLICT (raw_key)
+    -- This query is restricted to a wallet-verified descriptor. It may
+    -- upgrade the historical 0/0 placeholder, but never overwrite a known,
+    -- conflicting locator.
+    DO UPDATE SET key_family = EXCLUDED.key_family,
+                  key_index = EXCLUDED.key_index
+    WHERE (internal_keys.key_family = 0 AND internal_keys.key_index = 0)
+       OR (internal_keys.key_family = EXCLUDED.key_family AND
+           internal_keys.key_index = EXCLUDED.key_index)
+RETURNING key_id
+`
+
+type UpsertWalletVerifiedInternalKeyParams struct {
+	RawKey    []byte
+	KeyFamily int32
+	KeyIndex  int32
+}
+
+func (q *Queries) UpsertWalletVerifiedInternalKey(ctx context.Context, arg UpsertWalletVerifiedInternalKeyParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, UpsertWalletVerifiedInternalKey, arg.RawKey, arg.KeyFamily, arg.KeyIndex)
+	var key_id int64
+	err := row.Scan(&key_id)
+	return key_id, err
 }

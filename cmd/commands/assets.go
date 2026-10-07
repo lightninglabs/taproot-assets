@@ -1,15 +1,19 @@
 package commands
 
 import (
+	"context"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"math"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightninglabs/taproot-assets/address"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/rpcserver"
 	"github.com/lightninglabs/taproot-assets/tapcfg"
 	"github.com/lightninglabs/taproot-assets/taprpc"
@@ -126,11 +130,24 @@ const (
 	shortResponseName             = "short"
 	enableSupplyCommitmentsName   = "enable_supply_commitments"
 	feeRateName                   = "sat_per_vbyte"
+	anchorPsbtName                = "anchor_psbt"
+	assetAnchorOutputIndexName    = "asset_anchor_output_index"
+	changeOutputIndexName         = "change_output_index"
+	noChangeOutputName            = "no_change_output"
+	preCommitOutputIndexName      = "pre_commit_output_index"
+	signedPsbtName                = "signed_psbt"
+	outputPsbtName                = "output_psbt"
 	skipProofCourierPingCheckName = "skip-proof-courier-ping-check"
 	assetAmountName               = "amount"
 	burnOverrideConfirmationName  = "override_confirmation_destroy_assets"
 	scriptKeyTypeName             = "script_key_type"
 	scriptKeyTypeAll              = "all_script_key_types"
+
+	// maxCustomAnchorPsbtSize is the maximum caller-funded PSBT the CLI
+	// reads from disk. It mirrors the unexported server limit
+	// rpcserver.maxCustomAnchorPsbtSize (4 MiB). The server constant is
+	// not exported, so the CLI enforces the same bound while reading.
+	maxCustomAnchorPsbtSize = 4 * 1024 * 1024
 )
 
 var mintAssetCommand = cli.Command{
@@ -238,6 +255,7 @@ var mintAssetCommand = cli.Command{
 		listBatchesCommand,
 		fundBatchCommand,
 		sealBatchCommand,
+		prepareBatchCommand,
 		finalizeBatchCommand,
 		cancelBatchCommand,
 	},
@@ -496,30 +514,353 @@ var fundBatchCommand = cli.Command{
 			Usage: "if set, the fee rate in sat/vB to use for " +
 				"the minting transaction",
 		},
+		cli.StringFlag{
+			Name:  anchorPsbtName,
+			Usage: "caller-funded PSBT file",
+		},
+		cli.Uint64Flag{Name: assetAnchorOutputIndexName},
+		cli.Int64Flag{Name: changeOutputIndexName},
+		cli.BoolFlag{Name: noChangeOutputName},
+		cli.Uint64Flag{Name: preCommitOutputIndexName},
 	},
 	Action: fundBatch,
 }
 
 func fundBatch(ctx *cli.Context) error {
-	ctxc := getContext()
-	client, cleanUp := getMintClient(ctx)
-	defer cleanUp()
-
-	feeRate, err := parseFeeRate(ctx)
+	req, err := fundBatchRequest(ctx)
 	if err != nil {
 		return err
 	}
 
-	resp, err := client.FundBatch(ctxc, &mintrpc.FundBatchRequest{
-		ShortResponse: ctx.Bool(shortResponseName),
-		FeeRate:       feeRate,
-	})
+	ctxc := getContext()
+	client, cleanUp := getMintClient(ctx)
+	defer cleanUp()
+
+	resp, err := client.FundBatch(ctxc, req)
 	if err != nil {
 		return fmt.Errorf("unable to fund batch: %w", err)
 	}
 
 	printRespJSON(resp)
 	return nil
+}
+
+// fundBatchRequest parses `assets mint fund` flags into the RPC request.
+func fundBatchRequest(ctx *cli.Context) (*mintrpc.FundBatchRequest, error) {
+	feeRate, err := parseFeeRate(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// Reject custom-anchor output controls before building the request.
+	// They are only read when --anchor_psbt is set; dropping them here
+	// would fund a wallet batch instead.
+	if err := customAnchorFlagsWithoutPsbt(ctx); err != nil {
+		return nil, err
+	}
+
+	req := &mintrpc.FundBatchRequest{
+		ShortResponse: ctx.Bool(shortResponseName),
+		FeeRate:       feeRate,
+	}
+	if path := ctx.String(anchorPsbtName); path != "" {
+		anchorPath := tapcfg.CleanAndExpandPath(path)
+		req.AnchorPsbt, err = readBoundedPsbtFile(anchorPath)
+		if err != nil {
+			return nil, err
+		}
+
+		// FundBatch selects custom funding only when anchor_psbt
+		// is non-empty. A zero-length file would otherwise fund
+		// from the daemon wallet.
+		if len(req.AnchorPsbt) == 0 {
+			return nil, fmt.Errorf(
+				"--%s file is empty: %s", anchorPsbtName,
+				anchorPath,
+			)
+		}
+		assetIdx := ctx.Uint64(assetAnchorOutputIndexName)
+		if assetIdx > math.MaxUint32 {
+			return nil, fmt.Errorf("asset anchor output index " +
+				"out of range")
+		}
+		req.AssetAnchorOutputIndex = uint32(assetIdx)
+
+		// --change_output_index is an Int64 flag, so an omitted
+		// value is 0. That collides with the default asset
+		// anchor output and customGenesisPsbt rejects the
+		// batch. Mirror --pre_commit_output_index: copy the
+		// index only when the flag is set. Otherwise mark the
+		// packet as having no change output so the server
+		// stores -1. An explicit 0 still selects output 0.
+		req.NoChangeOutput = ctx.Bool(noChangeOutputName)
+		if ctx.IsSet(changeOutputIndexName) {
+			changeIdx := ctx.Int64(changeOutputIndexName)
+			if changeIdx < 0 || changeIdx > math.MaxInt32 {
+				return nil, fmt.Errorf("change output " +
+					"index out of range")
+			}
+			req.ChangeOutputIndex = int32(changeIdx)
+		} else if !req.NoChangeOutput {
+			req.NoChangeOutput = true
+		}
+		if ctx.IsSet(preCommitOutputIndexName) {
+			preCommitIdx := ctx.Uint64(preCommitOutputIndexName)
+			if preCommitIdx > math.MaxUint32 {
+				return nil, fmt.Errorf(
+					"pre-commitment output " +
+						"index out of range",
+				)
+			}
+			req.PreCommitOutputIndex = fn.Ptr(uint32(preCommitIdx))
+		}
+	}
+
+	return req, nil
+}
+
+// customAnchorFlagsWithoutPsbt rejects output-selection flags that apply
+// only to a caller-funded anchor when that PSBT was not provided.
+func customAnchorFlagsWithoutPsbt(ctx *cli.Context) error {
+	if ctx.String(anchorPsbtName) != "" {
+		return nil
+	}
+
+	var flags []string
+	if ctx.Bool(noChangeOutputName) {
+		flags = append(flags, "--"+noChangeOutputName)
+	}
+	if ctx.IsSet(preCommitOutputIndexName) {
+		flags = append(flags, "--"+preCommitOutputIndexName)
+	}
+	if ctx.IsSet(assetAnchorOutputIndexName) &&
+		ctx.Uint64(assetAnchorOutputIndexName) != 0 {
+
+		flags = append(flags, "--"+assetAnchorOutputIndexName)
+	}
+	if ctx.IsSet(changeOutputIndexName) &&
+		ctx.Int64(changeOutputIndexName) != 0 {
+
+		flags = append(flags, "--"+changeOutputIndexName)
+	}
+	if len(flags) == 0 {
+		return nil
+	}
+
+	return fmt.Errorf("%s can only be set with --%s",
+		strings.Join(flags, ", "), anchorPsbtName)
+}
+
+var prepareBatchCommand = cli.Command{
+	Name:  "prepare",
+	Usage: "prepare a custom anchor batch for external signing",
+	Flags: []cli.Flag{cli.StringFlag{
+		Name:  outputPsbtName,
+		Usage: "write the raw prepared PSBT to this file",
+	}},
+	Action: prepareBatch,
+}
+
+func prepareBatch(ctx *cli.Context) error {
+	return prepareBatchWith(ctx, getContext, getMintClient)
+}
+
+// mintClientOpener opens a mint RPC client and returns a cleanup func.
+type mintClientOpener func(*cli.Context) (mintrpc.MintClient, func())
+
+// prepareBatchWith prepares a custom anchor batch. --output_psbt is checked
+// before newCtx and openClient run, so an unwritable path does not commit
+// the batch. The RPC response is printed whenever PrepareBatch succeeds,
+// including when the PSBT file cannot be written afterwards.
+func prepareBatchWith(ctx *cli.Context, newCtx func() context.Context,
+	openClient mintClientOpener) error {
+
+	outputPath, err := prepareBatchOutputPath(ctx)
+	if err != nil {
+		return err
+	}
+
+	client, cleanUp := openClient(ctx)
+	defer cleanUp()
+
+	resp, err := client.PrepareBatch(
+		newCtx(), &mintrpc.PrepareBatchRequest{},
+	)
+	if err != nil {
+		return fmt.Errorf("unable to prepare batch: %w", err)
+	}
+
+	writeErr := writePreparedBatchPsbt(outputPath, resp)
+
+	// The batch is already committed. Printing after a failed write
+	// leaves the caller with the packet.
+	printRespJSON(resp)
+	return writeErr
+}
+
+// prepareBatchOutputPath expands --output_psbt and rejects a path that
+// cannot be written. An empty flag leaves the PSBT in the JSON response.
+func prepareBatchOutputPath(ctx *cli.Context) (string, error) {
+	raw := ctx.String(outputPsbtName)
+	if raw == "" {
+		return "", nil
+	}
+
+	path := tapcfg.CleanAndExpandPath(raw)
+	if err := ensureOutputPsbtWritable(path); err != nil {
+		return "", fmt.Errorf("unable to write prepared PSBT: %w",
+			err)
+	}
+
+	return path, nil
+}
+
+// ensureOutputPsbtWritable rejects a path that cannot be created or
+// replaced. A missing file is checked by creating a temporary file in the
+// parent directory, so PrepareBatch is not called when that directory is
+// not writable. An existing file is opened for write without truncating it.
+func ensureOutputPsbtWritable(path string) error {
+	dir := filepath.Dir(path)
+	dirInfo, err := os.Stat(dir)
+	if err != nil {
+		return err
+	}
+	if !dirInfo.IsDir() {
+		return fmt.Errorf("%s is not a directory", dir)
+	}
+
+	info, err := os.Stat(path)
+	switch {
+	case err == nil && info.IsDir():
+		return fmt.Errorf("%s is a directory", path)
+
+	case err == nil:
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("%s is not a regular file", path)
+		}
+
+		var f *os.File
+		f, err = os.OpenFile(path, os.O_WRONLY, 0)
+		if err != nil {
+			return err
+		}
+		if err = f.Close(); err != nil {
+			return err
+		}
+
+		probe, createErr := os.CreateTemp(dir, ".tapcli-prepare-*")
+		if createErr != nil {
+			return createErr
+		}
+		defer func() { _ = os.Remove(probe.Name()) }() //nolint:gosec
+
+		return probe.Close()
+
+	case os.IsNotExist(err):
+		probe, createErr := os.CreateTemp(dir, ".tapcli-prepare-*")
+		if createErr != nil {
+			return createErr
+		}
+
+		// Same writable-directory probe as tapcfg.ensureDirWritable.
+		defer func() { _ = os.Remove(probe.Name()) }() //nolint:gosec
+
+		return probe.Close()
+
+	default:
+		return err
+	}
+}
+
+// writePreparedBatchPsbt stores the committed PSBT at path. An empty path
+// means the caller only wants the JSON response. The packet is written to
+// a temporary file in the destination directory, synced, and renamed over
+// path so a write error leaves an existing file intact.
+func writePreparedBatchPsbt(path string,
+	resp *mintrpc.PrepareBatchResponse) error {
+
+	if path == "" {
+		return nil
+	}
+	if resp.Batch == nil {
+		return fmt.Errorf("prepare response has no batch")
+	}
+
+	dir := filepath.Dir(path)
+	temp, err := os.CreateTemp(dir, ".tapcli-output-psbt-*")
+	if err != nil {
+		return fmt.Errorf("unable to write prepared PSBT: %w", err)
+	}
+
+	tempName := temp.Name()
+	keepTemp := false
+	defer func() {
+		if !keepTemp {
+			_ = os.Remove(tempName)
+		}
+	}()
+
+	if _, err := temp.Write(resp.Batch.BatchPsbt); err != nil {
+		_ = temp.Close()
+		return fmt.Errorf("unable to write prepared PSBT: %w", err)
+	}
+	if err := temp.Sync(); err != nil {
+		_ = temp.Close()
+		return fmt.Errorf("unable to write prepared PSBT: %w", err)
+	}
+	if err := temp.Close(); err != nil {
+		return fmt.Errorf("unable to write prepared PSBT: %w", err)
+	}
+	//nolint:gosec // G703: path is the requested --output_psbt.
+	if err := os.Rename(tempName, path); err != nil {
+		return fmt.Errorf("unable to write prepared PSBT: %w", err)
+	}
+	keepTemp = true
+
+	return nil
+}
+
+// readBoundedPsbtFile opens path and returns its contents. Non-regular
+// files are rejected so a device such as /dev/zero cannot grow the
+// allocation without a bound. The read stops at maxCustomAnchorPsbtSize.
+func readBoundedPsbtFile(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("%s is not a regular file", path)
+	}
+	if info.Size() > maxCustomAnchorPsbtSize {
+		return nil, psbtFileTooLarge(path)
+	}
+
+	// Stat can under-report a file that grows during the read. Stop one
+	// byte past the limit so that growth cannot allocate without a bound.
+	limited := io.LimitReader(f, maxCustomAnchorPsbtSize+1)
+	data, err := io.ReadAll(limited)
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > maxCustomAnchorPsbtSize {
+		return nil, psbtFileTooLarge(path)
+	}
+
+	return data, nil
+}
+
+// psbtFileTooLarge reports that path is larger than the server PSBT limit.
+func psbtFileTooLarge(path string) error {
+	return fmt.Errorf(
+		"%s exceeds maximum size of %d bytes", path,
+		maxCustomAnchorPsbtSize,
+	)
 }
 
 var sealBatchCommand = cli.Command{
@@ -616,30 +957,67 @@ var finalizeBatchCommand = cli.Command{
 			Usage: "if set, the fee rate in sat/vB to use for " +
 				"the minting transaction",
 		},
+		cli.StringFlag{
+			Name:  signedPsbtName,
+			Usage: "externally signed PSBT file",
+		},
 	},
 	Action: finalizeBatch,
 }
 
 func finalizeBatch(ctx *cli.Context) error {
-	ctxc := getContext()
-	client, cleanUp := getMintClient(ctx)
-	defer cleanUp()
-
-	feeRate, err := parseFeeRate(ctx)
+	req, err := finalizeBatchRequest(ctx)
 	if err != nil {
 		return err
 	}
 
-	resp, err := client.FinalizeBatch(ctxc, &mintrpc.FinalizeBatchRequest{
-		ShortResponse: ctx.Bool(shortResponseName),
-		FeeRate:       feeRate,
-	})
+	ctxc := getContext()
+	client, cleanUp := getMintClient(ctx)
+	defer cleanUp()
+
+	resp, err := client.FinalizeBatch(ctxc, req)
 	if err != nil {
 		return fmt.Errorf("unable to finalize batch: %w", err)
 	}
 
 	printRespJSON(resp)
 	return nil
+}
+
+// finalizeBatchRequest parses `assets mint finalize` flags into the RPC
+// request. Parsing happens before the client is opened so a bad
+// --signed_psbt file never reaches FinalizeBatch.
+func finalizeBatchRequest(ctx *cli.Context) (*mintrpc.FinalizeBatchRequest,
+	error) {
+
+	feeRate, err := parseFeeRate(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	req := &mintrpc.FinalizeBatchRequest{
+		ShortResponse: ctx.Bool(shortResponseName),
+		FeeRate:       feeRate,
+	}
+	if path := ctx.String(signedPsbtName); path != "" {
+		signedPath := tapcfg.CleanAndExpandPath(path)
+		req.SignedPsbt, err = readBoundedPsbtFile(signedPath)
+		if err != nil {
+			return nil, err
+		}
+
+		// FinalizeBatch selects the externally signed anchor only
+		// when signed_psbt is non-empty. A zero-length file would
+		// otherwise finalize with the daemon wallet.
+		if len(req.SignedPsbt) == 0 {
+			return nil, fmt.Errorf(
+				"--%s file is empty: %s", signedPsbtName,
+				signedPath,
+			)
+		}
+	}
+
+	return req, nil
 }
 
 var cancelBatchCommand = cli.Command{

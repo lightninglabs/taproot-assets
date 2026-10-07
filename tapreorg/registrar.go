@@ -92,6 +92,15 @@ type MockRegistrar struct {
 	failNext   error
 	anchorings map[AnchoringID]*Anchoring
 	phase1Tx   RegistryTx
+
+	// pauseEntered is closed once the next registration has been
+	// stored and before Register returns. pauseRelease is closed by
+	// the test to let that registration return. Both are nil unless
+	// a test armed PauseNextRegister. The gap is the synchronization
+	// point between "anchoring is visible" and "the caller continues
+	// into publish".
+	pauseEntered chan struct{}
+	pauseRelease chan struct{}
 }
 
 // BestHeight returns the mock's chain height.
@@ -170,17 +179,44 @@ func (m *MockRegistrar) RegisterBatch(ctx context.Context,
 	phase1 BatchPhase1Func) ([]AnchoringID, error) {
 
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	ids, entered, release, err := m.registerBatchLocked(
+		ctx, specs, phase1,
+	)
+	m.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+
+	// Wait without the lock so a test can observe the stored
+	// anchoring and inject a failure before the caller publishes.
+	if release != nil {
+		close(entered)
+		select {
+		case <-release:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+
+	return ids, nil
+}
+
+// registerBatchLocked is RegisterBatch while m.mu is held. On success
+// it may return the pause channels the caller must wait on after
+// releasing the lock.
+func (m *MockRegistrar) registerBatchLocked(ctx context.Context,
+	specs []RegistrationSpec, phase1 BatchPhase1Func) ([]AnchoringID,
+	chan struct{}, chan struct{}, error) {
 
 	if len(specs) == 0 {
-		return nil, ErrEmptyRegistrationBatch
+		return nil, nil, nil, ErrEmptyRegistrationBatch
 	}
 
 	if m.failNext != nil {
 		err := m.failNext
 		m.failNext = nil
 
-		return nil, err
+		return nil, nil, nil, err
 	}
 
 	working := make(map[AnchoringID]*Anchoring, len(m.anchorings))
@@ -207,8 +243,9 @@ func (m *MockRegistrar) RegisterBatch(ctx context.Context,
 
 		if existing != nil {
 			if spec.Phase1OnAttach && anchoringAbandoned(existing) {
-				return nil, fmt.Errorf("anchoring %d: %w",
-					existing.ID, ErrAnchoringAbandoned)
+				return nil, nil, nil, fmt.Errorf(
+					"anchoring %d: %w", existing.ID,
+					ErrAnchoringAbandoned)
 			}
 
 			ids = append(ids, existing.ID)
@@ -243,14 +280,40 @@ func (m *MockRegistrar) RegisterBatch(ctx context.Context,
 
 	if needsPhase1 && phase1 != nil && m.phase1Tx != nil {
 		if err := phase1(ctx, m.phase1Tx, ids); err != nil {
-			return nil, err
+			return nil, nil, nil, err
 		}
 	}
 
 	m.anchorings = working
 	m.nextID = nextID
 
-	return ids, nil
+	entered := m.pauseEntered
+	release := m.pauseRelease
+	m.pauseEntered = nil
+	m.pauseRelease = nil
+
+	return ids, entered, release, nil
+}
+
+// PauseNextRegister makes the next successful registration block after
+// the anchoring is stored and before Register returns. The entered
+// channel is closed at that point. Calling release lets Register
+// return. release is idempotent.
+func (m *MockRegistrar) PauseNextRegister() (<-chan struct{}, func()) {
+	entered := make(chan struct{})
+	releaseCh := make(chan struct{})
+	var once sync.Once
+
+	m.mu.Lock()
+	m.pauseEntered = entered
+	m.pauseRelease = releaseCh
+	m.mu.Unlock()
+
+	return entered, func() {
+		once.Do(func() {
+			close(releaseCh)
+		})
+	}
 }
 
 // anchoringAbandoned reports whether an anchoring is abandoned in its
@@ -283,6 +346,16 @@ func (m *MockRegistrar) FailNextRegister(err error) {
 	defer m.mu.Unlock()
 
 	m.failNext = err
+}
+
+// DropAnchorings forgets every recorded anchoring. Tests use it to
+// simulate a restart on which the batch is already Broadcast but its
+// anchoring was never persisted.
+func (m *MockRegistrar) DropAnchorings() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.anchorings = make(map[AnchoringID]*Anchoring)
 }
 
 // snapshot copies an anchoring deeply enough that a caller holding the
