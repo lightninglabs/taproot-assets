@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcwallet/chain"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -17,7 +19,10 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapnode"
 	"github.com/lightninglabs/taproot-assets/tapreorg"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const (
@@ -366,6 +371,97 @@ func (l *LndRpcChainBridge) PublishTransaction(ctx context.Context,
 	return err
 }
 
+// ValidateAndPublishTransaction submits a transaction before tapd persists an
+// irreversible broadcast state. Only explicit, allowlisted TestMempoolAccept
+// rejections are definitive. Transport, context and unrecognized application
+// failures remain ambiguous.
+func (l *LndRpcChainBridge) ValidateAndPublishTransaction(ctx context.Context,
+	tx *wire.MsgTx, label string) error {
+
+	err := l.lnd.WalletKit.PublishTransaction(ctx, tx, label)
+	if err == nil {
+		return nil
+	}
+
+	return wrapValidateAndPublishError(err)
+}
+
+// wrapValidateAndPublishError adds operation context while retaining the
+// definitive marker, gRPC status and original error in the unwrap chain.
+func wrapValidateAndPublishError(err error) error {
+	publishErr := fmt.Errorf(
+		"unable to validate and publish transaction: %w", err,
+	)
+	if isDefinitivePublishError(err) {
+		return tapnode.NewDefinitivePublishError(publishErr)
+	}
+
+	return publishErr
+}
+
+// isDefinitivePublishError recognizes the stable TestMempoolAccept reject
+// reasons returned by the pinned WalletKit path. Transport and ambiguous
+// backend errors remain inconclusive.
+func isDefinitivePublishError(err error) bool {
+	rpcStatus, ok := status.FromError(err)
+	if !ok || rpcStatus.Code() != codes.Unknown {
+		return false
+	}
+
+	msg := rpcStatus.Message()
+	for _, reason := range ambiguousPublishReasons {
+		if strings.HasPrefix(msg, reason.Error()) {
+			return false
+		}
+	}
+
+	for _, reason := range definitivePublishReasons {
+		if strings.HasPrefix(msg, reason.Error()) {
+			return true
+		}
+	}
+
+	return strings.Contains(msg, lnwallet.ErrMempoolFee.Error())
+}
+
+var definitivePublishReasons = []chain.RPCErr{
+	chain.ErrInsufficientFee,
+	chain.ErrMempoolMinFeeNotMet,
+	chain.ErrMinRelayFeeNotMet,
+	chain.ErrMempoolChainTooLong,
+	chain.ErrEmptyOutput,
+	chain.ErrEmptyInput,
+	chain.ErrTxTooSmall,
+	chain.ErrDuplicateInput,
+	chain.ErrEmptyPrevOut,
+	chain.ErrBelowOutValue,
+	chain.ErrNegativeOutput,
+	chain.ErrLargeOutput,
+	chain.ErrLargeTotalOutput,
+	chain.ErrScriptVerifyFlag,
+	chain.ErrTooManySigOps,
+	chain.ErrOversizeTx,
+	chain.ErrNonStandardScript,
+	chain.ErrTxTooLarge,
+	chain.ErrDust,
+	chain.ErrNonFinal,
+	chain.ErrNonBIP68Final,
+	chain.ErrNonMandatoryScriptVerifyFlag,
+}
+
+var ambiguousPublishReasons = []chain.RPCErr{
+	chain.ErrMissingInputsOrSpent,
+	chain.ErrTxAlreadyKnown,
+	chain.ErrTxAlreadyConfirmed,
+	chain.ErrMempoolConflict,
+	chain.ErrReplacementAddsUnconfirmed,
+	chain.ErrTooManyReplacements,
+	chain.ErrConflictingTx,
+	chain.ErrTxAlreadyInMempool,
+	chain.ErrMissingInputs,
+	chain.ErrSameNonWitnessData,
+}
+
 // EstimateFee returns a fee estimate for the confirmation target.
 func (l *LndRpcChainBridge) EstimateFee(ctx context.Context,
 	confTarget uint32) (chainfee.SatPerKWeight, error) {
@@ -403,6 +499,7 @@ func (l *LndRpcChainBridge) GenProofChainLookup(
 // A compile time assertion to ensure LndRpcChainBridge meets the
 // tapnode.ChainBridge interface.
 var _ tapnode.ChainBridge = (*LndRpcChainBridge)(nil)
+var _ tapnode.DefinitivePublisher = (*LndRpcChainBridge)(nil)
 
 // A compile-time assertion that the chain bridge satisfies the chain
 // sensing contract the re-org watcher pins in its own package.
