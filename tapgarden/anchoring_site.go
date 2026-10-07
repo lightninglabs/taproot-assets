@@ -518,7 +518,8 @@ func (b *Cultivator) registerMintAnchoring(ctx context.Context,
 		)
 		if err != nil {
 			return fmt.Errorf(
-				"unable to resolve input %d script: %w", idx, err,
+				"unable to resolve input %d script: %w",
+				idx, err,
 			)
 		}
 		op := pkt.UnsignedTx.TxIn[idx].PreviousOutPoint
