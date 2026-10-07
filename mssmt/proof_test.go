@@ -45,6 +45,28 @@ func compressedProofBytes(t *testing.T, numNodes int) []byte {
 	return buf.Bytes()
 }
 
+// explicitEmptyProofBytes encodes a compressed proof whose only explicit node
+// is the leaf's sibling, given the empty leaf's hash and the given sum.
+func explicitEmptyProofBytes(t *testing.T, sum uint64) []byte {
+	t.Helper()
+
+	bits := make([]bool, MaxTreeLevels)
+	for i := 1; i < MaxTreeLevels; i++ {
+		bits[i] = true
+	}
+
+	emptyHash := EmptyTree[MaxTreeLevels].NodeHash()
+	compressedProof := CompressedProof{
+		Bits:  bits,
+		Nodes: []Node{NewComputedNode(emptyHash, sum)},
+	}
+
+	var buf bytes.Buffer
+	require.NoError(t, compressedProof.Encode(&buf))
+
+	return buf.Bytes()
+}
+
 // TestNewProofFromCompressedBytes tests the NewProofFromCompressedBytes
 // function with various valid and invalid compressed proof byte inputs.
 func TestNewProofFromCompressedBytes(t *testing.T) {
@@ -204,6 +226,20 @@ func TestNewProofFromCompressedBytes(t *testing.T) {
 			}(),
 			expectError:    true,
 			errorMsg:       "decode compressed proof",
+			expectNumNodes: 0,
+		},
+		{
+			name:           "explicit empty node",
+			input:          explicitEmptyProofBytes(t, 0),
+			expectError:    true,
+			errorMsg:       "invalid compressed proof",
+			expectNumNodes: 0,
+		},
+		{
+			name:           "explicit empty node with a sum",
+			input:          explicitEmptyProofBytes(t, 1),
+			expectError:    true,
+			errorMsg:       "invalid compressed proof",
 			expectNumNodes: 0,
 		},
 	}
