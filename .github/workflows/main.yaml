@@ -37,7 +37,7 @@ jobs:
   # Validate generated SQL models stay in sync with queries.
   sqlc-check:
     name: Sqlc check
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'self-hosted' || 'ubuntu-latest' }}
     steps:
       - name: git checkout
         uses: actions/checkout@v4
@@ -57,7 +57,7 @@ jobs:
   # Rebuild RPC stubs and REST annotations to detect drift.
   rpc-check:
     name: RPC check
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'self-hosted' || 'ubuntu-latest' }}
     steps:
       - name: git checkout
         uses: actions/checkout@v4
@@ -73,7 +73,7 @@ jobs:
   # Ensure go.mod and go.sum remain tidy.
   mod-check:
     name: go mod check
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'self-hosted' || 'ubuntu-latest' }}
     steps:
       - name: git checkout
         uses: actions/checkout@v4
@@ -89,7 +89,7 @@ jobs:
   # Confirm deterministic test vectors are up to date.
   test-vector-check:
     name: test vector check
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'self-hosted' || 'ubuntu-latest' }}
     steps:
       - name: git checkout
         uses: actions/checkout@v4
@@ -105,7 +105,7 @@ jobs:
   # Verify database migration numbering and versions.
   migration-check:
     name: migration version check
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'self-hosted' || 'ubuntu-latest' }}
     steps:
       - name: git checkout
         uses: actions/checkout@v4
@@ -116,7 +116,7 @@ jobs:
   # Build the codebase and docs examples to catch compilation regressions.
   compile-check:
     name: Compilation check
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'self-hosted' || 'ubuntu-latest' }}
     steps:
       - name: git checkout
         uses: actions/checkout@v4
@@ -135,7 +135,7 @@ jobs:
   # Guard sample-tapd.conf defaults against accidental drift.
   sample-conf-check:
     name: sample configuration check
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'self-hosted' || 'ubuntu-latest' }}
     steps:
       - name: git checkout
         uses: actions/checkout@v4
@@ -151,7 +151,7 @@ jobs:
   # Smoke test Docker builds for default and dev images.
   docker-build-check:
     name: Docker build check
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'self-hosted' || 'ubuntu-latest' }}
     steps:
       - name: git checkout
         uses: actions/checkout@v4
@@ -176,7 +176,7 @@ jobs:
   # Cross-compile release binaries across supported targets.
   cross-compile:
     name: cross compilation
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'self-hosted' || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
       matrix:
@@ -207,7 +207,7 @@ jobs:
   # Run the lint suite for static analysis coverage.
   lint-check:
     name: Lint check
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'self-hosted' || 'ubuntu-latest' }}
     steps:
       - name: git checkout
         uses: actions/checkout@v4
@@ -225,7 +225,7 @@ jobs:
   # Enforce formatting consistency.
   format-check:
     name: Format check
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'self-hosted' || 'ubuntu-latest' }}
     steps:
       - name: git checkout
         uses: actions/checkout@v4
@@ -241,7 +241,7 @@ jobs:
   # Ensure pull requests update release notes unless explicitly skipped.
   milestone-check:
     name: Check release notes updated
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'self-hosted' || 'ubuntu-latest' }}
     if: '!contains(github.event.pull_request.labels.*.name, ''no-changelog'')'
     steps:
       - name: Git checkout
@@ -253,7 +253,7 @@ jobs:
   # Unit tests with race detection, coverage, and Postgres backend variants.
   unit-test:
     name: run unit tests (${{ matrix.unit_type }})
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'self-hosted' || 'ubuntu-latest' }}
     strategy:
       # Allow other tests in the matrix to continue if one fails.
       fail-fast: false
@@ -287,7 +287,7 @@ jobs:
 
   unit-race:
     name: run unit race
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'self-hosted' || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
       matrix:
@@ -331,7 +331,7 @@ jobs:
   # Build integration test binaries once, shared by all itest jobs.
   build-itest:
     name: build itest binaries
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'self-hosted' || 'ubuntu-latest' }}
     steps:
       - name: git checkout
         uses: actions/checkout@v5
@@ -360,7 +360,7 @@ jobs:
   # Integration tests on SQLite backend.
   integration-test:
     name: run itests
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'self-hosted' || 'ubuntu-latest' }}
     needs: build-itest
     strategy:
       fail-fast: false
@@ -455,7 +455,7 @@ jobs:
   # Integration tests on Postgres backend.
   integration-test-postgres:
     name: run itests postgres
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'self-hosted' || 'ubuntu-latest' }}
     needs: build-itest
     strategy:
       fail-fast: false
@@ -550,7 +550,7 @@ jobs:
   # LiT integration/unit tests with Taproot Assets replacements.
   run-lit:
     name: run LiT ${{ matrix.task_name }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'self-hosted' || 'ubuntu-latest' }}
     continue-on-error: true
     strategy:
       fail-fast: false
@@ -576,7 +576,7 @@ jobs:
   finish:
     if: ${{ always() }}
     needs: [ unit-test ]
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'self-hosted' || 'ubuntu-latest' }}
     steps:
       - uses: coverallsapp/github-action@v2
         continue-on-error: true

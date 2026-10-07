@@ -1,0 +1,54 @@
+name: encore
+
+# Re-runs jobs lost to infrastructure on the self-hosted pool -- a reclaimed or
+# drained node kills the runner mid-job, GitHub marks the job `failure`, and the
+# only signal is an annotation saying the runner lost communication (or, when the
+# runner is shut down gracefully enough to report, that the operation was
+# canceled). encore reads those annotations and re-runs the run, but only when
+# *every* failed job looks like infrastructure: one genuine failure anywhere and
+# it declines, since re-running would fail identically at double the compute.
+#
+# Implementation and docs: https://github.com/lightninglabs/encore
+#
+# Note that CI only lands on the self-hosted pool for pushes, merge_group runs
+# and same-repo pull requests. Pull requests from forks stay on ubuntu-latest,
+# so some runs encore inspects will have had no self-hosted jobs at all; those
+# simply classify as genuine and are declined.
+#
+# This file only takes effect on main -- workflow_run triggers are ignored on
+# other branches.
+on:
+  workflow_run:
+    workflows:
+      - "CI"
+      - "Docker image build"
+    types: [completed]
+
+permissions:
+  actions: write # rerun-failed-jobs
+  checks: read # read the check-run annotations that identify a lost runner
+
+# One verdict per run attempt; a duplicate event would otherwise have two jobs
+# reading the same pre-retry state, and the loser's rerun call would be rejected.
+# A re-run keeps the same run id, so the attempt number is part of the key.
+concurrency:
+  group: encore-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
+  cancel-in-progress: false
+
+jobs:
+  retry:
+    # Gated on `failure` alone. Both flavours of a lost runner surface that way,
+    # and it is what makes the "operation was canceled" pattern below safe: a
+    # human-cancelled run has conclusion `cancelled` and never reaches encore.
+    if: github.event.workflow_run.conclusion == 'failure'
+    uses: lightninglabs/encore/.github/workflows/retry.yml@v1
+    with:
+      run_id: ${{ github.event.workflow_run.id }}
+      max_attempts: 3
+      # A runner told to shut down mid-job (node drain, autoscaler scale-down,
+      # eviction) aborts its step and reports "The operation was canceled."
+      # rather than vanishing -- the graceful twin of "lost communication".
+      # Safe here because every matrix in CI sets fail-fast: false, so there are
+      # no cancelled siblings to misread.
+      extra_patterns: |
+        the operation was canceled
