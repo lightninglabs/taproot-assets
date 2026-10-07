@@ -1272,6 +1272,22 @@ func (c *Custodian) handleMailboxMessages(msgs *mbox.ReceivedMessages) error {
 				"but was already fully processed previously, "+
 				"skipping", event.Outpoint)
 
+			// The message has served its purpose, so we remove
+			// it from the server, as we do after receiving its
+			// proofs. This is best-effort as well.
+			msgID := mboxMsg.MessageId
+			serverURL := tapAddr.ProofCourierAddr
+			c.Goroutine(func() error {
+				_, err := c.removeMailboxMessages(
+					serverURL, receiver, []uint64{msgID},
+				)
+
+				return err
+			}, func(err error) {
+				log.Warnf("Error removing mailbox message: %v",
+					err)
+			})
+
 			continue
 		}
 

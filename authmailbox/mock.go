@@ -301,6 +301,11 @@ func (m *MockServer) PublishMessage(msg *Message) {
 	m.srv.publishMessage(msg)
 }
 
+// MsgStore returns the message store of the mock server.
+func (m *MockServer) MsgStore() *MockMsgStore {
+	return m.mockMsgStore
+}
+
 func (m *MockServer) Stop(t *testing.T) {
 	t.Helper()
 
