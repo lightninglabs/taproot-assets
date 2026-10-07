@@ -193,6 +193,7 @@ func TestServerClientAuthAndRestart(t *testing.T) {
 	msg1 := &Message{
 		ID:               1000,
 		ReceiverKey:      *clientKey1.PubKey,
+		EncryptedPayload: []byte("payload"),
 		ArrivalTimestamp: time.Now(),
 	}
 
@@ -229,6 +230,7 @@ func TestServerClientAuthAndRestart(t *testing.T) {
 	msg2 := &Message{
 		ID:               1001,
 		ReceiverKey:      *clientKey1.PubKey,
+		EncryptedPayload: []byte("payload"),
 		ArrivalTimestamp: time.Now(),
 	}
 	_, err = harness.mockMsgStore.StoreMessage(ctx, randProof(t), msg2)
@@ -267,6 +269,7 @@ func TestServerClientAuthAndRestart(t *testing.T) {
 	msg3 := &Message{
 		ID:               1000,
 		ReceiverKey:      *clientKey1.PubKey,
+		EncryptedPayload: []byte("payload"),
 		ArrivalTimestamp: time.Now(),
 	}
 	harness.srv.publishMessage(msg3)
@@ -467,6 +470,7 @@ func makeMessage(c clock.Clock, id uint64, key keychain.KeyDescriptor,
 	msg := &Message{
 		ID:               id,
 		ReceiverKey:      *key.PubKey,
+		EncryptedPayload: []byte("payload"),
 		ArrivalTimestamp: c.Now(),
 	}
 
@@ -625,6 +629,7 @@ func TestReconnectAfterStreamError(t *testing.T) {
 	msg1 := &Message{
 		ID:               1000,
 		ReceiverKey:      *clientKey.PubKey,
+		EncryptedPayload: []byte("payload"),
 		ArrivalTimestamp: time.Now(),
 	}
 	_, err := harness.mockMsgStore.StoreMessage(ctx, randProof(t), msg1)
@@ -645,6 +650,7 @@ func TestReconnectAfterStreamError(t *testing.T) {
 	msg2 := &Message{
 		ID:               1001,
 		ReceiverKey:      *clientKey.PubKey,
+		EncryptedPayload: []byte("payload"),
 		ArrivalTimestamp: time.Now(),
 	}
 	_, err = harness.mockMsgStore.StoreMessage(ctx, randProof(t), msg2)

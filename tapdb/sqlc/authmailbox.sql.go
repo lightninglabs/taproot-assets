@@ -10,9 +10,34 @@ import (
 	"database/sql"
 )
 
+const ClearAuthMailboxMessagePayload = `-- name: ClearAuthMailboxMessagePayload :execrows
+UPDATE authmailbox_messages
+SET encrypted_payload = substr(encrypted_payload, 1, 0)
+WHERE id = $1 AND receiver_key = $2
+    AND length(encrypted_payload) > 0
+`
+
+type ClearAuthMailboxMessagePayloadParams struct {
+	MessageID   int64
+	ReceiverKey []byte
+}
+
+// Removes a message from its receiver's mailbox by emptying its payload. The
+// row itself stays until its claimed outpoint is deleted, so that a resend of
+// the same message is still recognized as one. substr yields an empty value of
+// the column's own type on both database backends.
+func (q *Queries) ClearAuthMailboxMessagePayload(ctx context.Context, arg ClearAuthMailboxMessagePayloadParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, ClearAuthMailboxMessagePayload, arg.MessageID, arg.ReceiverKey)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const CountAuthMailboxMessages = `-- name: CountAuthMailboxMessages :one
 SELECT COUNT(*) AS count
 FROM authmailbox_messages m
+WHERE length(m.encrypted_payload) > 0
 `
 
 func (q *Queries) CountAuthMailboxMessages(ctx context.Context) (int64, error) {
@@ -20,24 +45,6 @@ func (q *Queries) CountAuthMailboxMessages(ctx context.Context) (int64, error) {
 	var count int64
 	err := row.Scan(&count)
 	return count, err
-}
-
-const DeleteAuthMailboxMessageByIDAndReceiver = `-- name: DeleteAuthMailboxMessageByIDAndReceiver :execrows
-DELETE FROM authmailbox_messages
-WHERE id = $1 AND receiver_key = $2
-`
-
-type DeleteAuthMailboxMessageByIDAndReceiverParams struct {
-	MessageID   int64
-	ReceiverKey []byte
-}
-
-func (q *Queries) DeleteAuthMailboxMessageByIDAndReceiver(ctx context.Context, arg DeleteAuthMailboxMessageByIDAndReceiverParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, DeleteAuthMailboxMessageByIDAndReceiver, arg.MessageID, arg.ReceiverKey)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
 }
 
 const DeleteTxProofClaimedOutpoint = `-- name: DeleteTxProofClaimedOutpoint :exec
@@ -62,6 +69,9 @@ FROM authmailbox_messages m
 JOIN tx_proof_claimed_outpoints op
     ON m.claimed_outpoint = op.outpoint
 WHERE id = $1
+    -- A message whose receiver deleted it keeps its row but has an empty
+    -- payload, and is no longer in the mailbox.
+    AND length(m.encrypted_payload) > 0
 `
 
 type FetchAuthMailboxMessageRow struct {
@@ -110,6 +120,9 @@ type FetchAuthMailboxMessageByOutpointRow struct {
 	BlockHeight      int32
 }
 
+// Unlike the other message queries, this also returns a message that its
+// receiver has deleted, as the row records that the outpoint was used to send
+// it.
 func (q *Queries) FetchAuthMailboxMessageByOutpoint(ctx context.Context, claimedOutpoint []byte) (FetchAuthMailboxMessageByOutpointRow, error) {
 	row := q.db.QueryRowContext(ctx, FetchAuthMailboxMessageByOutpoint, claimedOutpoint)
 	var i FetchAuthMailboxMessageByOutpointRow
@@ -239,6 +252,7 @@ JOIN tx_proof_claimed_outpoints op
     ON m.claimed_outpoint = op.outpoint
 WHERE
     m.receiver_key = $1
+    AND length(m.encrypted_payload) > 0
     -- The after_time and after_id are exclusive, so we query greater than.
     AND (
         m.arrival_timestamp > $2

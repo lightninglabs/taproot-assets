@@ -6,10 +6,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/lightninglabs/taproot-assets/authmailbox"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
+	mboxrpc "github.com/lightninglabs/taproot-assets/taprpc/authmailboxrpc"
 	"github.com/stretchr/testify/require"
 )
 
@@ -59,6 +62,15 @@ func TestStoreAndFetchMessage(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, dbMsg, dbMsgByOutPoint)
+
+	// A message without a payload can't be stored.
+	_, err = mailboxStore.StoreMessage(
+		ctx, *proof.MockTxProof(t), &authmailbox.Message{
+			ReceiverKey:      *receiverKey,
+			ArrivalTimestamp: time.Now(),
+		},
+	)
+	require.ErrorIs(t, err, authmailbox.ErrEmptyPayload)
 }
 
 // TestQueryMessages tests querying messages with filters.
@@ -247,12 +259,25 @@ func TestDeleteByMessageID(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, deleted)
 
-	// Message and its outpoint should be gone.
-	_, err = mailboxStore.FetchMessageByOutPoint(
+	// The message should be gone from the mailbox.
+	_, err = mailboxStore.FetchMessage(ctx, idA)
+	require.Error(t, err)
+	msgsA, err := mailboxStore.QueryMessages(ctx, authmailbox.MessageFilter{
+		ReceiverKey: *receiverA,
+	})
+	require.NoError(t, err)
+	require.Empty(t, msgsA)
+	require.EqualValues(t, 1, mailboxStore.NumMessages(ctx))
+
+	// Its record should remain under its claimed outpoint, without the
+	// payload.
+	removedA, err := mailboxStore.FetchMessageByOutPoint(
 		ctx, txProofA.ClaimedOutPoint,
 	)
-	require.ErrorIs(t, err, authmailbox.ErrMessageNotFound)
-	require.EqualValues(t, 1, mailboxStore.NumMessages(ctx))
+	require.NoError(t, err)
+	require.Equal(t, idA, removedA.ID)
+	require.True(t, receiverA.IsEqual(&removedA.ReceiverKey))
+	require.Empty(t, removedA.EncryptedPayload)
 
 	// ReceiverB's message should still exist.
 	fetchedB, err := mailboxStore.FetchMessage(ctx, idB)
@@ -274,6 +299,83 @@ func TestDeleteByMessageID(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.False(t, deleted)
+
+	// The record goes once its claimed outpoint is deleted.
+	err = mailboxStore.DeleteByOutpoint(ctx, txProofA.ClaimedOutPoint)
+	require.NoError(t, err)
+	_, err = mailboxStore.FetchMessageByOutPoint(
+		ctx, txProofA.ClaimedOutPoint,
+	)
+	require.ErrorIs(t, err, authmailbox.ErrMessageNotFound)
+}
+
+// TestSendMessageAfterDelete makes sure that a sender re-sending a message
+// after its receiver deleted it gets back the original message ID, while the
+// same outpoint still can't be used for a different receiver.
+func TestSendMessageAfterDelete(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	mailboxStore, _ := newMailboxStore(t)
+
+	signer := test.NewMockSigner()
+	signer.Signature = test.RandBytes(schnorr.SignatureSize)
+
+	srv := authmailbox.NewServer()
+	require.NoError(t, srv.Start(&authmailbox.ServerConfig{
+		Signer:         signer,
+		HeaderVerifier: proof.MockHeaderVerifier,
+		MerkleVerifier: proof.DefaultMerkleVerifier,
+		MsgStore:       mailboxStore,
+	}))
+	t.Cleanup(func() {
+		require.NoError(t, srv.Stop())
+	})
+
+	txProof := proof.MockTxProof(t)
+	txProof.BlockHeight = 100
+	rpcProof, err := proof.MarshalTxProof(*txProof)
+	require.NoError(t, err)
+
+	send := func(receiver *btcec.PublicKey) (uint64, error) {
+		resp, err := srv.SendMessage(ctx, &mboxrpc.SendMessageRequest{
+			ReceiverId:       receiver.SerializeCompressed(),
+			EncryptedPayload: test.RandBytes(32),
+			Proof: &mboxrpc.SendMessageRequest_TxProof{
+				TxProof: rpcProof,
+			},
+		})
+		if err != nil {
+			return 0, err
+		}
+
+		return resp.MessageId, nil
+	}
+
+	receiver := test.RandPubKey(t)
+	msgID, err := send(receiver)
+	require.NoError(t, err)
+
+	// The receiver deletes the message once it has processed it.
+	resp, err := srv.RemoveMessage(ctx, &mboxrpc.RemoveMessageRequest{
+		ReceiverId: receiver.SerializeCompressed(),
+		MessageIds: []uint64{msgID},
+		Signature:  signer.Signature,
+	})
+	require.NoError(t, err)
+	require.EqualValues(t, 1, resp.NumRemoved)
+	require.Zero(t, mailboxStore.NumMessages(ctx))
+
+	// A sender retrying its delivery gets the original message ID back,
+	// and nothing is stored again.
+	resendID, err := send(receiver)
+	require.NoError(t, err)
+	require.Equal(t, msgID, resendID)
+	require.Zero(t, mailboxStore.NumMessages(ctx))
+
+	// The outpoint can't be used for a different receiver.
+	_, err = send(test.RandPubKey(t))
+	require.ErrorIs(t, err, proof.ErrTxMerkleProofExists)
 }
 
 // TestStoreProof tests storing a transaction proof.

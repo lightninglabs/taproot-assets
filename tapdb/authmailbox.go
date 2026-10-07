@@ -89,12 +89,11 @@ type AuthMailboxStore interface {
 	DeleteTxProofClaimedOutpoint(ctx context.Context,
 		outpoint []byte) error
 
-	// DeleteAuthMailboxMessageByIDAndReceiver deletes a message with the
-	// given ID, but only if it belongs to the specified receiver. Returns
-	// the number of rows affected.
-	DeleteAuthMailboxMessageByIDAndReceiver(ctx context.Context,
-		arg sqlc.DeleteAuthMailboxMessageByIDAndReceiverParams) (
-		int64, error)
+	// ClearAuthMailboxMessagePayload empties the payload of the message
+	// with the given ID, but only if it belongs to the specified receiver
+	// and still has one. Returns the number of rows affected.
+	ClearAuthMailboxMessagePayload(ctx context.Context,
+		arg sqlc.ClearAuthMailboxMessagePayloadParams) (int64, error)
 }
 
 // BatchedMailboxStore is a version of the AuthMailboxStore that's capable of
@@ -129,9 +128,16 @@ var _ authmailbox.MsgStore = (*MailboxStore)(nil)
 // StoreMessage stores a message in the mailbox, referencing the claimed
 // outpoint of the transaction that was used to prove the message's
 // authenticity. If a message with the same outpoint already exists,
-// it returns proof.ErrTxMerkleProofExists.
+// it returns proof.ErrTxMerkleProofExists. If the message has no payload, it
+// returns authmailbox.ErrEmptyPayload.
 func (m MailboxStore) StoreMessage(ctx context.Context, txProof proof.TxProof,
 	msg *authmailbox.Message) (uint64, error) {
+
+	// An empty payload marks a message that its receiver has deleted, so
+	// a message can only be stored with one.
+	if len(msg.EncryptedPayload) == 0 {
+		return 0, authmailbox.ErrEmptyPayload
+	}
 
 	serializedOp, err := encodeOutpoint(txProof.ClaimedOutPoint)
 	if err != nil {
@@ -222,7 +228,8 @@ func (m MailboxStore) FetchMessage(ctx context.Context,
 }
 
 // FetchMessageByOutPoint retrieves a message from the mailbox by its
-// claimed outpoint of the TX proof that was used to send it.
+// claimed outpoint of the TX proof that was used to send it. A message that
+// its receiver has deleted is still returned, with an empty payload.
 func (m MailboxStore) FetchMessageByOutPoint(ctx context.Context,
 	claimedOp wire.OutPoint) (*authmailbox.Message, error) {
 
@@ -437,6 +444,10 @@ func (m MailboxStore) DeleteByOutpoint(ctx context.Context,
 
 // DeleteByMessageID deletes a message by its ID, but only if it belongs to the
 // specified receiver. Returns true if a message was actually deleted.
+//
+// Only the message's payload is discarded. Its row stays until its claimed
+// outpoint is deleted, so that a resend of the same message can still be
+// answered with the ID it was stored under.
 func (m MailboxStore) DeleteByMessageID(ctx context.Context, msgID uint64,
 	receiverKey []byte) (bool, error) {
 
@@ -445,8 +456,8 @@ func (m MailboxStore) DeleteByMessageID(ctx context.Context, msgID uint64,
 		deleted bool
 	)
 	dbErr := m.db.ExecTx(ctx, txOpt, func(q AuthMailboxStore) error {
-		rowsAffected, err := q.DeleteAuthMailboxMessageByIDAndReceiver(
-			ctx, sqlc.DeleteAuthMailboxMessageByIDAndReceiverParams{
+		rowsAffected, err := q.ClearAuthMailboxMessagePayload(
+			ctx, sqlc.ClearAuthMailboxMessagePayloadParams{
 				MessageID:   int64(msgID),
 				ReceiverKey: receiverKey,
 			},

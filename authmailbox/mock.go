@@ -47,6 +47,10 @@ func NewMockStore() *MockMsgStore {
 func (s *MockMsgStore) StoreMessage(_ context.Context, txProof proof.TxProof,
 	msg *Message) (uint64, error) {
 
+	if len(msg.EncryptedPayload) == 0 {
+		return 0, ErrEmptyPayload
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -70,14 +74,14 @@ func (s *MockMsgStore) FetchMessage(_ context.Context,
 	defer s.mu.RUnlock()
 
 	msg, exists := s.messages[id]
-	if !exists {
+	if !exists || len(msg.EncryptedPayload) == 0 {
 		return nil, fmt.Errorf("message with ID %d not found", id)
 	}
 
 	return msg, nil
 }
 
-func (s *MockMsgStore) FetchMessageByOutPoint(ctx context.Context,
+func (s *MockMsgStore) FetchMessageByOutPoint(_ context.Context,
 	claimedOp wire.OutPoint) (*Message, error) {
 
 	s.mu.RLock()
@@ -88,7 +92,7 @@ func (s *MockMsgStore) FetchMessageByOutPoint(ctx context.Context,
 		return nil, ErrMessageNotFound
 	}
 
-	return s.FetchMessage(ctx, msgID)
+	return s.messages[msgID], nil
 }
 
 func (s *MockMsgStore) QueryMessages(_ context.Context,
@@ -99,6 +103,10 @@ func (s *MockMsgStore) QueryMessages(_ context.Context,
 
 	var result []*Message
 	for _, msg := range s.messages {
+		if len(msg.EncryptedPayload) == 0 {
+			continue
+		}
+
 		if !msg.ReceiverKey.IsEqual(&filter.ReceiverKey) {
 			continue
 		}
@@ -132,7 +140,14 @@ func (s *MockMsgStore) NumMessages(context.Context) uint64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	return uint64(len(s.messages))
+	var count uint64
+	for _, msg := range s.messages {
+		if len(msg.EncryptedPayload) > 0 {
+			count++
+		}
+	}
+
+	return count
 }
 
 func (s *MockMsgStore) ListOutpoints(_ context.Context, limit,
@@ -193,7 +208,7 @@ func (s *MockMsgStore) DeleteByMessageID(_ context.Context, msgID uint64,
 	defer s.mu.Unlock()
 
 	msg, exists := s.messages[msgID]
-	if !exists {
+	if !exists || len(msg.EncryptedPayload) == 0 {
 		return false, nil
 	}
 
@@ -202,17 +217,11 @@ func (s *MockMsgStore) DeleteByMessageID(_ context.Context, msgID uint64,
 		return false, nil
 	}
 
-	// Find and remove the corresponding outpoint mapping.
-	for op, id := range s.outpointToMessage {
-		if id == msgID {
-			delete(s.outpointToMessage, op)
-			delete(s.proofs, op)
-
-			break
-		}
-	}
-
-	delete(s.messages, msgID)
+	// Like the database store, keep the message and its claimed outpoint
+	// and only discard the payload.
+	removed := *msg
+	removed.EncryptedPayload = nil
+	s.messages[msgID] = &removed
 
 	return true, nil
 }
