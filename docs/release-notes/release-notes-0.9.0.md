@@ -201,6 +201,13 @@
   message for a transfer they already completed instead of leaving it on the
   server. No operator action is required.
 
+* [PR#2337](https://github.com/lightninglabs/taproot-assets/pull/2337)
+  makes the decoding of compressed MS-SMT proofs strict. A compressed
+  proof is rejected if its bits are shorter than 32 bytes, or if an
+  explicit node has the hash of the empty node at its height. A
+  commitment proof, split commitment or root locator proof is rejected
+  if bytes follow the compressed proof in its record.
+
 # New Features
 
 ## Functional Enhancements
