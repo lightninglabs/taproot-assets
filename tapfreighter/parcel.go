@@ -528,6 +528,11 @@ func (p *PreAnchoredParcel) HeightHint() fn.Option[uint32] {
 	return p.anchorTxHeightHint
 }
 
+// VirtualPackets returns the active virtual packets of the parcel.
+func (p *PreAnchoredParcel) VirtualPackets() []*tappsbt.VPacket {
+	return p.virtualPackets
+}
+
 // sendPackage houses the information we need to complete a package transfer.
 type sendPackage struct {
 	// SendState is the current send state of this parcel.
