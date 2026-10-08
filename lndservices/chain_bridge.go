@@ -477,7 +477,10 @@ func findTxHeightInProofFile(f *proof.File, txid chainhash.Hash) (uint32,
 				"file: %w", err)
 		}
 
-		if p.AnchorTx.TxHash() == txid {
+		// A zero height is unset, as in proofs that predate the height
+		// field, and isn't checked against the chain, so it can't
+		// serve as the transaction's height.
+		if p.AnchorTx.TxHash() == txid && p.BlockHeight != 0 {
 			return p.BlockHeight, nil
 		}
 

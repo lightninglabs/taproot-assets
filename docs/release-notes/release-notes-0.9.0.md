@@ -201,6 +201,14 @@
   message for a transfer they already completed instead of leaving it on the
   server. No operator action is required.
 
+* [PR#2327](https://github.com/lightninglabs/taproot-assets/pull/2327)
+  fixes the check of an asset's relative lock time against an input
+  whose proof carries no block height. Measured from the resulting zero
+  height, a block-based relative lock was satisfied at any height. The
+  input's height now comes from the local asset store when its proof
+  carries none, and a relative lock on an input of unknown height is
+  rejected.
+
 # New Features
 
 ## Functional Enhancements

@@ -649,6 +649,13 @@ func checkLockTime(ctx context.Context, newAsset *asset.Asset,
 
 			// Do nothing, continue below.
 
+		// No anchor transaction confirms in the genesis block, so a
+		// zero height means the input's height is unknown, and the
+		// lock can't be checked against it.
+		case inputConfirmHeight == 0:
+			return fmt.Errorf("unknown confirm height for input %v",
+				witness.PrevID.OutPoint)
+
 		case sequenceNum&wire.SequenceLockTimeIsSeconds ==
 			wire.SequenceLockTimeIsSeconds:
 
@@ -659,9 +666,6 @@ func checkLockTime(ctx context.Context, newAsset *asset.Asset,
 			// compute the past median time for the block prior to
 			// the one which included this referenced output.
 			prevInputHeight := inputConfirmHeight - 1
-			if prevInputHeight < 0 {
-				prevInputHeight = 0
-			}
 			inMedianTime, err := chainLookup.MeanBlockTimestamp(
 				ctx, prevInputHeight,
 			)
