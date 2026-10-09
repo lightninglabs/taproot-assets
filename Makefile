@@ -263,7 +263,7 @@ unit-race-parallel:
 	PKG="$(PKG)" DEV_TAGS="$(DEV_TAGS)" \
 		scripts/unit_race_part.sh $(tranche) $(tranches) \
 		$(UNIT_VERBOSE_FLAG) -tags="$(DEV_TAGS) $(LOG_TAGS)" $(TEST_FLAGS) \
-		$(RACE_GCFLAGS)
+		$(RACE_GCFLAGS) -coverprofile=coverage.race-tranche$(tranche).txt
 
 build-itest-cc-binary:
 	@$(call print, "Building CC itest binary.")

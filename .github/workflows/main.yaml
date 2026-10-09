@@ -256,7 +256,7 @@ jobs:
       - name: Release notes check
         run: scripts/check-release-notes.sh
 
-  # Unit tests with race detection, coverage, and Postgres backend variants.
+  # Unit tests on the Postgres backend.
   unit-test:
     name: run unit tests (${{ matrix.unit_type }})
     runs-on: ubuntu-latest
@@ -265,8 +265,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - unit_type: unit-cover
-            parallel: 4
           - unit_type: unit dbbackend=postgres pkg=tapdb
             parallel: 4
           - unit_type: unit dbbackend=postgres pkg=tapgarden
@@ -282,16 +280,6 @@ jobs:
 
       - name: Run ${{ matrix.unit_type }}
         run: make ${{ matrix.unit_type }} unit-parallel=${{ matrix.parallel }}
-
-      - name: Send coverage
-        uses: coverallsapp/github-action@v2
-        if: matrix.unit_type == 'unit-cover'
-        continue-on-error: true
-        with:
-          file: coverage.txt
-          flag-name: 'unit'
-          format: 'golang'
-          parallel: true
 
   unit-race:
     name: run unit race
@@ -338,6 +326,27 @@ jobs:
             echo "One or more tranches failed"
             exit 1
           fi
+
+      - name: Build coverage file list
+        id: coverage-files
+        run: |
+          FILES=""
+          PARALLEL=${{ env.UNIT_RACE_PARALLELISM }}
+          NUM_JOBS=${{ env.NUM_UNIT_RACE_JOBS }}
+          for i in $(seq 0 $((PARALLEL - 1))); do
+            TRANCHE=$(( ${{ matrix.tranche }} + i * NUM_JOBS ))
+            FILES="$FILES coverage.race-tranche$TRANCHE.txt"
+          done
+          echo "files=$FILES" >> $GITHUB_OUTPUT
+
+      - name: Send coverage
+        uses: coverallsapp/github-action@v2
+        continue-on-error: true
+        with:
+          files: ${{ steps.coverage-files.outputs.files }}
+          flag-name: 'unit-race-${{ matrix.tranche }}'
+          format: 'golang'
+          parallel: true
 
   # Build integration test binaries once, shared by all itest jobs.
   build-itest:
@@ -681,7 +690,7 @@ jobs:
   # Finalize Coveralls reporting after parallel coverage jobs.
   finish:
     if: ${{ always() }}
-    needs: [ unit-test ]
+    needs: [ unit-test, unit-race ]
     runs-on: ubuntu-latest
     steps:
       - uses: coverallsapp/github-action@v2
