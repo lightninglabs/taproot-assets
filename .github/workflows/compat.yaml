@@ -2,11 +2,13 @@ name: Backward Compatibility Tests
 
 on:
   # Run on every pull request so cross-version regressions are caught before
-  # merge, alongside manual dispatch and release branch pushes.
+  # merge, alongside manual dispatch and main and release branch pushes.
+  # Caches saved on main are restored by pull requests.
   pull_request:
   workflow_dispatch:
   push:
     branches:
+      - 'main'
       - 'release/**'
 
 concurrency:
