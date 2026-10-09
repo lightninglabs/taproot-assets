@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightningnetwork/lnd/lntest"
@@ -97,6 +98,17 @@ func TestTaprootAssetsDaemon(t *testing.T) {
 			len(testList), testCase.name)
 
 		success := t.Run(name, func(t1 *testing.T) {
+			// Report the case's duration, including the cleanup
+			// functions registered below.
+			start := time.Now()
+			t1.Cleanup(func() {
+				//nolint:forbidigo
+				fmt.Printf("=========> tranche %v case %q "+
+					"finished in %v\n", trancheIndex,
+					testCase.name,
+					time.Since(start).Round(time.Second))
+			})
+
 			// Create a new LND node for use with the universe
 			// server.
 			t.Log("Starting universe server LND node")
