@@ -273,12 +273,12 @@ build-itest-cc-binary:
 itest-cc: build-itest-integrated clean-cc-itest-logs
 	@$(call print, "Running custom channel integration tests.")
 	date
-	$(GOTEST) ./itest/custom_channels -v -tags="$(ITEST_TAGS)" $(CC_TEST_FLAGS) -test.timeout=30m -logdir=regtest/.logs
+	CGO_ENABLED=0 $(GOTEST) ./itest/custom_channels -v -tags="$(ITEST_TAGS)" $(CC_TEST_FLAGS) -test.timeout=30m -logdir=regtest/.logs
 
 itest-cc-compat: build-itest-integrated clean-cc-itest-logs
 	@$(call print, "Running backward compatibility integration tests.")
 	date
-	$(GOTEST) ./itest/custom_channels -v -tags="$(ITEST_TAGS)" -test.run='TestBackwardsCompatChannels|TestSpenderLeafUpgrade' -test.timeout=60m -logdir=regtest/.logs
+	CGO_ENABLED=0 $(GOTEST) ./itest/custom_channels -v -tags="$(ITEST_TAGS)" -test.run='TestBackwardsCompatChannels|TestSpenderLeafUpgrade' -test.timeout=60m -logdir=regtest/.logs
 
 build-compat-binary:
 	@$(call print, "Building compat binary for $(version).")
