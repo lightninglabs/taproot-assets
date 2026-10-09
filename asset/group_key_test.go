@@ -3,6 +3,7 @@ package asset
 import (
 	"bytes"
 	"math/rand"
+	"slices"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -154,6 +155,54 @@ func TestGroupKeyRevealEncodeDecode(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestGroupKeyRevealV1DecodeBounds tests that a V1 group key reveal is decoded
+// from exactly its record's bytes, and that unknown even types are refused.
+func TestGroupKeyRevealV1DecodeBounds(t *testing.T) {
+	t.Parallel()
+
+	gkr, err := NewGroupKeyRevealV1(
+		OpReturnVersion, *test.RandPubKey(t), ID(test.RandBytes(32)),
+		fn.None[chainhash.Hash](),
+	)
+	require.NoError(t, err)
+
+	var revealBuf bytes.Buffer
+	require.NoError(t, gkr.Encode(&revealBuf))
+	reveal := revealBuf.Bytes()
+
+	decode := func(b []byte, l uint64) (*GroupKeyRevealV1,
+		*bytes.Reader, error) {
+
+		var (
+			decoded GroupKeyRevealV1
+			buf     [8]byte
+		)
+		r := bytes.NewReader(b)
+		err := decoded.Decode(r, &buf, l)
+
+		return &decoded, r, err
+	}
+
+	// A record that follows the reveal in the enclosing stream is left
+	// unread.
+	trailing := []byte{0x1b, 0x01, 0x00}
+	decoded, r, err := decode(
+		append(slices.Clone(reveal), trailing...), uint64(len(reveal)),
+	)
+	require.NoError(t, err)
+	require.Equal(t, &gkr, decoded)
+	require.Equal(t, len(trailing), r.Len())
+
+	// A declared length beyond the available bytes is refused.
+	_, _, err = decode(reveal, uint64(len(reveal))+1)
+	require.ErrorIs(t, err, ErrRecordLength)
+
+	// An unknown even type is refused.
+	withEven := append(slices.Clone(reveal), 0x08, 0x01, 0x00)
+	_, _, err = decode(withEven, uint64(len(withEven)))
+	require.ErrorAs(t, err, &ErrUnknownType{})
 }
 
 // TestGroupKeyRevealEncodeDecodeRapid tests encoding and decoding of
