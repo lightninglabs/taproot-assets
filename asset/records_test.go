@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"testing"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -168,4 +169,21 @@ func TestAssetUnknownOddType(t *testing.T) {
 			require.Equal(t, knownAsset, parsedAsset)
 		},
 	)
+}
+
+// TestCompressedPubKeyDecoderZeroKey tests that an all-zero compressed public
+// key is refused.
+func TestCompressedPubKeyDecoderZeroKey(t *testing.T) {
+	t.Parallel()
+
+	var (
+		key *btcec.PublicKey
+		buf [8]byte
+	)
+	zeroKey := make([]byte, btcec.PubKeyBytesLenCompressed)
+	err := CompressedPubKeyDecoder(
+		bytes.NewReader(zeroKey), &key, &buf, uint64(len(zeroKey)),
+	)
+	require.Error(t, err)
+	require.Nil(t, key)
 }
