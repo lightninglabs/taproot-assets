@@ -276,9 +276,11 @@ func (a *AuxSweeper) createSweepVpackets(sweepInputs []*cmsg.AssetOutput,
 		// sweep.
 		allocs = append(allocs, &tapsend.Allocation{
 			Type: tapsend.CommitAllocationToLocal,
-			// We don't need to worry about sorting, as
-			// we'll always be the first output index in the
-			// transaction.
+			// This output index is provisional: lnd may place
+			// required outputs (pre-signed second level HTLC
+			// outputs) before the asset output, so the actual
+			// index is derived from the final transaction at
+			// broadcast time.
 			OutputIndex:  0,
 			Amount:       sweepAssetSum,
 			AssetVersion: asset.V1,
@@ -2897,28 +2899,112 @@ func (a *AuxSweeper) sweepContracts(inputs []input.Input,
 	})
 }
 
-// sweepExclusionProofGen is a helper function that generates an exclusion
-// proof for the internal key of the change output.
-func sweepExclusionProofGen(sweepInternalKey keychain.KeyDescriptor,
-	changeOutputIndex uint32) tapsend.ExclusionProofGenerator {
+// sweepExclusionProofGen returns an exclusion proof generator that covers
+// all non-asset outputs of the final sweep transaction. Output roles are
+// derived from the transaction itself rather than an assumed layout: lnd
+// places any required outputs (pre-signed second level HTLC outputs) first,
+// appends the shared asset output after those, and omits the change output
+// entirely when it would be dust.
+func sweepExclusionProofGen(sweepTx *wire.MsgTx,
+	changeAddr lnwallet.AddrWithKey) tapsend.ExclusionProofGenerator {
+
+	changeInternalKey := changeAddr.InternalKey
 
 	return func(target *proof.BaseProofParams,
 		isAnchor tapsend.IsAnchor) error {
 
-		// We only need to generate an exclusion proof for the second
-		// output in the commitment transaction.
-		target.ExclusionProofs = append(
-			target.ExclusionProofs, proof.TaprootProof{
-				OutputIndex: changeOutputIndex,
-				InternalKey: sweepInternalKey.PubKey,
-				TapscriptProof: &proof.TapscriptProof{
-					Bip86: true,
+		for idx, txOut := range sweepTx.TxOut {
+			outputIndex := uint32(idx)
+
+			// Outputs that carry an asset commitment already get
+			// their inclusion and exclusion proofs from the
+			// commitment machinery.
+			if isAnchor(outputIndex) {
+				continue
+			}
+
+			// Only P2TR outputs are able to commit to assets, so
+			// no other output type needs an exclusion proof.
+			if !txscript.IsPayToTaproot(txOut.PkScript) {
+				continue
+			}
+
+			// The only non-asset P2TR output we know how to prove
+			// exclusion for is the BIP-86 change output. Any
+			// other P2TR output (a foreign required output
+			// co-batched by the sweeper) can't be proven, so we
+			// reject the sweep instead of producing invalid
+			// proofs.
+			isChange := bytes.Equal(
+				txOut.PkScript, changeAddr.DeliveryAddress,
+			)
+			if !isChange {
+				return fmt.Errorf("unable to create "+
+					"exclusion proof for unknown P2TR "+
+					"output %d of sweep tx", idx)
+			}
+
+			iKey, err := changeInternalKey.UnwrapOrErr(
+				fmt.Errorf("change internal key not " +
+					"populated"),
+			)
+			if err != nil {
+				return err
+			}
+
+			target.ExclusionProofs = append(
+				target.ExclusionProofs, proof.TaprootProof{
+					OutputIndex: outputIndex,
+					InternalKey: iKey.PubKey,
+					TapscriptProof: &proof.TapscriptProof{
+						Bip86: true,
+					},
 				},
-			},
-		)
+			)
+		}
 
 		return nil
 	}
+}
+
+// reanchorDirectSweeps points the direct (non pre-signed) sweep packets at
+// the actual position of the shared asset output within the final sweep
+// transaction. lnd places any required outputs (pre-signed second level HTLC
+// outputs) before the extra sweep output it was handed, so the final position
+// is only known at broadcast time. We locate it by its pkScript.
+func reanchorDirectSweeps(directPkts []*tappsbt.VPacket, sweepTx *wire.MsgTx,
+	assetTxOut sweep.SweepOutput, hdCoinType uint32) error {
+
+	iKey, err := assetTxOut.InternalKey.UnwrapOrErr(
+		fmt.Errorf("internal key not populated"),
+	)
+	if err != nil {
+		return err
+	}
+
+	assetOutputIndex := -1
+	for idx, txOut := range sweepTx.TxOut {
+		if bytes.Equal(txOut.PkScript, assetTxOut.TxOut.PkScript) {
+			assetOutputIndex = idx
+			break
+		}
+	}
+	if assetOutputIndex < 0 {
+		return fmt.Errorf("unable to find asset sweep output in "+
+			"sweep tx %v", sweepTx.TxHash())
+	}
+
+	// We'll also set the anchor internal key again for all the vOuts.
+	// Second level packets already commit to the internal key of the
+	// vOut, so they're left alone.
+	for idx := range directPkts {
+		for _, vOut := range directPkts[idx].Outputs {
+			vOut.AnchorOutputIndex = uint32(assetOutputIndex)
+			vOut.SetAnchorInternalKey(iKey, hdCoinType)
+		}
+	}
+
+	return nil
 }
 
 // registerAndBroadcastSweep finalizes a sweep attempt by generating a
@@ -2958,38 +3044,21 @@ func (a *AuxSweeper) registerAndBroadcastSweep(req *sweep.BumpRequest,
 
 	// If this is a transaction that's only sweeping HTLC outputs via a
 	// pre-signed transaction, then we won't actually have an extra sweep
-	// output.
+	// output. Otherwise, we'll need the extra sweep output to re-anchor
+	// the direct spend packets to its actual position in the final
+	// transaction.
+	directPkts := vPkts.directSpendPkts()
+	if len(directPkts) > 0 && req.ExtraTxOut.IsNone() {
+		return fmt.Errorf("direct sweep packets present, but no " +
+			"extra sweep output")
+	}
 	err = lfn.MapOptionZ(
 		req.ExtraTxOut,
 		func(extraTxOut sweep.SweepOutput) error {
-			ourSweepOutput, err := req.ExtraTxOut.UnwrapOrErr(
-				fmt.Errorf("extra tx out not populated"),
+			return reanchorDirectSweeps(
+				directPkts, sweepTx, extraTxOut,
+				a.cfg.ChainParams.HDCoinType,
 			)
-			if err != nil {
-				return err
-			}
-			iKey, err := ourSweepOutput.InternalKey.UnwrapOrErr(
-				fmt.Errorf("internal key not populated"),
-			)
-			if err != nil {
-				return err
-			}
-
-			// We'll also use the passed in context to set the
-			// anchor key again for all the vOuts, but only for
-			// first level vPkts, as second level packets already
-			// commit to the internal key of the vOut.
-			vPkts := vPkts.directSpendPkts()
-			for idx := range vPkts {
-				for _, vOut := range vPkts[idx].Outputs {
-					vOut.SetAnchorInternalKey(
-						iKey,
-						a.cfg.ChainParams.HDCoinType,
-					)
-				}
-			}
-
-			return nil
 		},
 	)
 	if err != nil {
@@ -3069,37 +3138,19 @@ func (a *AuxSweeper) registerAndBroadcastSweep(req *sweep.BumpRequest,
 			"commitments: %w", err)
 	}
 
-	// We need to find out what the highest output index of any asset output
-	// commitments is, so we know the change output will be one higher.
-	highestOutputIndex := uint32(0)
-	for outIdx := range outCommitments {
-		if outIdx > highestOutputIndex {
-			highestOutputIndex = outIdx
-		}
-	}
-
-	changeInternalKey, err := req.DeliveryAddress.InternalKey.UnwrapOrErr(
-		fmt.Errorf("change internal key not populated"),
+	// Rather than assume the position of the change output, we derive
+	// the exclusion proofs we need from the outputs of the final sweep
+	// transaction itself.
+	exclusionCreator := sweepExclusionProofGen(
+		sweepTx, req.DeliveryAddress,
 	)
-	if err != nil {
-		return err
-	}
-
-	log.Infof("Generating exclusion proofs using change_internal_key=%x",
-		changeInternalKey.PubKey.SerializeCompressed())
 
 	// Before we ship off the packet, we'll update the transition proof for
 	// all the relevant outputs. We use a custom proof suffix generator as
-	// we have only a single non-asset output.
+	// the non-asset outputs aren't backed by vPackets.
 	//
 	// TODO(roasbeef): base off allocations? then can serialize, then
 	// re-use the logic
-	// The change output is always the last output in the commitment
-	// transaction, one index higher than the highest asset commitment
-	// output index.
-	exclusionCreator := sweepExclusionProofGen(
-		changeInternalKey, highestOutputIndex+1,
-	)
 	allVpkts := vPkts.allPkts()
 	for _, set := range vPkts.allVpktsWithInput() {
 		err := createSweepProofSuffixes(

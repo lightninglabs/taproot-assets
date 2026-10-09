@@ -19,10 +19,14 @@ import (
 	cmsg "github.com/lightninglabs/taproot-assets/tapchannelmsg"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tapnode"
+	"github.com/lightninglabs/taproot-assets/tappsbt"
+	"github.com/lightninglabs/taproot-assets/tapsend"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/sweep"
 	"github.com/stretchr/testify/require"
 )
 
@@ -778,4 +782,363 @@ func TestResolveContractNoAssetOutputs(t *testing.T) {
 			)
 		})
 	}
+}
+
+// p2trScript returns a P2TR pkScript for a fresh random key.
+func p2trScript(t *testing.T) []byte {
+	t.Helper()
+
+	pkScript, err := txscript.PayToTaprootScript(test.RandPubKey(t))
+	require.NoError(t, err)
+
+	return pkScript
+}
+
+// TestReanchorDirectSweeps asserts that direct sweep packets are pointed at
+// the actual position of the asset output within the sweep transaction, which
+// is located by pkScript rather than assumed to be the first output.
+func TestReanchorDirectSweeps(t *testing.T) {
+	t.Parallel()
+
+	iKeyDesc, _ := test.RandKeyDesc(t)
+
+	requiredScript := p2trScript(t)
+	anchorScript := p2trScript(t)
+
+	// The sweep transaction places a required output before the asset
+	// output.
+	sweepTx := wire.NewMsgTx(2)
+	sweepTx.AddTxOut(&wire.TxOut{PkScript: requiredScript, Value: 1_000})
+	sweepTx.AddTxOut(&wire.TxOut{PkScript: anchorScript, Value: 1_000})
+
+	extraTxOut := sweep.SweepOutput{
+		TxOut: wire.TxOut{
+			PkScript: anchorScript,
+			Value:    1_000,
+		},
+		InternalKey: lfn.Some(iKeyDesc),
+	}
+
+	directPkts := []*tappsbt.VPacket{{
+		Outputs: []*tappsbt.VOutput{{}},
+	}}
+
+	err := reanchorDirectSweeps(directPkts, sweepTx, extraTxOut, 0)
+	require.NoError(t, err)
+
+	vOut := directPkts[0].Outputs[0]
+	require.EqualValues(t, 1, vOut.AnchorOutputIndex)
+	require.Equal(t, iKeyDesc.PubKey, vOut.AnchorOutputInternalKey)
+
+	// An extra output whose pkScript doesn't appear in the transaction
+	// must be rejected.
+	missingTxOut := extraTxOut
+	missingTxOut.TxOut.PkScript = p2trScript(t)
+	err = reanchorDirectSweeps(directPkts, sweepTx, missingTxOut, 0)
+	require.ErrorContains(t, err, "unable to find asset sweep output")
+
+	// An extra output without an internal key must be rejected.
+	noKeyTxOut := extraTxOut
+	noKeyTxOut.InternalKey = lfn.None[keychain.KeyDescriptor]()
+	err = reanchorDirectSweeps(directPkts, sweepTx, noKeyTxOut, 0)
+	require.ErrorContains(t, err, "internal key not populated")
+}
+
+// TestSweepExclusionProofGen asserts that exclusion proofs are derived from
+// the outputs of the actual sweep transaction: a BIP-86 proof for the change
+// output wherever (and only if) it exists, nothing for non-P2TR outputs, and
+// an error for foreign P2TR outputs that can't be proven.
+func TestSweepExclusionProofGen(t *testing.T) {
+	t.Parallel()
+
+	changeKeyDesc, _ := test.RandKeyDesc(t)
+	changeScript, err := txscript.PayToTaprootScript(changeKeyDesc.PubKey)
+	require.NoError(t, err)
+
+	changeAddr := lnwallet.AddrWithKey{
+		DeliveryAddress: lnwire.DeliveryAddress(changeScript),
+		InternalKey:     lfn.Some(changeKeyDesc),
+	}
+	noKeyChangeAddr := lnwallet.AddrWithKey{
+		DeliveryAddress: lnwire.DeliveryAddress(changeScript),
+		InternalKey:     lfn.None[keychain.KeyDescriptor](),
+	}
+
+	assetScript := p2trScript(t)
+	requiredScript := p2trScript(t)
+	foreignScript := p2trScript(t)
+	p2wpkhScript := append(
+		[]byte{0x00, 0x14}, bytes.Repeat([]byte{0x01}, 20)...,
+	)
+
+	testCases := []struct {
+		name string
+
+		outputs [][]byte
+
+		// anchorOutputs is the set of output indexes that carry an
+		// asset commitment.
+		anchorOutputs map[uint32]bool
+
+		changeAddr lnwallet.AddrWithKey
+
+		// expectedProofs is the set of output indexes we expect a
+		// BIP-86 exclusion proof for.
+		expectedProofs []uint32
+
+		expectedErr string
+	}{{
+		name:           "asset plus change",
+		outputs:        [][]byte{assetScript, changeScript},
+		anchorOutputs:  map[uint32]bool{0: true},
+		changeAddr:     changeAddr,
+		expectedProofs: []uint32{1},
+	}, {
+		name: "required outputs precede asset and change",
+		outputs: [][]byte{
+			requiredScript, requiredScript, assetScript,
+			changeScript,
+		},
+		anchorOutputs:  map[uint32]bool{0: true, 1: true, 2: true},
+		changeAddr:     changeAddr,
+		expectedProofs: []uint32{3},
+	}, {
+		name:           "dust change omitted",
+		outputs:        [][]byte{assetScript},
+		anchorOutputs:  map[uint32]bool{0: true},
+		changeAddr:     changeAddr,
+		expectedProofs: nil,
+	}, {
+		name:           "non-P2TR output skipped",
+		outputs:        [][]byte{assetScript, p2wpkhScript},
+		anchorOutputs:  map[uint32]bool{0: true},
+		changeAddr:     changeAddr,
+		expectedProofs: nil,
+	}, {
+		name:          "foreign P2TR output rejected",
+		outputs:       [][]byte{assetScript, foreignScript},
+		anchorOutputs: map[uint32]bool{0: true},
+		changeAddr:    changeAddr,
+		expectedErr:   "unknown P2TR output",
+	}, {
+		name:          "change internal key missing",
+		outputs:       [][]byte{assetScript, changeScript},
+		anchorOutputs: map[uint32]bool{0: true},
+		changeAddr:    noKeyChangeAddr,
+		expectedErr:   "change internal key not populated",
+	}}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			sweepTx := wire.NewMsgTx(2)
+			for _, pkScript := range testCase.outputs {
+				sweepTx.AddTxOut(&wire.TxOut{
+					PkScript: pkScript,
+					Value:    1_000,
+				})
+			}
+
+			gen := sweepExclusionProofGen(
+				sweepTx, testCase.changeAddr,
+			)
+
+			target := &proof.BaseProofParams{}
+			err := gen(target, func(idx uint32) bool {
+				return testCase.anchorOutputs[idx]
+			})
+
+			if testCase.expectedErr != "" {
+				require.ErrorContains(
+					t, err, testCase.expectedErr,
+				)
+
+				return
+			}
+			require.NoError(t, err)
+
+			var proofIndexes []uint32
+			for _, eProof := range target.ExclusionProofs {
+				proofIndexes = append(
+					proofIndexes, eProof.OutputIndex,
+				)
+
+				require.Equal(
+					t, changeKeyDesc.PubKey,
+					eProof.InternalKey,
+				)
+				require.NotNil(t, eProof.TapscriptProof)
+				require.True(t, eProof.TapscriptProof.Bip86)
+			}
+
+			require.Equal(
+				t, testCase.expectedProofs, proofIndexes,
+			)
+		})
+	}
+}
+
+// heightChainBridge reports a fixed best height. The embedded interface
+// supplies the methods registerAndBroadcastSweep doesn't use.
+type heightChainBridge struct {
+	tapnode.ChainBridge
+}
+
+func (heightChainBridge) CurrentHeight(context.Context) (uint32, error) {
+	return 100, nil
+}
+
+// TestRegisterAndBroadcastSweepLayout asserts that when lnd places a required
+// output ahead of the asset output, the direct sweep packet is anchored to the
+// asset output's actual position, and its proof verifies against the final
+// sweep transaction.
+func TestRegisterAndBroadcastSweepLayout(t *testing.T) {
+	t.Parallel()
+
+	params := &address.RegressionNetTap
+
+	// The direct sweep packet is provisionally anchored at index 0 and
+	// carries no anchor internal key, as createSweepVpackets leaves it.
+	sweepAsset := asset.RandAsset(t, asset.Normal)
+	prevID := asset.PrevID{
+		OutPoint:  test.RandOp(t),
+		ID:        sweepAsset.ID(),
+		ScriptKey: asset.ToSerialized(sweepAsset.ScriptKey.PubKey),
+	}
+	sweepAsset.PrevWitnesses = []asset.Witness{{PrevID: &prevID}}
+
+	vPkt := &tappsbt.VPacket{
+		Inputs: []*tappsbt.VInput{{
+			PrevID: prevID,
+			Anchor: tappsbt.Anchor{
+				InternalKey: test.RandPubKey(t),
+			},
+		}},
+		Outputs: []*tappsbt.VOutput{{
+			Amount:       sweepAsset.Amount,
+			AssetVersion: sweepAsset.Version,
+			Type:         tappsbt.TypeSimple,
+			Interactive:  true,
+			Asset:        sweepAsset,
+			ScriptKey:    sweepAsset.ScriptKey,
+		}},
+		ChainParams: params,
+		Version:     tappsbt.V1,
+	}
+	vPkt.SetInputAsset(0, sweepAsset.Copy())
+
+	var blob bytes.Buffer
+	res := cmsg.NewContractResolution(
+		[]*tappsbt.VPacket{vPkt}, nil,
+		lfn.None[cmsg.TapscriptSigDesc](), true, true,
+	)
+	require.NoError(t, res.Encode(&blob))
+
+	assetInput := input.MakeBaseInput(
+		&prevID.OutPoint, input.TaprootLocalCommitSpend,
+		&input.SignDescriptor{}, 0, nil,
+		input.WithResolutionBlob(lfn.Some(blob.Bytes())),
+	)
+
+	// The asset output commits to the sweep packet, with the alt leaves of
+	// an output we alone create, under a fresh internal key, as
+	// DeriveSweepAddr derives it.
+	iKeyDesc, _ := test.RandKeyDesc(t)
+	commitSet := vPktsWithInput{
+		vPkts:        []*tappsbt.VPacket{vPkt.Copy()},
+		stxoFeatures: sweepOutputSTXOFeatures,
+	}
+	require.NoError(t, addAltLeaves([]vPktsWithInput{commitSet}))
+	commitments, err := tapsend.CreateOutputCommitments(
+		commitSet.vPkts, tapsend.WithNoSTXOProofs(),
+	)
+	require.NoError(t, err)
+	assetScript, _, _, err := tapsend.AnchorOutputScript(
+		iKeyDesc.PubKey, nil, commitments[0],
+	)
+	require.NoError(t, err)
+
+	// A pre-signed second level HTLC input of a non-taproot channel
+	// commits to a P2WSH required output.
+	requiredTxOut := &wire.TxOut{
+		PkScript: append([]byte{0x00, 0x20}, test.RandBytes(32)...),
+		Value:    1_000,
+	}
+	htlcTx := wire.NewMsgTx(2)
+	htlcTx.AddTxIn(&wire.TxIn{PreviousOutPoint: test.RandOp(t)})
+	htlcTx.AddTxOut(requiredTxOut)
+	requiredInput := input.MakeHtlcSecondLevelTimeoutAnchorInput(
+		htlcTx, &input.SignDetails{}, 0,
+	)
+
+	changeKeyDesc, _ := test.RandKeyDesc(t)
+	changeScript, err := txscript.PayToTaprootScript(
+		txscript.ComputeTaprootKeyNoScript(changeKeyDesc.PubKey),
+	)
+	require.NoError(t, err)
+
+	// lnd places the required output first, then the asset output, then
+	// the change output.
+	sweepTx := wire.NewMsgTx(2)
+	sweepTx.AddTxIn(&wire.TxIn{
+		PreviousOutPoint: requiredInput.OutPoint(),
+	})
+	sweepTx.AddTxIn(&wire.TxIn{PreviousOutPoint: prevID.OutPoint})
+	sweepTx.AddTxOut(requiredTxOut)
+	sweepTx.AddTxOut(&wire.TxOut{
+		PkScript: assetScript,
+		Value:    int64(tapsend.DummyAmtSats),
+	})
+	sweepTx.AddTxOut(&wire.TxOut{PkScript: changeScript, Value: 10_000})
+
+	req := &sweep.BumpRequest{
+		Inputs: []input.Input{&requiredInput, &assetInput},
+		DeliveryAddress: lnwallet.AddrWithKey{
+			DeliveryAddress: changeScript,
+			InternalKey:     lfn.Some(changeKeyDesc),
+		},
+		ExtraTxOut: lfn.Some(sweep.SweepOutput{
+			TxOut:       *sweepTx.TxOut[1],
+			IsExtra:     true,
+			InternalKey: lfn.Some(iKeyDesc),
+		}),
+	}
+	outpointToTxIndex := map[wire.OutPoint]int{
+		requiredInput.OutPoint(): 0,
+	}
+
+	porter := &recordingPorter{}
+	sweeper := NewAuxSweeper(&AuxSweeperCfg{
+		ChainParams: *params,
+		TxSender:    porter,
+		ChainBridge: heightChainBridge{},
+	})
+
+	err = sweeper.registerAndBroadcastSweep(
+		req, sweepTx, 1_000, outpointToTxIndex,
+	)
+	require.NoError(t, err)
+
+	require.Len(t, porter.shipped, 1)
+	parcel, ok := porter.shipped[0].(*tapfreighter.PreAnchoredParcel)
+	require.True(t, ok)
+
+	vPkts := parcel.VirtualPackets()
+	require.Len(t, vPkts, 1)
+	require.Len(t, vPkts[0].Outputs, 1)
+	vOut := vPkts[0].Outputs[0]
+
+	// The packet is anchored to the asset output under its internal key.
+	require.EqualValues(t, 1, vOut.AnchorOutputIndex)
+	require.Equal(t, iKeyDesc.PubKey, vOut.AnchorOutputInternalKey)
+
+	// Its proof includes the asset in the asset output and proves
+	// exclusion for the change output, the only other P2TR output.
+	suffix := vOut.ProofSuffix
+	require.NotNil(t, suffix)
+	require.EqualValues(t, 1, suffix.InclusionProof.OutputIndex)
+	require.Len(t, suffix.ExclusionProofs, 1)
+	require.EqualValues(t, 2, suffix.ExclusionProofs[0].OutputIndex)
+
+	_, err = suffix.VerifyProofs()
+	require.NoError(t, err)
 }

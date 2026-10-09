@@ -209,6 +209,17 @@
   carries none, and a relative lock on an input of unknown height is
   rejected.
 
+* [PR#2329](https://github.com/lightninglabs/taproot-assets/pull/2329)
+  fixes asset channel force-close sweeps that combine pre-signed
+  second-level HTLC claims with direct asset sweeps, or that claim
+  several HTLCs via pre-signed transactions without a change output.
+  The aux sweeper assumed a fixed layout for the sweep transaction lnd
+  builds, so the asset proofs it produced failed verification, the
+  sweep was never broadcast, and lnd retried it on every block, which
+  could let an HTLC claim miss its deadline. Output positions are now
+  derived from the final sweep transaction. Fixes
+  [#2205](https://github.com/lightninglabs/taproot-assets/issues/2205).
+
 # New Features
 
 ## Functional Enhancements
