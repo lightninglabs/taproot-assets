@@ -38,6 +38,35 @@ env:
   NUM_CC_ITEST_JOBS: 4
   CC_ITEST_PARALLELISM: 4
 
+  # Integration test cases run on the Postgres backend for pull requests,
+  # one or more per database store. Merge queue and push runs execute
+  # every case.
+  POSTGRES_PR_ITESTS: |
+    mint_assets
+    mint_batch_resume
+    minting_multi_asset_groups
+    basic_send_unidirectional
+    multi_input_send_non-interactive_single_ID
+    reattempt_proof_transfer_on_tapd_restart
+    backup_restore_transferred
+    address_syncer
+    address_v2_with_group_key
+    universe_sync
+    universe_pagination_simple
+    universe_delete_leaf
+    universe_federation
+    federation_sync_config
+    burn_assets
+    supply_commit_mint_burn
+    supply_commit_ignore_asset
+    supply_verify_peer_node
+    pre_commit_output
+    auth_mailbox_message_store_and_fetch
+    rfq_asset_buy_htlc_intercept
+    bake_macaroon_permissions
+    re-org_mint_and_send
+    re-org_nested_history
+
 jobs:
   # Validate generated SQL models stay in sync with queries.
   sqlc-check:
@@ -565,10 +594,17 @@ jobs:
 
           echo "Running $PARALLEL tranches in parallel (tranches $BASE_TRANCHE to $((BASE_TRANCHE + PARALLEL - 1)) of $TOTAL_TRANCHES total)"
 
+          # Pull requests run the cases listed in POSTGRES_PR_ITESTS.
+          RUN_FILTER=()
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            CASES=$(echo "$POSTGRES_PR_ITESTS" | grep . | paste -sd'|' -)
+            RUN_FILTER=("-test.run=TestTaprootAssetsDaemon/tranche.*/.*-of-.*/^(${CASES})\$")
+          fi
+
           # Start all tranches in parallel.
           pids=()
           for i in $(seq 0 $((PARALLEL - 1))); do
-            scripts/itest_part.sh $((BASE_TRANCHE + i)) $TOTAL_TRANCHES 0 -dbbackend=postgres --verbose &
+            scripts/itest_part.sh $((BASE_TRANCHE + i)) $TOTAL_TRANCHES 0 -dbbackend=postgres "${RUN_FILTER[@]}" --verbose &
             pids+=($!)
           done
 
