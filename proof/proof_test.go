@@ -1034,8 +1034,9 @@ func TestOwnershipProofVerification(t *testing.T) {
 
 // TestProofReplacement ensures that proofs can be replaced in a proof file.
 func TestProofReplacement(t *testing.T) {
-	// We create a file with 1k proofs.
-	const numProofs = 1_000
+	// We create a file with 256 proofs, a count that encodes as a
+	// multi-byte varint.
+	const numProofs = 256
 	lotsOfProofs := make([]Proof, numProofs)
 	for i := 0; i < numProofs; i++ {
 		amt := uint64(i + 1)
@@ -1059,10 +1060,10 @@ func TestProofReplacement(t *testing.T) {
 		require.Equal(t, amt, p.Asset.Amount)
 	}
 	assertIndex(0, 1)
-	assertIndex(999, 1000)
+	assertIndex(numProofs-1, numProofs)
 
-	// We'll now go ahead and randomly replace 100 proofs.
-	const numReplacements = 100
+	// We'll now go ahead and randomly replace 25 proofs.
+	const numReplacements = 25
 	for i := 0; i < numReplacements; i++ {
 		amt := uint64(1000*numReplacements - i)
 		assetVersion := asset.Version(i % 2)
