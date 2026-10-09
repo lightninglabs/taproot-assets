@@ -43,7 +43,7 @@ jobs:
           key: compat-bins-${{ runner.os }}-${{ runner.arch }}
 
       - name: Build current integrated binary
-        run: make build-itest
+        run: make build-itest-integrated
 
       - name: Run backward compatibility tests
         run: make itest-cc-compat
