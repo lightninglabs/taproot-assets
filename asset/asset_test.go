@@ -887,6 +887,18 @@ func TestUnknownVersion(t *testing.T) {
 }
 
 func FuzzAssetDecode(f *testing.F) {
+	var validAsset bytes.Buffer
+	if err := testRootAsset.Encode(&validAsset); err != nil {
+		f.Fatalf("unable to encode valid asset seed: %v", err)
+	}
+
+	f.Add([]byte{})
+	f.Add(validAsset.Bytes())
+	f.Add([]byte("0\xff00000000"))
+	f.Add([]byte{
+		0x01, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+	})
+
 	f.Fuzz(func(t *testing.T, data []byte) {
 		r := bytes.NewReader(data)
 		a := &Asset{}

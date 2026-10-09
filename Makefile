@@ -96,7 +96,7 @@ DOCKER_TOOLS = $(DOCKER) run \
   -v $$(pwd):/build taproot-assets-tools
 endif
 
-GO_VERSION = 1.26.3
+GO_VERSION = 1.26.8
 
 GREEN := "\\033[0;32m"
 NC := "\\033[0m"
@@ -413,7 +413,7 @@ bench-closure-check:
 
 fuzz:
 	@$(call print, "Fuzzing packages '$(FUZZPKG)'.")
-	scripts/fuzz.sh run "$(FUZZPKG)" "$(FUZZ_TEST_RUN_TIME)" "$(FUZZ_NUM_PROCESSES)" "$(FUZZ_TEST_TIMEOUT)"
+	scripts/fuzz.sh run "$(FUZZPKG)" "$(FUZZ_TEST_RUN_TIME)" "$(FUZZ_NUM_PROCESSES)" "$(FUZZ_TEST_TIMEOUT)" "$(FUZZ_BASE_WORKDIR)"
 
 # =========
 # UTILITIES

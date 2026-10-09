@@ -3,9 +3,11 @@ package proof
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -434,6 +436,27 @@ func TestProofEncoding(t *testing.T) {
 
 	err = unknownFile.ReplaceLastProof(proof)
 	require.ErrorIs(t, err, ErrUnknownVersion)
+}
+
+// TestProofFileDeclaredLength verifies EOF handling for a truncated proof at
+// the maximum permitted declared size.
+func TestProofFileDeclaredLength(t *testing.T) {
+	t.Parallel()
+
+	var encoded bytes.Buffer
+	_, err := encoded.Write(FilePrefixMagicBytes[:])
+	require.NoError(t, err)
+	require.NoError(t, binary.Write(&encoded, binary.BigEndian, uint32(V0)))
+
+	var scratch [8]byte
+	require.NoError(t, tlv.WriteVarInt(&encoded, 1, &scratch))
+	require.NoError(t, tlv.WriteVarInt(
+		&encoded, FileMaxProofSizeBytes, &scratch,
+	))
+
+	var file File
+	err = file.Decode(&encoded)
+	require.ErrorIs(t, err, io.EOF)
 }
 
 // genRandomGenesisWithProof is kept as an alias for the exported fixture

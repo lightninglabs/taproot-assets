@@ -672,6 +672,9 @@ func runBIPTestVector(t *testing.T, testVectors *TestVectors) {
 }
 
 func FuzzAddressDecode(f *testing.F) {
+	f.Add([]byte{})
+	f.Add([]byte("0\xff00000000"))
+
 	f.Fuzz(func(t *testing.T, data []byte) {
 		a := &Tap{}
 		_ = a.Decode(bytes.NewReader(data))
