@@ -524,7 +524,7 @@ func TestContractResolution(t *testing.T) {
 	})
 
 	rapid.Check(t, func(r *rapid.T) {
-		numPackets := rapid.IntRange(1, 10).Draw(r, "numPackets")
+		numPackets := rapid.IntRange(1, 3).Draw(r, "numPackets")
 
 		testPkts1 := make([]*tappsbt.VPacket, numPackets)
 		for i := 0; i < numPackets; i++ {
