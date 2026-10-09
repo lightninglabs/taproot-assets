@@ -149,6 +149,16 @@ func decodeExact(r io.Reader, l uint64, decode func(io.Reader) error) error {
 	return nil
 }
 
+// exactLength wraps a record decoder so that it fails unless it consumes
+// exactly the record's declared length.
+func exactLength(dec tlv.Decoder) tlv.Decoder {
+	return func(r io.Reader, val any, buf *[8]byte, l uint64) error {
+		return decodeExact(r, l, func(r io.Reader) error {
+			return dec(r, val, buf, l)
+		})
+	}
+}
+
 func InlineVarBytesEncoder(w io.Writer, val any, buf *[8]byte) error {
 	if t, ok := val.(*[]byte); ok {
 		if err := tlv.WriteVarInt(w, uint64(len(*t)), buf); err != nil {
