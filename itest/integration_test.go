@@ -6,6 +6,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"sort"
 	"testing"
 	"time"
 
@@ -213,8 +214,7 @@ func maybeShuffleTestCases() {
 
 // getTestCaseSplitTranche returns the sub slice of the test cases that
 // should be run as the current split tranche as well as the index of
-// the tranche. Tests are assigned via round-robin so that adjacent
-// (often similarly heavy) test cases land in different tranches.
+// the tranche. Tests are assigned to tranches by splitTranches.
 func getTestCaseSplitTranche() ([]*testCase, uint, uint) {
 	numTranches := defaultSplitTranches
 	if testCasesSplitTranches != nil {
@@ -242,12 +242,45 @@ func getTestCaseSplitTranche() ([]*testCase, uint, uint) {
 	// Shuffle the test cases if the `shuffleseed` flag is set.
 	maybeShuffleTestCases()
 
-	var selected []*testCase
-	for i, tc := range allTestCases {
-		if uint(i)%numTranches == runTranche {
-			selected = append(selected, tc)
-		}
-	}
+	selected := splitTranches(allTestCases, numTranches)[runTranche]
 
 	return selected, threadID, runTranche
+}
+
+// splitTranches assigns each test case to one of numTranches tranches.
+// Cases are taken in descending order of their duration in
+// testCaseSeconds, and each is assigned to the tranche with the smallest
+// total duration so far, the lowest index winning ties. Cases of equal
+// duration are taken in the order of the given slice, and each tranche
+// lists its cases in that order.
+func splitTranches(cases []*testCase, numTranches uint) [][]*testCase {
+	order := make([]int, len(cases))
+	for i := range order {
+		order[i] = i
+	}
+	sort.SliceStable(order, func(a, b int) bool {
+		return caseSeconds(cases[order[a]]) >
+			caseSeconds(cases[order[b]])
+	})
+
+	assigned := make([]uint, len(cases))
+	loads := make([]int, numTranches)
+	for _, i := range order {
+		best := uint(0)
+		for k := uint(1); k < numTranches; k++ {
+			if loads[k] < loads[best] {
+				best = k
+			}
+		}
+
+		assigned[i] = best
+		loads[best] += caseSeconds(cases[i])
+	}
+
+	tranches := make([][]*testCase, numTranches)
+	for i, tc := range cases {
+		tranches[assigned[i]] = append(tranches[assigned[i]], tc)
+	}
+
+	return tranches
 }
