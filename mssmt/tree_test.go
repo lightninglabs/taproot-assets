@@ -534,6 +534,93 @@ func testHistoryIndependence(t *testing.T, makeStore makeTestTreeStoreFunc) {
 	require.Equal(t, tree1Root.NodeSum(), smol1Root.NodeSum())
 }
 
+// TestCompactedTreeDeleteAbsent asserts that deleting keys a compacted tree
+// does not hold leaves the tree and its store as they were, and that later
+// insertions compute the root of the tree's leaves.
+func TestCompactedTreeDeleteAbsent(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	// Keys by their first bits, counted from the least significant
+	// bit of the first byte. The tree holds 000, 001, 100 and 101.
+	keyOf := func(b byte) [32]byte { return [32]byte{b} }
+	held := []treeLeaf{
+		{key: keyOf(0x00), leaf: mssmt.NewLeafNode([]byte{1}, 1)},
+		{key: keyOf(0x04), leaf: mssmt.NewLeafNode([]byte{2}, 2)},
+		{key: keyOf(0x01), leaf: mssmt.NewLeafNode([]byte{3}, 3)},
+		{key: keyOf(0x05), leaf: mssmt.NewLeafNode([]byte{4}, 4)},
+	}
+
+	// 01 reaches the empty subtree at depth 2 under 0, and 0001 the
+	// compacted leaf of 000 at depth 3.
+	absent := [][32]byte{keyOf(0x02), keyOf(0x08)}
+
+	// 11 reaches the empty subtree at depth 2 under 1.
+	added := treeLeaf{
+		key: keyOf(0x03), leaf: mssmt.NewLeafNode([]byte{5}, 5),
+	}
+
+	reference := mssmt.NewFullTree(mssmt.NewDefaultStore())
+	for _, item := range append(held, added) {
+		_, err := reference.Insert(ctx, item.key, item.leaf)
+		require.NoError(t, err)
+	}
+	wantRoot, err := reference.Root(ctx)
+	require.NoError(t, err)
+
+	for storeName, makeStore := range genTestStores(t) {
+		t.Run(storeName, func(t *testing.T) {
+			t.Parallel()
+
+			store, err := makeStore()
+			require.NoError(t, err)
+			tree := mssmt.NewCompactedTree(store)
+
+			for _, item := range held {
+				_, err := tree.Insert(ctx, item.key, item.leaf)
+				require.NoError(t, err)
+			}
+			root, err := tree.Root(ctx)
+			require.NoError(t, err)
+
+			defaultStore, isDefault := store.(*mssmt.DefaultStore)
+			var numBranches, numCompacted int
+			if isDefault {
+				numBranches = defaultStore.NumBranches()
+				numCompacted = defaultStore.NumCompactedLeaves()
+			}
+
+			for _, key := range absent {
+				_, err := tree.Delete(ctx, key)
+				require.NoError(t, err)
+			}
+
+			newRoot, err := tree.Root(ctx)
+			require.NoError(t, err)
+			require.True(t, mssmt.IsEqualNode(root, newRoot))
+
+			if isDefault {
+				require.Equal(
+					t, numBranches,
+					defaultStore.NumBranches(),
+				)
+				require.Equal(
+					t, numCompacted,
+					defaultStore.NumCompactedLeaves(),
+				)
+			}
+
+			_, err = tree.Insert(ctx, added.key, added.leaf)
+			require.NoError(t, err)
+
+			newRoot, err = tree.Root(ctx)
+			require.NoError(t, err)
+			require.True(t, mssmt.IsEqualNode(wantRoot, newRoot))
+		})
+	}
+}
+
 // TestDeletion asserts that deleting all inserted leaves of a tree results in
 // an empty tree.
 func TestDeletion(t *testing.T) {
