@@ -38,11 +38,16 @@ jobs:
         with:
           go-version-file: go.mod
 
+      # The key changes with the files that list the compat versions. An
+      # older cache is restored and binaries for new versions are added.
       - name: Cache compat binaries
         uses: actions/cache@v4
         with:
           path: ~/.tapd-compat-bins
-          key: compat-bins-${{ runner.os }}-${{ runner.arch }}
+          key: >-
+            compat-bins-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('itest/custom_channels/compat_test.go', 'itest/custom_channels/spender_upgrade_test.go') }}
+          restore-keys: >-
+            compat-bins-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Build current integrated binary
         run: make build-itest-integrated
