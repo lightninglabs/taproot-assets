@@ -187,3 +187,48 @@ func TestCompressedPubKeyDecoderZeroKey(t *testing.T) {
 	require.Error(t, err)
 	require.Nil(t, key)
 }
+
+// TestAltLeavesKeyParity tests that alt leaves whose script keys differ only
+// in parity are refused as duplicates.
+func TestAltLeavesKeyParity(t *testing.T) {
+	t.Parallel()
+
+	key := test.RandPrivKey().PubKey()
+	flipped := key.SerializeCompressed()
+	flipped[0] ^= 0x01
+	negKey, err := btcec.ParsePubKey(flipped)
+	require.NoError(t, err)
+
+	var leaves []AltLeaf[Asset]
+	for _, k := range []*btcec.PublicKey{key, negKey} {
+		leaf, err := NewAltLeaf(NewScriptKey(k), ScriptV0)
+		require.NoError(t, err)
+		leaves = append(leaves, leaf)
+	}
+
+	var (
+		encoded bytes.Buffer
+		buf     [8]byte
+	)
+	err = AltLeavesEncoder(&encoded, &leaves, &buf)
+	require.ErrorIs(t, err, ErrDuplicateScriptKeys)
+
+	// Encode the leaves without the encoder's check, and decode them.
+	encoded.Reset()
+	require.NoError(t, tlv.WriteVarInt(&encoded, 2, &buf))
+	for _, leaf := range leaves {
+		var leafBuf bytes.Buffer
+		require.NoError(t, leaf.EncodeAltLeaf(&leafBuf))
+
+		leafBytes := leafBuf.Bytes()
+		require.NoError(
+			t, InlineVarBytesEncoder(&encoded, &leafBytes, &buf),
+		)
+	}
+
+	var decoded []AltLeaf[Asset]
+	err = AltLeavesDecoder(
+		&encoded, &decoded, &buf, uint64(encoded.Len()),
+	)
+	require.ErrorIs(t, err, ErrDuplicateScriptKeys)
+}

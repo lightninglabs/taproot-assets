@@ -883,6 +883,15 @@ func DecodeTapLeaf(leafData []byte) (*txscript.TapLeaf, error) {
 	return &leaf, nil
 }
 
+// altLeafKey returns the x-only serialization of an alt leaf's script key,
+// which is the key the leaf is committed under. A nil key maps to all zeroes.
+func altLeafKey(scriptKey *btcec.PublicKey) [32]byte {
+	var key [32]byte
+	copy(key[:], ToSerialized(scriptKey).SchnorrSerialized())
+
+	return key
+}
+
 func AltLeavesEncoder(w io.Writer, val any, buf *[8]byte) error {
 	if t, ok := val.(*[]AltLeaf[Asset]); ok {
 		// If the AltLeaves slice is empty, we will still encode its
@@ -893,12 +902,12 @@ func AltLeavesEncoder(w io.Writer, val any, buf *[8]byte) error {
 		}
 
 		var streamBuf bytes.Buffer
-		leafKeys := make(map[SerializedKey]struct{})
+		leafKeys := make(map[[32]byte]struct{})
 		for _, leaf := range *t {
 			// Check that this leaf has a unique script key compared
 			// to all previous leaves. This type assertion is safe
 			// as we've made an equivalent assertion above.
-			leafKey := ToSerialized(leaf.(*Asset).ScriptKey.PubKey)
+			leafKey := altLeafKey(leaf.(*Asset).ScriptKey.PubKey)
 			_, ok := leafKeys[leafKey]
 			if ok {
 				return fmt.Errorf("%w: %x",
@@ -948,7 +957,7 @@ func AltLeavesDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 		}
 
 		leaves := make([]AltLeaf[Asset], numItems)
-		leafKeys := make(map[SerializedKey]struct{})
+		leafKeys := make(map[[32]byte]struct{})
 		for i := uint64(0); i < numItems; i++ {
 			var streamBytes []byte
 			err = InlineVarBytesDecoder(
@@ -965,7 +974,7 @@ func AltLeavesDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 			}
 
 			// Check that each alt leaf has a unique script key.
-			leafKey := ToSerialized(leaf.ScriptKey.PubKey)
+			leafKey := altLeafKey(leaf.ScriptKey.PubKey)
 			_, ok := leafKeys[leafKey]
 			if ok {
 				return fmt.Errorf("%w: %x",
