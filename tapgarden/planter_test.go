@@ -127,9 +127,6 @@ type mintingTestHarness struct {
 	batchStore tapgarden.BatchStore
 
 	// TB is the test context every harness assertion reports against.
-	// It is an interface rather than a concrete *testing.T so a rapid
-	// property can substitute an adapter that fails only the current
-	// iteration (letting rapid shrink) instead of the whole test.
 	testing.TB
 
 	errChan chan error
