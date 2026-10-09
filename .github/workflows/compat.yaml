@@ -38,6 +38,16 @@ jobs:
         with:
           go-version-file: go.mod
 
+      # Go trims build cache entries unused for five days on the first
+      # command run after trim.txt is a day old. A restored cache keeps the
+      # timestamps of the run that saved it. The restored cache is marked
+      # as trimmed now.
+      - name: Mark go build cache as trimmed
+        run: |
+          GOCACHE=$(go env GOCACHE)
+          mkdir -p "$GOCACHE"
+          date +%s > "$GOCACHE/trim.txt"
+
       # The key changes with the files that list the compat versions. An
       # older cache is restored and binaries for new versions are added.
       - name: Cache compat binaries
