@@ -62,14 +62,14 @@ if (( ${#selected[@]} == 0 )); then
   exit 0
 fi
 
+echo "Running unit race tests for ${#selected[@]} packages:"
+printf '  %s\n' "${selected[@]}"
+
 exit_code=0
-for pkg in "${selected[@]}"; do
-  echo "Running unit race tests for ${pkg}"
-  if ! env CGO_ENABLED=1 GORACE="history_size=7 halt_on_errors=1" \
-    go test "$@" -race "${pkg}"; then
-    exit_code=1
-  fi
-done
+if ! env CGO_ENABLED=1 GORACE="history_size=7 halt_on_errors=1" \
+  go test "$@" -race "${selected[@]}"; then
+  exit_code=1
+fi
 
 if (( exit_code != 0 )); then
   echo "One or more packages failed in tranche ${TRANCHE} of ${NUM_TRANCHES}" >&2
