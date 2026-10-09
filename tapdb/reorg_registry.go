@@ -728,6 +728,10 @@ type AnchoringSummary struct {
 	// NumCandidates counts the candidate spends observed for the
 	// trigger set.
 	NumCandidates uint32
+
+	// MatchKey is the site's per-registration identity key; nil for
+	// an anchoring registered without one.
+	MatchKey []byte
 }
 
 // summarizePhase decodes a stored phase for listing purposes: the
@@ -812,6 +816,7 @@ func (s *ReorgRegistryStore) QueryAnchorings(ctx context.Context,
 					String,
 				TerminalAt:    row.TerminalAt.Int64,
 				NumCandidates: uint32(row.NumCandidates),
+				MatchKey:      row.MatchKey,
 			}
 		}
 
