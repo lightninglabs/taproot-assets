@@ -71,7 +71,7 @@ SELECT
     a.id, a.site_id, a.threshold, a.created_height, a.phase_code,
     a.phase_evidence, a.delivered_code, a.delivered_evidence,
     a.witness_txid, a.stuck, a.delivery_attempts,
-    a.last_delivery_error, a.terminal_at,
+    a.last_delivery_error, a.terminal_at, a.match_key,
     (
         SELECT COUNT(*)
         FROM reorg_candidate_spends c
