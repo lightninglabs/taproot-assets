@@ -26,6 +26,12 @@
   always using LND's default. A zero value still uses the configured default,
   and LND rejects values outside its supported range.
 
+* [PR#2350](https://github.com/lightninglabs/taproot-assets/pull/2350)
+  adds missing proof publication paths. Universe delivery now publishes nested
+  input histories as independently addressable leaves and gives grouped asset
+  histories unambiguous asset-ID namespaces. Channel responders now leave enough
+  time for a retry when proof publication and activation overlap.
+
 - [Forward-port the v0.8.5 proof upgrade](https://github.com/lightninglabs/taproot-assets/pull/2333)
   to the btcd-v2 development line: spender commitments, split-root evidence,
   asset identity checks, and network activation heights. Released spender
