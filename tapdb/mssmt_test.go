@@ -721,3 +721,75 @@ func TestTreeNamespaceIsolation(t *testing.T) {
 	})
 	require.NoError(t, err)
 }
+
+// TestTreeEmptySubtreeRow tests that a node stored under the hash of an empty
+// subtree is read as the empty subtree, as a compacted leaf holding the empty
+// leaf was stored on deleting a key the compacted tree did not hold.
+func TestTreeEmptySubtreeRow(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store, _ := newTaprootAssetTreeStore(t, "test")
+	tree := mssmt.NewCompactedTree(store)
+
+	// Keys by their first bits, counted from the least significant
+	// bit of the first byte. The tree holds 000, 001, 100 and 101.
+	keyOf := func(b byte) [32]byte { return [32]byte{b} }
+	held := []struct {
+		key  [32]byte
+		leaf *mssmt.LeafNode
+	}{
+		{keyOf(0x00), mssmt.NewLeafNode([]byte{1}, 1)},
+		{keyOf(0x04), mssmt.NewLeafNode([]byte{2}, 2)},
+		{keyOf(0x01), mssmt.NewLeafNode([]byte{3}, 3)},
+		{keyOf(0x05), mssmt.NewLeafNode([]byte{4}, 4)},
+	}
+	reference := mssmt.NewCompactedTree(mssmt.NewDefaultStore())
+	for _, item := range held {
+		_, err := tree.Insert(ctx, item.key, item.leaf)
+		require.NoError(t, err)
+		_, err = reference.Insert(ctx, item.key, item.leaf)
+		require.NoError(t, err)
+	}
+
+	// Store a compacted leaf holding the empty leaf at 01, the empty
+	// subtree at depth 2 under 0. Its hash is that of every empty
+	// subtree at depth 2.
+	junkKey := keyOf(0x02)
+	junk := mssmt.NewCompactedLeafNode(2, &junkKey, mssmt.EmptyLeafNode)
+	require.Equal(t, mssmt.EmptyTree[2].NodeHash(), junk.NodeHash())
+	err := store.Update(ctx, func(tx mssmt.TreeStoreUpdateTx) error {
+		return tx.InsertCompactedLeaf(junk)
+	})
+	require.NoError(t, err)
+
+	// The empty subtree at 11, under 1, must still read as the empty
+	// subtree.
+	err = store.View(ctx, func(tx mssmt.TreeStoreViewTx) error {
+		root, err := tx.RootNode()
+		require.NoError(t, err)
+
+		_, one, err := tx.GetChildren(0, root.NodeHash())
+		require.NoError(t, err)
+
+		_, oneOne, err := tx.GetChildren(1, one.NodeHash())
+		require.NoError(t, err)
+		require.Equal(t, mssmt.EmptyTree[2], oneOne)
+
+		return nil
+	})
+	require.NoError(t, err)
+
+	// So inserting at 11 must give the root of the tree's leaves.
+	key, leaf := keyOf(0x03), mssmt.NewLeafNode([]byte{5}, 5)
+	_, err = tree.Insert(ctx, key, leaf)
+	require.NoError(t, err)
+	_, err = reference.Insert(ctx, key, leaf)
+	require.NoError(t, err)
+
+	root, err := tree.Root(ctx)
+	require.NoError(t, err)
+	wantRoot, err := reference.Root(ctx)
+	require.NoError(t, err)
+	require.True(t, mssmt.IsEqualNode(wantRoot, root))
+}

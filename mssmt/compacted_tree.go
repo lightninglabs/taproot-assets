@@ -199,10 +199,16 @@ func (t *CompactedTree) insert(tx TreeStoreUpdateTx, key *[hashSize]byte,
 	case *BranchNode:
 		if node == EmptyTree[nextHeight] {
 			// Empty subtree: collapse to a single compacted leaf
-			// at nextHeight. No prior leaf existed at key.
-			newLeaf := NewCompactedLeafNode(nextHeight, key, leaf)
-			insertCompactedLeaf(muts, newLeaf)
-			newNode = newLeaf
+			// at nextHeight. No prior leaf existed at key, so an
+			// empty leaf leaves the subtree empty.
+			newNode = node
+			if !leaf.IsEmpty() {
+				newLeaf := NewCompactedLeafNode(
+					nextHeight, key, leaf,
+				)
+				insertCompactedLeaf(muts, newLeaf)
+				newNode = newLeaf
+			}
 		} else {
 			// Not an empty subtree, recurse to find the
 			// insertion point.
@@ -215,6 +221,13 @@ func (t *CompactedTree) insert(tx TreeStoreUpdateTx, key *[hashSize]byte,
 		}
 
 	case *CompactedLeafNode:
+		// An empty leaf at a key other than the compacted leaf's
+		// deletes nothing, so the compacted leaf stays as it is.
+		if *key != node.key && leaf.IsEmpty() {
+			newNode = node
+			break
+		}
+
 		// The compacted leaf at this position is always being
 		// rewritten — queue its delete first.
 		deleteCompactedLeaf(muts, node.NodeHash())
