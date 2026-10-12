@@ -966,7 +966,8 @@ ORDER BY
     CASE WHEN $1 = 'total_supply' AND $2 = 0 THEN
              asset_info.supply END ASC ,
     CASE WHEN $1 = 'total_supply' AND $2 = 1 THEN
-             asset_info.supply END DESC
+             asset_info.supply END DESC,
+    asset_info.asset_id ASC
 LIMIT $4 OFFSET $3
 `
 
