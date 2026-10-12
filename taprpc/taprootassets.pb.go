@@ -7657,7 +7657,12 @@ type Anchoring struct {
 	TerminalAt int64 `protobuf:"varint,14,opt,name=terminal_at,json=terminalAt,proto3" json:"terminal_at,omitempty"`
 	// The last delivery error, surfaced once the anchoring is flagged
 	// stuck. Empty when the anchoring is not stuck.
-	StuckReason   string `protobuf:"bytes,15,opt,name=stuck_reason,json=stuckReason,proto3" json:"stuck_reason,omitempty"`
+	StuckReason string `protobuf:"bytes,15,opt,name=stuck_reason,json=stuckReason,proto3" json:"stuck_reason,omitempty"`
+	// The site's per-registration identity key, opaque to the
+	// registry; empty when the site registered none. Each current
+	// site keys an anchoring by the hash of the transaction it stakes
+	// on, in the same byte order as witness_txid.
+	MatchKey      []byte `protobuf:"bytes,16,opt,name=match_key,json=matchKey,proto3" json:"match_key,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -7795,6 +7800,13 @@ func (x *Anchoring) GetStuckReason() string {
 		return x.StuckReason
 	}
 	return ""
+}
+
+func (x *Anchoring) GetMatchKey() []byte {
+	if x != nil {
+		return x.MatchKey
+	}
+	return nil
 }
 
 var File_taprootassets_proto protoreflect.FileDescriptor
@@ -8333,7 +8345,7 @@ const file_taprootassets_proto_rawDesc = "" +
 	"\x16ListAnchoringsResponse\x121\n" +
 	"\n" +
 	"anchorings\x18\x01 \x03(\v2\x11.taprpc.AnchoringR\n" +
-	"anchorings\"\x8d\x04\n" +
+	"anchorings\"\xaa\x04\n" +
 	"\tAnchoring\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x12\n" +
 	"\x04site\x18\x02 \x01(\tR\x04site\x12\x14\n" +
@@ -8351,7 +8363,8 @@ const file_taprootassets_proto_rawDesc = "" +
 	"\x13last_delivery_error\x18\r \x01(\tR\x11lastDeliveryError\x12\x1f\n" +
 	"\vterminal_at\x18\x0e \x01(\x03R\n" +
 	"terminalAt\x12!\n" +
-	"\fstuck_reason\x18\x0f \x01(\tR\vstuckReason*(\n" +
+	"\fstuck_reason\x18\x0f \x01(\tR\vstuckReason\x12\x1b\n" +
+	"\tmatch_key\x18\x10 \x01(\fR\bmatchKey*(\n" +
 	"\tAssetType\x12\n" +
 	"\n" +
 	"\x06NORMAL\x10\x00\x12\x0f\n" +

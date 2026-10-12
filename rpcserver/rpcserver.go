@@ -1928,6 +1928,7 @@ func marshalAnchoring(summary tapdb.AnchoringSummary) *taprpc.Anchoring {
 		NumCandidates:        summary.NumCandidates,
 		LastDeliveryError:    summary.LastDeliveryError,
 		TerminalAt:           summary.TerminalAt,
+		MatchKey:             summary.MatchKey,
 	}
 }
 
