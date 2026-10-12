@@ -778,3 +778,57 @@ func TestUniverseQuerySyncStatsAssetIDOrder(t *testing.T) {
 		syncStats.SyncStats, byTypeDescThenID,
 	))
 }
+
+// TestUniverseQuerySyncStatsPages tests that the pages of a query are slices
+// of the result cached for the query's filters and sort.
+func TestUniverseQuerySyncStatsPages(t *testing.T) {
+	db := NewTestDB(t)
+
+	dbTxer := NewTransactionExecutor(
+		db.BaseDB, func(tx *sql.Tx) UniverseStatsStore {
+			return db.WithTx(tx)
+		},
+	)
+	statsDB := NewUniverseStats(
+		dbTxer, clock.NewTestClock(time.Now()),
+		WithStatsCacheDuration(time.Hour),
+	)
+
+	ctx := context.Background()
+
+	const numAssets = 4
+
+	sh := newUniStatsHarness(t, numAssets, db.BaseDB, statsDB)
+	sh.addEvents(numAssets)
+
+	first, err := statsDB.QuerySyncStats(
+		ctx, universe.SyncStatsQuery{
+			Limit: numAssets,
+		},
+	)
+	require.NoError(t, err)
+	require.Len(t, first.SyncStats, numAssets)
+
+	// Assets added after the first page is served are absent from the
+	// later pages.
+	sh = newUniStatsHarness(t, numAssets, db.BaseDB, statsDB)
+	sh.addEvents(numAssets)
+
+	page, err := statsDB.QuerySyncStats(
+		ctx, universe.SyncStatsQuery{
+			Offset: 2,
+			Limit:  2,
+		},
+	)
+	require.NoError(t, err)
+	require.Equal(t, first.SyncStats[2:], page.SyncStats)
+
+	page, err = statsDB.QuerySyncStats(
+		ctx, universe.SyncStatsQuery{
+			Offset: numAssets,
+			Limit:  numAssets,
+		},
+	)
+	require.NoError(t, err)
+	require.Empty(t, page.SyncStats)
+}
