@@ -1,6 +1,7 @@
 package supplyverifier
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"testing"
@@ -14,6 +15,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	internaltest "github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/mssmt"
+	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapnode/tapnodemock"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
@@ -998,6 +1000,120 @@ func TestVerifyCommit(t *testing.T) {
 		mockLookup.AssertExpectations(t)
 		mockTreeView.AssertExpectations(t)
 	})
+
+	// A commitment that doesn't spend the issuer's pre-commitment output
+	// is rejected before any provenance is fetched for its burn leaves.
+	t.Run("unanchored commitment skips provenance", func(t *testing.T) {
+		ctx := context.Background()
+
+		groupPrivKey, err := btcec.NewPrivateKey()
+		require.NoError(t, err)
+		delegKey := createTestDelegationKey(t)
+
+		burnProof, _ := randBurnProofWithGroupKey(
+			t, groupPrivKey, &delegKey,
+		)
+		groupKey := burnProof.Asset.GroupKey.GroupPubKey
+		assetSpec := asset.NewSpecifierFromGroupKey(groupKey)
+
+		scriptKey := burnProof.Asset.ScriptKey
+		burnEntry := supplycommit.NewBurnEvent{
+			BurnLeaf: universe.BurnLeaf{
+				UniverseKey: universe.AssetLeafKey{
+					BaseLeafKey: universe.BaseLeafKey{
+						OutPoint:  burnProof.OutPoint(),
+						ScriptKey: &scriptKey,
+					},
+					AssetID: burnProof.Asset.ID(),
+				},
+				BurnProof: &burnProof,
+			},
+		}
+		leaves := supplycommit.SupplyLeaves{
+			BurnLeafEntries: []supplycommit.NewBurnEvent{burnEntry},
+		}
+
+		// The commitment spends none of the pre-commitment outputs.
+		pc := createTestPreCommitment(t, 100, 0, 0)
+		commitment := createVerifiableCommitment(
+			t, 200, fn.None[wire.OutPoint](), nil,
+		)
+
+		mockView := &MockSupplyCommitView{}
+		mockLookup := &supplycommit.MockAssetLookup{}
+
+		mockView.On(
+			"FetchCommitmentByOutpoint",
+			mock.Anything,
+			mock.Anything,
+			commitment.CommitPoint(),
+		).Return(nil, ErrCommitmentNotFound).Once()
+
+		setupDelegationKeyMocks(t, mockLookup, &groupKey, &delegKey)
+
+		mockView.On(
+			"FetchStartingCommitment",
+			mock.Anything,
+			mock.Anything,
+		).Return(nil, ErrCommitmentNotFound).Once()
+
+		exporter := &countingExporter{}
+		v := Verifier{
+			assetLog: log,
+			cfg: VerifierCfg{
+				ChainBridge:      tapnodemock.NewChainBridge(),
+				SupplyCommitView: mockView,
+				AssetLookup:      mockLookup,
+				GroupFetcher:     &MockGroupFetcher{},
+				Provenance:       exporter,
+			},
+		}
+
+		err = v.VerifyCommit(
+			ctx, assetSpec, commitment, leaves,
+			supplycommit.PreCommits{pc},
+		)
+		require.ErrorContains(t, err, "does not spend all known "+
+			"pre-commitments")
+		require.Zero(t, exporter.fetches)
+		mockView.AssertExpectations(t)
+		mockLookup.AssertExpectations(t)
+	})
+}
+
+// inputProvenance returns a proof archive that holds the given file as the
+// provenance of the burn's primary input, keyed the way a universe serves it.
+func inputProvenance(t *testing.T, burnProof *proof.Proof,
+	inputFile *proof.File) *proof.MockProofArchive {
+
+	t.Helper()
+
+	prevID, err := burnProof.Asset.PrimaryPrevID()
+	require.NoError(t, err)
+
+	scriptKey, err := btcec.ParsePubKey(prevID.ScriptKey[:])
+	require.NoError(t, err)
+
+	var buf bytes.Buffer
+	require.NoError(t, inputFile.Encode(&buf))
+
+	groupKey := burnProof.Asset.GroupKey.GroupPubKey
+	archive := proof.NewMockProofArchive()
+	err = archive.ImportProofs(
+		context.Background(), proof.VerifierCtx{}, false,
+		&proof.AnnotatedProof{
+			Locator: proof.Locator{
+				AssetID:   &prevID.ID,
+				GroupKey:  &groupKey,
+				ScriptKey: *scriptKey,
+				OutPoint:  &prevID.OutPoint,
+			},
+			Blob: buf.Bytes(),
+		},
+	)
+	require.NoError(t, err)
+
+	return archive
 }
 
 // TestVerifyBurnLeaf tests verifyBurnLeaf.
@@ -1023,14 +1139,20 @@ func TestVerifyBurnLeaf(t *testing.T) {
 		require.ErrorContains(t, err, "missing burn proof")
 	})
 
-	t.Run("valid burn proof", func(t *testing.T) {
+	// burnLeafCase builds a burn leaf around a bare burn transition, and
+	// a verifier whose provenance source is chosen by the caller from the
+	// burn proof and its input's proof file.
+	burnLeafCase := func(t *testing.T,
+		provenance func(*proof.Proof, *proof.File) proof.Exporter) (
+		Verifier, asset.Specifier, supplycommit.NewBurnEvent) {
+
 		groupPrivKey, err := btcec.NewPrivateKey()
 		require.NoError(t, err)
 
 		delegPrivKey, err := btcec.NewPrivateKey()
 		require.NoError(t, err)
 
-		burnProof := randBurnProofWithGroupKey(
+		burnProof, inputFile := randBurnProofWithGroupKey(
 			t, groupPrivKey, delegPrivKey.PubKey(),
 		)
 
@@ -1069,10 +1191,89 @@ func TestVerifyBurnLeaf(t *testing.T) {
 			cfg: VerifierCfg{
 				ChainBridge:  tapnodemock.NewChainBridge(),
 				GroupFetcher: mockGroupFetcher,
+				Provenance:   provenance(&burnProof, inputFile),
 			},
 		}
 
-		err = v.verifyBurnLeaf(ctx, assetSpec, burnEntry)
+		return v, assetSpec, burnEntry
+	}
+
+	t.Run("valid burn proof", func(t *testing.T) {
+		v, assetSpec, burnEntry := burnLeafCase(
+			t, func(burnProof *proof.Proof,
+				inputFile *proof.File) proof.Exporter {
+
+				return inputProvenance(t, burnProof, inputFile)
+			},
+		)
+
+		err := v.verifyBurnLeaf(ctx, assetSpec, burnEntry)
 		require.NoError(t, err)
 	})
+
+	// A burn proof is a bare transition, so without its input's
+	// provenance it cannot verify.
+	t.Run("unknown input provenance", func(t *testing.T) {
+		v, assetSpec, burnEntry := burnLeafCase(
+			t, func(*proof.Proof, *proof.File) proof.Exporter {
+				return proof.NewMockProofArchive()
+			},
+		)
+
+		err := v.verifyBurnLeaf(ctx, assetSpec, burnEntry)
+		require.ErrorIs(t, err, proof.ErrProofNotFound)
+	})
+
+	// Provenance that doesn't reach back to a genesis proof leaves the
+	// burn unverified, however valid the transition itself.
+	t.Run("provenance not rooted at genesis", func(t *testing.T) {
+		v, assetSpec, burnEntry := burnLeafCase(
+			t, func(burnProof *proof.Proof,
+				_ *proof.File) proof.Exporter {
+
+				unrooted, err := proof.NewFile(
+					proof.V0, *burnProof,
+				)
+				require.NoError(t, err)
+
+				return inputProvenance(t, burnProof, unrooted)
+			},
+		)
+
+		err := v.verifyBurnLeaf(ctx, assetSpec, burnEntry)
+		require.ErrorIs(t, err, proof.ErrProofFileInvalid)
+	})
+
+	// A burn leaf whose own claims don't hold is rejected before any
+	// provenance is fetched for it.
+	t.Run("foreign group rejected before provenance", func(t *testing.T) {
+		exporter := &countingExporter{}
+		v, _, burnEntry := burnLeafCase(
+			t, func(*proof.Proof, *proof.File) proof.Exporter {
+				return exporter
+			},
+		)
+
+		err := v.verifyBurnLeaf(
+			ctx, createTestAssetSpec(t), burnEntry,
+		)
+		require.ErrorContains(t, err, "does not match expected asset "+
+			"group key")
+		require.Zero(t, exporter.fetches)
+	})
+}
+
+// countingExporter is a provenance source that holds nothing and counts the
+// fetches made of it.
+type countingExporter struct {
+	fetches int
+}
+
+// FetchProof counts the fetch and reports the proof as not found.
+func (c *countingExporter) FetchProof(context.Context,
+	proof.Locator) (proof.Blob, error) {
+
+	c.fetches++
+
+	return nil, proof.ErrProofNotFound
 }

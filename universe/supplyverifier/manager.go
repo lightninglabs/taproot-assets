@@ -13,6 +13,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
+	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapnode"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
@@ -91,6 +92,11 @@ type ManagerCfg struct {
 	// GroupFetcher is used to fetch asset group information.
 	GroupFetcher tapnode.GroupFetcher
 
+	// UniverseProofs assembles the full proof file of an asset from the
+	// local universe. Supply commitments pushed to this node are verified
+	// against the provenance its own universe holds.
+	UniverseProofs proof.Exporter
+
 	// IssuanceSubscriptions registers verifier state machines to receive
 	// new asset group issuance event notifications.
 	IssuanceSubscriptions IssuanceSubscriptions
@@ -134,6 +140,10 @@ func (m *ManagerCfg) Validate() error {
 
 	if m.GroupFetcher == nil {
 		return fmt.Errorf("group fetcher is required")
+	}
+
+	if m.UniverseProofs == nil {
+		return fmt.Errorf("universe proofs is required")
 	}
 
 	if m.IssuanceSubscriptions == nil {
@@ -600,6 +610,7 @@ func (m *Manager) InsertSupplyCommit(ctx context.Context,
 			GroupFetcher:     m.cfg.GroupFetcher,
 			SupplyCommitView: m.cfg.SupplyCommitView,
 			SupplyTreeView:   m.cfg.SupplyTreeView,
+			Provenance:       m.cfg.UniverseProofs,
 		},
 	)
 	if err != nil {
