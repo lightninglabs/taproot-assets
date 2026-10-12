@@ -393,3 +393,88 @@ WHERE commit_id = @commit_id;
 SELECT sqlc.embed(t)
 FROM supply_commit_transitions t
 WHERE t.new_commitment_id = @new_commitment_id;
+
+-- name: FetchUnconfirmedBroadcastSupplyCommits :many
+-- Never-confirmed commitments whose state machine is still waiting to
+-- broadcast. Used to drop a commitment that cannot confirm because its
+-- inputs are not real pre-commit or prior-commitment outpoints.
+SELECT
+    sm.group_key,
+    sc.commit_id,
+    t.transition_id,
+    ct.raw_tx
+FROM supply_commit_state_machines sm
+JOIN supply_commit_states states
+    ON sm.current_state_id = states.id
+JOIN supply_commit_transitions t
+    ON t.state_machine_group_key = sm.group_key
+    AND t.finalized = FALSE
+JOIN supply_commitments sc
+    ON t.new_commitment_id = sc.commit_id
+JOIN chain_txns ct
+    ON sc.chain_txn_id = ct.txn_id
+WHERE states.state_name = 'CommitBroadcastState'
+    AND ct.block_hash IS NULL;
+
+-- name: FetchMintSupplyPreCommitOutpoints :many
+SELECT outpoint
+FROM mint_supply_pre_commits
+WHERE outpoint IS NOT NULL;
+
+-- name: FetchRemoteSupplyPreCommitOutpoints :many
+SELECT outpoint
+FROM supply_pre_commits
+WHERE outpoint IS NOT NULL;
+
+-- name: FetchConfirmedSupplyCommitOutpoints :many
+SELECT ct.txid, sc.output_index
+FROM supply_commitments sc
+JOIN chain_txns ct
+    ON sc.chain_txn_id = ct.txn_id
+WHERE ct.block_hash IS NOT NULL
+    AND sc.output_index IS NOT NULL;
+
+-- name: ClearPendingSupplyCommitTransition :exec
+UPDATE supply_commit_transitions
+SET new_commitment_id = NULL,
+    pending_commit_txn_id = NULL,
+    frozen = FALSE
+WHERE transition_id = $1;
+
+-- name: ClearSupplyCommitmentRefs :exec
+UPDATE supply_commit_transitions
+SET old_commitment_id = CASE
+        WHEN old_commitment_id = $1 THEN NULL
+        ELSE old_commitment_id
+    END,
+    new_commitment_id = CASE
+        WHEN new_commitment_id = $1 THEN NULL
+        ELSE new_commitment_id
+    END;
+
+-- name: UnmarkMintPreCommitsSpentBy :exec
+UPDATE mint_supply_pre_commits
+SET spent_by = NULL
+WHERE spent_by = $1;
+
+-- name: UnmarkRemotePreCommitsSpentBy :exec
+UPDATE supply_pre_commits
+SET spent_by = NULL
+WHERE spent_by = $1;
+
+-- name: ClearSpentCommitmentRef :exec
+UPDATE supply_commitments
+SET spent_commitment = NULL
+WHERE spent_commitment = $1;
+
+-- name: ResetSupplyCommitMachineForAbandon :exec
+UPDATE supply_commit_state_machines
+SET current_state_id = (
+        SELECT id FROM supply_commit_states
+        WHERE state_name = $1
+    ),
+    latest_commitment_id = CASE
+        WHEN latest_commitment_id = $2 THEN NULL
+        ELSE latest_commitment_id
+    END
+WHERE group_key = $3;

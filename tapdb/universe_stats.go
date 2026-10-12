@@ -893,14 +893,23 @@ func (u *UniverseStats) QuerySyncStats(ctx context.Context,
 					err)
 			}
 
-			hash, err := chainhash.NewHash(assetStat.AnchorTxid[:])
-			if err != nil {
-				return err
-			}
+			// genesis_points.anchor_tx_id is nullable. It stays
+			// unset until a proof whose anchor transaction
+			// spends the genesis outpoint is stored. A stats
+			// query still succeeds for that asset; the anchor
+			// outpoint stays empty until the mint is known.
+			if len(assetStat.AnchorTxid) > 0 {
+				hash, err := chainhash.NewHash(
+					assetStat.AnchorTxid,
+				)
+				if err != nil {
+					return err
+				}
 
-			stats.AnchorPoint = wire.OutPoint{
-				Hash:  *hash,
-				Index: uint32(assetStat.AnchorIndex),
+				stats.AnchorPoint = wire.OutPoint{
+					Hash:  *hash,
+					Index: uint32(assetStat.AnchorIndex),
+				}
 			}
 
 			resp.SyncStats = append(resp.SyncStats, stats)

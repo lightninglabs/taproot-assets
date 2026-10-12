@@ -1444,3 +1444,14 @@ WHERE asset_id = (SELECT asset_id FROM target_asset)
         AND claimant_txn.block_hash IS NOT NULL
   )
 RETURNING assets.asset_id;
+
+-- name: FetchAllChainTxns :many
+SELECT txn_id, txid, raw_tx, block_height, block_hash
+FROM chain_txns;
+
+-- name: FetchMintPreCommitOutpointsByGenesisID :many
+SELECT msp.outpoint
+FROM mint_supply_pre_commits msp
+JOIN asset_minting_batches amb ON msp.batch_id = amb.batch_id
+WHERE amb.genesis_id = $1
+  AND msp.outpoint IS NOT NULL;
