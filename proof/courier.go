@@ -3,6 +3,7 @@ package proof
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"crypto/sha512"
 	"crypto/tls"
 	"fmt"
@@ -1453,6 +1454,30 @@ func (c *UniverseRpcCourier) deliverFragment(ctx context.Context,
 	return nil
 }
 
+// proofResponseBlob decodes the proof and asset ID from a Universe response.
+func proofResponseBlob(resp *unirpc.AssetProofResponse) (
+	Blob, asset.ID, error) {
+
+	var zeroAssetID asset.ID
+
+	assetLeaf := resp.GetAssetLeaf()
+	if assetLeaf == nil {
+		return nil, zeroAssetID, fmt.Errorf(
+			"Universe response is missing asset leaf",
+		)
+	}
+
+	var transitionProof Proof
+	err := transitionProof.Decode(bytes.NewReader(assetLeaf.Proof))
+	if err != nil {
+		return nil, zeroAssetID, fmt.Errorf(
+			"unable to decode Universe proof response: %w", err,
+		)
+	}
+
+	return assetLeaf.Proof, transitionProof.Asset.ID(), nil
+}
+
 // DeliverProof attempts to delivery a proof file to the receiver.
 func (c *UniverseRpcCourier) DeliverProof(ctx context.Context,
 	recipient Recipient, annotatedProof *AnnotatedProof,
@@ -1465,17 +1490,78 @@ func (c *UniverseRpcCourier) DeliverProof(ctx context.Context,
 		return err
 	}
 
-	log.Infof("Universe RPC proof courier attempting to deliver proof "+
-		"file (num_proofs=%d) for send event (asset_id=%v, amt=%v)",
-		proofFile.NumProofs(), recipient.AssetID, recipient.Amount)
+	// Collect and encode the complete proof DAG before starting delivery.
+	// In particular, merged asset inputs are nested proof files in
+	// AdditionalInputs and need their own Universe leaves.
+	transitionProofs := make([]*Proof, 0, proofFile.NumProofs())
+	err = proofFile.walkProofDAG(func(transitionProof *Proof) {
+		transitionProofs = append(transitionProofs, transitionProof)
+	})
+	if err != nil {
+		return fmt.Errorf("unable to walk proof file: %w", err)
+	}
 
-	// Iterate over each proof in the proof file and submit to the courier
-	// service.
-	for i := 0; i < proofFile.NumProofs(); i++ {
-		transitionProof, err := proofFile.ProofAt(uint32(i))
-		if err != nil {
-			return err
+	type deliverableProof struct {
+		proof *Proof
+		blob  []byte
+		loc   Locator
+	}
+	deliverableProofs := make([]deliverableProof, 0, len(transitionProofs))
+	seenLocators := make(map[[32]byte][sha256.Size]byte)
+	for _, transitionProof := range transitionProofs {
+		proofAsset := transitionProof.Asset
+		assetID := proofAsset.ID()
+		outPoint := transitionProof.OutPoint()
+
+		var groupPubKey *btcec.PublicKey
+		if proofAsset.GroupKey != nil {
+			groupPubKey = &proofAsset.GroupKey.GroupPubKey
 		}
+
+		loc := Locator{
+			AssetID:   &assetID,
+			GroupKey:  groupPubKey,
+			ScriptKey: *proofAsset.ScriptKey.PubKey,
+			OutPoint:  &outPoint,
+		}
+		locHash, err := loc.Hash()
+		if err != nil {
+			return fmt.Errorf("unable to hash proof locator: %w",
+				err)
+		}
+
+		proofBlob, err := transitionProof.Bytes()
+		if err != nil {
+			return fmt.Errorf("error encoding proof file: %w", err)
+		}
+		proofHash := sha256.Sum256(proofBlob)
+
+		knownProofHash, ok := seenLocators[locHash]
+		if ok {
+			if knownProofHash != proofHash {
+				return fmt.Errorf("conflicting proofs for "+
+					"Universe locator %x", locHash)
+			}
+
+			continue
+		}
+
+		seenLocators[locHash] = proofHash
+		deliverableProofs = append(deliverableProofs, deliverableProof{
+			proof: transitionProof,
+			blob:  proofBlob,
+			loc:   loc,
+		})
+	}
+
+	log.Infof("Universe RPC proof courier attempting to deliver proof "+
+		"DAG (num_proofs=%d) for send event (asset_id=%v, amt=%v)",
+		len(deliverableProofs), recipient.AssetID, recipient.Amount)
+
+	// Submit each proof in dependency-first order, so nested histories are
+	// available before a proof that spends them.
+	for i, deliverable := range deliverableProofs {
+		transitionProof := deliverable.proof
 		proofAsset := transitionProof.Asset
 
 		// Construct asset leaf.
@@ -1488,51 +1574,44 @@ func (c *UniverseRpcCourier) DeliverProof(ctx context.Context,
 			return err
 		}
 
-		transitionProofBytes, err := transitionProof.Bytes()
-		if err != nil {
-			return fmt.Errorf("error encoding proof file: %w", err)
-		}
-
 		assetLeaf := unirpc.AssetLeaf{
 			Asset: rpcAsset,
-			Proof: transitionProofBytes,
+			Proof: deliverable.blob,
 		}
 
 		// Construct universe key.
-		outPoint := transitionProof.OutPoint()
+		outPoint := *deliverable.loc.OutPoint
 		assetKey := rpcutils.MarshalAssetKey(
 			outPoint, proofAsset.ScriptKey.PubKey,
 		)
-		assetID := proofAsset.ID()
+		assetID := *deliverable.loc.AssetID
 
-		var (
-			groupPubKey      *btcec.PublicKey
-			groupPubKeyBytes []byte
-		)
-		if proofAsset.GroupKey != nil {
-			groupPubKey = &proofAsset.GroupKey.GroupPubKey
+		groupPubKey := deliverable.loc.GroupKey
+		var groupPubKeyBytes []byte
+		if groupPubKey != nil {
 			groupPubKeyBytes = groupPubKey.SerializeCompressed()
 		}
 
-		universeID := rpcutils.MarshalUniverseID(
-			assetID[:], groupPubKeyBytes,
-		)
-		universeKey := unirpc.UniverseKey{
-			Id:      universeID,
+		assetUniverseKey := unirpc.UniverseKey{
+			Id:      rpcutils.MarshalUniverseID(assetID[:], nil),
 			LeafKey: assetKey,
+		}
+		var groupUniverseKey *unirpc.UniverseKey
+		if groupPubKeyBytes != nil {
+			groupUniverseKey = &unirpc.UniverseKey{
+				Id: rpcutils.MarshalUniverseID(
+					nil, groupPubKeyBytes,
+				),
+				LeafKey: assetKey,
+			}
 		}
 
 		// Before attempting to deliver the proof, log that an attempted
 		// delivery is about to occur.
-		loc := Locator{
-			AssetID:   &assetID,
-			GroupKey:  groupPubKey,
-			ScriptKey: *proofAsset.ScriptKey.PubKey,
-			OutPoint:  &outPoint,
-		}
+		loc := deliverable.loc
 
 		// Setup delivery routine and start backoff procedure.
-		lastProof := i == proofFile.NumProofs()-1
+		lastProof := i == len(deliverableProofs)-1
 		deliverFunc := func() error {
 			// Connect to the courier service if a connection hasn't
 			// been established yet.
@@ -1548,21 +1627,65 @@ func (c *UniverseRpcCourier) DeliverProof(ctx context.Context,
 					"attempt: %w", err)
 			}
 
-			// Submit proof to courier.
-			subCtx, subCtxCancel = context.WithTimeout(
-				ctx, c.cfg.ServiceRequestTimeout,
-			)
-			defer subCtxCancel()
+			// An asset-ID Universe gives every grouped asset an
+			// unambiguous namespace. We also publish to the group
+			// Universe for compatibility and group discovery.
+			insertProof := func(key *unirpc.UniverseKey) error {
+				insertCtx, cancel := context.WithTimeout(
+					ctx, c.cfg.ServiceRequestTimeout,
+				)
+				defer cancel()
 
-			assetProof := unirpc.AssetProof{
-				Key:       &universeKey,
-				AssetLeaf: &assetLeaf,
+				assetProof := unirpc.AssetProof{
+					Key:       key,
+					AssetLeaf: &assetLeaf,
+				}
+				resp, err := c.client.InsertProof(
+					insertCtx, &assetProof,
+				)
+				if err != nil {
+					return err
+				}
+
+				_, actualAssetID, err := proofResponseBlob(resp)
+				if err != nil {
+					return err
+				}
+				if actualAssetID != assetID {
+					return fmt.Errorf(
+						"Universe proof asset ID "+
+							"mismatch: got %x, "+
+							"want %x",
+						actualAssetID, assetID,
+					)
+				}
+
+				return nil
 			}
-			_, err = c.client.InsertProof(subCtx, &assetProof)
-			if err != nil {
-				return fmt.Errorf("error inserting proof "+
-					"into universe courier service: %w",
-					err)
+
+			assetErr := insertProof(&assetUniverseKey)
+			if assetErr != nil {
+				return fmt.Errorf(
+					"error inserting proof into "+
+						"asset ID Universe courier "+
+						"namespace: %w", assetErr,
+				)
+			}
+
+			// The asset-ID namespace is unambiguous. The group
+			// insert remains for compatibility and discovery,
+			// but a collision must not fail delivery.
+			if groupUniverseKey != nil {
+				groupErr := insertProof(groupUniverseKey)
+				if groupErr != nil {
+					log.Warnf(
+						"Unable to publish "+
+							"grouped proof in "+
+							"group Universe "+
+							"(asset_id=%x): %v",
+						assetID, groupErr,
+					)
+				}
 			}
 
 			// The send fragment tells the receiver to fetch its
@@ -1570,7 +1693,14 @@ func (c *UniverseRpcCourier) DeliverProof(ctx context.Context,
 			// in the universe. A retry after a failed send inserts
 			// that proof again, which the universe accepts.
 			if lastProof && sendFragment != nil {
-				err = c.deliverFragment(subCtx, sendFragment)
+				fragmentCtx, cancel := context.WithTimeout(
+					ctx, c.cfg.ServiceRequestTimeout,
+				)
+				defer cancel()
+
+				err = c.deliverFragment(
+					fragmentCtx, sendFragment,
+				)
 				if err != nil {
 					return fmt.Errorf("error delivering "+
 						"send fragment to courier "+
@@ -1611,13 +1741,23 @@ func (c *UniverseRpcCourier) ReceiveProof(ctx context.Context,
 				"is missing outpoint", loc.AssetID[:])
 		}
 
-		universeKey := unirpc.UniverseKey{
+		assetKey := rpcutils.MarshalAssetKey(
+			*loc.OutPoint, &loc.ScriptKey,
+		)
+		assetUniverseKey := unirpc.UniverseKey{
 			Id: rpcutils.MarshalUniverseID(
-				loc.AssetID[:], groupKeyBytes,
+				loc.AssetID[:], nil,
 			),
-			LeafKey: rpcutils.MarshalAssetKey(
-				*loc.OutPoint, &loc.ScriptKey,
-			),
+			LeafKey: assetKey,
+		}
+		var groupUniverseKey *unirpc.UniverseKey
+		if groupKeyBytes != nil {
+			groupUniverseKey = &unirpc.UniverseKey{
+				Id: rpcutils.MarshalUniverseID(
+					nil, groupKeyBytes,
+				),
+				LeafKey: assetKey,
+			}
 		}
 
 		// Setup proof receive/query routine and start backoff
@@ -1638,24 +1778,74 @@ func (c *UniverseRpcCourier) ReceiveProof(ctx context.Context,
 					"recieve attempt: %w", err)
 			}
 
-			// Retrieve proof from courier.
-			subCtx, subCtxCancel = context.WithTimeout(
-				ctx, c.cfg.ServiceRequestTimeout,
-			)
-			defer subCtxCancel()
-
 			log.Tracef("Querying for proof with script key %x",
 				loc.ScriptKey.SerializeCompressed())
 
-			resp, err := c.client.QueryProof(subCtx, &universeKey)
-			if err != nil {
-				return fmt.Errorf("error retrieving proof "+
-					"from universe courier service: %w",
-					err)
+			queryProof := func(key *unirpc.UniverseKey) (Blob,
+				bool, error) {
+
+				queryCtx, cancel := context.WithTimeout(
+					ctx, c.cfg.ServiceRequestTimeout,
+				)
+				defer cancel()
+
+				resp, err := c.client.QueryProof(queryCtx, key)
+				if err != nil {
+					return nil, false, err
+				}
+
+				blob, actualAssetID, err := proofResponseBlob(
+					resp,
+				)
+				if err != nil {
+					return nil, false, err
+				}
+
+				return blob, actualAssetID == *loc.AssetID, nil
 			}
 
-			proofBlob = resp.AssetLeaf.Proof
+			if groupUniverseKey != nil {
+				groupBlob, matches, groupErr := queryProof(
+					groupUniverseKey,
+				)
+				groupErrCode := status.Code(groupErr)
+				switch {
+				case groupErr == nil && matches:
+					proofBlob = groupBlob
+					return nil
 
+				case groupErr != nil &&
+					groupErrCode != codes.NotFound &&
+					groupErrCode != codes.Unknown:
+
+					return fmt.Errorf(
+						"error retrieving group "+
+							"proof from universe "+
+							"courier service: %w",
+						groupErr,
+					)
+				}
+			}
+
+			assetBlob, matches, err := queryProof(
+				&assetUniverseKey,
+			)
+			if err != nil {
+				return fmt.Errorf(
+					"error retrieving asset ID "+
+						"proof from universe courier "+
+						"service: %w", err,
+				)
+			}
+			if !matches {
+				return fmt.Errorf(
+					"asset ID Universe returned "+
+						"proof for a different asset "+
+						"(want %x)", loc.AssetID[:],
+				)
+			}
+
+			proofBlob = assetBlob
 			return nil
 		}
 
