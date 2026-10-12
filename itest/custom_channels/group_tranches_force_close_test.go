@@ -255,9 +255,9 @@ func testCustomChannelsGroupTranchesForceClose(ctx context.Context,
 		t.t, fabia, nil, groupKey, totalFirstSend,
 	)
 
-	// Next, we'll mine three additional blocks to trigger the CSV
+	// Next, we'll mine two additional blocks to trigger the CSV
 	// delay for Erin.
-	mineBlocks(t, net, 4, 0)
+	mineBlocks(t, net, 2, 0)
 
 	// We expect that Erin's sweep transaction has been broadcast.
 	_, err = waitForNTxsInMempool(
