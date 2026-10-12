@@ -189,7 +189,8 @@ func NewLeafGenesisRecord(genesis *Genesis) tlv.Record {
 		return uint64(len(b.Bytes()))
 	}
 	return tlv.MakeDynamicRecord(
-		LeafGenesis, genesis, recordSize, GenesisEncoder, GenesisDecoder,
+		LeafGenesis, genesis, recordSize, GenesisEncoder,
+		exactLength(GenesisDecoder),
 	)
 }
 
@@ -204,7 +205,8 @@ func NewLeafAmountRecord(amount *uint64) tlv.Record {
 		return tlv.VarIntSize(*amount)
 	}
 	return tlv.MakeDynamicRecord(
-		LeafAmount, amount, recordSize, VarIntEncoder, VarIntDecoder,
+		LeafAmount, amount, recordSize, VarIntEncoder,
+		exactLength(VarIntDecoder),
 	)
 }
 
@@ -214,7 +216,7 @@ func NewLeafLockTimeRecord(lockTime *uint64) tlv.Record {
 	}
 	return tlv.MakeDynamicRecord(
 		LeafLockTime, lockTime, recordSize, VarIntEncoder,
-		VarIntDecoder,
+		exactLength(VarIntDecoder),
 	)
 }
 
@@ -224,7 +226,7 @@ func NewLeafRelativeLockTimeRecord(relativeLockTime *uint64) tlv.Record {
 	}
 	return tlv.MakeDynamicRecord(
 		LeafRelativeLockTime, relativeLockTime, recordSize,
-		VarIntEncoder, VarIntDecoder,
+		VarIntEncoder, exactLength(VarIntDecoder),
 	)
 }
 
@@ -233,14 +235,16 @@ func NewLeafPrevWitnessRecord(prevWitnesses *[]Witness,
 
 	return EncodeOnceRecord(
 		LeafPrevWitness, prevWitnesses,
-		WitnessEncoderWithType(encodeType), WitnessDecoder,
+		WitnessEncoderWithType(encodeType),
+		exactLength(WitnessDecoder),
 	)
 }
 
 func NewLeafSplitCommitmentRootRecord(root *mssmt.Node) tlv.Record {
 	return tlv.MakeStaticRecord(
 		LeafSplitCommitmentRoot, root, sha256.Size+8,
-		SplitCommitmentRootEncoder, SplitCommitmentRootDecoder,
+		SplitCommitmentRootEncoder,
+		exactLength(SplitCommitmentRootDecoder),
 	)
 }
 
@@ -255,7 +259,7 @@ func NewLeafScriptKeyRecord(scriptKey **btcec.PublicKey) tlv.Record {
 	const recordSize = btcec.PubKeyBytesLenCompressed
 	return tlv.MakeStaticRecord(
 		LeafScriptKey, scriptKey, recordSize,
-		CompressedPubKeyEncoder, CompressedPubKeyDecoder,
+		CompressedPubKeyEncoder, exactLength(CompressedPubKeyDecoder),
 	)
 }
 
@@ -263,14 +267,15 @@ func NewLeafGroupKeyRecord(groupKey **GroupKey) tlv.Record {
 	const recordSize = btcec.PubKeyBytesLenCompressed
 	return tlv.MakeStaticRecord(
 		LeafGroupKey, groupKey, recordSize, GroupKeyEncoder,
-		GroupKeyDecoder,
+		exactLength(GroupKeyDecoder),
 	)
 }
 
 func NewWitnessPrevIDRecord(prevID **PrevID) tlv.Record {
 	const recordSize = 36 + sha256.Size + btcec.PubKeyBytesLenCompressed
 	return tlv.MakeStaticRecord(
-		WitnessPrevID, prevID, recordSize, PrevIDEncoder, PrevIDDecoder,
+		WitnessPrevID, prevID, recordSize, PrevIDEncoder,
+		exactLength(PrevIDDecoder),
 	)
 }
 
@@ -284,14 +289,14 @@ func NewWitnessTxWitnessRecord(witness *wire.TxWitness) tlv.Record {
 	}
 	return tlv.MakeDynamicRecord(
 		WitnessTxWitness, witness, recordSize, TxWitnessEncoder,
-		TxWitnessDecoder,
+		exactLength(TxWitnessDecoder),
 	)
 }
 
 func NewWitnessSplitCommitmentRecord(commitment **SplitCommitment) tlv.Record {
 	return EncodeOnceRecord(
 		WitnessSplitCommitment, commitment, SplitCommitmentEncoder,
-		SplitCommitmentDecoder,
+		exactLength(SplitCommitmentDecoder),
 	)
 }
 

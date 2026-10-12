@@ -220,6 +220,16 @@
   derived from the final sweep transaction. Fixes
   [#2205](https://github.com/lightninglabs/taproot-assets/issues/2205).
 
+* [PR#2340](https://github.com/lightninglabs/taproot-assets/pull/2340)
+  makes the decoding of assets strict. An asset or asset witness record
+  is rejected unless its value fills exactly the record's declared
+  length, and an asset is rejected if its type record differs from the
+  type in its genesis. A V1 group key reveal is decoded from its own
+  record only, and is rejected if it carries an unknown even type;
+  records that follow it in a proof are no longer consumed by it. A
+  compressed public key of all zeroes is rejected, as are alt leaves
+  whose script keys share an x coordinate.
+
 # New Features
 
 ## Functional Enhancements

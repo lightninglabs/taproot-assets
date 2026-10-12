@@ -36,6 +36,10 @@ var (
 	// ErrDuplicateScriptKeys is returned when two alt leaves have the same
 	// script key.
 	ErrDuplicateScriptKeys = errors.New("alt leaf: duplicate script keys")
+
+	// ErrRecordLength is returned when a record's value does not occupy
+	// exactly the record's declared length.
+	ErrRecordLength = errors.New("record: length mismatch")
 )
 
 // encodeOnce caches the serialization of a TLV record value so that the
@@ -125,6 +129,36 @@ func DVarBytesWithLimit(limit uint64) tlv.Decoder {
 	}
 }
 
+// decodeExact runs decode over the next l bytes of r, and fails unless decode
+// consumes all of them.
+func decodeExact(r io.Reader, l uint64, decode func(io.Reader) error) error {
+	if l > math.MaxInt64 {
+		return tlv.ErrRecordTooLarge
+	}
+
+	lr := &io.LimitedReader{R: r, N: int64(l)}
+	if err := decode(lr); err != nil {
+		return err
+	}
+
+	if lr.N != 0 {
+		return fmt.Errorf("%w: %d of %d bytes unread", ErrRecordLength,
+			lr.N, l)
+	}
+
+	return nil
+}
+
+// exactLength wraps a record decoder so that it fails unless it consumes
+// exactly the record's declared length.
+func exactLength(dec tlv.Decoder) tlv.Decoder {
+	return func(r io.Reader, val any, buf *[8]byte, l uint64) error {
+		return decodeExact(r, l, func(r io.Reader) error {
+			return dec(r, val, buf, l)
+		})
+	}
+}
+
 func InlineVarBytesEncoder(w io.Writer, val any, buf *[8]byte) error {
 	if t, ok := val.(*[]byte); ok {
 		if err := tlv.WriteVarInt(w, uint64(len(*t)), buf); err != nil {
@@ -211,15 +245,9 @@ func CompressedPubKeyDecoder(r io.Reader, val any, buf *[8]byte,
 			return err
 		}
 
-		var key *btcec.PublicKey
-		// Handle empty key, which is not on the curve.
-		if keyBytes == [btcec.PubKeyBytesLenCompressed]byte{} {
-			key = &btcec.PublicKey{}
-		} else {
-			key, err = btcec.ParsePubKey(keyBytes[:])
-			if err != nil {
-				return err
-			}
+		key, err := btcec.ParsePubKey(keyBytes[:])
+		if err != nil {
+			return err
 		}
 		*typ = key
 		return nil
@@ -865,6 +893,15 @@ func DecodeTapLeaf(leafData []byte) (*txscript.TapLeaf, error) {
 	return &leaf, nil
 }
 
+// altLeafKey returns the x-only serialization of an alt leaf's script key,
+// which is the key the leaf is committed under. A nil key maps to all zeroes.
+func altLeafKey(scriptKey *btcec.PublicKey) [32]byte {
+	var key [32]byte
+	copy(key[:], ToSerialized(scriptKey).SchnorrSerialized())
+
+	return key
+}
+
 func AltLeavesEncoder(w io.Writer, val any, buf *[8]byte) error {
 	if t, ok := val.(*[]AltLeaf[Asset]); ok {
 		// If the AltLeaves slice is empty, we will still encode its
@@ -875,12 +912,12 @@ func AltLeavesEncoder(w io.Writer, val any, buf *[8]byte) error {
 		}
 
 		var streamBuf bytes.Buffer
-		leafKeys := make(map[SerializedKey]struct{})
+		leafKeys := make(map[[32]byte]struct{})
 		for _, leaf := range *t {
 			// Check that this leaf has a unique script key compared
 			// to all previous leaves. This type assertion is safe
 			// as we've made an equivalent assertion above.
-			leafKey := ToSerialized(leaf.(*Asset).ScriptKey.PubKey)
+			leafKey := altLeafKey(leaf.(*Asset).ScriptKey.PubKey)
 			_, ok := leafKeys[leafKey]
 			if ok {
 				return fmt.Errorf("%w: %x",
@@ -930,7 +967,7 @@ func AltLeavesDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 		}
 
 		leaves := make([]AltLeaf[Asset], numItems)
-		leafKeys := make(map[SerializedKey]struct{})
+		leafKeys := make(map[[32]byte]struct{})
 		for i := uint64(0); i < numItems; i++ {
 			var streamBytes []byte
 			err = InlineVarBytesDecoder(
@@ -947,7 +984,7 @@ func AltLeavesDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 			}
 
 			// Check that each alt leaf has a unique script key.
-			leafKey := ToSerialized(leaf.ScriptKey.PubKey)
+			leafKey := altLeafKey(leaf.ScriptKey.PubKey)
 			_, ok := leafKeys[leafKey]
 			if ok {
 				return fmt.Errorf("%w: %x",

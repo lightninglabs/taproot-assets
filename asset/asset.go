@@ -10,6 +10,7 @@ import (
 	"io"
 	"math"
 	"reflect"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -299,6 +300,11 @@ var (
 	// ErrDuplicateAltLeafKey is returned when a slice of AltLeaves contains
 	// 2 or more AltLeaves with the same AssetCommitmentKey.
 	ErrDuplicateAltLeafKey = errors.New("duplicate alt leaf key")
+
+	// ErrGenesisTypeMismatch is returned when an asset's type record
+	// differs from the type in its genesis record.
+	ErrGenesisTypeMismatch = errors.New("asset: type record differs " +
+		"from genesis type")
 )
 
 const (
@@ -979,7 +985,7 @@ func (w *Witness) DeepEqual(skipTxWitness bool, o *Witness) bool {
 		return true
 	}
 
-	return reflect.DeepEqual(w.TxWitness, o.TxWitness)
+	return slices.EqualFunc(w.TxWitness, o.TxWitness, bytes.Equal)
 }
 
 // ScriptVersion denotes the asset script versioning scheme.
@@ -2187,10 +2193,16 @@ func (a *Asset) Record() tlv.Record {
 // DecodeRecords provides all records known for an asset witness for proper
 // decoding.
 func (a *Asset) DecodeRecords() []tlv.Record {
+	return a.decodeRecords(&a.Type)
+}
+
+// decodeRecords provides all records known for an asset, with the type record
+// decoded into the given type.
+func (a *Asset) decodeRecords(assetType *Type) []tlv.Record {
 	return []tlv.Record{
 		NewLeafVersionRecord(&a.Version),
 		NewLeafGenesisRecord(&a.Genesis),
-		NewLeafTypeRecord(&a.Type),
+		NewLeafTypeRecord(assetType),
 		NewLeafAmountRecord(&a.Amount),
 		NewLeafLockTimeRecord(&a.LockTime),
 		NewLeafRelativeLockTimeRecord(&a.RelativeLockTime),
@@ -2227,7 +2239,11 @@ func (a *Asset) EncodeNoWitness(w io.Writer) error {
 
 // Decode decodes an asset from a TLV stream.
 func (a *Asset) Decode(r io.Reader) error {
-	stream, err := tlv.NewStream(a.DecodeRecords()...)
+	// The genesis record and the type record both carry the asset's type.
+	// The type record is decoded separately so that the two can be
+	// compared.
+	var assetType Type
+	stream, err := tlv.NewStream(a.decodeRecords(&assetType)...)
 	if err != nil {
 		return err
 	}
@@ -2235,6 +2251,11 @@ func (a *Asset) Decode(r io.Reader) error {
 	unknownOddTypes, err := TlvStrictDecode(stream, r, KnownAssetLeafTypes)
 	if err != nil {
 		return err
+	}
+
+	if assetType != a.Genesis.Type {
+		return fmt.Errorf("%w: type %d, genesis type %d",
+			ErrGenesisTypeMismatch, assetType, a.Genesis.Type)
 	}
 
 	a.UnknownOddTypes = unknownOddTypes
