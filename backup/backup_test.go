@@ -2,6 +2,7 @@ package backup
 
 import (
 	"bytes"
+	"io"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -9,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
 
@@ -67,7 +69,7 @@ func newTestScriptKeyBackup(t *testing.T) *ScriptKeyBackup {
 				Index:  456,
 			},
 		},
-		Tweak: []byte("test-tweak-data"),
+		Tweak: bytes.Repeat([]byte{0x01}, 64),
 	}
 }
 
@@ -139,6 +141,109 @@ func TestScriptKeyBackupRoundtrip(t *testing.T) {
 	require.Equal(t, original.RawKey.Family, decoded.RawKey.Family)
 	require.Equal(t, original.RawKey.Index, decoded.RawKey.Index)
 	require.Equal(t, original.Tweak, decoded.Tweak)
+}
+
+// TestBackupPubKeyDecoding verifies that imported backups can contain either
+// supported public key serialization without accepting oversized records.
+func TestBackupPubKeyDecoding(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		typ    tlv.Type
+		decode func(io.Reader) (*btcec.PublicKey, error)
+	}{
+		{
+			name: "script key",
+			typ:  ScriptKeyPubKeyType,
+			decode: func(r io.Reader) (*btcec.PublicKey, error) {
+				var backup ScriptKeyBackup
+				err := backup.Decode(r)
+				return backup.PubKey, err
+			},
+		},
+		{
+			name: "raw script key",
+			typ:  ScriptKeyRawPubKeyType,
+			decode: func(r io.Reader) (*btcec.PublicKey, error) {
+				var backup ScriptKeyBackup
+				err := backup.Decode(r)
+				return backup.RawKey.PubKey, err
+			},
+		},
+		{
+			name: "key descriptor",
+			typ:  KeyDescPubKeyType,
+			decode: func(r io.Reader) (*btcec.PublicKey, error) {
+				var backup KeyDescriptorBackup
+				err := backup.Decode(r)
+				return backup.PubKey, err
+			},
+		},
+	}
+
+	key := randPubKey(t)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			encode := func(keyBytes []byte) io.Reader {
+				t.Helper()
+
+				record := tlv.MakePrimitiveRecord(
+					test.typ, &keyBytes,
+				)
+				stream, err := tlv.NewStream(record)
+				require.NoError(t, err)
+
+				var buf bytes.Buffer
+				require.NoError(t, stream.Encode(&buf))
+				return &buf
+			}
+
+			for _, serialization := range []struct {
+				name  string
+				bytes []byte
+			}{
+				{"compressed", key.SerializeCompressed()},
+				{"uncompressed", key.SerializeUncompressed()},
+			} {
+				t.Run(serialization.name, func(t *testing.T) {
+					decoded, err := test.decode(encode(
+						serialization.bytes,
+					))
+					require.NoError(t, err)
+					require.True(t, key.IsEqual(decoded))
+				})
+			}
+
+			t.Run("oversized", func(t *testing.T) {
+				_, err := test.decode(encode(make([]byte, 66)))
+				require.ErrorIs(t, err, tlv.ErrRecordTooLarge)
+			})
+
+			t.Run("invalid", func(t *testing.T) {
+				invalid := key.SerializeUncompressed()
+				invalid[0] = 0
+				_, err := test.decode(encode(invalid))
+				require.Error(t, err)
+			})
+		})
+	}
+}
+
+// TestAssetBackupDeclaredLength verifies EOF handling for a truncated asset
+// backup at the maximum permitted declared size.
+func TestAssetBackupDeclaredLength(t *testing.T) {
+	t.Parallel()
+
+	var (
+		encoded bytes.Buffer
+		scratch [8]byte
+	)
+	require.NoError(t, tlv.WriteVarInt(&encoded, maxTLVSize, &scratch))
+
+	var assetBackup AssetBackup
+	err := assetBackup.Decode(&encoded)
+	require.ErrorIs(t, err, io.EOF)
 }
 
 // TestKeyDescriptorBackupRoundtrip tests encode/decode roundtrip for

@@ -111,17 +111,14 @@ func VarIntDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 }
 
 func DVarBytesWithLimit(limit uint64) tlv.Decoder {
-	return func(r io.Reader, val interface{}, _ *[8]byte, l uint64) error {
+	return func(r io.Reader, val interface{}, buf *[8]byte,
+		l uint64) error {
+
 		if l > limit {
 			return tlv.ErrRecordTooLarge
 		}
 
-		if b, ok := val.(*[]byte); ok {
-			*b = make([]byte, l)
-			_, err := io.ReadFull(r, *b)
-			return err
-		}
-		return tlv.NewTypeForDecodingErr(val, "[]byte", l, l)
+		return tlv.DVarBytes(r, val, buf, l)
 	}
 }
 

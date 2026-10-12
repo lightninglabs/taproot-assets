@@ -70,6 +70,11 @@ func TestNewProofFromCompressedBytes(t *testing.T) {
 		expectNumNodes int
 	}{
 		{
+			name:           "maximum node count",
+			input:          compressedProofBytes(t, MaxTreeLevels),
+			expectNumNodes: MaxTreeLevels,
+		},
+		{
 			name:           "valid compressed proof with one node",
 			input:          compressedProofBytes(t, 1),
 			expectError:    false,
@@ -102,6 +107,13 @@ func TestNewProofFromCompressedBytes(t *testing.T) {
 			input:          []byte{0x00, 0x01},
 			expectError:    true,
 			errorMsg:       "decode compressed proof",
+			expectNumNodes: 0,
+		},
+		{
+			name:           "node count exceeds tree depth",
+			input:          []byte{0x01, 0x01},
+			expectError:    true,
+			errorMsg:       "invalid compressed proof",
 			expectNumNodes: 0,
 		},
 		{

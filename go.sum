@@ -603,6 +603,8 @@ github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03
 github.com/BurntSushi/toml v1.4.0 h1:kuoIxZQy2WRRk1pttg9asf+WVv6tWQuBNVmK8+nqPr0=
 github.com/BurntSushi/toml v1.4.0/go.mod h1:ukJfTF/6rtPPRCnwkur4qwRxa8vTRFBF0uk2lLoLwho=
 github.com/BurntSushi/xgb v0.0.0-20160522181843-27f122750802/go.mod h1:IVnqGOEym/WlBOVXweHU+Q+/VP0lqqI8lqeDx9IjBqo=
+github.com/GeorgeTsagk/lnd/tlv v0.0.0-20260925020312-3f449ed4cd67 h1:YvqWD1YTm7vejIFVF2qeKEYSwaHzFuSckzIgOGIkI7o=
+github.com/GeorgeTsagk/lnd/tlv v0.0.0-20260925020312-3f449ed4cd67/go.mod h1:RvxxfVTCctKzKVWJDyQZqSdu3JV7OjaiQGF06hBCZ+s=
 github.com/JohnCGriffin/overflow v0.0.0-20211019200055-46fa312c352c/go.mod h1:X0CRv0ky0k6m906ixxpzmDRLvX58TFUKS2eePweuyxk=
 github.com/Microsoft/go-winio v0.6.2 h1:F2VQgta7ecxGYO8k3ZZz3RS8fVIXVxONVUPlNERoyfY=
 github.com/Microsoft/go-winio v0.6.2/go.mod h1:yd8OoFMLzJbo9gZq8j5qaps8bJ9aShtEA8Ipt1oGCvU=
@@ -1087,8 +1089,6 @@ github.com/lightningnetwork/lnd/sqldb v1.0.13 h1:CcG9mrHNW/hIuZnqgosdiNmS7QhjSyf
 github.com/lightningnetwork/lnd/sqldb v1.0.13/go.mod h1:ew3kMfknA0B4djTtrQSAkxvro+8+c++L8LuNaoT7GQA=
 github.com/lightningnetwork/lnd/ticker v1.1.1 h1:J/b6N2hibFtC7JLV77ULQp++QLtCwT6ijJlbdiZFbSM=
 github.com/lightningnetwork/lnd/ticker v1.1.1/go.mod h1:waPTRAAcwtu7Ji3+3k+u/xH5GHovTsCoSVpho0KDvdA=
-github.com/lightningnetwork/lnd/tlv v1.4.0 h1:qNGymEkOZsHbp4h8VjnkRGgLfmh+eJP1JQtz2/mJX2M=
-github.com/lightningnetwork/lnd/tlv v1.4.0/go.mod h1:oL5WIFd3ZoEwh3oH1xzizeUl6pq3DIhx9ljDvRdvI3Q=
 github.com/lightningnetwork/lnd/tor v1.2.0 h1:Xled9KE+rdTPEMDVJE5VrSoMNkJq6EfH3NCF6pLP4h4=
 github.com/lightningnetwork/lnd/tor v1.2.0/go.mod h1:tB6/Hsk5nIm6xkOPaidd4q1at4x4gF6Bpu/t2UQxYgM=
 github.com/ltcsuite/ltcd v0.0.0-20190101042124-f37f8bf35796 h1:sjOGyegMIhvgfq5oaue6Td+hxZuf3tDC8lAPrFldqFw=

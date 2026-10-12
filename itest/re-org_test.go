@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -923,19 +922,13 @@ func testReOrgNestedHistory(t *harnessTest) {
 func spawnTempMiner(t *testing.T, ht *harnessTest,
 	ctx context.Context) *miner.HarnessMiner {
 
-	tempMiner := ht.lndHarness.Miner().SpawnTempMiner()
+	// Scope the temporary miner's cleanup to this case, not the whole
+	// tranche. Otherwise multiple miners share a log directory until
+	// their deferred stops try to save and remove it repeatedly.
+	scopedMiner := *ht.lndHarness.Miner()
+	scopedMiner.T = t
 
-	// Every temporary miner in the tranche saves logs from — and then
-	// removes — the same shared directory when it stops, so the first
-	// stop breaks the ones after it. The stops are cleanups on the
-	// root harness T and run in LIFO order: registering this after
-	// the spawn re-creates the directory just before this miner's own
-	// stop reads it.
-	ht.lndHarness.Cleanup(func() {
-		_ = os.MkdirAll("regtest/.tempminerlogs/regtest", 0755)
-	})
-
-	return tempMiner
+	return scopedMiner.SpawnTempMiner()
 }
 
 // generateReOrg generates a re-org by mining a longer chain with a temporary

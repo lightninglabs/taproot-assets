@@ -2,7 +2,7 @@
 # Only the resulting binaries and the extracted lnd module are carried
 # over into the final image, so the Go toolchain and its caches are
 # discarded entirely.
-FROM golang:1.26.3-bookworm@sha256:386d475a660466863d9f8c766fec64d7fdad3edac2c6a05020c09534d71edb4b AS builder
+FROM golang:1.26.8-bookworm@sha256:345775a9b624e690c1c0cd0755149bc8353e221d1c282596564e6d025fd294a9 AS builder
 
 # We don't want any default values for these variables to make sure they're
 # explicitly provided by parsing the go.mod file. Otherwise we might forget to

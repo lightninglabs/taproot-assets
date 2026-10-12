@@ -3,7 +3,7 @@
 # and extra version control systems shipped by the bookworm variant are
 # dead weight. With no C compiler present, Go disables cgo on its own,
 # matching the release build configuration.
-FROM golang:1.26.3-alpine@sha256:91eda9776261207ea25fd06b5b7fed8d397dd2c0a283e77f2ab6e91bfa71079d
+FROM golang:1.26.8-alpine@sha256:8ac98ca534ac3f51e1f420a1dd2c15e74c75cfa0f23f3ad27eb5d7236c349a0c
 
 RUN apk add --no-cache git
 ENV GOCACHE=/tmp/build/.cache

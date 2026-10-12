@@ -31,6 +31,10 @@ jobs:
         with:
           fetch-depth: 0  # Full history needed for git worktree builds.
 
+      # Private mirrors may not contain the public release tags.
+      - name: Fetch historical release
+        run: git fetch https://github.com/lightninglabs/taproot-assets.git refs/tags/v0.8.0:refs/tags/v0.8.0
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
