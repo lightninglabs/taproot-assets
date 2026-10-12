@@ -1,5 +1,3 @@
-//go:build !race
-
 package mssmt_test
 
 import (
@@ -626,13 +624,12 @@ func TestCompactedTreeDeleteAbsent(t *testing.T) {
 func TestDeletion(t *testing.T) {
 	t.Parallel()
 
-	leaves := randTree(100)
-
 	for storeName, makeStore := range genTestStores(t) {
 		t.Run(storeName, func(t *testing.T) {
 			t.Run("full SMT", func(t *testing.T) {
 				t.Parallel()
 
+				leaves := randTree(100)
 				store, err := makeStore()
 				require.NoError(t, err)
 
@@ -647,6 +644,7 @@ func TestDeletion(t *testing.T) {
 			t.Run("smol SMT", func(t *testing.T) {
 				t.Parallel()
 
+				leaves := randTree(100)
 				store, err := makeStore()
 				require.NoError(t, err)
 
@@ -997,11 +995,11 @@ func TestTreeCopy(t *testing.T) {
 		},
 	}
 
+	// The subtests share the source trees and run sequentially.
+	// DefaultStore is not safe for concurrent use.
 	for _, tc := range testCases {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
 			targetTree := tc.makeTarget()
 
 			// Pre-populate the target tree.
@@ -1313,18 +1311,16 @@ func TestTreeCopyFilter(t *testing.T) {
 		},
 	}
 
+	// The subtests share the source trees and run sequentially.
+	// DefaultStore is not safe for concurrent use.
 	for _, tc := range testCases {
 		tc := tc
 
 		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
 			for _, fs := range filterScenarios {
 				fs := fs
 
 				t.Run(fs.name, func(t *testing.T) {
-					t.Parallel()
-
 					testFilterScenario(
 						t, ctx, tc.sourceTree,
 						tc.makeTarget(),

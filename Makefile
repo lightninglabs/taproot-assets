@@ -125,7 +125,14 @@ build:
 	$(GOBUILD) -tags="$(DEV_TAGS)" -o tapd-debug $(DEV_GCFLAGS) $(DEV_LDFLAGS) $(PKG)/cmd/tapd
 	$(GOBUILD) -tags="$(DEV_TAGS)" -o tapcli-debug $(DEV_GCFLAGS) $(DEV_LDFLAGS) $(PKG)/cmd/tapcli
 
-build-itest:
+build-itest-integrated:
+	@$(call print, "Building itest btcd.")
+	CGO_ENABLED=0 $(GOBUILD) -tags="integration" -o itest/btcd-itest $(BTCD_PKG)
+
+	@$(call print, "Building itest tapd-integrated.")
+	CGO_ENABLED=0 $(GOBUILD) -mod=mod -tags="$(ITEST_TAGS)" -o itest/tapd-integrated-itest $(DEV_LDFLAGS) $(PKG)/cmd/tapd-integrated
+
+build-itest: build-itest-integrated
 	@if [ ! -f itest/chantools/chantools ]; then \
 		$(call print, "Building itest chantools."); \
 		rm -rf itest/chantools; \
@@ -135,15 +142,9 @@ build-itest:
 		$(call print, "Chantools is already installed and available in itest/chantools."); \
 	fi
 
-	@$(call print, "Building itest btcd.")
-	CGO_ENABLED=0 $(GOBUILD) -tags="integration" -o itest/btcd-itest $(BTCD_PKG)
-
 	@$(call print, "Building itest lnd.")
 	CGO_ENABLED=0 $(GOBUILD) -mod=mod -tags="$(ITEST_TAGS)" -o itest/lnd-itest $(DEV_LDFLAGS) $(LND_PKG)/cmd/lnd
 
-	@$(call print, "Building itest tapd-integrated.")
-	CGO_ENABLED=0 $(GOBUILD) -mod=mod -tags="$(ITEST_TAGS)" -o itest/tapd-integrated-itest $(DEV_LDFLAGS) $(PKG)/cmd/tapd-integrated
-	
 	@$(call print, "Building itest tapd.")
 	CGO_ENABLED=0 $(GOBUILD) -tags="$(ITEST_TAGS)" -o itest/tapd-itest $(DEV_LDFLAGS) $(PKG)/cmd/tapd
 
@@ -262,21 +263,22 @@ unit-race-parallel:
 	@$(call print, "Running unit race tests in parallel.")
 	PKG="$(PKG)" DEV_TAGS="$(DEV_TAGS)" \
 		scripts/unit_race_part.sh $(tranche) $(tranches) \
-		$(UNIT_VERBOSE_FLAG) -tags="$(DEV_TAGS) $(LOG_TAGS)" $(TEST_FLAGS)
+		$(UNIT_VERBOSE_FLAG) -tags="$(DEV_TAGS) $(LOG_TAGS)" $(TEST_FLAGS) \
+		$(RACE_GCFLAGS) -coverprofile=coverage.race-tranche$(tranche).txt
 
 build-itest-cc-binary:
 	@$(call print, "Building CC itest binary.")
 	CGO_ENABLED=0 $(GOTEST) -v ./itest/custom_channels -tags="$(ITEST_TAGS)" -c -o itest/custom_channels/itest-cc.test
 
-itest-cc: build-itest clean-cc-itest-logs
+itest-cc: build-itest-integrated clean-cc-itest-logs
 	@$(call print, "Running custom channel integration tests.")
 	date
-	$(GOTEST) ./itest/custom_channels -v -tags="$(ITEST_TAGS)" $(CC_TEST_FLAGS) -test.timeout=30m -logdir=regtest/.logs
+	CGO_ENABLED=0 $(GOTEST) ./itest/custom_channels -v -tags="$(ITEST_TAGS)" $(CC_TEST_FLAGS) -test.timeout=30m -logdir=regtest/.logs
 
-itest-cc-compat: build-itest clean-cc-itest-logs
+itest-cc-compat: build-itest-integrated clean-cc-itest-logs
 	@$(call print, "Running backward compatibility integration tests.")
 	date
-	$(GOTEST) ./itest/custom_channels -v -tags="$(ITEST_TAGS)" -test.run='TestBackwardsCompatChannels|TestSpenderLeafUpgrade' -test.timeout=60m -logdir=regtest/.logs
+	CGO_ENABLED=0 $(GOTEST) ./itest/custom_channels -v -tags="$(ITEST_TAGS)" -test.run='TestBackwardsCompatChannels|TestSpenderLeafUpgrade' -test.timeout=60m -logdir=regtest/.logs
 
 build-compat-binary:
 	@$(call print, "Building compat binary for $(version).")

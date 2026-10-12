@@ -38,6 +38,35 @@ env:
   NUM_CC_ITEST_JOBS: 4
   CC_ITEST_PARALLELISM: 4
 
+  # Integration test cases run on the Postgres backend for pull requests,
+  # one or more per database store. Merge queue and push runs execute
+  # every case.
+  POSTGRES_PR_ITESTS: |
+    mint_assets
+    mint_batch_resume
+    minting_multi_asset_groups
+    basic_send_unidirectional
+    multi_input_send_non-interactive_single_ID
+    reattempt_proof_transfer_on_tapd_restart
+    backup_restore_transferred
+    address_syncer
+    address_v2_with_group_key
+    universe_sync
+    universe_pagination_simple
+    universe_delete_leaf
+    universe_federation
+    federation_sync_config
+    burn_assets
+    supply_commit_mint_burn
+    supply_commit_ignore_asset
+    supply_verify_peer_node
+    pre_commit_output
+    auth_mailbox_message_store_and_fetch
+    rfq_asset_buy_htlc_intercept
+    bake_macaroon_permissions
+    re-org_mint_and_send
+    re-org_nested_history
+
 jobs:
   # Validate generated SQL models stay in sync with queries.
   sqlc-check:
@@ -256,7 +285,7 @@ jobs:
       - name: Release notes check
         run: scripts/check-release-notes.sh
 
-  # Unit tests with race detection, coverage, and Postgres backend variants.
+  # Unit tests on the Postgres backend.
   unit-test:
     name: run unit tests (${{ matrix.unit_type }})
     runs-on: ubuntu-latest
@@ -265,8 +294,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - unit_type: unit-cover
-            parallel: 4
           - unit_type: unit dbbackend=postgres pkg=tapdb
             parallel: 4
           - unit_type: unit dbbackend=postgres pkg=tapgarden
@@ -282,16 +309,6 @@ jobs:
 
       - name: Run ${{ matrix.unit_type }}
         run: make ${{ matrix.unit_type }} unit-parallel=${{ matrix.parallel }}
-
-      - name: Send coverage
-        uses: coverallsapp/github-action@v2
-        if: matrix.unit_type == 'unit-cover'
-        continue-on-error: true
-        with:
-          file: coverage.txt
-          flag-name: 'unit'
-          format: 'golang'
-          parallel: true
 
   unit-race:
     name: run unit race
@@ -338,6 +355,27 @@ jobs:
             echo "One or more tranches failed"
             exit 1
           fi
+
+      - name: Build coverage file list
+        id: coverage-files
+        run: |
+          FILES=""
+          PARALLEL=${{ env.UNIT_RACE_PARALLELISM }}
+          NUM_JOBS=${{ env.NUM_UNIT_RACE_JOBS }}
+          for i in $(seq 0 $((PARALLEL - 1))); do
+            TRANCHE=$(( ${{ matrix.tranche }} + i * NUM_JOBS ))
+            FILES="$FILES coverage.race-tranche$TRANCHE.txt"
+          done
+          echo "files=$FILES" >> $GITHUB_OUTPUT
+
+      - name: Send coverage
+        uses: coverallsapp/github-action@v2
+        continue-on-error: true
+        with:
+          files: ${{ steps.coverage-files.outputs.files }}
+          flag-name: 'unit-race-${{ matrix.tranche }}'
+          format: 'golang'
+          parallel: true
 
   # Build integration test binaries once, shared by all itest jobs.
   build-itest:
@@ -556,10 +594,17 @@ jobs:
 
           echo "Running $PARALLEL tranches in parallel (tranches $BASE_TRANCHE to $((BASE_TRANCHE + PARALLEL - 1)) of $TOTAL_TRANCHES total)"
 
+          # Pull requests run the cases listed in POSTGRES_PR_ITESTS.
+          RUN_FILTER=()
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            CASES=$(echo "$POSTGRES_PR_ITESTS" | grep . | paste -sd'|' -)
+            RUN_FILTER=("-test.run=TestTaprootAssetsDaemon/tranche.*/.*-of-.*/^(${CASES})\$")
+          fi
+
           # Start all tranches in parallel.
           pids=()
           for i in $(seq 0 $((PARALLEL - 1))); do
-            scripts/itest_part.sh $((BASE_TRANCHE + i)) $TOTAL_TRANCHES 0 -dbbackend=postgres --verbose &
+            scripts/itest_part.sh $((BASE_TRANCHE + i)) $TOTAL_TRANCHES 0 -dbbackend=postgres "${RUN_FILTER[@]}" --verbose &
             pids+=($!)
           done
 
@@ -681,7 +726,7 @@ jobs:
   # Finalize Coveralls reporting after parallel coverage jobs.
   finish:
     if: ${{ always() }}
-    needs: [ unit-test ]
+    needs: [ unit-test, unit-race ]
     runs-on: ubuntu-latest
     steps:
       - uses: coverallsapp/github-action@v2
