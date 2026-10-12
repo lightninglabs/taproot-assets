@@ -583,10 +583,16 @@ func (e *BackoffExecError) Error() string {
 	return fmt.Sprintf("backoff exec error: %s", e.execErr.Error())
 }
 
-// DefaultProofTransferNumTries is the built-in maximum number of attempts
-// made during a proof transfer backoff run when the config's NumTries field
-// is left unset.
-const DefaultProofTransferNumTries = 2000
+const (
+	// DefaultProofTransferNumTries is the built-in maximum number of
+	// attempts made during a proof transfer backoff run when the config's
+	// NumTries field is left unset.
+	DefaultProofTransferNumTries = 2000
+
+	// DefaultProofTransferInitialBackoff is the default delay tapd uses
+	// before retrying a failed proof transfer.
+	DefaultProofTransferInitialBackoff = 30 * time.Second
+)
 
 // BackoffCfg configures the behaviour of the proof delivery backoff procedure.
 //
