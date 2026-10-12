@@ -305,7 +305,15 @@ func (t *taprootAssetTreeStoreTx) GetChildren(height int, hashKey mssmt.NodeHash
 		}
 	}
 
+	// A child with the empty subtree's hash is the empty subtree, as in
+	// the default store, whatever node is stored under that hash.
+	emptyHash := mssmt.EmptyTree[height+1].NodeHash()
+
 	for _, row := range dbRows {
+		if bytes.Equal(row.HashKey, emptyHash[:]) {
+			continue
+		}
+
 		isLeft := bytes.Equal(row.HashKey, lHashKey)
 		isRight := bytes.Equal(row.HashKey, rHashKey)
 

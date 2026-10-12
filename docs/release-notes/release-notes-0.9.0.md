@@ -220,6 +220,10 @@
   derived from the final sweep transaction. Fixes
   [#2205](https://github.com/lightninglabs/taproot-assets/issues/2205).
 
+* [PR#2338](https://github.com/lightninglabs/taproot-assets/pull/2338)
+  fixes database-backed MS-SMTs computing a wrong root after deleting a
+  key they did not hold.
+
 # New Features
 
 ## Functional Enhancements
