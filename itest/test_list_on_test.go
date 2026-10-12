@@ -489,6 +489,10 @@ var allTestCases = []*testCase{
 		test: testSupplyCommitMintBurn,
 	},
 	{
+		name: "supply commit send before commit",
+		test: testSupplyCommitSendBeforeCommit,
+	},
+	{
 		name: "supply verify peer node",
 		test: testSupplyVerifyPeerNode,
 	},
