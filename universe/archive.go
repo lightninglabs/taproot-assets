@@ -426,6 +426,12 @@ func (a *Archive) verifyIssuanceProof(ctx context.Context, id Identifier,
 	// The final asset we extract from the proof should also match up with
 	// both the universe ID and also the base key.
 	switch {
+	// An ungrouped asset carries no group key, so it can't belong to a
+	// group key universe.
+	case id.GroupKey != nil && newAsset.GroupKey == nil:
+		return nil, fmt.Errorf("group key mismatch: expected %x, "+
+			"got none", id.GroupKey.SerializeCompressed())
+
 	// If the group key is present, then that should match the group key of
 	// the universe.
 	case id.GroupKey != nil && !bytes.Equal(

@@ -645,3 +645,28 @@ func TestUpsertProofLeafOutPointMismatch(t *testing.T) {
 		require.ErrorContains(t, err, "outpoint mismatch")
 	})
 }
+
+// TestUpsertProofLeafRejectsUngroupedInGroupUniverse tests that an issuance
+// proof for an ungrouped asset is rejected when it's inserted under a group
+// key universe ID, since the asset doesn't carry that group key.
+func TestUpsertProofLeafRejectsUngroupedInGroupUniverse(t *testing.T) {
+	t.Parallel()
+
+	item := mintTestAsset(t, false)
+	require.Nil(t, item.Leaf.Asset.GroupKey)
+
+	mv := &mockMultiverse{
+		knownRoots:   make(map[IdentifierKey]Root),
+		leafInserted: true,
+		upsertProof:  &Proof{Leaf: item.Leaf},
+	}
+	archive := newTestArchiveWithStats(mv, &mockTelemetry{})
+
+	id := item.ID
+	id.GroupKey = test.RandPrivKey().PubKey()
+
+	_, err := archive.UpsertProofLeaf(
+		context.Background(), id, item.Key, item.Leaf,
+	)
+	require.ErrorContains(t, err, "group key mismatch")
+}
