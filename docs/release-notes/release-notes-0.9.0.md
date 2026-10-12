@@ -21,6 +21,14 @@
 
 # Bug Fixes
 
+- [A transfer proof no longer moves the genesis
+  anchor](https://github.com/lightninglabs/taproot-assets/pull/2345) off the
+  mint transaction. Previously, sending a grouped asset before its first supply
+  commitment made that commitment spend the transfer output instead of the mint
+  supply pre-commit, so the backend rejected it and later supply updates
+  stalled. A database migration repairs affected genesis anchors, and pending
+  supply updates are rebuilt into a valid commitment on restart.
+
 - [Forward-port the v0.8.5 proof upgrade](https://github.com/lightninglabs/taproot-assets/pull/2333)
   to the btcd-v2 development line: spender commitments, split-root evidence,
   asset identity checks, and network activation heights. Released spender
