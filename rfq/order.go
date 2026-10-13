@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -58,6 +59,14 @@ var recoverableInterceptorErrs = []string{
 	"in the on-chain flow",
 	"forward does not exist",
 }
+
+// ErrPeerInput is a sentinel error that marks errors that are caused solely by
+// the peer-controlled content of an intercepted HTLC, such as malformed
+// custom records, or an RFQ ID / channel SCID combination that doesn't match
+// the stored policies. Such errors must be answered with a fail resolution
+// for the offending HTLC, as returning them as a Go error would tear down the
+// whole HTLC interception stream and with it the daemon.
+var ErrPeerInput = errors.New("invalid peer input")
 
 // parseHtlcCustomRecords parses a HTLC custom record to extract any data which
 // is relevant to the RFQ service. If the custom records map is nil or a
@@ -831,8 +840,8 @@ func (c *AssetPurchasePolicy) GenerateInterceptorResponse(
 
 	htlcRecord, err := parseHtlcCustomRecords(htlc.InWireCustomRecords)
 	if err != nil {
-		return nil, fmt.Errorf("parsing HTLC custom records failed: %w",
-			err)
+		return nil, fmt.Errorf("%w: parsing HTLC custom records "+
+			"failed: %w", ErrPeerInput, err)
 	}
 
 	// The incoming amount is just to signal to the fee logic in lnd that
@@ -855,12 +864,18 @@ func (c *AssetPurchasePolicy) GenerateInterceptorResponse(
 	htlcAssetAmount = htlcAssetAmount.Add(roundingCorrection)
 
 	assetAmt := new(rfqmath.BigIntFixedPoint).SetIntValue(htlcAssetAmount)
+	// The conversion can overflow when the HTLC carries a large balance
+	// of a foreign asset: the sum above includes every balance, while
+	// compliance only sums the matching one. Both the HTLC's content and
+	// the quoted rate drive this error, so it is marked as peer input and
+	// resolved with a fail for the HTLC instead of tearing down the
+	// interception stream.
 	incomingHtlcMsats, err := rfqmath.UnitsToMilliSatoshi(
 		assetAmt, c.BidAssetRate,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("unable to convert incoming HTLC "+
-			"asset amount to mSat: %w", err)
+		return nil, fmt.Errorf("%w: unable to convert incoming HTLC "+
+			"asset amount to mSat: %w", ErrPeerInput, err)
 	}
 
 	return &lndclient.InterceptedHtlcResponse{
@@ -1259,6 +1274,20 @@ func (h *OrderHandler) resolveIncomingHtlc(ctx context.Context,
 	// RFQ service and do not comply with a known policy.
 	policy, ok, err := h.fetchPolicy(htlc)
 	if err != nil {
+		// A failure that is caused by the HTLC's own peer-controlled
+		// content is answered with a fail resolution for that HTLC,
+		// mirroring how policy violations are handled. Returning the
+		// error instead would tear down the whole HTLC interception
+		// stream and take the daemon down with it.
+		if errors.Is(err, ErrPeerInput) {
+			log.Warnf("Failing HTLC with invalid peer input: %v "+
+				"(HTLC=%v)", err, htlc)
+
+			return &lndclient.InterceptedHtlcResponse{
+				Action: lndclient.InterceptorActionFail,
+			}, nil
+		}
+
 		return nil, fmt.Errorf("error fetching policy: %w", err)
 	}
 
@@ -1304,8 +1333,8 @@ func (h *OrderHandler) resolveIncomingHtlc(ctx context.Context,
 	h.htlcToPolicy.Store(htlc.IncomingCircuitKey, policy)
 
 	// Log the forwarding event when the HTLC is accepted. We store the
-	// circuit key
-	// so we can later update the record when the HTLC settles or fails.
+	// circuit key so we can later update the record when the HTLC settles
+	// or fails.
 	if h.forwardStore != nil {
 		assetAmt, err := computeHtlcAssetAmount(
 			ctx, policy, htlc, h.cfg.SpecifierChecker,
@@ -1315,44 +1344,69 @@ func (h *OrderHandler) resolveIncomingHtlc(ctx context.Context,
 				"failed to extract asset amount from HTLC: %v",
 				err)
 		} else {
-			chanIdIn := htlc.IncomingCircuitKey.ChanID.ToUint64()
-			fwdInput := ForwardInput{
-				OpenedAt:   time.Now().UTC(),
-				RfqID:      policy.RfqID(),
-				ChanIDIn:   chanIdIn,
-				ChanIDOut:  htlc.OutgoingChannelID.ToUint64(),
-				HtlcID:     htlc.IncomingCircuitKey.HtlcID,
-				AssetAmt:   assetAmt,
-				AmtInMsat:  uint64(htlc.AmountInMsat),
-				AmtOutMsat: uint64(htlc.AmountOutMsat),
-			}
-
-			// Store the circuit key so we can update the record
-			// later.
-			h.htlcToForward.Store(htlc.IncomingCircuitKey,
-				&fwdInput)
-
-			// Log the forwarding event immediately when it opens.
-			err := h.forwardStore.UpsertForward(ctx, fwdInput)
-			rfqIDHex := hex.EncodeToString(fwdInput.RfqID[:])
-			if err != nil {
-				log.Errorf("Failed to log forward for "+
-					"RFQ %x: %v", rfqIDHex, err)
-			} else {
-				log.DebugS(ctx, "Logged forwarding event",
-					"rfq_id", rfqIDHex,
-					"asset_amt", fwdInput.AssetAmt,
-					"amt_in_msat", fwdInput.AmtInMsat,
-					"amt_out_msat", fwdInput.AmtOutMsat,
-				)
-			}
+			h.logForwardingEvent(ctx, policy, htlc, assetAmt)
 		}
 	}
 
 	log.Debug("HTLC complies with policy. Broadcasting accept event.")
 	h.cfg.AcceptHtlcEvents <- NewAcceptHtlcEvent(htlc, policy)
 
-	return policy.GenerateInterceptorResponse(htlc)
+	response, err := policy.GenerateInterceptorResponse(htlc)
+	if err != nil {
+		if errors.Is(err, ErrPeerInput) {
+			log.Warnf("Failing HTLC with invalid peer input: %v "+
+				"(HTLC=%v)", err, htlc)
+
+			return &lndclient.InterceptedHtlcResponse{
+				Action: lndclient.InterceptorActionFail,
+			}, nil
+		}
+
+		return nil, err
+	}
+
+	return response, nil
+}
+
+// logForwardingEvent persists a forwarding event for the accepted HTLC. The
+// forwards table is unique on (chan_id_in, htlc_id), so there is exactly one
+// row per HTLC, keyed by the policy's own RFQ ID. A forward consumes the
+// lifetime budget of both the incoming purchase and the outgoing sale quote;
+// the outgoing sale leg's fill is restored by summing settled rows on the
+// outgoing channel after a restart (see restoreSettledFill).
+func (h *OrderHandler) logForwardingEvent(ctx context.Context,
+	policy Policy, htlc lndclient.InterceptedHtlc, assetAmt uint64) {
+
+	fwdInput := ForwardInput{
+		OpenedAt:   time.Now().UTC(),
+		RfqID:      policy.RfqID(),
+		ChanIDIn:   htlc.IncomingCircuitKey.ChanID.ToUint64(),
+		ChanIDOut:  htlc.OutgoingChannelID.ToUint64(),
+		HtlcID:     htlc.IncomingCircuitKey.HtlcID,
+		AssetAmt:   assetAmt,
+		AmtInMsat:  uint64(htlc.AmountInMsat),
+		AmtOutMsat: uint64(htlc.AmountOutMsat),
+	}
+
+	// Store the circuit key so we can update the record later.
+	h.htlcToForward.Store(htlc.IncomingCircuitKey, &fwdInput)
+
+	// Log the forwarding event immediately when it opens.
+	err := h.forwardStore.UpsertForward(ctx, fwdInput)
+	rfqIDHex := hex.EncodeToString(fwdInput.RfqID[:])
+	if err != nil {
+		log.Errorf("Failed to log forward for RFQ %x: %v",
+			rfqIDHex, err)
+
+		return
+	}
+
+	log.DebugS(ctx, "Logged forwarding event",
+		"rfq_id", rfqIDHex,
+		"asset_amt", fwdInput.AssetAmt,
+		"amt_in_msat", fwdInput.AmtInMsat,
+		"amt_out_msat", fwdInput.AmtOutMsat,
+	)
 }
 
 // setupHtlcIntercept sets up HTLC interception and keeps the interception
@@ -1570,6 +1624,7 @@ func (h *OrderHandler) handleHtlcSettle(ctx context.Context,
 	if err != nil {
 		log.Errorf("Failed to settle forwarding event (rfq_id=%x): %v",
 			rfqIDHex, err)
+
 		return
 	}
 
@@ -1613,6 +1668,7 @@ func (h *OrderHandler) handleHtlcFail(ctx context.Context,
 	if err != nil {
 		log.Errorf("Failed to mark forwarding event as failed "+
 			"(rfq_id=%x): %v", rfqIDHex, err)
+
 		return
 	}
 
@@ -1710,7 +1766,9 @@ func (h *OrderHandler) restorePendingForward(
 func (h *OrderHandler) policyForForward(
 	forward ForwardInput) (Policy, bool) {
 
-	inScid := SerialisedScid(forward.ChanIDIn)
+	// A forward is persisted under its purchase quote's RFQ ID, not the
+	// physical incoming channel. Resolve that quote before combining legs.
+	inScid := forward.RfqID.Scid()
 	outScid := SerialisedScid(forward.ChanIDOut)
 
 	inPolicy, haveIn := h.policies.Load(inScid)
@@ -1950,17 +2008,11 @@ func (h *OrderHandler) restoreSettledFill(ctx context.Context) error {
 			err)
 	}
 
-	if len(settledFill) == 0 {
-		return nil
-	}
-
+	// The store includes both legs of asset forwards in the per-quote fill.
 	h.policies.Range(func(_ SerialisedScid, policy Policy) bool {
-		amtMsat, ok := settledFill[policy.RfqID()]
-		if !ok {
-			return true
+		if amtMsat, ok := settledFill[policy.RfqID()]; ok {
+			policy.AddSettledFill(lnwire.MilliSatoshi(amtMsat))
 		}
-
-		policy.AddSettledFill(lnwire.MilliSatoshi(amtMsat))
 
 		return true
 	})
@@ -1971,6 +2023,12 @@ func (h *OrderHandler) restoreSettledFill(ctx context.Context) error {
 // fetchPolicy fetches a policy which is relevant to a given HTLC. If a policy
 // is not found, false is returned. Expired policies are not returned and are
 // removed from the cache.
+//
+// Errors that are caused solely by the HTLC's own peer-controlled content
+// (malformed custom records, an RFQ ID / SCID combination that doesn't match
+// the stored policies) are marked with ErrPeerInput, so the caller can answer
+// them with a fail resolution for the HTLC. Genuinely internal errors are
+// returned unmarked.
 func (h *OrderHandler) fetchPolicy(htlc lndclient.InterceptedHtlc) (Policy,
 	bool, error) {
 
@@ -2010,8 +2068,8 @@ func (h *OrderHandler) fetchPolicy(htlc lndclient.InterceptedHtlc) (Policy,
 			htlc.InWireCustomRecords,
 		)
 		if err != nil {
-			return nil, false, fmt.Errorf("parsing HTLC custom "+
-				"records failed: %w", err)
+			return nil, false, fmt.Errorf("%w: parsing HTLC "+
+				"custom records failed: %w", ErrPeerInput, err)
 		}
 
 		log.Debugf("Parsed HTLC custom records: %v",
@@ -2052,8 +2110,11 @@ func (h *OrderHandler) fetchPolicy(htlc lndclient.InterceptedHtlc) (Policy,
 			incomingPolicy, outgoingPolicy,
 		)
 		if err != nil {
-			return nil, false, fmt.Errorf("error creating forward "+
-				"policy: %w", err)
+			// The incoming policy is looked up by the SCID that the
+			// peer picked as the HTLC's RFQ ID, so a peer can force
+			// this failure by crafting that combination.
+			return nil, false, fmt.Errorf("%w: error creating "+
+				"forward policy: %w", ErrPeerInput, err)
 		}
 
 		return forwardPolicy, true, nil
