@@ -1545,6 +1545,75 @@ func TestUpsertSupplyPreCommit(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, rows, 1)
 	})
+
+	t.Run("spent status preserved on update", func(t *testing.T) {
+		replayedPreCommit := preCommit
+		replayedPreCommit.OutIdx = 2
+		replayedPreCommit.GroupPubKey = *test.RandPubKey(t)
+
+		err := upsertSupplyPreCommit(ctx, db, replayedPreCommit)
+		require.NoError(t, err)
+
+		commitTx := wire.NewMsgTx(2)
+		commitTx.AddTxOut(&wire.TxOut{Value: 1000})
+		commitTxBytes, err := fn.Serialize(commitTx)
+		require.NoError(t, err)
+
+		commitTxID, err := db.UpsertChainTx(ctx, ChainTxParams{
+			Txid:  fn.ByteSlice(commitTx.TxHash()),
+			RawTx: commitTxBytes,
+		})
+		require.NoError(t, err)
+
+		replayedInternalKey := replayedPreCommit.InternalKey
+		rawInternalKey := replayedInternalKey.PubKey.
+			SerializeCompressed()
+		internalKeyID, err := db.UpsertInternalKey(
+			ctx, sqlc.UpsertInternalKeyParams{
+				RawKey:    rawInternalKey,
+				KeyFamily: int32(replayedInternalKey.Family),
+				KeyIndex:  int32(replayedInternalKey.Index),
+			},
+		)
+		require.NoError(t, err)
+
+		groupKeyBytes := schnorr.SerializePubKey(
+			&replayedPreCommit.GroupPubKey,
+		)
+		outputKey := test.RandPubKey(t)
+		commitID, err := db.InsertSupplyCommitment(
+			ctx, sqlc.InsertSupplyCommitmentParams{
+				GroupKey:      groupKeyBytes,
+				ChainTxnID:    commitTxID,
+				InternalKeyID: internalKeyID,
+				OutputKey:     outputKey.SerializeCompressed(),
+			},
+		)
+		require.NoError(t, err)
+
+		replayedOutpoint := replayedPreCommit.OutPoint()
+		outpointBytes, err := encodeOutpoint(replayedOutpoint)
+		require.NoError(t, err)
+
+		err = db.MarkPreCommitSpentByOutpoint(
+			ctx, sqlc.MarkPreCommitSpentByOutpointParams{
+				SpentByCommitID: sqlInt64(commitID),
+				Outpoint:        outpointBytes,
+			},
+		)
+		require.NoError(t, err)
+
+		rows, err := db.FetchUnspentSupplyPreCommits(ctx, groupKeyBytes)
+		require.NoError(t, err)
+		require.Empty(t, rows)
+
+		err = upsertSupplyPreCommit(ctx, db, replayedPreCommit)
+		require.NoError(t, err)
+
+		rows, err = db.FetchUnspentSupplyPreCommits(ctx, groupKeyBytes)
+		require.NoError(t, err)
+		require.Empty(t, rows)
+	})
 }
 
 // TestDeleteProofLeaf tests that deleting a single proof leaf works
