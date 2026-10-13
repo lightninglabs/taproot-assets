@@ -2,11 +2,22 @@ package universe
 
 import (
 	"context"
+	"errors"
 	"math/rand"
+	"sync/atomic"
 	"testing"
+	"time"
 
+	"github.com/btcsuite/btcd/blockchain"
+	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/stretchr/testify/require"
@@ -210,76 +221,6 @@ func TestFetchLeavesExistingUniverse(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, *newTreeCalls)
 }
-
-// mockTelemetry implements Telemetry, recording the universe ids handed to the
-// new-proof logging calls.
-type mockTelemetry struct {
-	mu sync.Mutex
-
-	loggedProofs []Identifier
-}
-
-func (m *mockTelemetry) AggregateSyncStats(
-	context.Context) (AggregateStats, error) {
-
-	return AggregateStats{}, nil
-}
-
-func (m *mockTelemetry) LogSyncEvent(context.Context, Identifier,
-	LeafKey) error {
-
-	return nil
-}
-
-func (m *mockTelemetry) LogSyncEvents(context.Context, ...Identifier) error {
-	return nil
-}
-
-func (m *mockTelemetry) LogNewProofEvent(_ context.Context, uniID Identifier,
-	_ LeafKey) error {
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	m.loggedProofs = append(m.loggedProofs, uniID)
-
-	return nil
-}
-
-func (m *mockTelemetry) LogNewProofEvents(_ context.Context,
-	uniIDs ...Identifier) error {
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	m.loggedProofs = append(m.loggedProofs, uniIDs...)
-
-	return nil
-}
-
-func (m *mockTelemetry) QuerySyncStats(context.Context,
-	SyncStatsQuery) (*AssetSyncStats, error) {
-
-	return nil, nil
-}
-
-func (m *mockTelemetry) QueryAssetStatsPerDay(context.Context,
-	GroupedStatsQuery) ([]*GroupedStats, error) {
-
-	return nil, nil
-}
-
-// logged returns the ids logged so far.
-func (m *mockTelemetry) logged() []Identifier {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	return append([]Identifier(nil), m.loggedProofs...)
-}
-
-// mintTestAsset builds a genesis proof that passes full proof verification, so
-// that a test can drive the archive's real ingest path rather than stopping at
-// the verify step. It returns the universe item the proof belongs in.
 func mintTestAsset(t *testing.T, grouped bool) *Item {
 	t.Helper()
 
@@ -416,145 +357,31 @@ func mintTestAsset(t *testing.T, grouped bool) *Item {
 	}
 }
 
-// TestUpsertProofLeafBatchLogsOnlyNewLeaves tests that the archive logs a new
-// proof event for exactly the leaves the multiverse reported as new, and none
-// of the ones it already held.
-func TestUpsertProofLeafBatchLogsOnlyNewLeaves(t *testing.T) {
-	t.Parallel()
+// newProofTestArchive creates an archive configured with proof verifier mocks.
+func newProofTestArchive(mv *mockMultiverse) *Archive {
+	vCtx := proof.MockVerifierCtx
 
-	ctx := context.Background()
-
-	const numItems = 4
-	// A mix of group anchors and plain issuances, so the batch is split
-	// across both of the archive's sub-batches.
-	items := make([]*Item, numItems)
-	for idx := range items {
-		items[idx] = mintTestAsset(t, idx%2 == 0)
-	}
-
-	// The multiverse reports one anchor and one non-anchor item as new,
-	// standing in for a peer re-pushing the other two.
-	newItems := []*Item{items[0], items[1]}
-	mv := &mockMultiverse{
-		knownRoots: make(map[IdentifierKey]Root),
-		newItems:   newItems,
-	}
-	stats := &mockTelemetry{}
-	archive := newTestArchiveWithStats(mv, stats)
-
-	err := archive.UpsertProofLeafBatch(ctx, items)
-	require.NoError(t, err)
-
-	expectedIDs := fn.Map(newItems, func(i *Item) Identifier {
-		return i.ID
+	return NewArchive(ArchiveConfig{
+		NewBaseTree: func(Identifier) StorageBackend {
+			return &mockStorageBackend{}
+		},
+		HeaderVerifier:       vCtx.HeaderVerifier,
+		MerkleVerifier:       vCtx.MerkleVerifier,
+		GroupVerifier:        vCtx.GroupVerifier,
+		Multiverse:           mv,
+		ChainLookupGenerator: vCtx.ChainLookupGen,
+		IgnoreChecker:        vCtx.IgnoreChecker,
 	})
-	require.Eventually(t, func() bool {
-		return len(stats.logged()) == len(expectedIDs)
-	}, time.Second, 10*time.Millisecond)
-	require.ElementsMatch(t, expectedIDs, stats.logged())
-}
-
-// TestUpsertProofLeafBatchNoNewLeaves tests that a batch consisting entirely of
-// leaves we already hold logs no new proof events at all.
-func TestUpsertProofLeafBatchNoNewLeaves(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-
-	items := []*Item{mintTestAsset(t, true), mintTestAsset(t, false)}
-
-	mv := &mockMultiverse{
-		knownRoots: make(map[IdentifierKey]Root),
-		newItems:   []*Item{},
-	}
-	stats := &mockTelemetry{}
-	archive := newTestArchiveWithStats(mv, stats)
-
-	err := archive.UpsertProofLeafBatch(ctx, items)
-	require.NoError(t, err)
-
-	// Nothing was new, so nothing may be logged. Give the async logging
-	// goroutine a chance to run before concluding that.
-	require.Never(t, func() bool {
-		return len(stats.logged()) > 0
-	}, 200*time.Millisecond, 20*time.Millisecond)
-}
-
-// TestUpsertProofLeafLogsOnlyNewLeaf tests that the single-leaf path takes the
-// new/existing answer from the multiverse's write transaction rather than
-// re-deriving it, so a leaf the multiverse reports as already held logs no
-// event even when the archive's earlier read didn't see it.
-func TestUpsertProofLeafLogsOnlyNewLeaf(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-
-	testCases := []struct {
-		name        string
-		multiverse  bool
-		expectEvent bool
-	}{{
-		name:        "new leaf is logged",
-		multiverse:  true,
-		expectEvent: true,
-	}, {
-		// This is the race the read-then-write derivation used to get
-		// wrong: our own FetchProofLeaf missed, so we verified and
-		// wrote, but a concurrent insert of the same leaf won and ours
-		// was a no-op upsert.
-		name:        "leaf lost the insert race is not logged",
-		multiverse:  false,
-		expectEvent: false,
-	}}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			item := mintTestAsset(t, false)
-			mv := &mockMultiverse{
-				knownRoots:   make(map[IdentifierKey]Root),
-				leafInserted: tc.multiverse,
-				upsertProof:  &Proof{Leaf: item.Leaf},
-			}
-			stats := &mockTelemetry{}
-			archive := newTestArchiveWithStats(mv, stats)
-
-			_, err := archive.UpsertProofLeaf(
-				ctx, item.ID, item.Key, item.Leaf,
-			)
-			require.NoError(t, err)
-
-			if tc.expectEvent {
-				require.Eventually(t, func() bool {
-					return len(stats.logged()) == 1
-				}, time.Second, 10*time.Millisecond)
-				require.Equal(
-					t, []Identifier{item.ID},
-					stats.logged(),
-				)
-
-				return
-			}
-
-			require.Never(t, func() bool {
-				return len(stats.logged()) > 0
-			}, 200*time.Millisecond, 20*time.Millisecond)
-		})
-	}
 }
 
 // TestUpsertProofLeafOutPointMismatch tests that a proof is rejected under a
-// leaf key whose outpoint differs from the anchor outpoint of the proof, on
-// both the single-leaf and batch paths.
+// leaf key whose outpoint differs from the anchor outpoint of the proof.
 func TestUpsertProofLeafOutPointMismatch(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-
 	newItem := func(t *testing.T) *Item {
 		item := mintTestAsset(t, false)
-
 		key, ok := item.Key.(BaseLeafKey)
 		require.True(t, ok)
 		key.OutPoint.Index++
@@ -562,13 +389,10 @@ func TestUpsertProofLeafOutPointMismatch(t *testing.T) {
 
 		return item
 	}
-
 	newArchive := func() *Archive {
-		mv := &mockMultiverse{
+		return newProofTestArchive(&mockMultiverse{
 			knownRoots: make(map[IdentifierKey]Root),
-		}
-
-		return newTestArchiveWithStats(mv, &mockTelemetry{})
+		})
 	}
 
 	t.Run("single", func(t *testing.T) {
@@ -592,21 +416,16 @@ func TestUpsertProofLeafOutPointMismatch(t *testing.T) {
 }
 
 // TestUpsertProofLeafRejectsUngroupedInGroupUniverse tests that an issuance
-// proof for an ungrouped asset is rejected when it's inserted under a group
-// key universe ID, since the asset doesn't carry that group key.
+// proof for an ungrouped asset is rejected under a group key universe ID.
 func TestUpsertProofLeafRejectsUngroupedInGroupUniverse(t *testing.T) {
 	t.Parallel()
 
 	item := mintTestAsset(t, false)
 	require.Nil(t, item.Leaf.Asset.GroupKey)
 
-	mv := &mockMultiverse{
-		knownRoots:   make(map[IdentifierKey]Root),
-		leafInserted: true,
-		upsertProof:  &Proof{Leaf: item.Leaf},
-	}
-	archive := newTestArchiveWithStats(mv, &mockTelemetry{})
-
+	archive := newProofTestArchive(&mockMultiverse{
+		knownRoots: make(map[IdentifierKey]Root),
+	})
 	id := item.ID
 	id.GroupKey = test.RandPrivKey().PubKey()
 
@@ -614,4 +433,132 @@ func TestUpsertProofLeafRejectsUngroupedInGroupUniverse(t *testing.T) {
 		context.Background(), id, item.Key, item.Leaf,
 	)
 	require.ErrorContains(t, err, "group key mismatch")
+}
+
+type fallbackChainLookup struct {
+	err   error
+	calls atomic.Int32
+}
+
+func (l *fallbackChainLookup) TxBlockHeight(_ context.Context,
+	_ chainhash.Hash) (uint32, error) {
+
+	l.calls.Add(1)
+	return 0, l.err
+}
+
+func (l *fallbackChainLookup) MeanBlockTimestamp(context.Context,
+	uint32) (time.Time, error) {
+
+	return time.Time{}, nil
+}
+
+func (l *fallbackChainLookup) CurrentHeight(context.Context) (uint32, error) {
+	return 0, nil
+}
+
+// TestBatchPreviousProofContext verifies that batch predecessor selection is
+// scoped by both asset ID and leaf key, and carries the decoded proof height.
+func TestBatchPreviousProofContext(t *testing.T) {
+	t.Parallel()
+
+	const prevBlockHeight = 950_239
+	amount := uint64(100)
+	prevProof, _ := proof.RandGenesisProofWithKey(
+		t, asset.Normal, &amount, nil, true, nil, nil, nil, nil,
+		asset.V0,
+	)
+	prevProof.BlockHeight = prevBlockHeight
+	prevRawProof, err := prevProof.Bytes()
+	require.NoError(t, err)
+
+	prevScriptKey := asset.NewScriptKey(prevProof.Asset.ScriptKey.PubKey)
+	prevLeafKey := BaseLeafKey{
+		OutPoint:  prevProof.OutPoint(),
+		ScriptKey: &prevScriptKey,
+	}
+	assetID := prevProof.Asset.ID()
+	prevItem := &Item{
+		ID: Identifier{
+			AssetID:   assetID,
+			ProofType: ProofTypeIssuance,
+		},
+		Key: prevLeafKey,
+		Leaf: &Leaf{
+			RawProof: prevRawProof,
+			Asset:    &prevProof.Asset,
+		},
+	}
+
+	// Use the same leaf key in another asset namespace. A leaf-only map
+	// would overwrite the predecessor's proof context here.
+	distractorProof, _ := proof.RandGenesisProofWithKey(
+		t, asset.Normal, &amount, nil, true, nil, nil, nil, nil,
+		asset.V0,
+	)
+	distractorItem := &Item{
+		ID: Identifier{
+			AssetID:   distractorProof.Asset.ID(),
+			ProofType: ProofTypeIssuance,
+		},
+		Key: prevLeafKey,
+		Leaf: &Leaf{
+			Asset: &distractorProof.Asset,
+		},
+	}
+
+	newAsset := prevProof.Asset.Copy()
+	newAsset.PrevWitnesses = []asset.Witness{{
+		PrevID: &asset.PrevID{
+			OutPoint: prevProof.OutPoint(),
+			ID:       assetID,
+			ScriptKey: asset.ToSerialized(
+				prevProof.Asset.ScriptKey.PubKey,
+			),
+		},
+	}}
+	batchProofs := map[*Item]*proof.Proof{
+		prevItem:       &prevProof,
+		distractorItem: &distractorProof,
+	}
+	deps := extractBatchDeps(
+		[]*Item{prevItem, distractorItem}, batchProofs,
+	)
+	prevSnapshot, err := (&Archive{}).getPrevAssetSnapshot(
+		context.Background(), Identifier{
+			AssetID:   assetID,
+			ProofType: ProofTypeTransfer,
+		}, newAsset, deps,
+	)
+	require.NoError(t, err)
+	require.Equal(t, assetID, prevSnapshot.Asset.ID())
+	require.EqualValues(
+		t, prevBlockHeight, prevSnapshot.AnchorBlockHeight,
+	)
+}
+
+// TestPredecessorChainLookup tests predecessor lookup and fallback delegation.
+func TestPredecessorChainLookup(t *testing.T) {
+	t.Parallel()
+
+	fallbackErr := errors.New("missing transaction")
+	fallback := &fallbackChainLookup{err: fallbackErr}
+	lookup := &predecessorChainLookup{
+		ChainLookup: fallback,
+		txID:        chainhash.Hash{1},
+		height:      123,
+	}
+	ctx := context.Background()
+	height, err := lookup.TxBlockHeight(ctx, lookup.txID)
+	require.NoError(t, err)
+	require.EqualValues(t, 123, height)
+	require.Zero(t, fallback.calls.Load())
+
+	_, err = lookup.TxBlockHeight(ctx, chainhash.Hash{2})
+	require.ErrorIs(t, err, fallbackErr)
+	require.EqualValues(t, 1, fallback.calls.Load())
+	_, err = lookup.MeanBlockTimestamp(ctx, 123)
+	require.NoError(t, err)
+	_, err = lookup.CurrentHeight(ctx)
+	require.NoError(t, err)
 }

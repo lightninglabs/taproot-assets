@@ -8,6 +8,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/neutrino/cache/lru"
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -383,10 +384,20 @@ func (a *Archive) verifyIssuanceProof(ctx context.Context, id Identifier,
 		IgnoreChecker:  a.cfg.IgnoreChecker,
 	}
 
+	// Keep the current proof's lookup semantics, adding only the primary
+	// input's known confirmation height from the uncommitted batch.
 	lookup, err := a.cfg.ChainLookupGenerator.GenProofChainLookup(newProof)
 	if err != nil {
-		return nil, fmt.Errorf("unable to generate chain lookup: %w",
-			err)
+		return nil, fmt.Errorf("unable to generate chain lookup: %w", err)
+	}
+	if prevAssetSnapshot != nil &&
+		prevAssetSnapshot.AnchorBlockHeight != 0 {
+
+		lookup = &predecessorChainLookup{
+			ChainLookup: lookup,
+			txID:        prevAssetSnapshot.OutPoint.Hash,
+			height:      prevAssetSnapshot.AnchorBlockHeight,
+		}
 	}
 
 	assetSnapshot, err := newProof.Verify(
@@ -442,13 +453,52 @@ func (a *Archive) verifyIssuanceProof(ctx context.Context, id Identifier,
 	return assetSnapshot, nil
 }
 
-// extractBatchDeps constructs map from leaf key to asset in a batch. This is
-// useful for when we're validating an asset state transition in a batch, and
-// the input asset it depends on is created in the batch.
-func extractBatchDeps(batch []*Item) map[UniverseKey]*asset.Asset {
-	batchDeps := make(map[UniverseKey]*asset.Asset)
+// predecessorChainLookup supplies the height of an uncommitted primary input.
+// All other chain queries retain the generated lookup's behavior.
+type predecessorChainLookup struct {
+	asset.ChainLookup
+	txID   chainhash.Hash
+	height uint32
+}
+
+// TxBlockHeight returns the predecessor height or delegates to the lookup.
+func (l *predecessorChainLookup) TxBlockHeight(ctx context.Context,
+	txID chainhash.Hash) (uint32, error) {
+
+	if txID == l.txID {
+		return l.height, nil
+	}
+
+	return l.ChainLookup.TxBlockHeight(ctx, txID)
+}
+
+// batchProofKey identifies a proof leaf for a specific asset.
+type batchProofKey struct {
+	assetID asset.ID
+	leaf    UniverseKey
+}
+
+// batchProof contains the data needed to verify a dependent proof before its
+// predecessor has been committed to the Universe.
+type batchProof struct {
+	asset       *asset.Asset
+	blockHeight uint32
+}
+
+// extractBatchDeps indexes every proof in a batch by its asset and leaf keys.
+func extractBatchDeps(batch []*Item,
+	assetProofs map[*Item]*proof.Proof) map[batchProofKey]batchProof {
+
+	batchDeps := make(map[batchProofKey]batchProof, len(batch))
 	for _, item := range batch {
-		batchDeps[item.Key.UniverseKey()] = item.Leaf.Asset
+		key := batchProofKey{
+			assetID: item.Leaf.Asset.ID(),
+			leaf:    item.Key.UniverseKey(),
+		}
+		batchDeps[key] = batchProof{
+			asset:       item.Leaf.Asset,
+			blockHeight: assetProofs[item].BlockHeight,
+		}
 	}
 
 	return batchDeps
@@ -469,7 +519,7 @@ func (a *Archive) UpsertProofLeafBatch(ctx context.Context,
 	// proper verification of re-issuances, which may be in this batch.
 	var anchorItems []*Item
 	nonAnchorItems := make([]*Item, 0, len(items))
-	assetProofs := make(map[LeafKey]*proof.Proof)
+	assetProofs := make(map[*Item]*proof.Proof)
 	for ind := range items {
 		item := items[ind]
 
@@ -500,7 +550,7 @@ func (a *Archive) UpsertProofLeafBatch(ctx context.Context,
 			return fmt.Errorf("unable to decode proof: %w", err)
 		}
 
-		assetProofs[item.Key] = &assetProof
+		assetProofs[item] = &assetProof
 
 		// Any group anchor issuance proof must have a group key reveal
 		// attached, so that can be used to partition anchor assets and
@@ -513,7 +563,7 @@ func (a *Archive) UpsertProofLeafBatch(ctx context.Context,
 		}
 	}
 
-	batchDeps := extractBatchDeps(items)
+	batchDeps := extractBatchDeps(items, assetProofs)
 
 	verifyBatch := func(batchItems []*Item) error {
 		err := fn.ParSlice(
@@ -529,7 +579,7 @@ func (a *Archive) UpsertProofLeafBatch(ctx context.Context,
 						"snapshot: %w", err)
 				}
 
-				assetProof, ok := assetProofs[i.Key]
+				assetProof, ok := assetProofs[i]
 				if !ok {
 					return fmt.Errorf("missing proof "+
 						"for key=%v", i.Key)
@@ -617,11 +667,11 @@ func NewUniverseKeyFromBytes(b []byte) (UniverseKey, error) {
 	return key, nil
 }
 
-// getPrevAssetSnapshot returns the previous asset snapshot for the passed
-// proof. If the proof is a genesis proof, then nil is returned.
+// getPrevAssetSnapshot returns the previous asset snapshot, including its
+// height when it is in the uncommitted batch. Genesis proofs return nil.
 func (a *Archive) getPrevAssetSnapshot(ctx context.Context,
 	uniID Identifier, newAsset *asset.Asset,
-	batchAssets map[UniverseKey]*asset.Asset) (*proof.AssetSnapshot, error) {
+	batchProofs map[batchProofKey]batchProof) (*proof.AssetSnapshot, error) {
 
 	// If this is a genesis proof, then there is no previous asset (and
 	// therefore no previous asset snapshot).
@@ -652,21 +702,24 @@ func (a *Archive) getPrevAssetSnapshot(ctx context.Context,
 		ScriptKey: &prevScriptKey,
 	}
 
-	// First, we'll check if the prev asset that we need is already amongst
-	// the batch we have, if so then we won't have it in our universe tree
-	// yet, so we'll return it directly.
-	if batchAssets != nil {
-		newScriptKey := newAsset.ScriptKey.PubKey.SerializeCompressed()
-
-		inputAsset, ok := batchAssets[prevLeafKey.UniverseKey()]
+	// First, check whether the previous proof is in the uncommitted batch.
+	if batchProofs != nil {
+		batchKey := batchProofKey{
+			assetID: prevID.ID,
+			leaf:    prevLeafKey.UniverseKey(),
+		}
+		inputProof, ok := batchProofs[batchKey]
 		if ok {
+			newScriptKey :=
+				newAsset.ScriptKey.PubKey.SerializeCompressed()
 			log.Debugf("script_key=%x spends item in batch, "+
 				"universe_key=%x using batch input",
 				newScriptKey, prevLeafKey.UniverseKey())
 
 			return &proof.AssetSnapshot{
-				Asset:    inputAsset,
-				OutPoint: prevID.OutPoint,
+				Asset:             inputProof.asset,
+				OutPoint:          prevID.OutPoint,
+				AnchorBlockHeight: inputProof.blockHeight,
 			}, nil
 		}
 	}
@@ -694,14 +747,18 @@ func (a *Archive) getPrevAssetSnapshot(ctx context.Context,
 			newAsset.ScriptKey.PubKey.SerializeCompressed())
 	}
 
+	if len(prevProofs) == 0 {
+		return nil, fmt.Errorf("no previous proof returned")
+	}
+
 	prevAsset := prevProofs[0].Leaf.Asset
+	if prevAsset.ID() != prevID.ID {
+		return nil, fmt.Errorf("previous asset ID mismatch: "+
+			"expected %v, got %v", prevID.ID, prevAsset.ID())
+	}
 
-	// TODO(roasbeef): need more than one snapshot, for inputs
-
-	// Construct minimal asset snapshot for previous asset.
-	// This is a minimal the proof verification result for the
-	// previous (input) asset. We know that it was already verified
-	// as it was present in the multiverse/universe archive.
+	// Construct the minimal previous asset snapshot. The proof was already
+	// verified when it entered the local Universe.
 	return &proof.AssetSnapshot{
 		Asset:    prevAsset,
 		OutPoint: prevID.OutPoint,
