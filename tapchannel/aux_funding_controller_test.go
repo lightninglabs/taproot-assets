@@ -356,6 +356,14 @@ func TestAssignFundingProofsConcurrency(t *testing.T) {
 	})
 	require.True(t, seeded)
 
+	// Wait for the queued seed message to create and fail the flow before
+	// assigning proofs through the event loop's separate request channel.
+	require.Eventually(t, func() bool {
+		_, err := f.DeriveTapscriptRoot(pid).Unpack()
+		return err != nil &&
+			strings.Contains(err.Error(), "funding flow failed")
+	}, 3*time.Second, 10*time.Millisecond)
+
 	// Concurrently assign funding output proofs and process incoming
 	// funding messages for the same flow.
 	fundingProof := randFundingProof(t)
