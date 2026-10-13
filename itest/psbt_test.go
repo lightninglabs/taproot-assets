@@ -2959,6 +2959,7 @@ func testPsbtExternalCommit(t *harnessTest) {
 	// Subscribe to the send event stream so we can verify the sender's
 	// state transitions during this test.
 	ctx, streamCancel := context.WithCancel(ctx)
+	defer streamCancel()
 	stream, err := aliceTapd.SubscribeSendEvents(
 		ctx, &taprpc.SubscribeSendEventsRequest{
 			FilterLabel: transferLabel,
@@ -2970,14 +2971,58 @@ func testPsbtExternalCommit(t *harnessTest) {
 		Cancel:            streamCancel,
 	}
 
-	// Execute the transfer but skip anchor transaction broadcast. This
-	// simulates a packaging workflow where broadcasting is handled
-	// externally.
-	sendResp := PublishAndLogTransfer(
-		t.t, aliceTapd, btcPacket, activeAssets, passiveAssets,
-		commitResp, withSkipAnchorTxBroadcast(),
-		withLabel(transferLabel),
-	)
+	anchorBytes, err := fn.Serialize(btcPacket)
+	require.NoError(t.t, err)
+	request := &wrpc.PublishAndLogRequest{
+		AnchorPsbt:            anchorBytes,
+		ChangeOutputIndex:     commitResp.ChangeOutputIndex,
+		LndLockedUtxos:        commitResp.LndLockedUtxos,
+		SkipAnchorTxBroadcast: true,
+		Label:                 transferLabel,
+	}
+	for _, packet := range activeAssets {
+		encoded, err := tappsbt.Encode(packet)
+		require.NoError(t.t, err)
+		request.VirtualPsbts = append(request.VirtualPsbts, encoded)
+	}
+	for _, packet := range passiveAssets {
+		encoded, err := tappsbt.Encode(packet)
+		require.NoError(t.t, err)
+		request.PassiveAssetPsbts = append(
+			request.PassiveAssetPsbts, encoded,
+		)
+	}
+
+	// Overlapping retries must record one transfer. Discard the successful
+	// responses, then recover using only the saved request.
+	const callers = 6
+	start := make(chan struct{})
+	results := make(chan error, callers)
+	for range callers {
+		go func() {
+			<-start
+			_, err := aliceTapd.PublishAndLogTransfer(ctx, request)
+			results <- err
+		}()
+	}
+	close(start)
+	for range callers {
+		require.NoError(t.t, <-results)
+	}
+
+	anchorTxid := btcPacket.UnsignedTx.TxHash().String()
+	assertRecorded := func() {
+		transfers, err := aliceTapd.ListTransfers(
+			ctx, &taprpc.ListTransfersRequest{
+				AnchorTxid: anchorTxid,
+			},
+		)
+		require.NoError(t.t, err)
+		require.Len(t.t, transfers.Transfers, 1)
+	}
+	assertRecorded()
+	sendResp, err := aliceTapd.PublishAndLogTransfer(ctx, request)
+	require.NoError(t.t, err)
 
 	// Assert that the state machine passes through the broadcast state
 	// without publishing the transaction (broadcast is handled
@@ -3017,6 +3062,19 @@ func testPsbtExternalCommit(t *harnessTest) {
 		anchorTx.TxHash(),
 	})
 
+	// Reopen the same database before broadcast. Recovery must use the
+	// recorded transfer, without starting a second publication.
+	require.NoError(t.t, aliceTapd.stop(false))
+	require.NoError(t.t, aliceTapd.start(false))
+	replayed, err := aliceTapd.PublishAndLogTransfer(ctx, request)
+	require.NoError(t.t, err)
+	require.Equal(t.t, sendResp.Transfer.AnchorTx,
+		replayed.Transfer.AnchorTx)
+	require.Equal(t.t, sendResp.Transfer.TransferTimestamp,
+		replayed.Transfer.TransferTimestamp)
+	assertRecorded()
+	miner.AssertTxnsNotInMempool([]chainhash.Hash{anchorTx.TxHash()})
+
 	// Add the anchor transaction to the mempool and mine.
 	miner.MineBlockWithTx(&anchorTx)
 
@@ -3036,6 +3094,17 @@ func testPsbtExternalCommit(t *harnessTest) {
 	AssertBalanceByID(
 		t.t, bobTapd, targetAssetGenesis.AssetId, assetsToSend,
 	)
+
+	// Confirmation spends the original inputs. Replay must still return
+	// the recorded transfer and preserve both active and passive balances.
+	replayed, err = aliceTapd.PublishAndLogTransfer(ctx, request)
+	require.NoError(t.t, err)
+	require.NotZero(t.t, replayed.Transfer.AnchorTxBlockHeight)
+	require.Equal(t.t, sendResp.Transfer.AnchorTx,
+		replayed.Transfer.AnchorTx)
+	require.Equal(t.t, sendResp.Transfer.TransferTimestamp,
+		replayed.Transfer.TransferTimestamp)
+	assertRecorded()
 
 	// We make sure the change and the passive are shown properly in the
 	// sender's wallet.
