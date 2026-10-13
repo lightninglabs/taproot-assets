@@ -11788,8 +11788,13 @@ func (r *RPCServer) acquireSellQuote(ctx context.Context,
 		ctx, &rfqrpc.AddAssetSellOrderRequest{
 			AssetSpecifier: rpcSpecifier,
 			PaymentMaxAmt:  uint64(paymentMaxAmt),
-			Expiry:         uint64(expiry.Unix()),
-			PeerPubKey:     peerPubKey[:],
+			// A payment can combine quotes backed by different asset
+			// channels, so each peer must be allowed to offer a partial
+			// fill. Explicit zero avoids the RPC default of requiring the
+			// full maximum amount from every peer.
+			PaymentMinAmt: fn.Ptr[uint64](0),
+			Expiry:        uint64(expiry.Unix()),
+			PeerPubKey:    peerPubKey[:],
 			TimeoutSeconds: uint32(
 				rfq.DefaultTimeout.Seconds(),
 			),
