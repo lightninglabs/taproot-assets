@@ -1863,3 +1863,244 @@ func testSupplyVerifyPeerNode(t *harnessTest) {
 	// primary's.
 	assertFetchCommitResponse(t, thirdSupplyCommitResp, peerFetchResp3)
 }
+
+// testSupplyCommitSendBeforeCommit mints a grouped asset, sends some of
+// it, and only then publishes the first supply commitment. A second
+// tranche is minted and transferred before the next commitment. Both
+// commitments must spend the mint pre-commit output, not the transfer.
+func testSupplyCommitSendBeforeCommit(t *harnessTest) {
+	ctxb := context.Background()
+
+	secondLnd := t.lndHarness.NewNodeWithCoins("SecondLnd", nil)
+	secondTapd := setupTapdHarness(t.t, t, secondLnd, t.universeServer)
+	defer func() {
+		require.NoError(t.t, secondTapd.stop(!*noDelete))
+	}()
+
+	mintReq := CopyRequest(issuableAssets[0])
+	mintReq.Asset.Amount = 5000
+	rpcFirstAsset, delegationKey := MintAssetWithSupplyCommit(
+		t, mintReq, fn.None[btcec.PublicKey](),
+	)
+	groupKeyBytes := rpcFirstAsset.AssetGroup.TweakedGroupKey
+	require.NotNil(t.t, groupKeyBytes)
+
+	firstPreCommitIdx := preCommitOutputIndex(
+		t.t, rpcFirstAsset.ChainAnchor.AnchorTx, delegationKey,
+	)
+
+	t.Log("Sending asset before the first supply commitment")
+	const sendAmt = uint64(100)
+	firstSend := sendAssetAndAssert(
+		ctxb, t, t.tapd, secondTapd, sendAmt,
+		rpcFirstAsset.Amount-sendAmt, rpcFirstAsset.AssetGenesis,
+		rpcFirstAsset, 0, 1, 1,
+	)
+	importIssuerTransferProof(
+		t, secondTapd, rpcFirstAsset, groupKeyBytes,
+		firstSend.RpcResp,
+	)
+
+	require.Empty(t.t, t.lndHarness.Miner().GetRawMempool())
+
+	t.Log("Publishing the first supply commitment after the send")
+	UpdateAndMineSupplyCommit(
+		t.t, ctxb, t.tapd, t.lndHarness.Miner(), groupKeyBytes, 1,
+	)
+	fetchResp, supplyOutpoint := WaitForSupplyCommit(
+		t.t, ctxb, t.tapd, groupKeyBytes, fn.None[wire.OutPoint](),
+		func(resp *unirpc.FetchSupplyCommitResponse) bool {
+			return resp.ChainData.BlockHeight > 0 &&
+				len(resp.ChainData.Txn) > 0
+		},
+	)
+	assertCommitSpendsMintPreCommit(
+		t.t, fetchResp.ChainData.Txn,
+		rpcFirstAsset.ChainAnchor.AnchorTx, firstPreCommitIdx,
+		nil,
+	)
+
+	t.Log("Minting a second tranche, then sending before the next " +
+		"commit")
+	secondMintReq := &mintrpc.MintAssetRequest{
+		Asset: &mintrpc.MintAsset{
+			AssetType: taprpc.AssetType_NORMAL,
+			Name:      "itestbuxx-supply-commit-send-tranche-2",
+			AssetMeta: &taprpc.AssetMeta{
+				Data: []byte("second tranche metadata"),
+			},
+			Amount:                  3000,
+			AssetVersion:            taprpc.AssetVersion_ASSET_VERSION_V1, //nolint:lll
+			NewGroupedAsset:         false,
+			GroupedAsset:            true,
+			GroupKey:                groupKeyBytes,
+			EnableSupplyCommitments: true,
+		},
+	}
+	rpcSecondAsset, _ := MintAssetWithSupplyCommit(
+		t, secondMintReq, fn.Some(delegationKey),
+	)
+	secondPreCommitIdx := preCommitOutputIndex(
+		t.t, rpcSecondAsset.ChainAnchor.AnchorTx, delegationKey,
+	)
+
+	const secondSendAmt = uint64(50)
+	secondSend := sendAssetAndAssert(
+		ctxb, t, t.tapd, secondTapd, secondSendAmt,
+		rpcSecondAsset.Amount-secondSendAmt,
+		rpcSecondAsset.AssetGenesis, rpcSecondAsset, 1, 2, 2,
+	)
+	importIssuerTransferProof(
+		t, secondTapd, rpcSecondAsset, groupKeyBytes,
+		secondSend.RpcResp,
+	)
+
+	require.Empty(t.t, t.lndHarness.Miner().GetRawMempool())
+	UpdateAndMineSupplyCommit(
+		t.t, ctxb, t.tapd, t.lndHarness.Miner(), groupKeyBytes, 1,
+	)
+	fetchResp, _ = WaitForSupplyCommit(
+		t.t, ctxb, t.tapd, groupKeyBytes, fn.Some(supplyOutpoint),
+		func(resp *unirpc.FetchSupplyCommitResponse) bool {
+			return resp.ChainData.BlockHeight > 0 &&
+				len(resp.ChainData.Txn) > 0 &&
+				resp.ChainData.CommitOutpoint !=
+					supplyOutpoint.String()
+		},
+	)
+	assertCommitSpendsMintPreCommit(
+		t.t, fetchResp.ChainData.Txn,
+		rpcSecondAsset.ChainAnchor.AnchorTx, secondPreCommitIdx,
+		&supplyOutpoint,
+	)
+}
+
+// preCommitOutputIndex returns the output index of the supply
+// pre-commitment in a mint anchor transaction.
+func preCommitOutputIndex(t *testing.T, anchorTx []byte,
+	delegationKey btcec.PublicKey) uint32 {
+
+	t.Helper()
+
+	var msgTx wire.MsgTx
+	err := msgTx.Deserialize(bytes.NewReader(anchorTx))
+	require.NoError(t, err)
+
+	expected, err := supplycommit.PreCommitTxOut(delegationKey)
+	require.NoError(t, err)
+
+	var found []uint32
+	for idx := range msgTx.TxOut {
+		txOut := msgTx.TxOut[idx]
+		if txOut.Value != expected.Value {
+			continue
+		}
+		if !bytes.Equal(txOut.PkScript, expected.PkScript) {
+			continue
+		}
+		found = append(found, uint32(idx))
+	}
+	require.Len(t, found, 1)
+
+	return found[0]
+}
+
+// importIssuerTransferProof waits until the transfer proof is on the
+// proof-courier universe, syncs it into the issuer, and inserts it
+// directly if that sync did not land the leaf. The issuer must be able
+// to query the transfer leaf before the supply commitment is built.
+func importIssuerTransferProof(t *harnessTest, recipient *tapdHarness,
+	rpcAsset *taprpc.Asset, groupKey []byte,
+	sendResp *taprpc.SendAssetResponse) {
+
+	out := sendResp.Transfer.Outputs[0]
+	if out.ScriptKeyIsLocal {
+		out = sendResp.Transfer.Outputs[1]
+	}
+
+	key := &unirpc.UniverseKey{
+		Id: &unirpc.ID{
+			Id: &unirpc.ID_GroupKey{
+				GroupKey: groupKey,
+			},
+			ProofType: unirpc.ProofType_PROOF_TYPE_TRANSFER,
+		},
+		LeafKey: &unirpc.AssetKey{
+			Outpoint: &unirpc.AssetKey_OpStr{
+				OpStr: out.Anchor.Outpoint,
+			},
+			ScriptKey: &unirpc.AssetKey_ScriptKeyBytes{
+				ScriptKeyBytes: out.ScriptKey,
+			},
+		},
+	}
+
+	ctxb := context.Background()
+	require.Eventually(t.t, func() bool {
+		resp, err := t.universeServer.service.QueryProof(ctxb, key)
+		return err == nil && resp != nil
+	}, defaultWaitTimeout, 200*time.Millisecond)
+
+	_, err := t.tapd.SyncUniverse(ctxb, &unirpc.SyncRequest{
+		UniverseHost: t.universeServer.service.rpcHost(),
+		SyncMode:     unirpc.UniverseSyncMode_SYNC_FULL,
+	})
+	if err != nil {
+		t.Logf("Full universe sync did not complete: %v", err)
+	}
+
+	_, err = t.tapd.QueryProof(ctxb, key)
+	if err != nil {
+		transferProofNormalExportUniInsert(
+			t, recipient, t.tapd, out.ScriptKey,
+			rpcAsset.AssetGenesis,
+		)
+	}
+
+	require.Eventually(t.t, func() bool {
+		resp, err := t.tapd.QueryProof(ctxb, key)
+		return err == nil && resp != nil
+	}, defaultWaitTimeout, 200*time.Millisecond)
+}
+
+// assertCommitSpendsMintPreCommit checks that the commitment
+// transaction spends mintTx at preCommitIdx. When prevCommit is set,
+// that outpoint must be spent as well. The first commitment's input 0
+// is the pre-commit.
+func assertCommitSpendsMintPreCommit(t *testing.T, rawCommit,
+	mintTx []byte, preCommitIdx uint32, prevCommit *wire.OutPoint) {
+
+	t.Helper()
+
+	var commit wire.MsgTx
+	err := commit.Deserialize(bytes.NewReader(rawCommit))
+	require.NoError(t, err)
+
+	var mint wire.MsgTx
+	err = mint.Deserialize(bytes.NewReader(mintTx))
+	require.NoError(t, err)
+
+	want := wire.OutPoint{
+		Hash:  mint.TxHash(),
+		Index: preCommitIdx,
+	}
+	foundPre := false
+	foundPrev := prevCommit == nil
+	for _, in := range commit.TxIn {
+		if in.PreviousOutPoint == want {
+			foundPre = true
+		}
+		if prevCommit != nil && in.PreviousOutPoint == *prevCommit {
+			foundPrev = true
+		}
+	}
+	require.True(t, foundPre, "commitment does not spend mint "+
+		"pre-commit %v", want)
+	require.True(t, foundPrev, "commitment does not spend prior "+
+		"commitment")
+
+	if prevCommit == nil {
+		require.NotEmpty(t, commit.TxIn)
+		require.Equal(t, want, commit.TxIn[0].PreviousOutPoint)
+	}
+}
