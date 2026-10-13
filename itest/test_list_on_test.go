@@ -363,6 +363,14 @@ var allTestCases = []*testCase{
 		test: testPsbtTrustlessSwap,
 	},
 	{
+		name: "psbt external input",
+		test: testPsbtExternalInput,
+	},
+	{
+		name: "psbt external input restart",
+		test: testPsbtExternalInputRestart,
+	},
+	{
 		name: "psbt external commit",
 		test: testPsbtExternalCommit,
 	},

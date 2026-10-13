@@ -203,18 +203,23 @@ func (a *AssetStore) applyAnchorTxConfirm(ctx context.Context,
 	for idx := range inputs {
 		var assetID asset.ID
 		copy(assetID[:], inputs[idx].AssetID)
-		copyTemplateIDs[assetID], err = q.SetAssetSpent(
+		templateID, err := q.SetAssetSpent(
 			ctx, SetAssetSpentParams{
 				ScriptKey:   inputs[idx].ScriptKey,
 				GenAssetID:  inputs[idx].AssetID,
 				AnchorPoint: inputs[idx].AnchorPoint,
 			},
 		)
+		// External inputs have no wallet asset row to spend.
+		if errors.Is(err, sql.ErrNoRows) {
+			continue
+		}
 		if err != nil {
 			return nil, fmt.Errorf("unable to set asset "+
 				"spent: %w, script_key=%x", err,
 				inputs[idx].ScriptKey)
 		}
+		copyTemplateIDs[assetID] = templateID
 	}
 
 	// Any other unconfirmed transfer that claims one of the inputs
@@ -318,6 +323,19 @@ func (a *AssetStore) applyAnchorTxConfirm(ctx context.Context,
 				"proof: %w", err)
 		}
 
+		scriptPubKey := fullScriptKey.PubKey
+		outKey := tapfreighter.NewOutputIdentifier(
+			outProofAsset.ID(), inclusionProof.OutputIndex,
+			*scriptPubKey,
+		)
+
+		receiverProof, ok := conf.FinalProofs[outKey]
+		if !ok {
+			return nil, fmt.Errorf("no proof found for output "+
+				"with script key %x",
+				scriptPubKey.SerializeCompressed())
+		}
+
 		// The convergence guard: an earlier run of this body may
 		// already have materialized this output. If so, the
 		// asset row stands; only its proof is refreshed below.
@@ -336,29 +354,58 @@ func (a *AssetStore) applyAnchorTxConfirm(ctx context.Context,
 			// the genesis and group key will be the same.
 			// We'll overwrite all other fields.
 			templateID, ok := copyTemplateIDs[outProofAsset.ID()]
-			if !ok {
-				return nil, fmt.Errorf("no spent asset "+
-					"found for output with asset ID %v",
-					outProofAsset.ID())
-			}
-
-			//nolint:lll
-			params := ApplyPendingOutput{
-				ScriptKeyID:              out.ScriptKey.ScriptKeyID,
-				AnchorUtxoID:             sqlInt64(out.AnchorUtxoID),
-				Amount:                   out.Amount,
-				LockTime:                 out.LockTime,
-				RelativeLockTime:         out.RelativeLockTime,
-				SplitCommitmentRootHash:  out.SplitCommitmentRootHash,
-				SplitCommitmentRootValue: out.SplitCommitmentRootValue,
-				SpentAssetID:             templateID,
-				Spent:                    markSpent,
-				AssetVersion:             out.AssetVersion,
-			}
-			newAssetID, err = q.ApplyPendingOutput(ctx, params)
-			if err != nil {
-				return nil, fmt.Errorf("unable to apply "+
-					"pending output: %w", err)
+			if ok {
+				//nolint:lll
+				params := ApplyPendingOutput{
+					ScriptKeyID:              out.ScriptKey.ScriptKeyID,
+					AnchorUtxoID:             sqlInt64(out.AnchorUtxoID),
+					Amount:                   out.Amount,
+					LockTime:                 out.LockTime,
+					RelativeLockTime:         out.RelativeLockTime,
+					SplitCommitmentRootHash:  out.SplitCommitmentRootHash,
+					SplitCommitmentRootValue: out.SplitCommitmentRootValue,
+					SpentAssetID:             templateID,
+					Spent:                    markSpent,
+					AssetVersion:             out.AssetVersion,
+				}
+				newAssetID, err = q.ApplyPendingOutput(
+					ctx, params,
+				)
+				if err != nil {
+					return nil, fmt.Errorf(
+						"apply pending output: %w", err,
+					)
+				}
+			} else {
+				// Import only the local output from its proof.
+				outProofAsset.ScriptKey = fullScriptKey
+				err = restoreGroupWitness(
+					&outProofAsset, receiverProof.Blob,
+				)
+				if err != nil {
+					return nil, err
+				}
+				genesis := outProofAsset.Genesis.FirstPrevOut
+				utxoIDs := []sql.NullInt64{
+					sqlInt64(out.AnchorUtxoID),
+				}
+				_, ids, err := upsertAssetsWithGenesis(
+					ctx, q, genesis,
+					[]*asset.Asset{&outProofAsset},
+					utxoIDs,
+				)
+				if err != nil {
+					return nil, err
+				}
+				newAssetID = ids[0]
+				if markSpent {
+					err = q.SetAssetSpentByID(
+						ctx, newAssetID,
+					)
+					if err != nil {
+						return nil, err
+					}
+				}
 			}
 
 			// With the old witnesses removed, we'll insert the
@@ -376,18 +423,6 @@ func (a *AssetStore) applyAnchorTxConfirm(ctx context.Context,
 				"materialized output: %w", err)
 		}
 
-		scriptPubKey := fullScriptKey.PubKey
-		outKey := tapfreighter.NewOutputIdentifier(
-			outProofAsset.ID(), inclusionProof.OutputIndex,
-			*scriptPubKey,
-		)
-
-		receiverProof, ok := conf.FinalProofs[outKey]
-		if !ok {
-			return nil, fmt.Errorf("no proof found for output "+
-				"with script key %x",
-				scriptPubKey.SerializeCompressed())
-		}
 		localProofKeys = append(localProofKeys, outKey)
 
 		// Upload proof by the dbAssetId, which is the _primary
@@ -1129,9 +1164,9 @@ func (a *AssetStore) rollBackPassiveFile(ctx context.Context,
 // RebuildAnchorConfirm reconstructs a transfer's confirmation event
 // purely from stored state plus the witness's block context (header
 // and merkle inclusion proof, captured by the re-org watcher at
-// sensing time). No chain, archive or porter-memory access is
-// needed, so the rebuild can run inside the watcher's delivery
-// transaction — including after a restart, and again with fresh
+// sensing time). External inputs use the proof-file archive; no chain
+// or porter-memory access is needed. The rebuild runs inside the watcher's
+// delivery transaction — including after a restart, and again with fresh
 // block context when the same anchor transaction re-confirms
 // elsewhere.
 //
@@ -1272,7 +1307,8 @@ func (a *AssetStore) rebuildAnchorConfirm(ctx context.Context,
 	}
 
 	// fetchInputFile loads an input's full proof file from the
-	// database by its previous ID.
+	// database by its previous ID, falling back to the file archive for
+	// external inputs that are not wallet holdings.
 	fetchInputFile := func(prevID asset.PrevID) (*proof.File, error) {
 		outpointBytes, err := encodeOutpoint(prevID.OutPoint)
 		if err != nil {
@@ -1290,13 +1326,34 @@ func (a *AssetStore) rebuildAnchorConfirm(ctx context.Context,
 			return nil, fmt.Errorf("unable to fetch input "+
 				"proof: %w", err)
 		}
-		if len(rows) == 0 {
+		var blob []byte
+		switch {
+		case len(rows) > 0:
+			blob = rows[0].ProofFile
+
+		case a.proofFiles != nil:
+			scriptKey, err := btcec.ParsePubKey(prevID.ScriptKey[:])
+			if err != nil {
+				return nil, err
+			}
+			blob, err = a.proofFiles.FetchProof(ctx, proof.Locator{
+				AssetID:   &prevID.ID,
+				ScriptKey: *scriptKey,
+				OutPoint:  &prevID.OutPoint,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("fetch external input "+
+					"proof for %v: %w",
+					prevID.OutPoint, err)
+			}
+
+		default:
 			return nil, fmt.Errorf("no input proof for %v",
 				prevID.OutPoint)
 		}
 
 		file := &proof.File{}
-		err = file.Decode(bytes.NewReader(rows[0].ProofFile))
+		err = file.Decode(bytes.NewReader(blob))
 		if err != nil {
 			return nil, fmt.Errorf("unable to decode input "+
 				"proof file: %w", err)

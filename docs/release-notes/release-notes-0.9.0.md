@@ -21,6 +21,10 @@
 
 # Bug Fixes
 
+- [Confirm custom-anchor transfers spending external assets](https://github.com/lightninglabs/taproot-assets/pull/2353)
+  using their archived proofs, including after restart. External inputs remain
+  outside the wallet; only locally controlled outputs are added to its holdings.
+
 - [Forward-port the v0.8.5 proof upgrade](https://github.com/lightninglabs/taproot-assets/pull/2333)
   to the btcd-v2 development line: spender commitments, split-root evidence,
   asset identity checks, and network activation heights. Released spender
