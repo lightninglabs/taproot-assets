@@ -311,6 +311,7 @@ func (m *Manager) startSubsystems(ctx context.Context) error {
 	m.negotiator, err = NewNegotiator(NegotiatorCfg{
 		PriceOracle:             m.cfg.PriceOracle,
 		PortfolioPilot:          m.cfg.PortfolioPilot,
+		fetchChannel:            m.FetchChannel,
 		OutgoingMessages:        m.outgoingMessages,
 		AcceptPriceDeviationPpm: m.cfg.AcceptPriceDeviationPpm,
 		SkipQuoteAcceptVerify:   m.cfg.SkipQuoteAcceptVerify,

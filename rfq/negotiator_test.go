@@ -12,6 +12,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
@@ -471,6 +472,21 @@ func TestHandleIncomingQuoteRequestError(t *testing.T) {
 				PortfolioPilot: &mockPortfolioPilot{
 					err: pilotErr,
 				},
+				fetchChannel: func(_ context.Context,
+					_ asset.Specifier, peer *route.Vertex,
+					_ ChanIntention) (PeerChanMap, error) {
+
+					return PeerChanMap{
+						*peer: {{
+							AssetInfo: rfqmsg.JsonAssetChannel{
+								FundingAssets: []rfqmsg.JsonAssetUtxo{
+									{},
+								},
+								RemoteBalance: 1,
+							},
+						}},
+					}, nil
+				},
 				OutgoingMessages: outgoing,
 				ErrChan:          errChan,
 			})
@@ -515,4 +531,221 @@ func TestHandleIncomingQuoteRequestError(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestSellRequestChannelAdmission verifies that incoming sell quotes require
+// matching channel backing and that accepted fills are capped by it.
+func TestSellRequestChannelAdmission(t *testing.T) {
+	t.Parallel()
+
+	peer := route.Vertex{9, 8, 7}
+	request := &rfqmsg.SellRequest{
+		Peer:           peer,
+		ID:             rfqmsg.ID{6, 5, 4},
+		AssetSpecifier: asset.NewSpecifierFromId(asset.ID{3, 2, 1}),
+		PaymentMaxAmt:  lnwire.MilliSatoshi(3_000_000_000),
+	}
+	rate := rfqmsg.NewAssetRate(
+		rfqmath.NewBigIntFixedPoint(100, 0), time.Now().Add(time.Hour),
+	)
+
+	t.Run("backed fill is capped", func(t *testing.T) {
+		outgoing := make(chan rfqmsg.OutgoingMsg, 1)
+		errChan := make(chan error, 1)
+		negotiator, err := NewNegotiator(NegotiatorCfg{
+			PortfolioPilot: &mockPortfolioPilot{
+				resp: NewAcceptResolveResp(
+					rate, fn.None[uint64](),
+				),
+			},
+			fetchChannel: func(_ context.Context, spec asset.Specifier,
+				requestPeer *route.Vertex, intention ChanIntention) (
+				PeerChanMap, error) {
+
+				assert.Equal(t, request.AssetSpecifier, spec)
+				assert.Equal(t, peer, *requestPeer)
+				assert.Equal(t, ReceiveIntention, intention)
+
+				funded := []rfqmsg.JsonAssetUtxo{{}}
+				return PeerChanMap{
+					peer: {
+						{AssetInfo: rfqmsg.JsonAssetChannel{
+							FundingAssets: funded, RemoteBalance: 1,
+						}},
+						{AssetInfo: rfqmsg.JsonAssetChannel{
+							FundingAssets: funded, RemoteBalance: 2,
+						}},
+						{AssetInfo: rfqmsg.JsonAssetChannel{
+							RemoteBalance: 100,
+						}},
+					},
+				}, nil
+			},
+			OutgoingMessages: outgoing,
+			ErrChan:          errChan,
+		})
+		require.NoError(t, err)
+		require.NoError(t, negotiator.HandleIncomingQuoteRequest(
+			context.Background(), request,
+		))
+		negotiator.Wg.Wait()
+
+		var msg rfqmsg.OutgoingMsg
+		select {
+		case msg = <-outgoing:
+		case <-time.After(time.Second):
+			t.Fatal("timeout waiting for sell accept")
+		}
+		accept, ok := msg.(*rfqmsg.SellAccept)
+		require.True(t, ok)
+		require.Equal(
+			t, uint64(2_000_000_000),
+			accept.AcceptedMaxAmount.UnwrapOr(0),
+		)
+		select {
+		case err := <-errChan:
+			t.Fatalf("unexpected admission error: %v", err)
+		default:
+		}
+	})
+
+	t.Run("lookup failure rejects", func(t *testing.T) {
+		outgoing := make(chan rfqmsg.OutgoingMsg, 1)
+		errChan := make(chan error, 1)
+		lookupErr := errors.New("channel lookup failed")
+		negotiator, err := NewNegotiator(NegotiatorCfg{
+			PortfolioPilot: &mockPortfolioPilot{
+				resp: NewAcceptResolveResp(
+					rate, fn.None[uint64](),
+				),
+			},
+			fetchChannel: func(context.Context, asset.Specifier,
+				*route.Vertex, ChanIntention) (PeerChanMap, error) {
+
+				return nil, lookupErr
+			},
+			OutgoingMessages: outgoing,
+			ErrChan:          errChan,
+		})
+		require.NoError(t, err)
+		require.NoError(t, negotiator.HandleIncomingQuoteRequest(
+			context.Background(), request,
+		))
+		negotiator.Wg.Wait()
+
+		select {
+		case msg := <-outgoing:
+			_, ok := msg.(*rfqmsg.Reject)
+			require.True(t, ok)
+		case <-time.After(time.Second):
+			t.Fatal("timeout waiting for quote reject")
+		}
+		select {
+		case err = <-errChan:
+			require.ErrorIs(t, err, lookupErr)
+			require.ErrorContains(t, err, "admit quote request")
+		case <-time.After(time.Second):
+			t.Fatal("timeout waiting for admission error")
+		}
+	})
+}
+
+// TestMaxRemoteChannelBalance verifies that only a positive, funded channel
+// belonging to the requesting peer can back a quote.
+func TestMaxRemoteChannelBalance(t *testing.T) {
+	t.Parallel()
+
+	peer := route.Vertex{1}
+	otherPeer := route.Vertex{2}
+	req := &rfqmsg.SellRequest{
+		Peer:           peer,
+		AssetSpecifier: asset.NewSpecifierFromId(asset.ID{3}),
+	}
+	funded := []rfqmsg.JsonAssetUtxo{{}}
+
+	tests := []struct {
+		name       string
+		channels   PeerChanMap
+		expected   uint64
+		errMessage string
+	}{
+		{
+			name: "wrong peer",
+			channels: PeerChanMap{
+				otherPeer: {{AssetInfo: rfqmsg.JsonAssetChannel{
+					FundingAssets: funded, RemoteBalance: 5,
+				}}},
+			},
+			errMessage: "no remote asset channel balance",
+		},
+		{
+			name: "zero and unfunded balances",
+			channels: PeerChanMap{
+				peer: {
+					{AssetInfo: rfqmsg.JsonAssetChannel{
+						FundingAssets: funded,
+					}},
+					{AssetInfo: rfqmsg.JsonAssetChannel{
+						RemoteBalance: 100,
+					}},
+				},
+			},
+			errMessage: "no remote asset channel balance",
+		},
+		{
+			name: "largest eligible balance",
+			channels: PeerChanMap{
+				peer: {
+					{AssetInfo: rfqmsg.JsonAssetChannel{
+						FundingAssets: funded, RemoteBalance: 5,
+					}},
+					{AssetInfo: rfqmsg.JsonAssetChannel{
+						FundingAssets: funded, RemoteBalance: 9,
+					}},
+				},
+			},
+			expected: 9,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			negotiator := &Negotiator{cfg: NegotiatorCfg{
+				fetchChannel: func(context.Context, asset.Specifier,
+					*route.Vertex, ChanIntention) (PeerChanMap, error) {
+
+					return test.channels, nil
+				},
+			}}
+			balance, err := negotiator.maxRemoteChannelBalance(
+				context.Background(), req,
+			)
+			if test.errMessage != "" {
+				require.ErrorContains(t, err, test.errMessage)
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, test.expected, balance)
+		})
+	}
+}
+
+// TestBackedSellRequestFillRejectsZeroRate verifies that an external pilot
+// cannot trigger a divide-by-zero panic with an invalid accepted rate.
+func TestBackedSellRequestFillRejectsZeroRate(t *testing.T) {
+	t.Parallel()
+
+	req := &rfqmsg.SellRequest{
+		PaymentMaxAmt: 1_000,
+	}
+	zeroRate := rfqmsg.NewAssetRate(
+		rfqmath.NewBigIntFixedPoint(0, 0), time.Now().Add(time.Hour),
+	)
+	fill, err := backedSellRequestFill(
+		req, zeroRate, fn.None[uint64](), 1,
+	)
+	require.ErrorContains(t, err, "asset rate is zero")
+	require.True(t, fill.IsNone())
 }
