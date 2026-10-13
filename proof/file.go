@@ -300,6 +300,33 @@ func (f *File) NumProofs() int {
 	return len(f.proofs)
 }
 
+// walkProofDAG visits all proofs in dependency-first order.
+func (f *File) walkProofDAG(visit func(*Proof)) error {
+	for proofIdx := 0; proofIdx < f.NumProofs(); proofIdx++ {
+		proof, err := f.ProofAt(uint32(proofIdx))
+		if err != nil {
+			return fmt.Errorf(
+				"decoding proof %d: %w", proofIdx, err,
+			)
+		}
+
+		for inputIdx := range proof.AdditionalInputs {
+			input := &proof.AdditionalInputs[inputIdx]
+			err := input.walkProofDAG(visit)
+			if err != nil {
+				return fmt.Errorf(
+					"walking input %d of proof %d: %w",
+					inputIdx, proofIdx, err,
+				)
+			}
+		}
+
+		visit(proof)
+	}
+
+	return nil
+}
+
 // ProofAt returns the proof at the given index. If the file is empty, this
 // returns ErrNoProofAvailable.
 func (f *File) ProofAt(index uint32) (*Proof, error) {
