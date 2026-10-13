@@ -35,6 +35,14 @@ func NewApertureHarness(t *testing.T, port int) *ApertureHarness {
 
 	listenAddr := fmt.Sprintf("127.0.0.1:%d", port)
 
+	// DefaultSqliteConfig points the database file at a fixed, global
+	// path, so override it to keep the sqlite file inside the per-test
+	// temp directory. Otherwise every hashmail-courier itest shares one
+	// database outside the sandbox, which leaks state between runs and
+	// can fail on a stale schema left by another aperture version.
+	sqliteCfg := aperture.DefaultSqliteConfig()
+	sqliteCfg.DatabaseFileName = filepath.Join(baseDir, "aperture.db")
+
 	cfg := &aperture.Config{
 		Insecure:   false,
 		DebugLevel: "debug",
@@ -43,7 +51,7 @@ func NewApertureHarness(t *testing.T, port int) *ApertureHarness {
 			Disable: true,
 		},
 		DatabaseBackend: "sqlite",
-		Sqlite:          aperture.DefaultSqliteConfig(),
+		Sqlite:          sqliteCfg,
 		HashMail: &aperture.HashMailConfig{
 			Enabled:               true,
 			MessageRate:           time.Millisecond,
