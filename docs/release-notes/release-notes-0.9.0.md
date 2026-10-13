@@ -27,6 +27,13 @@
   feature bits remain 4/5; the unreleased negotiated channel configuration
   feature moves to 6/7.
 
+- [Universe sync now retains the preceding proof while validating a
+  batch](https://github.com/lightninglabs/taproot-assets/pull/2351), so a
+  fresh node can import a relative-time-locked asset when its predecessor
+  arrives in the same uncommitted batch. Previously, validation looked for
+  the predecessor's confirmation height only in the current proof and local
+  asset database, which could fail with `sql: no rows in result set`.
+
 - [Importing an asset wallet
   backup](https://github.com/lightninglabs/taproot-assets/pull/2277) into a
   node whose database was wiped but whose proofs directory survived no longer
