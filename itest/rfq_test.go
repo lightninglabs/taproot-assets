@@ -567,109 +567,143 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 	var acceptedQuoteId rfqmsg.ID
 	copy(acceptedQuoteId[:], acceptedQuote.Id[:])
 
-	// Carol generates and invoice for Alice to settle via Bob.
-	addInvoiceResp := ts.CarolLnd.RPC.AddInvoice(&lnrpc.Invoice{
-		ValueMsat: int64(paymentAskAmt),
-	})
-	invoice := ts.CarolLnd.RPC.LookupInvoice(addInvoiceResp.RHash)
-
-	// Decode the payment request to get the payment address.
-	payReq := ts.CarolLnd.RPC.DecodePayReq(invoice.PaymentRequest)
-
-	// We now need to construct a route for the payment from Alice to Carol.
-	// The route will be Alice -> Bob -> Carol. We'll add the accepted quote
-	// ID as a record to the custom records field of the route's first hop.
-	// This will allow Bob to validate the payment against the accepted
-	// quote.
-	routeBuildRequest := routerrpc.BuildRouteRequest{
-		AmtMsat: int64(paymentAskAmt),
-		HopPubkeys: [][]byte{
-			ts.BobLnd.PubKey[:],
-			ts.CarolLnd.PubKey[:],
-		},
-		PaymentAddr: payReq.PaymentAddr,
-	}
-	// Select the backed asset channel rather than Alice's BTC-only channel.
-	channelPoint := ts.AliceBobChannel
-	txid, err := lnrpc.GetChanPointFundingTxid(channelPoint)
-	require.NoError(t.t, err)
-	assetChannelPoint := fmt.Sprintf("%s:%d", txid, channelPoint.OutputIndex)
-	channels, err := ts.AliceTapd.LightningClient.ListChannels(
-		ctx, &lnrpc.ListChannelsRequest{},
-	)
-	require.NoError(t.t, err)
-	for _, channel := range channels.Channels {
-		if channel.ChannelPoint == assetChannelPoint {
-			routeBuildRequest.OutgoingChanId = channel.ChanId
-			break
-		}
-	}
-	require.NotZero(t.t, routeBuildRequest.OutgoingChanId)
-	routeBuildResp := ts.AliceLnd.RPC.BuildRoute(&routeBuildRequest)
-
-	// Send the payment to the route.
-	t.Log("Alice paying invoice")
-
-	// Construct first hop custom records for payment.
-	//
-	// The custom records will contain the accepted quote ID and the asset
-	// amounts that Alice will pay to Bob.
-	//
-	// We select an asset amount which is sufficient to cover the invoice
-	// amount.
+	// Construct the asset records carried by both payment attempts.
 	paymentAssetAmount := uint64(42)
 	assetAmounts := []*rfqmsg.AssetBalance{
 		rfqmsg.NewAssetBalance(mintedAssetId, paymentAssetAmount),
 	}
-
 	htlcCustomRecords := rfqmsg.NewHtlc(
 		assetAmounts, fn.Some(acceptedQuoteId), fn.None[[]rfqmsg.ID](),
 	)
-
-	// Convert the custom records to a TLV map for inclusion in
-	// SendToRouteRequest.
 	firstHopCustomRecords, err := tlv.RecordsToMap(
 		htlcCustomRecords.Records(),
 	)
 	require.NoError(t.t, err)
 
-	// Register for Bob's RFQ events with a short deadline. The HTLC must be
-	// rejected before it reaches the RFQ policy because the first hop is a
-	// normal BTC channel.
-	bobEventCtx, cancelBobEvents := context.WithTimeout(ctx, time.Second)
-	defer cancelBobEvents()
-	bobEventNtfns, err := ts.BobTapd.SubscribeRfqEventNtfns(
-		bobEventCtx, &rfqrpc.SubscribeRfqEventNtfnsRequest{},
+	// Locate each Alice-to-Bob channel explicitly so the two payment
+	// attempts exercise the intended incoming channel at Bob.
+	outgoingChanID := func(point *lnrpc.ChannelPoint) uint64 {
+		txid, err := lnrpc.GetChanPointFundingTxid(point)
+		require.NoError(t.t, err)
+		channelPoint := fmt.Sprintf("%s:%d", txid, point.OutputIndex)
+		channels, err := ts.AliceTapd.LightningClient.ListChannels(
+			ctx, &lnrpc.ListChannelsRequest{},
+		)
+		require.NoError(t.t, err)
+		for _, channel := range channels.Channels {
+			if channel.ChannelPoint == channelPoint {
+				return channel.ChanId
+			}
+		}
+
+		require.FailNow(t.t, "channel not found", channelPoint)
+		return 0
+	}
+
+	// SendToRouteV2 can return an in-flight attempt on older lnd versions.
+	// If it does, track the payment until its terminal update arrives.
+	sendToRoute := func(invoice *lnrpc.Invoice,
+		route *lnrpc.Route) *lnrpc.HTLCAttempt {
+
+		routeReq := &routerrpc.SendToRouteRequest{
+			PaymentHash:           invoice.RHash,
+			Route:                 route,
+			FirstHopCustomRecords: firstHopCustomRecords,
+		}
+		attempt := ts.AliceLnd.RPC.SendToRouteV2(routeReq)
+		if attempt.Status != lnrpc.HTLCAttempt_IN_FLIGHT {
+			return attempt
+		}
+
+		trackCtx, cancelTrack := context.WithTimeout(ctx, rfqTimeout)
+		defer cancelTrack()
+		paymentStream, err := ts.AliceTapd.RouterClient.TrackPaymentV2(
+			trackCtx, &routerrpc.TrackPaymentRequest{
+				PaymentHash:       invoice.RHash,
+				NoInflightUpdates: true,
+			},
+		)
+		require.NoError(t.t, err)
+		for {
+			payment, err := paymentStream.Recv()
+			require.NoError(t.t, err)
+			if payment.Status == lnrpc.Payment_IN_FLIGHT {
+				continue
+			}
+			require.NotEmpty(t.t, payment.Htlcs)
+			return payment.Htlcs[len(payment.Htlcs)-1]
+		}
+	}
+
+	// First force the asset-marked HTLC over Alice and Bob's normal BTC
+	// channel. Bob must reject it before applying the otherwise valid quote.
+	rejectedInvoiceResp := ts.CarolLnd.RPC.AddInvoice(&lnrpc.Invoice{
+		ValueMsat: int64(paymentAskAmt),
+	})
+	rejectedInvoice := ts.CarolLnd.RPC.LookupInvoice(
+		rejectedInvoiceResp.RHash,
+	)
+	rejectedPayReq := ts.CarolLnd.RPC.DecodePayReq(
+		rejectedInvoice.PaymentRequest,
+	)
+	rejectedRoute := ts.AliceLnd.RPC.BuildRoute(&routerrpc.BuildRouteRequest{
+		AmtMsat:        int64(paymentAskAmt),
+		HopPubkeys:     [][]byte{ts.BobLnd.PubKey[:], ts.CarolLnd.PubKey[:]},
+		OutgoingChanId: outgoingChanID(ts.AliceBobBTCChannel),
+		PaymentAddr:    rejectedPayReq.PaymentAddr,
+	})
+	bobRejectCtx, cancelBobReject := context.WithTimeout(ctx, time.Second)
+	defer cancelBobReject()
+	bobRejectEvents, err := ts.BobTapd.SubscribeRfqEventNtfns(
+		bobRejectCtx, &rfqrpc.SubscribeRfqEventNtfnsRequest{},
 	)
 	require.NoError(t.t, err)
-
-	routeReq := routerrpc.SendToRouteRequest{
-		PaymentHash:           invoice.RHash,
-		Route:                 routeBuildResp.Route,
-		FirstHopCustomRecords: firstHopCustomRecords,
-	}
-	sendAttempt := ts.AliceLnd.RPC.SendToRouteV2(&routeReq)
-
-	// The payment must fail because Alice sends the asset-marked HTLC over a
-	// normal BTC channel. The quote alone is not sufficient to authorize the
-	// incoming channel.
-	require.Equal(t.t, lnrpc.HTLCAttempt_FAILED, sendAttempt.Status)
-
-	// Bob must not emit an acceptance event for the rejected HTLC.
-	event, err := bobEventNtfns.Recv()
+	rejectedAttempt := sendToRoute(rejectedInvoice, rejectedRoute.Route)
+	require.Equal(t.t, lnrpc.HTLCAttempt_FAILED, rejectedAttempt.Status)
+	event, err := bobRejectEvents.Recv()
 	require.Error(t.t, err)
 	require.Nil(t.t, event)
+	rejectedInvoice = ts.CarolLnd.RPC.LookupInvoice(rejectedInvoiceResp.RHash)
+	require.Equal(t.t, lnrpc.Invoice_OPEN, rejectedInvoice.State)
+	require.NoError(t.t, bobRejectEvents.CloseSend())
 
-	// Carol's invoice remains open because the payment never reached her.
+	// Then send a distinct payment over the backed asset channel. Bob applies
+	// the quote, accepts the asset HTLC and forwards the BTC payment to Carol.
+	bobEventNtfns, err := ts.BobTapd.SubscribeRfqEventNtfns(
+		ctx, &rfqrpc.SubscribeRfqEventNtfnsRequest{},
+	)
+	require.NoError(t.t, err)
+	addInvoiceResp := ts.CarolLnd.RPC.AddInvoice(&lnrpc.Invoice{
+		ValueMsat: int64(paymentAskAmt),
+	})
+	invoice := ts.CarolLnd.RPC.LookupInvoice(addInvoiceResp.RHash)
+	payReq := ts.CarolLnd.RPC.DecodePayReq(invoice.PaymentRequest)
+	routeBuildResp := ts.AliceLnd.RPC.BuildRoute(
+		&routerrpc.BuildRouteRequest{
+			AmtMsat:        int64(paymentAskAmt),
+			HopPubkeys:     [][]byte{ts.BobLnd.PubKey[:], ts.CarolLnd.PubKey[:]},
+			OutgoingChanId: outgoingChanID(ts.AliceBobChannel),
+			PaymentAddr:    payReq.PaymentAddr,
+		},
+	)
+	t.Log("Alice paying invoice over the asset channel")
+	sendAttempt := sendToRoute(invoice, routeBuildResp.Route)
+	require.Equal(t.t, lnrpc.HTLCAttempt_SUCCEEDED, sendAttempt.Status)
+
+	t.Log("Waiting for Bob to receive HTLC")
+	BeforeTimeout(t.t, func() {
+		event, err := bobEventNtfns.Recv()
+		require.NoError(t.t, err)
+		_, ok := event.Event.(*rfqrpc.RfqEvent_AcceptHtlc)
+		require.True(t.t, ok, "unexpected event: %v", event)
+	}, rfqTimeout)
 	invoice = ts.CarolLnd.RPC.LookupInvoice(addInvoiceResp.RHash)
-	require.Equal(t.t, lnrpc.Invoice_OPEN, invoice.State)
+	require.Equal(t.t, lnrpc.Invoice_SETTLED, invoice.State)
 
 	// Close event notification streams.
-	err = aliceEventNtfns.CloseSend()
-	require.NoError(t.t, err)
+	require.NoError(t.t, aliceEventNtfns.CloseSend())
+	require.NoError(t.t, bobEventNtfns.CloseSend())
 
-	err = bobEventNtfns.CloseSend()
-	require.NoError(t.t, err)
 }
 
 // testRfqNegotiationGroupKey checks that two nodes can negotiate and register

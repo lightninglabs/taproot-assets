@@ -37,10 +37,12 @@ import (
 
 // rfqIntegratedScenario runs the RFQ test peers with actual asset channels.
 type rfqIntegratedScenario struct {
-	AliceLnd, BobLnd, CarolLnd       *rfqIntegratedPeer
-	AliceTapd, BobTapd, CarolTapd    *IntegratedNode
-	AliceBobChannel, BobCarolChannel *lnrpc.ChannelPoint
-	net                              *IntegratedNetworkHarness
+	AliceLnd, BobLnd, CarolLnd    *rfqIntegratedPeer
+	AliceTapd, BobTapd, CarolTapd *IntegratedNode
+	AliceBobChannel               *lnrpc.ChannelPoint
+	AliceBobBTCChannel            *lnrpc.ChannelPoint
+	BobCarolChannel               *lnrpc.ChannelPoint
+	net                           *IntegratedNetworkHarness
 }
 
 // rfqIntegratedPeer retains the small set of lntest RPC conveniences used by
@@ -237,12 +239,13 @@ func newRfqIntegratedScenario(t *harnessTest, opts ...RfqOption) *rfqIntegratedS
 		require.NoError(t.t, net.AssertChannelExists(b, outpoint))
 		return point
 	}
-	openBTC(alice, bob)
+	aliceBobBTC := openBTC(alice, bob)
 	bobCarol := openBTC(bob, carol)
 	return &rfqIntegratedScenario{
 		AliceLnd: rfqPeer(t.t, alice), BobLnd: rfqPeer(t.t, bob),
 		CarolLnd: rfqPeer(t.t, carol), AliceTapd: alice, BobTapd: bob,
-		CarolTapd: carol, BobCarolChannel: bobCarol, net: net,
+		CarolTapd: carol, AliceBobBTCChannel: aliceBobBTC,
+		BobCarolChannel: bobCarol, net: net,
 	}
 }
 
