@@ -77,6 +77,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/multimutex"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/signal"
@@ -215,6 +216,9 @@ type RPCServer struct {
 
 	proofQueryRateLimiter *rate.Limiter
 
+	// publishMtx serializes PublishAndLogTransfer calls per anchor txid.
+	publishMtx *multimutex.Mutex[chainhash.Hash]
+
 	// ready is an atomic flag that is set to 1 once Start has finished
 	// wiring up the server's dependencies (config, rate limiter, etc.). It
 	// gates the Universe RPC surface so that calls arriving before the
@@ -229,7 +233,8 @@ type RPCServer struct {
 // NewRPCServer creates a new RPC sever.
 func NewRPCServer() *RPCServer {
 	return &RPCServer{
-		quit: make(chan struct{}),
+		publishMtx: multimutex.NewMutex[chainhash.Hash](),
+		quit:       make(chan struct{}),
 	}
 }
 
@@ -3575,6 +3580,39 @@ func (r *RPCServer) PublishAndLogTransfer(ctx context.Context,
 		return nil, fmt.Errorf("error decoding packet: %w", err)
 	}
 
+	// The BTC level transaction must be fully complete, and we must be able
+	// to extract the final transaction from it.
+	finalTx, err := psbt.Extract(pkt)
+	if err != nil {
+		return nil, fmt.Errorf("error extracting final anchor "+
+			"transaction: %w", err)
+	}
+
+	// The porter deduplicates the transfer record but not the send itself,
+	// so an overlapping submission must wait for the first one and replay
+	// its record rather than broadcast with its own request options.
+	anchorTxid := finalTx.TxHash()
+	r.publishMtx.Lock(anchorTxid)
+	defer r.publishMtx.Unlock(anchorTxid)
+
+	// Return the existing transfer before validating possibly spent inputs.
+	parcels, err := r.cfg.ChainPorter.QueryParcels(
+		ctx, fn.Some(anchorTxid), false,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error querying transfer: %w", err)
+	}
+	if len(parcels) > 0 {
+		resolver := newTransferAssetInfoResolver(ctx, r.cfg.TapAddrBook)
+		parcel, err := marshalOutboundParcel(parcels[0], resolver)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling outbound "+
+				"parcel: %w", err)
+		}
+
+		return &taprpc.SendAssetResponse{Transfer: parcel}, nil
+	}
+
 	activePackets, err := decodeVirtualPackets(req.VirtualPsbts)
 	if err != nil {
 		return nil, fmt.Errorf("error decoding active packets: %w", err)
@@ -3608,14 +3646,6 @@ func (r *RPCServer) PublishAndLogTransfer(ctx context.Context,
 			err)
 	}
 
-	// The BTC level transaction must be fully complete, and we must be able
-	// to extract the final transaction from it.
-	finalTx, err := psbt.Extract(pkt)
-	if err != nil {
-		return nil, fmt.Errorf("error extracting final anchor "+
-			"transaction: %w", err)
-	}
-
 	anchorTx := &tapsend.AnchorTransaction{
 		FundedPsbt: &tapsend.FundedPsbt{
 			Pkt:               pkt,
@@ -3638,9 +3668,7 @@ func (r *RPCServer) PublishAndLogTransfer(ctx context.Context,
 		anchorTx.FundedPsbt.LockedUTXOs[idx] = op
 	}
 
-	parcelLabel := fmt.Sprintf(
-		"pubandlog-%s", anchorTx.FinalTx.TxHash().String(),
-	)
+	parcelLabel := fmt.Sprintf("pubandlog-%s", anchorTxid.String())
 	if req.Label != "" {
 		parcelLabel = req.Label
 	}
