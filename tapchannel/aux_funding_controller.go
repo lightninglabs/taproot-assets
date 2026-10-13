@@ -62,8 +62,10 @@ const (
 
 	// fundingProvenanceIdleTimeout is the maximum amount of time funding
 	// provenance validation may spend without fetching or verifying another
-	// proof step.
-	fundingProvenanceIdleTimeout = 30 * time.Second
+	// proof step. This leaves enough time for a second query after the
+	// Universe courier's default retry delay.
+	fundingProvenanceIdleTimeout = 2 *
+		proof.DefaultProofTransferInitialBackoff
 
 	// fundingProvenanceMaxTimeout bounds the total amount of time channel
 	// activation may spend validating funding input provenance, even if a

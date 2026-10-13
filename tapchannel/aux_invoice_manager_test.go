@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math/big"
 	"math/rand/v2"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -116,6 +117,12 @@ func (m *mockRfqManager) AssetMatchesSpecifier(ctx context.Context,
 
 	switch {
 	case specifier.HasGroupPubKey():
+		var marker asset.ID
+		groupKey := specifier.UnwrapGroupKeyToPtr()
+		copy(marker[:], groupKey.SerializeCompressed()[1:])
+		if id == marker {
+			return true, nil
+		}
 		if id == groupAssetID1 || id == groupAssetID2 {
 			return true, nil
 		}
@@ -182,7 +189,8 @@ func (m *mockHtlcModifier) HtlcModifier(ctx context.Context,
 	// Signal that the htlc modifications are completed.
 	close(m.done)
 
-	return nil
+	<-ctx.Done()
+	return ctx.Err()
 }
 
 // mockHtlcModifierProperty mocks the HtlcModifier interface that is required
@@ -328,7 +336,8 @@ func (m *mockHtlcModifierProperty) HtlcModifier(ctx context.Context,
 	// Signal that the htlc modifications are completed.
 	close(m.done)
 
-	return nil
+	<-ctx.Done()
+	return ctx.Err()
 }
 
 type mockLndClient struct {
@@ -342,6 +351,49 @@ func (m *mockLndClient) ListChannels(_ context.Context, _, _ bool,
 	_ ...lndclient.ListChannelsOption) ([]lndclient.ChannelInfo, error) {
 
 	return m.channels, nil
+}
+
+// TestFetchChannelAssetDataRevalidatesScid verifies that final-invoice channel
+// validation does not retain funding data after lnd reassigns a zero-conf SCID.
+func TestFetchChannelAssetDataRevalidatesScid(t *testing.T) {
+	t.Parallel()
+
+	scid := lnwire.ShortChannelID{
+		BlockHeight: 16_000_002,
+	}
+	assetData, err := json.Marshal(rfqmsg.JsonAssetChannel{
+		FundingAssets: []rfqmsg.JsonAssetUtxo{{
+			AssetGenesis: rfqmsg.JsonAssetGenesis{
+				AssetID: assetID.String(),
+			},
+		}},
+	})
+	require.NoError(t, err)
+
+	lnd := &mockLndClient{
+		channels: []lndclient.ChannelInfo{{
+			ChannelID:         scid.ToUint64(),
+			CustomChannelData: assetData,
+		}},
+	}
+	manager := NewAuxInvoiceManager(&InvoiceManagerConfig{
+		LightningClient: lnd,
+	})
+
+	_, err = manager.fetchChannelAssetData(
+		context.Background(), scid, testNodeID,
+	)
+	require.NoError(t, err)
+
+	// Simulate the asset channel closing and lnd assigning its primary
+	// zero-conf SCID to a new plain channel.
+	lnd.channels = []lndclient.ChannelInfo{{
+		ChannelID: scid.ToUint64(),
+	}}
+	_, err = manager.fetchChannelAssetData(
+		context.Background(), scid, testNodeID,
+	)
+	require.ErrorContains(t, err, "does not have custom channel data")
 }
 
 // TestAuxInvoiceManager tests that the htlc modifications of the aux invoice
@@ -800,6 +852,7 @@ func TestAuxInvoiceManager(t *testing.T) {
 
 		err = manager.Start()
 		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, manager.Stop()) })
 
 		// If the manager is not done processing the htlc modification
 		// requests within the specified timeout, assume this is a
@@ -1032,8 +1085,6 @@ func genChannelsFromRequests(
 			fundingAsset := &jsonAssetChan.FundingAssets[idx]
 			fundingAssetGen := &fundingAsset.AssetGenesis
 			fundingAssetGen.AssetID = balance.AssetID.Val.String()
-
-			jsonAssetChan.GroupKey += balance.AssetID.Val.String()
 		}
 
 		jsonChan, err := json.Marshal(jsonAssetChan)
@@ -1153,6 +1204,7 @@ func testInvoiceManager(t *rapid.T) {
 
 	err := manager.Start()
 	require.NoError(t, err)
+	defer func() { require.NoError(t, manager.Stop()) }()
 
 	select {
 	case <-done:
@@ -1167,6 +1219,292 @@ func TestAuxInvoiceManagerProperty(t *testing.T) {
 	t.Parallel()
 
 	t.Run("invoice_manager", rapid.MakeCheck(testInvoiceManager))
+}
+
+// modResult is the result of a single handler invocation, as observed by the
+// stream mock.
+type modResult struct {
+	resp *lndclient.InvoiceHtlcModifyResponse
+	err  error
+}
+
+// mockResubHtlcModifier mimics the production lndclient invoice HTLC modifier
+// wrapper: it delivers requests to the handler and, when the handler returns
+// an error, tears the stream down (exactly what lndclient does). It counts
+// subscriptions so the test can assert whether the manager re-establishes the
+// stream.
+type mockResubHtlcModifier struct {
+	requests    chan lndclient.InvoiceHtlcModifyRequest
+	results     chan modResult
+	teardown    chan struct{}
+	invocations atomic.Int32
+}
+
+// HtlcModifier handles the invoice HTLC modification requests, reporting each
+// handler result back to the test. A handler error tears the stream down, as
+// lndclient does.
+func (m *mockResubHtlcModifier) HtlcModifier(ctx context.Context,
+	handler lndclient.InvoiceHtlcModifyHandler) error {
+
+	m.invocations.Add(1)
+
+	for {
+		select {
+		case req := <-m.requests:
+			res, err := handler(ctx, req)
+
+			select {
+			case m.results <- modResult{res, err}:
+			case <-ctx.Done():
+				return nil
+			}
+
+			if err != nil {
+				// Handler errors tear the stream down in
+				// lndclient, exactly as here.
+				close(m.teardown)
+				return err
+			}
+
+		case <-ctx.Done():
+			return nil
+		}
+	}
+}
+
+// mockFailingHtlcModifier is a stream mock whose first subscription dies
+// immediately, as if a handler error or an lnd restart tore the stream down.
+// Later subscriptions serve requests normally.
+type mockFailingHtlcModifier struct {
+	cleanExit   bool
+	requests    chan lndclient.InvoiceHtlcModifyRequest
+	results     chan modResult
+	invocations atomic.Int32
+}
+
+// HtlcModifier fails the first subscription, then handles requests normally.
+func (m *mockFailingHtlcModifier) HtlcModifier(ctx context.Context,
+	handler lndclient.InvoiceHtlcModifyHandler) error {
+
+	if m.invocations.Add(1) == 1 {
+		if m.cleanExit {
+			return nil
+		}
+		return fmt.Errorf("stream torn down")
+	}
+
+	for {
+		select {
+		case req := <-m.requests:
+			res, err := handler(ctx, req)
+
+			select {
+			case m.results <- modResult{res, err}:
+			case <-ctx.Done():
+				return nil
+			}
+
+			if err != nil {
+				return err
+			}
+
+		case <-ctx.Done():
+			return nil
+		}
+	}
+}
+
+// TestInvoiceGateSurvivesMalformedRecord is a regression test for issue #116:
+// an HTLC carrying a malformed asset custom record on an asset invoice must
+// be answered with a CancelSet response, and not with a handler error. A
+// handler error would tear the HtlcModifier stream down in lndclient and,
+// since the stream is never re-established, permanently disable the asset
+// invoice gate. The test also asserts that a subsequent legitimate request is
+// still processed on the same stream.
+func TestInvoiceGateSurvivesMalformedRecord(t *testing.T) {
+	modifier := &mockResubHtlcModifier{
+		requests: make(chan lndclient.InvoiceHtlcModifyRequest),
+		results:  make(chan modResult),
+		teardown: make(chan struct{}),
+	}
+
+	mockRfq := &mockRfqManager{
+		peerBuyQuotes: rfq.BuyAcceptMap{
+			testScid: {
+				Peer: testNodeID,
+				AssetRate: rfqmsg.NewAssetRate(
+					testAssetRate, time.Now(),
+				),
+				Request: rfqmsg.BuyRequest{
+					AssetSpecifier: assetSpecifier,
+				},
+			},
+		},
+	}
+
+	legitRecords := newWireCustomRecords(
+		t, []*rfqmsg.AssetBalance{
+			rfqmsg.NewAssetBalance(assetID, 3),
+		}, fn.Some(testRfqID),
+	)
+
+	// The malformed request cannot be run through
+	// genChannelsFromRequests, as its records fail to decode, so the
+	// channel data is generated from the legitimate request only. Both
+	// requests use the same channel.
+	channels, err := genChannelsFromRequests(
+		[]lndclient.InvoiceHtlcModifyRequest{
+			{
+				CircuitKey: invoices.CircuitKey{
+					ChanID: lnwire.NewShortChanIDFromInt(1),
+				},
+				WireCustomRecords: legitRecords,
+			},
+		},
+	)
+	require.NoError(t, err)
+
+	manager := NewAuxInvoiceManager(&InvoiceManagerConfig{
+		ChainParams:         testChainParams,
+		InvoiceHtlcModifier: modifier,
+		RfqManager:          mockRfq,
+		LightningClient:     &mockLndClient{channels: channels},
+	})
+	require.NoError(t, manager.Start())
+	defer func() {
+		require.NoError(t, manager.Stop())
+	}()
+
+	assetInvoice := &lnrpc.Invoice{
+		RouteHints:  testRouteHints(),
+		ValueMsat:   3_000_000,
+		PaymentAddr: []byte{1, 1, 1},
+	}
+
+	// A hostile payer sends an HTLC with an asset-amount custom record
+	// (type 65536) that has a truncated, undecodable payload.
+	malformedRecords := lnwire.CustomRecords{
+		uint64(rfqmsg.HtlcAmountRecordType.TypeVal(
+			rfqmsg.HtlcAmountRecordType(nil),
+		)): {0x01, 0x02, 0x03, 0x04},
+	}
+
+	modifier.requests <- lndclient.InvoiceHtlcModifyRequest{
+		CircuitKey: invoices.CircuitKey{
+			ChanID: lnwire.NewShortChanIDFromInt(1),
+		},
+		Invoice:           assetInvoice,
+		WireCustomRecords: malformedRecords,
+		ExitHtlcAmt:       1234,
+	}
+
+	// The malformed record must be answered with a cancellation of the
+	// set, not with a handler error that tears the stream down.
+	select {
+	case res := <-modifier.results:
+		require.NoError(t, res.err)
+		require.NotNil(t, res.resp)
+		require.True(t, res.resp.CancelSet,
+			"malformed record must cancel the set")
+
+	case <-modifier.teardown:
+		t.Fatal("malformed record tore the HtlcModifier stream down")
+
+	case <-time.After(testTimeout):
+		t.Fatal("timed out waiting for handler response")
+	}
+
+	// The gate must survive: a subsequent legitimate payment to the same
+	// asset invoice is still processed on the same stream.
+	select {
+	case modifier.requests <- lndclient.InvoiceHtlcModifyRequest{
+		CircuitKey: invoices.CircuitKey{
+			ChanID: lnwire.NewShortChanIDFromInt(1),
+		},
+		Invoice:           assetInvoice,
+		WireCustomRecords: legitRecords,
+		ExitHtlcAmt:       1234,
+	}:
+	case <-time.After(testTimeout):
+		t.Fatal("gate did not survive malformed record, request " +
+			"was not processed")
+	}
+
+	select {
+	case res := <-modifier.results:
+		require.NoError(t, res.err)
+		require.False(t, res.resp.CancelSet)
+		require.Equal(t, lnwire.MilliSatoshi(3_000_000),
+			res.resp.AmtPaid)
+
+	case <-modifier.teardown:
+		t.Fatal("legitimate request tore the HtlcModifier stream down")
+
+	case <-time.After(testTimeout):
+		t.Fatal("gate did not survive malformed record, no response " +
+			"was received")
+	}
+
+	require.Equal(t, int32(1), modifier.invocations.Load(),
+		"the stream must not have been torn down or re-established")
+}
+
+// TestInvoiceModifierResubscribes is a regression test for issue #116: the
+// manager must re-establish the HtlcModifier stream after it was torn down by
+// an error, until the manager is stopped.
+func TestInvoiceModifierResubscribes(t *testing.T) {
+	oldDelay := htlcModifierRetryDelay
+	htlcModifierRetryDelay = 10 * time.Millisecond
+	t.Cleanup(func() {
+		htlcModifierRetryDelay = oldDelay
+	})
+
+	modifier := &mockFailingHtlcModifier{
+		requests: make(chan lndclient.InvoiceHtlcModifyRequest),
+		results:  make(chan modResult),
+	}
+
+	manager := NewAuxInvoiceManager(&InvoiceManagerConfig{
+		ChainParams:         testChainParams,
+		InvoiceHtlcModifier: modifier,
+		RfqManager:          &mockRfqManager{},
+		LightningClient:     &mockLndClient{},
+	})
+	require.NoError(t, manager.Start())
+	defer func() {
+		require.NoError(t, manager.Stop())
+	}()
+
+	// The first subscription dies immediately, the manager must
+	// re-establish the stream.
+	require.Eventually(t, func() bool {
+		return modifier.invocations.Load() >= 2
+	}, testTimeout, 5*time.Millisecond,
+		"manager did not re-establish the torn down stream")
+
+	// The re-established stream processes requests again.
+	select {
+	case modifier.requests <- lndclient.InvoiceHtlcModifyRequest{
+		Invoice:     &lnrpc.Invoice{},
+		ExitHtlcAmt: 1234,
+	}:
+	case <-time.After(testTimeout):
+		t.Fatal("timed out sending request on the re-established " +
+			"stream")
+	}
+
+	select {
+	case res := <-modifier.results:
+		require.NoError(t, res.err)
+		require.NotNil(t, res.resp)
+		require.False(t, res.resp.CancelSet)
+		require.Equal(t, lnwire.MilliSatoshi(1234), res.resp.AmtPaid)
+
+	case <-time.After(testTimeout):
+		t.Fatal("timed out waiting for response on the " +
+			"re-established " +
+			"stream")
+	}
 }
 
 func newHash(i []byte) []byte {
@@ -1401,4 +1739,694 @@ func TestGetAllBuyQuotesFromRouteHints(t *testing.T) {
 	)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "no buy quotes found")
+}
+
+// TestInvoiceAssetPinnedToHintedQuote is a regression test for issue #120: an
+// asset invoice may only be settled with the assets actually paid matching
+// the quote(s) hinted in the invoice's route hints. The check is on the
+// HTLC's balance records, not on the asset description of the quote the
+// payer references: a quote can claim both a specific asset and a group
+// while a different group member is paid.
+func TestInvoiceAssetPinnedToHintedQuote(t *testing.T) {
+	var (
+		// The accepted quote for asset A, hinted by the invoice's
+		// route hints.
+		rfqIDA = testRfqID
+		scidA  = rfqIDA.Scid()
+
+		// A second accepted quote for asset B, not hinted by the
+		// invoice.
+		rfqIDB     = dummyRfqID(77)
+		scidB      = rfqIDB.Scid()
+		assetIDB   = dummyAssetID(9)
+		specifierB = asset.NewSpecifierFromId(assetIDB)
+
+		// A different rate for asset B, so a settlement with B's
+		// valuation would be observable.
+		rateB = rfqmath.FixedPoint[rfqmath.BigInt]{
+			Coefficient: rfqmath.NewBigInt(big.NewInt(50_000)),
+			Scale:       0,
+		}
+	)
+
+	buyQuotes := rfq.BuyAcceptMap{
+		scidA: {
+			Peer: testNodeID,
+			AssetRate: rfqmsg.NewAssetRate(
+				testAssetRate, time.Now(),
+			),
+			Request: rfqmsg.BuyRequest{
+				AssetSpecifier: assetSpecifier,
+			},
+		},
+		scidB: {
+			Peer:      testNodeID,
+			AssetRate: rfqmsg.NewAssetRate(rateB, time.Now()),
+			Request: rfqmsg.BuyRequest{
+				AssetSpecifier: specifierB,
+			},
+		},
+	}
+
+	// The invoice is created for asset A: its route hints carry the SCID
+	// of the accepted A quote.
+	assetInvoice := &lnrpc.Invoice{
+		RouteHints:  testRouteHints(),
+		ValueMsat:   3_000_000,
+		PaymentAddr: []byte{1, 1, 1},
+	}
+
+	// The hostile payment: the HTLC carries the RFQ ID of the B quote and
+	// valid B balances.
+	assetBRecords := newWireCustomRecords(
+		t, []*rfqmsg.AssetBalance{
+			rfqmsg.NewAssetBalance(assetIDB, 3),
+		}, fn.Some(rfqIDB),
+	)
+
+	// The legitimate payment: the HTLC uses the hinted A quote.
+	assetARecords := newWireCustomRecords(
+		t, []*rfqmsg.AssetBalance{
+			rfqmsg.NewAssetBalance(assetID, 3),
+		}, fn.Some(rfqIDA),
+	)
+
+	requests := []lndclient.InvoiceHtlcModifyRequest{
+		{
+			CircuitKey: invoices.CircuitKey{
+				ChanID: lnwire.NewShortChanIDFromInt(1),
+			},
+			Invoice:           assetInvoice,
+			WireCustomRecords: assetBRecords,
+			ExitHtlcAmt:       1234,
+		},
+		{
+			CircuitKey: invoices.CircuitKey{
+				ChanID: lnwire.NewShortChanIDFromInt(2),
+			},
+			Invoice:           assetInvoice,
+			WireCustomRecords: assetARecords,
+			ExitHtlcAmt:       1234,
+		},
+	}
+
+	channels, err := genChannelsFromRequests(requests)
+	require.NoError(t, err)
+
+	done := make(chan bool)
+	mockModifier := &mockHtlcModifier{
+		requestQue: requests,
+		expectedResQue: []lndclient.InvoiceHtlcModifyResponse{
+			// The B-asset HTLC references a quote that is not
+			// hinted by the invoice, it must be cancelled.
+			{CancelSet: true},
+			// The A-asset HTLC uses the hinted quote and settles
+			// with A's valuation.
+			{AmtPaid: 3_000_000},
+		},
+		done: done,
+		t:    t,
+	}
+
+	mockRfq := &mockRfqManager{peerBuyQuotes: buyQuotes}
+	manager := NewAuxInvoiceManager(&InvoiceManagerConfig{
+		ChainParams:         testChainParams,
+		InvoiceHtlcModifier: mockModifier,
+		RfqManager:          mockRfq,
+		LightningClient:     &mockLndClient{channels: channels},
+	})
+
+	require.NoError(t, manager.Start())
+	t.Cleanup(func() { require.NoError(t, manager.Stop()) })
+
+	select {
+	case <-done:
+	case <-time.After(testTimeout):
+		t.Fail()
+	}
+}
+
+// TestInvoiceAssetPinnedToPaidAssets extends the pinning coverage for issue
+// #120: the check is on the assets actually paid, so a quote that claims
+// both a specific asset and a group cannot be used to pay a different group
+// member into a specific-asset invoice, while a group invoice can be paid
+// with a specific member asset and a specific-asset invoice can be paid
+// through a group quote, as long as the paid asset matches.
+func TestInvoiceAssetPinnedToPaidAssets(t *testing.T) {
+	var (
+		// The quote for the specific asset A, used for the A-hinted
+		// invoices.
+		rfqIDA = testRfqID
+		scidA  = rfqIDA.Scid()
+
+		// A quote for asset A whose specifier also claims the group,
+		// which the payer can use to pass a group-membership check
+		// while paying a different member.
+		rfqIDBoth = dummyRfqID(87)
+		scidBoth  = rfqIDBoth.Scid()
+
+		// A quote specified by the group alone.
+		rfqIDGroup = dummyRfqID(88)
+		scidGroup  = rfqIDGroup.Scid()
+
+		groupPubKey = pubKeyFromUint64(1337)
+	)
+
+	specBoth, err := asset.NewSpecifier(
+		&groupAssetID1, groupPubKey, nil, true,
+	)
+	require.NoError(t, err)
+
+	quoteFor := func(id rfqmsg.ID, spec asset.Specifier) rfqmsg.BuyAccept {
+		return rfqmsg.BuyAccept{
+			Peer: testNodeID,
+			AssetRate: rfqmsg.NewAssetRate(
+				testAssetRate, time.Now(),
+			),
+			Request: rfqmsg.BuyRequest{
+				AssetSpecifier: spec,
+			},
+			ID: id,
+		}
+	}
+
+	// The specific asset A is a member of the group, so the same paid
+	// asset can legitimately match an ID quote, the group quote, or the
+	// combined quote.
+	specA := asset.NewSpecifierFromId(groupAssetID1)
+
+	buyQuotes := rfq.BuyAcceptMap{
+		scidA: quoteFor(rfqIDA, specA),
+		scidBoth: quoteFor(
+			rfqIDBoth, specBoth,
+		),
+		scidGroup: quoteFor(rfqIDGroup, groupSpecifier),
+	}
+
+	// hintsFor builds route hints carrying the given quote SCID.
+	hintsFor := func(scid uint64) []*lnrpc.RouteHint {
+		return []*lnrpc.RouteHint{{
+			HopHints: []*lnrpc.HopHint{{
+				ChanId: scid,
+				NodeId: testNodeID.String(),
+			}},
+		}}
+	}
+
+	type testCase struct {
+		name string
+
+		// The invoice's hinted quote SCID.
+		hintScid uint64
+
+		// The RFQ ID the HTLC references and the asset it pays.
+		htlcRfqID rfqmsg.ID
+		paidAsset asset.ID
+
+		// Whether the HTLC set is expected to be cancelled.
+		expectCancel bool
+	}
+
+	// A quote claiming both asset A and the group cannot be used to pay
+	// a different group member into an A-hinted invoice. A group-hinted
+	// invoice can be paid with a specific member asset, and an
+	// A-hinted invoice can be paid through a group quote, as long as the
+	// paid asset matches the hint.
+	testCases := []testCase{
+		{
+			name:         "both-asset quote pays different member",
+			hintScid:     uint64(scidA),
+			htlcRfqID:    rfqIDBoth,
+			paidAsset:    groupAssetID2,
+			expectCancel: true,
+		},
+		{
+			name:         "group hint paid with member asset",
+			hintScid:     uint64(scidGroup),
+			htlcRfqID:    rfqIDA,
+			paidAsset:    groupAssetID1,
+			expectCancel: false,
+		},
+		{
+			name:         "asset hint paid through group quote",
+			hintScid:     uint64(scidA),
+			htlcRfqID:    rfqIDGroup,
+			paidAsset:    groupAssetID1,
+			expectCancel: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			invoice := &lnrpc.Invoice{
+				RouteHints:  hintsFor(tc.hintScid),
+				ValueMsat:   3_000_000,
+				PaymentAddr: []byte{1, 1, 1},
+			}
+			requests := []lndclient.InvoiceHtlcModifyRequest{{
+				CircuitKey: invoices.CircuitKey{
+					ChanID: lnwire.NewShortChanIDFromInt(1),
+				},
+				Invoice: invoice,
+				WireCustomRecords: newWireCustomRecords(
+					t, []*rfqmsg.AssetBalance{
+						rfqmsg.NewAssetBalance(
+							tc.paidAsset, 3,
+						),
+					}, fn.Some(tc.htlcRfqID),
+				),
+				ExitHtlcAmt: 1234,
+			}}
+
+			expected := lndclient.InvoiceHtlcModifyResponse{}
+			if tc.expectCancel {
+				expected.CancelSet = true
+			} else {
+				expected.AmtPaid = 3_000_000
+			}
+
+			done := make(chan bool)
+			expectedRes := []lndclient.InvoiceHtlcModifyResponse{
+				expected,
+			}
+			mockModifier := &mockHtlcModifier{
+				requestQue:     requests,
+				expectedResQue: expectedRes,
+				done:           done,
+				t:              t,
+			}
+
+			channels, err := genChannelsFromRequests(requests)
+			require.NoError(t, err)
+
+			mockRfq := &mockRfqManager{peerBuyQuotes: buyQuotes}
+			manager := NewAuxInvoiceManager(&InvoiceManagerConfig{
+				ChainParams:         testChainParams,
+				InvoiceHtlcModifier: mockModifier,
+				RfqManager:          mockRfq,
+				LightningClient: &mockLndClient{
+					channels: channels,
+				},
+			})
+
+			require.NoError(t, manager.Start())
+			t.Cleanup(func() { require.NoError(t, manager.Stop()) })
+
+			select {
+			case <-done:
+			case <-time.After(testTimeout):
+				t.Fail()
+			}
+		})
+	}
+}
+
+// TestInvoicePricingIdentity checks both quote identities using real group
+// wire markers and independently supplied, trusted funding information.
+func TestInvoicePricingIdentity(t *testing.T) {
+	groupKey := pubKeyFromUint64(1337)
+	var marker asset.ID
+	copy(marker[:], groupKey.SerializeCompressed()[1:])
+	specA := asset.NewSpecifierFromId(groupAssetID1)
+	both, err := asset.NewSpecifier(&groupAssetID1, groupKey, nil, true)
+	require.NoError(t, err)
+	tests := []struct {
+		name        string
+		hint, quote asset.Specifier
+		paid        asset.ID
+		funding     []asset.ID
+		cancel      bool
+	}{
+		{
+			name:    "mixed quote group invoice",
+			hint:    groupSpecifier,
+			quote:   both,
+			paid:    groupAssetID2,
+			funding: []asset.ID{groupAssetID2},
+			cancel:  true,
+		},
+		{
+			name:    "mixed quote member B invoice",
+			hint:    asset.NewSpecifierFromId(groupAssetID2),
+			quote:   both,
+			paid:    groupAssetID2,
+			funding: []asset.ID{groupAssetID2},
+			cancel:  true,
+		},
+		{
+			name:    "mixed quote marker B",
+			hint:    groupSpecifier,
+			quote:   both,
+			paid:    marker,
+			funding: []asset.ID{groupAssetID2},
+			cancel:  true,
+		},
+		{
+			name:    "mixed hint member B",
+			hint:    both,
+			quote:   groupSpecifier,
+			paid:    groupAssetID2,
+			funding: []asset.ID{groupAssetID2},
+			cancel:  true,
+		},
+		{
+			name:    "ID invoice honest marker",
+			hint:    specA,
+			quote:   groupSpecifier,
+			paid:    marker,
+			funding: []asset.ID{groupAssetID1},
+			cancel:  false,
+		},
+		{
+			name:    "ID quote honest marker",
+			hint:    groupSpecifier,
+			quote:   specA,
+			paid:    marker,
+			funding: []asset.ID{groupAssetID1},
+			cancel:  false,
+		},
+		{
+			name:    "mixed quote honest marker",
+			hint:    specA,
+			quote:   both,
+			paid:    marker,
+			funding: []asset.ID{groupAssetID1},
+			cancel:  false,
+		},
+		{
+			name:    "ID invoice other member marker",
+			hint:    specA,
+			quote:   groupSpecifier,
+			paid:    marker,
+			funding: []asset.ID{groupAssetID2},
+			cancel:  true,
+		},
+		{
+			name:    "ID invoice ambiguous marker",
+			hint:    specA,
+			quote:   groupSpecifier,
+			paid:    marker,
+			funding: []asset.ID{groupAssetID1, groupAssetID2},
+			cancel:  true,
+		},
+		{
+			name:    "group invoice multiple members",
+			hint:    groupSpecifier,
+			quote:   groupSpecifier,
+			paid:    marker,
+			funding: []asset.ID{groupAssetID1, groupAssetID2},
+			cancel:  false,
+		},
+		{
+			name:    "marker without funding",
+			hint:    specA,
+			quote:   groupSpecifier,
+			paid:    marker,
+			funding: nil,
+			cancel:  true,
+		},
+		{
+			name:    "unfunded real ID",
+			hint:    specA,
+			quote:   specA,
+			paid:    groupAssetID1,
+			funding: []asset.ID{groupAssetID2},
+			cancel:  true,
+		},
+	}
+	for _, tc := range tests {
+		runTest := func(t *testing.T, sell bool) {
+			hintID, payID := dummyRfqID(101), dummyRfqID(102)
+			quote := func(id rfqmsg.ID,
+				spec asset.Specifier) rfqmsg.BuyAccept {
+
+				return rfqmsg.BuyAccept{
+					ID: id, Peer: testNodeID,
+					Request: rfqmsg.BuyRequest{
+						AssetSpecifier: spec,
+					},
+					AssetRate: rfqmsg.NewAssetRate(
+						testAssetRate, time.Now(),
+					),
+				}
+			}
+			mock := &mockRfqManager{peerBuyQuotes: rfq.BuyAcceptMap{
+				hintID.Scid(): quote(hintID, tc.hint),
+			}}
+			if sell {
+				sellQuote := rfqmsg.SellAccept{
+					ID: payID, Peer: testNodeID,
+					Request: rfqmsg.SellRequest{
+						AssetSpecifier: tc.quote,
+					},
+					AssetRate: rfqmsg.NewAssetRate(
+						testAssetRate, time.Now(),
+					),
+				}
+				mock.localSellQuotes = rfq.SellAcceptMap{
+					payID.Scid(): sellQuote,
+				}
+			} else {
+				mock.peerBuyQuotes[payID.Scid()] = quote(
+					payID, tc.quote,
+				)
+			}
+			manager := NewAuxInvoiceManager(
+				&InvoiceManagerConfig{RfqManager: mock},
+			)
+			data := rfqmsg.JsonAssetChannel{
+				GroupKey: fmt.Sprintf(
+					"%x", groupKey.SerializeCompressed(),
+				),
+			}
+			for _, id := range tc.funding {
+				utxo := rfqmsg.JsonAssetUtxo{
+					AssetGenesis: rfqmsg.JsonAssetGenesis{
+						AssetID: id.String(),
+					},
+				}
+				data.FundingAssets = append(
+					data.FundingAssets, utxo,
+				)
+			}
+			channelData, err := json.Marshal(data)
+			require.NoError(t, err)
+			manager.cfg.LightningClient = &mockLndClient{
+				channels: []lndclient.ChannelInfo{{
+					ChannelID:         1,
+					CustomChannelData: channelData,
+				}},
+			}
+			hop := &lnrpc.HopHint{
+				ChanId: uint64(hintID.Scid()),
+				NodeId: testNodeID.String(),
+			}
+			req := lndclient.InvoiceHtlcModifyRequest{
+				CircuitKey: invoices.CircuitKey{
+					ChanID: lnwire.NewShortChanIDFromInt(1),
+				},
+				Invoice: &lnrpc.Invoice{
+					ValueMsat: 3_000_000,
+					RouteHints: []*lnrpc.RouteHint{{
+						HopHints: []*lnrpc.HopHint{hop},
+					}},
+				},
+				WireCustomRecords: newWireCustomRecords(
+					t, []*rfqmsg.AssetBalance{
+						rfqmsg.NewAssetBalance(
+							tc.paid, 3,
+						),
+					}, fn.Some(payID),
+				),
+			}
+			resp, err := manager.handleInvoiceAccept(
+				context.Background(), req,
+			)
+			require.NoError(t, err)
+			require.Equal(t, tc.cancel, resp.CancelSet)
+			if !tc.cancel {
+				require.Equal(
+					t, lnwire.MilliSatoshi(3_000_000),
+					resp.AmtPaid,
+				)
+			}
+		}
+		t.Run(tc.name, func(t *testing.T) {
+			for _, sell := range []bool{false, true} {
+				name := fmt.Sprintf("sell=%v", sell)
+				t.Run(name, func(t *testing.T) {
+					runTest(t, sell)
+				})
+			}
+		})
+	}
+}
+
+// TestInvoiceModifierCleanExit retries even a clean subscription exit.
+func TestInvoiceModifierCleanExit(t *testing.T) {
+	modifier := &mockFailingHtlcModifier{cleanExit: true}
+	manager := NewAuxInvoiceManager(&InvoiceManagerConfig{
+		InvoiceHtlcModifier: modifier,
+	})
+	require.NoError(t, manager.Start())
+	t.Cleanup(func() { require.NoError(t, manager.Stop()) })
+	require.Eventually(t, func() bool {
+		return modifier.invocations.Load() >= 2
+	}, 5*time.Second, 10*time.Millisecond)
+}
+
+// cachedHintRfqManager models an expired buy quote whose peer is still cached.
+type cachedHintRfqManager struct {
+	mockRfqManager
+}
+
+func (m *cachedHintRfqManager) LookUpScid(uint64) (route.Vertex, error) {
+	return testNodeID, nil
+}
+
+// TestInvoiceHintRejectsSellReplacement prevents a peer's sell request from
+// replacing the invoice identity after the original buy quote expires.
+func TestInvoiceHintRejectsSellReplacement(t *testing.T) {
+	mock := &cachedHintRfqManager{mockRfqManager: mockRfqManager{
+		localSellQuotes: rfq.SellAcceptMap{testScid: {
+			ID:   testRfqID,
+			Peer: testNodeID,
+			Request: rfqmsg.SellRequest{
+				AssetSpecifier: assetSpecifier,
+			},
+			AssetRate: rfqmsg.NewAssetRate(
+				testAssetRate, time.Now(),
+			),
+		}},
+	}}
+	manager := NewAuxInvoiceManager(&InvoiceManagerConfig{RfqManager: mock})
+	channelData, err := json.Marshal(rfqmsg.JsonAssetChannel{
+		FundingAssets: []rfqmsg.JsonAssetUtxo{{
+			AssetGenesis: rfqmsg.JsonAssetGenesis{
+				AssetID: assetID.String(),
+			},
+		}},
+	})
+	require.NoError(t, err)
+	manager.cfg.LightningClient = &mockLndClient{
+		channels: []lndclient.ChannelInfo{{
+			ChannelID:         1,
+			CustomChannelData: channelData,
+		}},
+	}
+	resp, err := manager.handleInvoiceAccept(context.Background(),
+		lndclient.InvoiceHtlcModifyRequest{
+			CircuitKey: invoices.CircuitKey{
+				ChanID: lnwire.NewShortChanIDFromInt(1),
+			},
+			Invoice: &lnrpc.Invoice{
+				RouteHints: testRouteHints(),
+				ValueMsat:  3_000_000,
+			},
+			WireCustomRecords: newWireCustomRecords(t,
+				[]*rfqmsg.AssetBalance{
+					rfqmsg.NewAssetBalance(assetID, 3),
+				},
+				fn.Some(testRfqID),
+			),
+		},
+	)
+	require.NoError(t, err)
+	require.True(t, resp.CancelSet)
+}
+
+// replacingQuoteManager replaces a quote after its identity is checked, as
+// a concurrent acceptance of a reused RFQ ID could do.
+type replacingQuoteManager struct {
+	mockRfqManager
+	matches     int
+	replacement rfqmsg.SellAccept
+}
+
+func (m *replacingQuoteManager) AssetMatchesSpecifier(ctx context.Context,
+	spec asset.Specifier, id asset.ID) (bool, error) {
+
+	matched, err := m.mockRfqManager.AssetMatchesSpecifier(ctx, spec, id)
+	m.matches++
+	// The first check is against the invoice hint and the second is
+	// against the payer's quote. Replace the latter after validation.
+	if m.matches == 2 {
+		m.localSellQuotes[m.replacement.ID.Scid()] = m.replacement
+	}
+	return matched, err
+}
+
+// TestInvoiceQuoteSnapshot ensures the validated identity and conversion rate
+// come from the same quote even if that quote is replaced during validation.
+func TestInvoiceQuoteSnapshot(t *testing.T) {
+	hintID, payID := dummyRfqID(101), dummyRfqID(102)
+	original := rfqmsg.SellAccept{
+		ID: payID, Peer: testNodeID,
+		Request:   rfqmsg.SellRequest{AssetSpecifier: groupSpecifier},
+		AssetRate: rfqmsg.NewAssetRate(testAssetRate, time.Now()),
+	}
+	replacement := original
+	replacement.Request.AssetSpecifier = assetSpecifier
+	replacement.AssetRate = rfqmsg.NewAssetRate(
+		rfqmath.NewBigIntFixedPoint(50_000, 0), time.Now(),
+	)
+	mock := &replacingQuoteManager{
+		replacement: replacement,
+		mockRfqManager: mockRfqManager{
+			peerBuyQuotes: rfq.BuyAcceptMap{hintID.Scid(): {
+				ID: hintID, Peer: testNodeID,
+				Request: rfqmsg.BuyRequest{
+					AssetSpecifier: groupSpecifier,
+				},
+				AssetRate: rfqmsg.NewAssetRate(
+					testAssetRate, time.Now(),
+				),
+			}},
+			localSellQuotes: rfq.SellAcceptMap{
+				payID.Scid(): original,
+			},
+		},
+	}
+	manager := NewAuxInvoiceManager(&InvoiceManagerConfig{RfqManager: mock})
+	channelData, err := json.Marshal(rfqmsg.JsonAssetChannel{
+		FundingAssets: []rfqmsg.JsonAssetUtxo{{
+			AssetGenesis: rfqmsg.JsonAssetGenesis{
+				AssetID: groupAssetID1.String(),
+			},
+		}},
+	})
+	require.NoError(t, err)
+	manager.cfg.LightningClient = &mockLndClient{
+		channels: []lndclient.ChannelInfo{{
+			ChannelID:         1,
+			CustomChannelData: channelData,
+		}},
+	}
+	req := lndclient.InvoiceHtlcModifyRequest{
+		CircuitKey: invoices.CircuitKey{
+			ChanID: lnwire.NewShortChanIDFromInt(1),
+		},
+		Invoice: &lnrpc.Invoice{
+			ValueMsat: 100_000_000,
+			RouteHints: []*lnrpc.RouteHint{{
+				HopHints: []*lnrpc.HopHint{{
+					ChanId: uint64(hintID.Scid()),
+					NodeId: testNodeID.String(),
+				}},
+			}},
+		},
+		WireCustomRecords: newWireCustomRecords(
+			t, []*rfqmsg.AssetBalance{
+				rfqmsg.NewAssetBalance(groupAssetID1, 3),
+			}, fn.Some(payID),
+		),
+	}
+	resp, err := manager.handleInvoiceAccept(context.Background(), req)
+	require.NoError(t, err)
+	require.False(t, resp.CancelSet)
+	require.Equal(t, 2, mock.matches)
+	require.Equal(t, lnwire.MilliSatoshi(3_000_000), resp.AmtPaid)
 }

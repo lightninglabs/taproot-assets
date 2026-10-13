@@ -92,7 +92,7 @@ const (
 
 	// defaultProofTransferInitialBackoff is the default initial backoff
 	// time we'll use for proof transfers.
-	defaultProofTransferInitialBackoff = 30 * time.Second
+	defaultProofTransferInitialBackoff = proof.DefaultProofTransferInitialBackoff
 
 	// defaultProofTransferMaxBackoff is the default maximum backoff time
 	// we'll use for proof transfers.

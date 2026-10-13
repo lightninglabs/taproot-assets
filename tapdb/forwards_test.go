@@ -792,3 +792,51 @@ func TestSettledFillByRfqID(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, emptyFill)
 }
+
+// TestSettledFillForwardLegs exercises aggregation with real schema uniqueness,
+// more than one former page of rows, and direct sales on the outgoing quote.
+func TestSettledFillForwardLegs(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store, _, db := newForwardStore(t)
+	purchase, sale := randRfqID(t), randRfqID(t)
+	peer := randPeer(t)
+	insertTestPolicy(t, ctx, db, purchase, rfq.RfqPolicyTypeAssetPurchase,
+		peer, nil, nil)
+	insertTestPolicy(t, ctx, db, sale, rfq.RfqPolicyTypeAssetSale,
+		peer, nil, nil)
+
+	// Test policies use SCID 12345. Only the sale policy may receive the
+	// outgoing leg, even when a purchase policy shares that SCID.
+	const count = 1001
+	for i := 0; i < count; i++ {
+		input := rfq.ForwardInput{
+			OpenedAt: time.Now().UTC(), RfqID: purchase,
+			ChanIDIn: 9876, ChanIDOut: 12345, HtlcID: uint64(i),
+			AmtOutMsat: 10,
+		}
+		require.NoError(t, store.UpsertForward(ctx, input))
+		input.SettledAt = fn.Some(time.Now().UTC())
+		require.NoError(t, store.UpsertForward(ctx, input))
+	}
+	for i, terminal := range []string{"settled", "pending", "failed"} {
+		input := rfq.ForwardInput{
+			OpenedAt: time.Now().UTC(), RfqID: sale,
+			ChanIDIn: 8765, ChanIDOut: 12345, HtlcID: uint64(i),
+			AmtOutMsat: 7,
+		}
+		switch terminal {
+		case "settled":
+			input.SettledAt = fn.Some(time.Now().UTC())
+		case "failed":
+			input.FailedAt = fn.Some(time.Now().UTC())
+		}
+		require.NoError(t, store.UpsertForward(ctx, input))
+	}
+	fill, err := store.SettledFillByRfqID(ctx)
+	require.NoError(t, err)
+	require.Equal(t, map[rfqmsg.ID]uint64{
+		purchase: count * 10,
+		sale:     count*10 + 7,
+	}, fill)
+}

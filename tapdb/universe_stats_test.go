@@ -2,10 +2,12 @@ package tapdb
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"database/sql"
 	"fmt"
 	"math/rand"
+	"slices"
 	"sort"
 	"testing"
 	"time"
@@ -663,4 +665,101 @@ func TestUniverseQuerySyncFilters(t *testing.T) {
 			require.True(t, testCase.queryCheck(syncStats))
 		})
 	}
+}
+
+// TestUniverseQuerySyncStatsAssetIDOrder tests that the stats are ordered by
+// asset ID when no sort is given, and by asset ID within equal values of the
+// sort key otherwise.
+func TestUniverseQuerySyncStatsAssetIDOrder(t *testing.T) {
+	db := NewTestDB(t)
+
+	testClock := clock.NewTestClock(time.Now())
+	statsDB, _ := newUniverseStatsWithDB(db.BaseDB, testClock)
+
+	ctx := context.Background()
+
+	const numAssets = 8
+
+	sh := newUniStatsHarness(t, numAssets, db.BaseDB, statsDB)
+	sh.addEvents(numAssets)
+
+	byID := func(a, b universe.AssetSyncSnapshot) int {
+		return bytes.Compare(a.AssetID[:], b.AssetID[:])
+	}
+	byTypeDescThenID := func(a, b universe.AssetSyncSnapshot) int {
+		return cmp.Or(cmp.Compare(b.AssetType, a.AssetType), byID(a, b))
+	}
+
+	syncStats, err := statsDB.QuerySyncStats(
+		ctx, universe.SyncStatsQuery{},
+	)
+	require.NoError(t, err)
+	require.Len(t, syncStats.SyncStats, numAssets)
+	require.True(t, slices.IsSortedFunc(syncStats.SyncStats, byID))
+
+	syncStats, err = statsDB.QuerySyncStats(
+		ctx, universe.SyncStatsQuery{
+			SortBy:        universe.SortByAssetType,
+			SortDirection: universe.SortDescending,
+		},
+	)
+	require.NoError(t, err)
+	require.Len(t, syncStats.SyncStats, numAssets)
+	require.True(t, slices.IsSortedFunc(
+		syncStats.SyncStats, byTypeDescThenID,
+	))
+}
+
+// TestUniverseQuerySyncStatsPages tests that the pages of a query are slices
+// of the result cached for the query's filters and sort.
+func TestUniverseQuerySyncStatsPages(t *testing.T) {
+	db := NewTestDB(t)
+
+	dbTxer := NewTransactionExecutor(
+		db.BaseDB, func(tx *sql.Tx) UniverseStatsStore {
+			return db.WithTx(tx)
+		},
+	)
+	statsDB := NewUniverseStats(
+		dbTxer, clock.NewTestClock(time.Now()),
+		WithStatsCacheDuration(time.Hour),
+	)
+
+	ctx := context.Background()
+
+	const numAssets = 4
+
+	sh := newUniStatsHarness(t, numAssets, db.BaseDB, statsDB)
+	sh.addEvents(numAssets)
+
+	first, err := statsDB.QuerySyncStats(
+		ctx, universe.SyncStatsQuery{
+			Limit: numAssets,
+		},
+	)
+	require.NoError(t, err)
+	require.Len(t, first.SyncStats, numAssets)
+
+	// Assets added after the first page is served are absent from the
+	// later pages.
+	sh = newUniStatsHarness(t, numAssets, db.BaseDB, statsDB)
+	sh.addEvents(numAssets)
+
+	page, err := statsDB.QuerySyncStats(
+		ctx, universe.SyncStatsQuery{
+			Offset: 2,
+			Limit:  2,
+		},
+	)
+	require.NoError(t, err)
+	require.Equal(t, first.SyncStats[2:], page.SyncStats)
+
+	page, err = statsDB.QuerySyncStats(
+		ctx, universe.SyncStatsQuery{
+			Offset: numAssets,
+			Limit:  numAssets,
+		},
+	)
+	require.NoError(t, err)
+	require.Empty(t, page.SyncStats)
 }

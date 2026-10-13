@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"net/url"
+	"sync"
 	"testing"
 	"time"
 
@@ -19,11 +20,16 @@ import (
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
 	cmsg "github.com/lightninglabs/taproot-assets/tapchannelmsg"
+	"github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 )
 
 // keySpendWitness signs a BIP86 key spend of the given virtual transaction
@@ -469,6 +475,126 @@ func TestValidateProvenanceFileCancellation(t *testing.T) {
 
 	err := validateProvenanceFile(ctx, h.inputs[0].provenance)
 	require.ErrorIs(t, err, context.Canceled)
+}
+
+// retryUniverseServer returns not found for the first receive attempt,
+// including its group and asset-ID queries, then returns the target proof.
+type retryUniverseServer struct {
+	proof.MockUniverseServer
+
+	mu         sync.Mutex
+	proofBlob  []byte
+	queryTimes []time.Time
+}
+
+// QueryProof returns the target proof after the first receive attempt.
+func (s *retryUniverseServer) QueryProof(context.Context,
+	*universerpc.UniverseKey) (*universerpc.AssetProofResponse, error) {
+
+	s.mu.Lock()
+	s.queryTimes = append(s.queryTimes, time.Now())
+	queryCount := len(s.queryTimes)
+	proofBlob := bytes.Clone(s.proofBlob)
+	s.mu.Unlock()
+
+	if queryCount <= 2 {
+		return nil, status.Error(codes.NotFound, "proof not found")
+	}
+
+	return &universerpc.AssetProofResponse{
+		AssetLeaf: &universerpc.AssetLeaf{Proof: proofBlob},
+	}, nil
+}
+
+// noopProofTransferLog records no proof transfer attempts.
+type noopProofTransferLog struct{}
+
+// LogProofTransferAttempt records no proof transfer attempt.
+func (noopProofTransferLog) LogProofTransferAttempt(context.Context,
+	proof.Locator, proof.TransferType) error {
+
+	return nil
+}
+
+// QueryProofTransferLog returns no prior proof transfer attempts.
+func (noopProofTransferLog) QueryProofTransferLog(context.Context,
+	proof.Locator, proof.TransferType) ([]time.Time, error) {
+
+	return nil, nil
+}
+
+// TestFundingProvenanceRetryBudget verifies that channel activation remains
+// active while a Universe courier retries a proof query that initially misses.
+func TestFundingProvenanceRetryBudget(t *testing.T) {
+	t.Parallel()
+
+	require.Greater(
+		t, fundingProvenanceIdleTimeout,
+		proof.DefaultProofTransferInitialBackoff,
+	)
+
+	h := newFundingHarness(t, 1, 0, false)
+	proofBlob, err := h.inputs[0].provenance.RawLastProof()
+	require.NoError(t, err)
+
+	retryServer := &retryUniverseServer{proofBlob: proofBlob}
+	grpcServer := grpc.NewServer(
+		grpc.Creds(insecure.NewCredentials()),
+	)
+	universerpc.RegisterUniverseServer(grpcServer, retryServer)
+
+	serverAddr, cleanup, err := test.StartMockGRPCServer(
+		t, grpcServer, true,
+	)
+	require.NoError(t, err)
+	t.Cleanup(cleanup)
+
+	retryDelay := 100 * time.Millisecond
+	courierAddr := proof.MockCourierURL(
+		t, proof.UniverseRpcCourierType, serverAddr,
+	)
+	setupCtx, setupCancel := context.WithTimeout(
+		context.Background(), testTimeout,
+	)
+	t.Cleanup(setupCancel)
+	courier, err := proof.NewUniverseRpcCourier(
+		setupCtx, &proof.UniverseRpcCourierCfg{
+			BackoffCfg: &proof.BackoffCfg{
+				SkipInitDelay:  true,
+				InitialBackoff: retryDelay,
+				MaxBackoff:     retryDelay,
+				NumTries:       2,
+			},
+			ServiceRequestTimeout: testTimeout,
+		}, noopProofTransferLog{}, proof.NewMockProofArchive(),
+		courierAddr, false,
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = courier.Close()
+	})
+
+	retryCtx, progress, cancel := contextWithProgressDeadline(
+		context.Background(), 2*retryDelay, testTimeout,
+	)
+	defer cancel()
+	retryCtx = proof.WithProgressCallback(retryCtx, progress)
+	dispatcher := &proof.MockProofCourierDispatcher{Courier: courier}
+
+	_, err = verifyFundingInputProvenance(
+		retryCtx, h.outputs, courierAddr, dispatcher,
+		proof.MockVerifierCtx,
+	)
+	require.NoError(t, err)
+	require.NoError(t, retryCtx.Err())
+
+	retryServer.mu.Lock()
+	defer retryServer.mu.Unlock()
+	require.Len(t, retryServer.queryTimes, 3)
+	require.GreaterOrEqual(
+		t, retryServer.queryTimes[2].Sub(retryServer.queryTimes[1]),
+		retryDelay,
+	)
 }
 
 // TestContextWithProgressDeadline verifies that proof progress renews the idle
