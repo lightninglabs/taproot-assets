@@ -447,6 +447,41 @@ func TestBook_QueryAssetInfo(t *testing.T) {
 	}
 }
 
+// TestBook_DecDisplayForAssetID_NoMeta tests that DecDisplayForAssetID
+// returns an error identifiable as ErrAssetMetaNotFound via errors.Is for an
+// asset with no meta reveal, guarding against the store error being wrapped
+// with %v instead of %w and breaking the errors.Is chain.
+func TestBook_DecDisplayForAssetID_NoMeta(t *testing.T) {
+	ctx := context.Background()
+	assetID := asset.RandID(t)
+
+	mockStorage := &MockStorage{}
+	book := NewBook(BookConfig{
+		Store:        mockStorage,
+		KeyRing:      &MockKeyRing{},
+		Chain:        TestNet3Tap,
+		StoreTimeout: time.Second,
+	})
+
+	// The cache is empty, so it's populated from all known asset meta
+	// first; our asset isn't in it either.
+	mockStorage.On("FetchAllAssetMeta", ctx).
+		Return(map[asset.ID]*proof.MetaReveal{}, nil).
+		Once()
+
+	// With no Syncer configured, the per-asset lookup returns
+	// ErrAssetMetaNotFound directly.
+	mockStorage.On("FetchAssetMetaForAsset", ctx, assetID).
+		Return((*proof.MetaReveal)(nil), ErrAssetMetaNotFound).
+		Once()
+
+	opt, err := book.DecDisplayForAssetID(ctx, assetID)
+	require.True(t, errors.Is(err, ErrAssetMetaNotFound))
+	require.True(t, opt.IsNone())
+
+	mockStorage.AssertExpectations(t)
+}
+
 // MockStorage is a mock implementation of the Storage interface.
 type MockStorage struct {
 	mock.Mock
