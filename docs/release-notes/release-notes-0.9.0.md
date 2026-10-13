@@ -224,6 +224,13 @@
   fixes database-backed MS-SMTs computing a wrong root after deleting a
   key they did not hold.
 
+* [PR#2352](https://github.com/lightninglabs/taproot-assets/pull/2352)
+  makes the decoding of tapscript preimages strict. A leaf preimage is
+  rejected unless it is a leaf version followed by a script with its
+  CompactSize length, with nothing after the script. This applies to
+  the preimages in proofs, addresses and virtual PSBTs, and to those
+  read from the database.
+
 # New Features
 
 ## Functional Enhancements
