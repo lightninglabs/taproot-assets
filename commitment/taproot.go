@@ -50,6 +50,12 @@ var (
 	ErrPreimageIsTapCommitment = errors.New(
 		"preimage is a Taproot Asset commitment",
 	)
+
+	// ErrLeafPreimageTrailingData is an error returned when a leaf
+	// preimage holds bytes after its script.
+	ErrLeafPreimageTrailingData = errors.New(
+		"leaf preimage has trailing data after its script",
+	)
 )
 
 // TapscriptPreimageType denotes the type of tapscript sibling preimage.
@@ -115,6 +121,28 @@ func NewPreimageFromLeaf(leaf txscript.TapLeaf) (*TapscriptPreimage, error) {
 		siblingPreimage: encodedLeaf.Bytes(),
 		siblingType:     LeafPreimage,
 	}, nil
+}
+
+// checkLeafPreimage checks that a leaf preimage is a leaf version, then a
+// script with its CompactSize length, and nothing after the script.
+func checkLeafPreimage(preimage []byte) error {
+	if len(preimage) < 2 {
+		return ErrInvalidTapscriptPreimageLen
+	}
+
+	remaining := bytes.NewReader(preimage[1:])
+	_, err := wire.ReadVarBytes(
+		remaining, 0, uint32(len(preimage)-1), "script",
+	)
+	if err != nil {
+		return fmt.Errorf("error decoding leaf pre-image: %w", err)
+	}
+
+	if remaining.Len() != 0 {
+		return ErrLeafPreimageTrailingData
+	}
+
+	return nil
 }
 
 // NewLeafFromPreimage sanity checks a TapscriptPreimage and decodes it into a

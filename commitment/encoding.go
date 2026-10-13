@@ -213,6 +213,15 @@ func TapscriptPreimageDecoder(r io.Reader, val any, buf *[8]byte,
 			return err
 		}
 
+		// A leaf pre-image must be exactly a leaf version and a
+		// script with its CompactSize length.
+		if preimage.siblingType == LeafPreimage {
+			err := checkLeafPreimage(preimage.siblingPreimage)
+			if err != nil {
+				return err
+			}
+		}
+
 		*typ = &preimage
 		return nil
 	}

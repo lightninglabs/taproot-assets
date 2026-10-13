@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
+	"slices"
 	"testing"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
@@ -247,4 +248,83 @@ func TestMaybeEncodeTapscriptPreimage(t *testing.T) {
 	require.Equal(
 		t, testEncodedPreimage, hex.EncodeToString(encodedPreimage),
 	)
+}
+
+// TestTapscriptPreimageDecoderLeaf tests that the tapscript preimage decoder
+// rejects a leaf preimage that is not exactly a leaf encoding, such as one with
+// bytes after its script, which hashes as the leaf does.
+func TestTapscriptPreimageDecoderLeaf(t *testing.T) {
+	t.Parallel()
+
+	leafPreimage, err := NewPreimageFromLeaf(
+		test.ScriptHashLock(t, []byte("foobar")),
+	)
+	require.NoError(t, err)
+
+	branchPreimage := NewPreimageFromBranch(txscript.NewTapBranch(
+		test.ScriptHashLock(t, []byte("foo")),
+		test.ScriptHashLock(t, []byte("bar")),
+	))
+
+	paddedPreimage := &TapscriptPreimage{
+		siblingPreimage: append(
+			slices.Clone(leafPreimage.siblingPreimage), 0x00,
+		),
+		siblingType: LeafPreimage,
+	}
+	shortPreimage := &TapscriptPreimage{
+		siblingPreimage: []byte{byte(txscript.BaseLeafVersion)},
+		siblingType:     LeafPreimage,
+	}
+
+	leafHash, err := leafPreimage.TapHash()
+	require.NoError(t, err)
+	paddedHash, err := paddedPreimage.TapHash()
+	require.NoError(t, err)
+	require.Equal(t, leafHash, paddedHash)
+
+	testCases := []struct {
+		name     string
+		preimage *TapscriptPreimage
+		err      error
+	}{{
+		name:     "leaf",
+		preimage: leafPreimage,
+	}, {
+		name:     "branch",
+		preimage: &branchPreimage,
+	}, {
+		name:     "leaf with trailing data",
+		preimage: paddedPreimage,
+		err:      ErrLeafPreimageTrailingData,
+	}, {
+		name:     "leaf without script",
+		preimage: shortPreimage,
+		err:      ErrInvalidTapscriptPreimageLen,
+	}}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var (
+				b   bytes.Buffer
+				buf [8]byte
+			)
+			err := TapscriptPreimageEncoder(&b, &tc.preimage, &buf)
+			require.NoError(t, err)
+			encoded := b.Bytes()
+
+			var decoded *TapscriptPreimage
+			err = TapscriptPreimageDecoder(
+				bytes.NewReader(encoded), &decoded, &buf,
+				uint64(len(encoded)),
+			)
+			if tc.err != nil {
+				require.ErrorIs(t, err, tc.err)
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, tc.preimage, decoded)
+		})
+	}
 }
