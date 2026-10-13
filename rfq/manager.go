@@ -270,6 +270,7 @@ func (m *Manager) startSubsystems(ctx context.Context) error {
 	m.orderHandler, err = NewOrderHandler(OrderHandlerCfg{
 		CleanupInterval:   CacheCleanupInterval,
 		HtlcInterceptor:   m.cfg.HtlcInterceptor,
+		ChannelLister:     m.cfg.ChannelLister,
 		HtlcSubscriber:    m.cfg.HtlcSubscriber,
 		AliasManager:      m.cfg.AliasManager,
 		AcceptHtlcEvents:  m.acceptHtlcEvents,

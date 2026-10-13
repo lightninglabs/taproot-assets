@@ -229,6 +229,98 @@ func TestPolicyAccountingIdempotent(t *testing.T) {
 	})
 }
 
+// TestAssetSalePolicyRejectsUnderpayment verifies that the incoming BTC HTLC
+// covers the asset value requested by the outgoing leg before the outgoing
+// wire amount is replaced with the asset channel's dust amount.
+func TestAssetSalePolicyRejectsUnderpayment(t *testing.T) {
+	t.Parallel()
+
+	spec := asset.NewSpecifierFromId(asset.ID{0x01})
+	peer := route.Vertex{0x0A}
+	rate := rfqmsg.NewAssetRate(
+		rfqmath.NewBigIntFixedPoint(100, 0),
+		time.Now().Add(time.Hour),
+	)
+	buyReq := &rfqmsg.BuyRequest{
+		Peer:           peer,
+		AssetSpecifier: spec,
+		AssetMaxAmt:    100,
+	}
+	policy := NewAssetSalePolicy(rfqmsg.BuyAccept{
+		Peer:      peer,
+		Request:   *buyReq,
+		AssetRate: rate,
+	}, false, nil)
+
+	scid := lnwire.NewShortChanIDFromInt(
+		uint64(policy.AcceptedQuoteId.Scid()),
+	)
+	htlc := lndclient.InterceptedHtlc{
+		IncomingCircuitKey: testCircuitKey(1),
+		OutgoingChannelID:  scid,
+		AmountInMsat:       1_000_000,
+		AmountOutMsat:      500_000_000,
+	}
+
+	err := policy.CheckHtlcCompliance(context.Background(), htlc, nil)
+	require.ErrorContains(t, err, "incoming amount is less")
+	require.Zero(t, policy.CurrentAmountMsat)
+
+	htlc.IncomingCircuitKey = testCircuitKey(2)
+	htlc.AmountInMsat = htlc.AmountOutMsat + 1000
+	require.NoError(t, policy.CheckHtlcCompliance(
+		context.Background(), htlc, nil,
+	))
+	require.Equal(t, htlc.AmountOutMsat, policy.CurrentAmountMsat)
+}
+
+// TestAssetForwardPolicyUsesIncomingAssetValue verifies that the outgoing sale
+// half of an asset-to-asset forward uses the value proven by the incoming asset
+// records instead of comparing the asset channel's dust wire amount.
+func TestAssetForwardPolicyUsesIncomingAssetValue(t *testing.T) {
+	t.Parallel()
+
+	assetID := asset.ID{0x01}
+	incoming := testPurchasePolicy(t, assetID)
+
+	rfqID, err := rfqmsg.NewID()
+	require.NoError(t, err)
+	peer := route.Vertex{0x0A}
+	outgoing := NewAssetSalePolicy(rfqmsg.BuyAccept{
+		Peer: peer,
+		Request: rfqmsg.BuyRequest{
+			Peer:           peer,
+			AssetSpecifier: asset.NewSpecifierFromId(assetID),
+			AssetMaxAmt:    100,
+		},
+		AssetRate: rfqmsg.NewAssetRate(
+			rfqmath.NewBigIntFixedPoint(100, 0),
+			time.Now().Add(time.Hour),
+		),
+		ID: rfqID,
+	}, false, nil)
+
+	forward, err := NewAssetForwardPolicy(incoming, outgoing)
+	require.NoError(t, err)
+
+	htlc := testPurchaseHtlc(
+		t, incoming, 1234, rfqmsg.NewAssetBalance(assetID, 1),
+	)
+	htlc.OutgoingChannelID = lnwire.NewShortChanIDFromInt(
+		uint64(outgoing.AcceptedQuoteId.Scid()),
+	)
+	require.Less(t, htlc.AmountInMsat, htlc.AmountOutMsat)
+
+	specifierChecker := func(_ context.Context, _ asset.Specifier,
+		_ asset.ID) (bool, error) {
+
+		return true, nil
+	}
+	require.NoError(t, forward.CheckHtlcCompliance(
+		context.Background(), htlc, specifierChecker,
+	))
+}
+
 // TestAssetSalePolicyConcurrentHtlcCap tests that concurrently accepted
 // HTLCs referencing the same asset sale policy never exceed the policy's
 // agreed maximum amount, even though the HTLC interceptor invokes the
@@ -292,6 +384,7 @@ func TestAssetSalePolicyConcurrentHtlcCap(t *testing.T) {
 				OutgoingChannelID: lnwire.NewShortChanIDFromInt(
 					uint64(policy.AcceptedQuoteId.Scid()),
 				),
+				AmountInMsat:  capMsat,
 				AmountOutMsat: capMsat,
 			}
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -301,6 +302,14 @@ func NewAssetSalePolicy(quote rfqmsg.BuyAccept, noop bool,
 func (c *AssetSalePolicy) CheckHtlcCompliance(_ context.Context,
 	htlc lndclient.InterceptedHtlc, _ rfqmsg.SpecifierChecker) error {
 
+	return c.checkHtlcCompliance(htlc, true)
+}
+
+// checkHtlcCompliance checks a sale HTLC. A standalone sale must require the
+// incoming BTC wire amount to cover the outgoing asset value. An asset forward
+// has already established that coverage from its incoming asset records.
+func (c *AssetSalePolicy) checkHtlcCompliance(
+	htlc lndclient.InterceptedHtlc, requireIncomingBtc bool) error {
 	// We acquire a write lock such that the compliance check and the
 	// tracking of the HTLC are executed atomically. Otherwise concurrent
 	// HTLCs could all pass the check below before any of them is tracked,
@@ -314,6 +323,19 @@ func (c *AssetSalePolicy) CheckHtlcCompliance(_ context.Context,
 		return fmt.Errorf("HTLC outgoing channel ID does not match "+
 			"policy's SCID (htlc_scid=%d, policy_scid=%d)",
 			htlcScid, c.AcceptedQuoteId.Scid())
+	}
+
+	if requireIncomingBtc {
+		// The outgoing amount still represents the BTC value of the assets
+		// at this point. The interceptor response replaces it with the
+		// on-chain dust amount, after which lnd can no longer verify that
+		// the incoming HTLC paid the requested asset value.
+		if htlc.AmountInMsat < htlc.AmountOutMsat {
+			return fmt.Errorf("HTLC incoming amount is less than "+
+				"outgoing asset value (htlc_in_msat=%d, "+
+				"htlc_out_msat=%d)", htlc.AmountInMsat,
+				htlc.AmountOutMsat)
+		}
 	}
 
 	// The RFQ quote sets an upper limit on the amount of assets this node
@@ -929,9 +951,10 @@ func (a *AssetForwardPolicy) CheckHtlcCompliance(ctx context.Context,
 			"HTLC does not comply with policy: %w", err)
 	}
 
-	if err := a.outgoingPolicy.CheckHtlcCompliance(
-		ctx, htlc, sChk,
-	); err != nil {
+	// The incoming policy has already established value coverage from the
+	// incoming asset records, so the sale half must not compare the asset
+	// channel's dust wire amount against the outgoing asset value.
+	if err := a.outgoingPolicy.checkHtlcCompliance(htlc, false); err != nil {
 		// The incoming policy has already tracked the HTLC. Roll back
 		// that tracking, as the HTLC will be rejected.
 		a.incomingPolicy.UntrackHtlc(htlc.IncomingCircuitKey)
@@ -1065,6 +1088,11 @@ type OrderHandlerCfg struct {
 	// HtlcInterceptor is the HTLC interceptor. This component is used to
 	// intercept and accept/reject HTLCs.
 	HtlcInterceptor HtlcInterceptor
+
+	// ChannelLister lists the node's active channels. It is used to verify
+	// that incoming asset HTLCs arrived over a channel funded by the assets
+	// they claim to carry.
+	ChannelLister ChannelLister
 
 	// AliasManager is the SCID alias manager. This component is used to add
 	// and remove SCID aliases.
@@ -1253,6 +1281,114 @@ func (h *OrderHandler) handleIncomingHtlc(ctx context.Context,
 	return resp, nil
 }
 
+// validateIncomingAssetChannel proves that any HTLC whose policy substitutes an
+// asset-derived incoming value arrived over a channel funded by every claimed
+// asset. Policies that do not value the incoming side in assets need no check.
+func (h *OrderHandler) validateIncomingAssetChannel(ctx context.Context,
+	htlc lndclient.InterceptedHtlc, policy Policy) error {
+
+	var specifier asset.Specifier
+	switch p := policy.(type) {
+	case *AssetPurchasePolicy:
+		specifier = p.AssetSpecifier
+
+	case *AssetForwardPolicy:
+		specifier = p.incomingPolicy.AssetSpecifier
+
+	default:
+		return nil
+	}
+
+	htlcRecord, err := parseHtlcCustomRecords(htlc.InWireCustomRecords)
+	if err != nil {
+		return fmt.Errorf("parse HTLC custom records: %w", err)
+	}
+
+	balances := htlcRecord.Balances()
+	if len(balances) == 0 {
+		return fmt.Errorf("asset HTLC has no asset balances")
+	}
+
+	if h.cfg.SpecifierChecker == nil {
+		return fmt.Errorf("asset specifier checker is not configured")
+	}
+
+	htlcAssetIDs := fn.NewSet[asset.ID]()
+	for _, balance := range balances {
+		if balance == nil {
+			return fmt.Errorf("asset HTLC contains a nil balance")
+		}
+
+		matches, err := h.cfg.SpecifierChecker(
+			ctx, specifier, balance.AssetID.Val,
+		)
+		if err != nil {
+			return fmt.Errorf("check HTLC asset %s against policy: %w",
+				balance.AssetID.Val.String(), err)
+		}
+		if !matches {
+			return fmt.Errorf("HTLC asset %s does not match policy %s",
+				balance.AssetID.Val.String(), specifier.String())
+		}
+
+		htlcAssetIDs.Add(balance.AssetID.Val)
+	}
+
+	chanID := htlc.IncomingCircuitKey.ChanID.ToUint64()
+	assetData, err := h.incomingChannelAssetData(ctx, chanID)
+	if err != nil {
+		return err
+	}
+
+	if !assetData.HasAllAssetIDs(htlcAssetIDs) {
+		return fmt.Errorf("incoming channel %d is not funded by all HTLC "+
+			"assets", chanID)
+	}
+
+	return nil
+}
+
+// incomingChannelAssetData returns the current funding data for the channel
+// whose primary SCID identifies the intercepted HTLC's incoming link.
+func (h *OrderHandler) incomingChannelAssetData(ctx context.Context,
+	chanID uint64) (*rfqmsg.JsonAssetChannel, error) {
+
+	if h.cfg.ChannelLister == nil {
+		return nil, fmt.Errorf("channel lister is not configured")
+	}
+
+	channels, err := h.cfg.ChannelLister.ListChannels(ctx, true, false)
+	if err != nil {
+		return nil, fmt.Errorf("list active channels: %w", err)
+	}
+
+	for idx := range channels {
+		channel := &channels[idx]
+		if channel.ChannelID != chanID {
+			continue
+		}
+
+		if len(channel.CustomChannelData) == 0 {
+			return nil, fmt.Errorf("incoming channel %d has no asset "+
+				"funding data", chanID)
+		}
+
+		var data rfqmsg.JsonAssetChannel
+		err := json.Unmarshal(channel.CustomChannelData, &data)
+		if err != nil {
+			return nil, fmt.Errorf("decode incoming channel %d asset "+
+				"funding data: %w", chanID, err)
+		}
+		if len(data.FundingAssets) == 0 {
+			return nil, fmt.Errorf("incoming channel %d has no funded "+
+				"assets", chanID)
+		}
+		return &data, nil
+	}
+
+	return nil, fmt.Errorf("incoming channel %d not found", chanID)
+}
+
 // resolveIncomingHtlc decides how an incoming HTLC should be resolved, based on
 // the RFQ policy that applies to it.
 //
@@ -1314,6 +1450,21 @@ func (h *OrderHandler) resolveIncomingHtlc(ctx context.Context,
 
 	log.Debugf("Fetched policy with SCID %v of type %T", policy.Scid(),
 		policy)
+
+	// A purchase policy replaces the incoming wire amount with the quoted
+	// value of the assets carried by the HTLC. Before allowing that value
+	// substitution, prove that the actual incoming channel is funded by all
+	// of those assets. The RFQ ID is attacker-controlled and cannot establish
+	// channel provenance by itself.
+	err = h.validateIncomingAssetChannel(ctx, htlc, policy)
+	if err != nil {
+		log.Warnf("HTLC did not arrive over a matching asset channel: %v "+
+			"(HTLC=%v, policy=%v)", err, htlc, policy)
+
+		return &lndclient.InterceptedHtlcResponse{
+			Action: lndclient.InterceptorActionFail,
+		}, nil
+	}
 
 	// At this point, we know that a policy exists and has not expired
 	// whilst sitting in the local cache. We can now check that the HTLC

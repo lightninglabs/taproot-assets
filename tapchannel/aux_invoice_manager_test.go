@@ -353,6 +353,49 @@ func (m *mockLndClient) ListChannels(_ context.Context, _, _ bool,
 	return m.channels, nil
 }
 
+// TestFetchChannelAssetDataRevalidatesScid verifies that final-invoice channel
+// validation does not retain funding data after lnd reassigns a zero-conf SCID.
+func TestFetchChannelAssetDataRevalidatesScid(t *testing.T) {
+	t.Parallel()
+
+	scid := lnwire.ShortChannelID{
+		BlockHeight: 16_000_002,
+	}
+	assetData, err := json.Marshal(rfqmsg.JsonAssetChannel{
+		FundingAssets: []rfqmsg.JsonAssetUtxo{{
+			AssetGenesis: rfqmsg.JsonAssetGenesis{
+				AssetID: assetID.String(),
+			},
+		}},
+	})
+	require.NoError(t, err)
+
+	lnd := &mockLndClient{
+		channels: []lndclient.ChannelInfo{{
+			ChannelID:         scid.ToUint64(),
+			CustomChannelData: assetData,
+		}},
+	}
+	manager := NewAuxInvoiceManager(&InvoiceManagerConfig{
+		LightningClient: lnd,
+	})
+
+	_, err = manager.fetchChannelAssetData(
+		context.Background(), scid, testNodeID,
+	)
+	require.NoError(t, err)
+
+	// Simulate the asset channel closing and lnd assigning its primary
+	// zero-conf SCID to a new plain channel.
+	lnd.channels = []lndclient.ChannelInfo{{
+		ChannelID: scid.ToUint64(),
+	}}
+	_, err = manager.fetchChannelAssetData(
+		context.Background(), scid, testNodeID,
+	)
+	require.ErrorContains(t, err, "does not have custom channel data")
+}
+
 // TestAuxInvoiceManager tests that the htlc modifications of the aux invoice
 // manager align with our expectations.
 func TestAuxInvoiceManager(t *testing.T) {
@@ -2169,7 +2212,14 @@ func TestInvoicePricingIdentity(t *testing.T) {
 					data.FundingAssets, utxo,
 				)
 			}
-			manager.channelFundingCache.Store(1, data)
+			channelData, err := json.Marshal(data)
+			require.NoError(t, err)
+			manager.cfg.LightningClient = &mockLndClient{
+				channels: []lndclient.ChannelInfo{{
+					ChannelID:         1,
+					CustomChannelData: channelData,
+				}},
+			}
 			hop := &lnrpc.HopHint{
 				ChanId: uint64(hintID.Scid()),
 				NodeId: testNodeID.String(),
@@ -2253,13 +2303,20 @@ func TestInvoiceHintRejectsSellReplacement(t *testing.T) {
 		}},
 	}}
 	manager := NewAuxInvoiceManager(&InvoiceManagerConfig{RfqManager: mock})
-	manager.channelFundingCache.Store(1, rfqmsg.JsonAssetChannel{
+	channelData, err := json.Marshal(rfqmsg.JsonAssetChannel{
 		FundingAssets: []rfqmsg.JsonAssetUtxo{{
 			AssetGenesis: rfqmsg.JsonAssetGenesis{
 				AssetID: assetID.String(),
 			},
 		}},
 	})
+	require.NoError(t, err)
+	manager.cfg.LightningClient = &mockLndClient{
+		channels: []lndclient.ChannelInfo{{
+			ChannelID:         1,
+			CustomChannelData: channelData,
+		}},
+	}
 	resp, err := manager.handleInvoiceAccept(context.Background(),
 		lndclient.InvoiceHtlcModifyRequest{
 			CircuitKey: invoices.CircuitKey{
@@ -2334,13 +2391,20 @@ func TestInvoiceQuoteSnapshot(t *testing.T) {
 		},
 	}
 	manager := NewAuxInvoiceManager(&InvoiceManagerConfig{RfqManager: mock})
-	manager.channelFundingCache.Store(1, rfqmsg.JsonAssetChannel{
+	channelData, err := json.Marshal(rfqmsg.JsonAssetChannel{
 		FundingAssets: []rfqmsg.JsonAssetUtxo{{
 			AssetGenesis: rfqmsg.JsonAssetGenesis{
 				AssetID: groupAssetID1.String(),
 			},
 		}},
 	})
+	require.NoError(t, err)
+	manager.cfg.LightningClient = &mockLndClient{
+		channels: []lndclient.ChannelInfo{{
+			ChannelID:         1,
+			CustomChannelData: channelData,
+		}},
+	}
 	req := lndclient.InvoiceHtlcModifyRequest{
 		CircuitKey: invoices.CircuitKey{
 			ChanID: lnwire.NewShortChanIDFromInt(1),

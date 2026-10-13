@@ -21,7 +21,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lnrpc"
-	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -108,12 +107,6 @@ type AuxInvoiceManager struct {
 	stopOnce  sync.Once
 
 	cfg *InvoiceManagerConfig
-
-	// channelFundingCache is a cache used to store the channel funding
-	// information for the channels that are used to receive assets. The map
-	// is keyed by the main channel ID, and the value is the asset channel
-	// funding information.
-	channelFundingCache lnutils.SyncMap[uint64, rfqmsg.JsonAssetChannel]
 
 	// ContextGuard provides a wait group and main quit channel that can be
 	// used to create guarded contexts.
@@ -780,14 +773,6 @@ func (s *AuxInvoiceManager) fetchChannelAssetData(ctx context.Context,
 	chanID lnwire.ShortChannelID,
 	peer route.Vertex) (*rfqmsg.JsonAssetChannel, error) {
 
-	// Do we have the information cached? Great, no lookup necessary. We
-	// don't need to worry about cache invalidation because the funding
-	// information remains constant for the lifetime of the channel.
-	cachedAssetData, ok := s.channelFundingCache.Load(chanID.ToUint64())
-	if ok {
-		return &cachedAssetData, nil
-	}
-
 	// We also need to validate that the HTLC is actually the correct asset
 	// and arrived through the correct asset channel.
 	channels, err := s.cfg.LightningClient.ListChannels(
@@ -822,10 +807,6 @@ func (s *AuxInvoiceManager) fetchChannelAssetData(ctx context.Context,
 		return nil, fmt.Errorf("unable to unmarshal channel asset "+
 			"data: %w", err)
 	}
-
-	// We cache the asset data for the channel so we don't have to look it
-	// up again.
-	s.channelFundingCache.Store(chanID.ToUint64(), assetData)
 
 	return &assetData, nil
 }

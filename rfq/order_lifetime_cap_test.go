@@ -69,6 +69,7 @@ func capTestHtlc(scid lnwire.ShortChannelID, htlcID uint64,
 			HtlcID: htlcID,
 		},
 		OutgoingChannelID: scid,
+		AmountInMsat:      lnwire.MilliSatoshi(units) * capTestUnitMsat,
 		AmountOutMsat:     lnwire.MilliSatoshi(units) * capTestUnitMsat,
 	}
 }

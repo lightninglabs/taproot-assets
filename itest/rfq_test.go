@@ -526,14 +526,6 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 	var acceptedQuoteId rfqmsg.ID
 	copy(acceptedQuoteId[:], acceptedQuote.Id[:])
 
-	// Register to receive RFQ events from Bob's tapd node. We'll use this
-	// to wait for Bob to receive the HTLC with the asset transfer specific
-	// scid.
-	bobEventNtfns, err := ts.BobTapd.SubscribeRfqEventNtfns(
-		ctx, &rfqrpc.SubscribeRfqEventNtfnsRequest{},
-	)
-	require.NoError(t.t, err)
-
 	// Carol generates and invoice for Alice to settle via Bob.
 	addInvoiceResp := ts.CarolLnd.RPC.AddInvoice(&lnrpc.Invoice{
 		ValueMsat: int64(askAmt),
@@ -584,6 +576,16 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 	)
 	require.NoError(t.t, err)
 
+	// Register for Bob's RFQ events with a short deadline. The HTLC must be
+	// rejected before it reaches the RFQ policy because the first hop is a
+	// normal BTC channel.
+	bobEventCtx, cancelBobEvents := context.WithTimeout(ctx, time.Second)
+	defer cancelBobEvents()
+	bobEventNtfns, err := ts.BobTapd.SubscribeRfqEventNtfns(
+		bobEventCtx, &rfqrpc.SubscribeRfqEventNtfnsRequest{},
+	)
+	require.NoError(t.t, err)
+
 	routeReq := routerrpc.SendToRouteRequest{
 		PaymentHash:           invoice.RHash,
 		Route:                 routeBuildResp.Route,
@@ -591,25 +593,19 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 	}
 	sendAttempt := ts.AliceLnd.RPC.SendToRouteV2(&routeReq)
 
-	// The payment will succeed since it the asset amount transport is
-	// sufficient to cover the invoice amount.
-	require.Equal(t.t, lnrpc.HTLCAttempt_SUCCEEDED, sendAttempt.Status)
+	// The payment must fail because Alice sends the asset-marked HTLC over a
+	// normal BTC channel. The quote alone is not sufficient to authorize the
+	// incoming channel.
+	require.Equal(t.t, lnrpc.HTLCAttempt_FAILED, sendAttempt.Status)
 
-	// At this point Bob should have received a HTLC with the asset transfer
-	// specific scid. We'll wait for Bob to publish an accept HTLC event and
-	// then validate it against the accepted quote.
-	t.Log("Waiting for Bob to receive HTLC")
-	BeforeTimeout(t.t, func() {
-		event, err := bobEventNtfns.Recv()
-		require.NoError(t.t, err)
+	// Bob must not emit an acceptance event for the rejected HTLC.
+	event, err := bobEventNtfns.Recv()
+	require.Error(t.t, err)
+	require.Nil(t.t, event)
 
-		_, ok := event.Event.(*rfqrpc.RfqEvent_AcceptHtlc)
-		require.True(t.t, ok, "unexpected event: %v", event)
-	}, rfqTimeout)
-
-	// Confirm that Carol receives the lightning payment from Alice via Bob.
+	// Carol's invoice remains open because the payment never reached her.
 	invoice = ts.CarolLnd.RPC.LookupInvoice(addInvoiceResp.RHash)
-	require.Equal(t.t, lnrpc.Invoice_SETTLED, invoice.State)
+	require.Equal(t.t, lnrpc.Invoice_OPEN, invoice.State)
 
 	// Close event notification streams.
 	err = aliceEventNtfns.CloseSend()
