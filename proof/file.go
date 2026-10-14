@@ -235,8 +235,10 @@ func (f *File) Decode(r io.Reader) error {
 
 		// Read all bytes that belong to the proof. We don't decode the
 		// proof itself as we usually only need the last proof anyway.
-		proofBytes := make([]byte, numProofBytes)
-		if _, err := io.ReadFull(r, proofBytes); err != nil {
+		var proofBytes []byte
+		if err := tlv.DVarBytes(
+			r, &proofBytes, &tlvBuf, numProofBytes,
+		); err != nil {
 			return fmt.Errorf("reading proof bytes (idx=%d): %w", i,
 				err)
 		}

@@ -105,6 +105,13 @@ func TestNewProofFromCompressedBytes(t *testing.T) {
 			expectNumNodes: 0,
 		},
 		{
+			name:           "node count exceeds tree depth",
+			input:          []byte{0x01, 0x01},
+			expectError:    true,
+			errorMsg:       "invalid compressed proof",
+			expectNumNodes: 0,
+		},
+		{
 			name: "invalid node count - more nodes than expected",
 			input: func() []byte {
 				// Create a proof that claims to have 2 nodes
