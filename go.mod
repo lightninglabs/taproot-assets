@@ -227,3 +227,7 @@ replace github.com/golang-migrate/migrate/v4 => github.com/lightninglabs/migrate
 replace github.com/prometheus/common => github.com/prometheus/common v0.26.0
 
 replace github.com/lightningnetwork/lnd/tor => github.com/lightningnetwork/lnd/tor v1.1.6
+
+// Use the locally patched TLV module until the upstream fix is released.
+
+replace github.com/lightningnetwork/lnd/tlv => ./third_party/lnd/tlv

@@ -53,6 +53,10 @@ const (
 	// payload. This prevents OOM from malformed input.
 	maxTLVSize = 100 * 1024 * 1024 // 100 MB
 
+	// maxSerializedPubKeySize permits both compressed and uncompressed
+	// public keys accepted by btcec.ParsePubKey during backup import.
+	maxSerializedPubKeySize = 65
+
 	// maxFederationURLs is the maximum number of federation URLs that
 	// can be stored in a v3 backup. This prevents OOM from malformed
 	// input.
@@ -62,6 +66,19 @@ const (
 	// URL in bytes.
 	maxFederationURLLen = 2048
 )
+
+func boundedBytesRecord(typ tlv.Type, value *[]byte,
+	maxSize uint64) tlv.Record {
+
+	size := func() uint64 {
+		return uint64(len(*value))
+	}
+
+	return tlv.MakeDynamicRecord(
+		typ, value, size, tlv.EVarBytes,
+		asset.DVarBytesWithLimit(maxSize),
+	)
+}
 
 // TLV type constants for AssetBackup fields.
 const (
@@ -434,8 +451,8 @@ func (ab *AssetBackup) Decode(r io.Reader) error {
 			"maximum %d", tlvLen, maxTLVSize)
 	}
 
-	tlvData := make([]byte, tlvLen)
-	if _, err := io.ReadFull(r, tlvData); err != nil {
+	var tlvData []byte
+	if err := tlv.DVarBytes(r, &tlvData, &lenBuf, tlvLen); err != nil {
 		return fmt.Errorf("failed to read TLV data: %w", err)
 	}
 
@@ -454,30 +471,37 @@ func (ab *AssetBackup) Decode(r io.Reader) error {
 	// Create decode records. Include all known types (v1 and v2) so
 	// we can decode either format.
 	records := []tlv.Record{
-		tlv.MakePrimitiveRecord(
-			AssetBackupAssetType, &assetBytes,
+		boundedBytesRecord(
+			AssetBackupAssetType, &assetBytes, maxTLVSize,
 		),
-		tlv.MakePrimitiveRecord(
-			AssetBackupOutpointType, &outpointBytes,
+		boundedBytesRecord(
+			AssetBackupOutpointType, &outpointBytes, maxTLVSize,
 		),
 		tlv.MakePrimitiveRecord(
 			AssetBackupBlockHeightType,
 			&ab.AnchorBlockHeight,
 		),
-		tlv.MakePrimitiveRecord(AssetBackupScriptKeyType,
-			&scriptKeyBytes),
-		tlv.MakePrimitiveRecord(AssetBackupAnchorKeyType,
-			&anchorKeyBytes),
-		tlv.MakePrimitiveRecord(AssetBackupProofBlobType,
-			&proofBlobBytes),
-		tlv.MakePrimitiveRecord(AssetBackupAnchorPkScriptType,
-			&anchorPkScriptBytes),
-		tlv.MakePrimitiveRecord(
+		boundedBytesRecord(
+			AssetBackupScriptKeyType, &scriptKeyBytes, maxTLVSize,
+		),
+		boundedBytesRecord(
+			AssetBackupAnchorKeyType, &anchorKeyBytes, maxTLVSize,
+		),
+		boundedBytesRecord(
+			AssetBackupProofBlobType, &proofBlobBytes, maxTLVSize,
+		),
+		boundedBytesRecord(
+			AssetBackupAnchorPkScriptType, &anchorPkScriptBytes,
+			maxTLVSize,
+		),
+		boundedBytesRecord(
 			AssetBackupStrippedProofBlobType,
-			&strippedBlobBytes),
-		tlv.MakePrimitiveRecord(
+			&strippedBlobBytes, maxTLVSize,
+		),
+		boundedBytesRecord(
 			AssetBackupRehydrationHintsType,
-			&rehydrationHintsBytes),
+			&rehydrationHintsBytes, maxTLVSize,
+		),
 	}
 
 	stream, err := tlv.NewStream(records...)
@@ -610,13 +634,19 @@ func (sk *ScriptKeyBackup) Decode(r io.Reader) error {
 
 	// Records must be in ascending type order.
 	records := []tlv.Record{
-		tlv.MakePrimitiveRecord(ScriptKeyPubKeyType, &pubKeyBytes),
+		boundedBytesRecord(
+			ScriptKeyPubKeyType, &pubKeyBytes,
+			maxSerializedPubKeySize,
+		),
 		tlv.MakePrimitiveRecord(ScriptKeyFamilyType, &family),
 		tlv.MakePrimitiveRecord(ScriptKeyIndexType, &index),
-		tlv.MakePrimitiveRecord(
+		boundedBytesRecord(
 			ScriptKeyRawPubKeyType, &rawPubKeyBytes,
+			maxSerializedPubKeySize,
 		),
-		tlv.MakePrimitiveRecord(ScriptKeyTweakType, &tweak),
+		boundedBytesRecord(
+			ScriptKeyTweakType, &tweak, maxTLVSize,
+		),
 	}
 
 	stream, err := tlv.NewStream(records...)
@@ -690,7 +720,10 @@ func (kd *KeyDescriptorBackup) Decode(r io.Reader) error {
 	)
 
 	records := []tlv.Record{
-		tlv.MakePrimitiveRecord(KeyDescPubKeyType, &pubKeyBytes),
+		boundedBytesRecord(
+			KeyDescPubKeyType, &pubKeyBytes,
+			maxSerializedPubKeySize,
+		),
 		tlv.MakePrimitiveRecord(KeyDescFamilyType, &family),
 		tlv.MakePrimitiveRecord(KeyDescIndexType, &index),
 	}
