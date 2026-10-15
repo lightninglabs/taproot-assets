@@ -1,5 +1,3 @@
-//go:build itest
-
 package itest
 
 import (
