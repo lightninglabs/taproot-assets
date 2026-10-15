@@ -177,6 +177,9 @@ func (m *mockHtlcModifier) HtlcModifier(ctx context.Context,
 
 			continue
 		}
+		if res.CancelSet {
+			m.t.Errorf("unexpected cancel set flag")
+		}
 
 		// Check if there's a match with the expected outcome.
 		if res.AmtPaid != m.expectedResQue[i].AmtPaid {
@@ -301,35 +304,10 @@ func (m *mockHtlcModifierProperty) HtlcModifier(ctx context.Context,
 		)
 		require.NoError(m.t, err)
 
-		acceptedMsat := lnwire.MilliSatoshi(0)
-		for _, htlc := range r.Invoice.Htlcs {
-			acceptedMsat += lnwire.MilliSatoshi(htlc.AmtMsat)
-		}
-
-		marginHtlcs := uint64(len(r.Invoice.Htlcs) + 1)
-		marginHtlcs++
-
-		marginAssetUnits := rfqmath.NewBigIntFixedPoint(marginHtlcs, 0)
-
-		marginMsat, err := rfqmath.UnitsToMilliSatoshi(
-			marginAssetUnits, assetRate,
-		)
-		require.NoError(m.t, err)
-
-		totalMsatIn := marginMsat + amtPaid + acceptedMsat + 1
-
-		invoiceValue := lnwire.MilliSatoshi(r.Invoice.ValueMsat)
-
-		if totalMsatIn >= invoiceValue {
-			if (invoiceValue - acceptedMsat) != res.AmtPaid {
-				m.t.Errorf("amt + accepted != invoice amt")
-			}
-		} else {
-			if amtPaid != res.AmtPaid {
-				m.t.Errorf("unexpected final asset value, "+
-					"wanted %d, got %d", amtPaid,
-					res.AmtPaid)
-			}
+		if res.CancelSet || amtPaid != res.AmtPaid {
+			m.t.Errorf("unexpected final asset value, "+
+				"wanted %d, got %d (cancel=%t)", amtPaid,
+				res.AmtPaid, res.CancelSet)
 		}
 	}
 
@@ -405,6 +383,34 @@ func TestAuxInvoiceManager(t *testing.T) {
 				test.RandInt[uint64](),
 			),
 		}
+	}
+
+	mixedStateHtlcs := []*lnrpc.InvoiceHTLC{
+		{
+			AmtMsat: 1_000_000,
+			State:   lnrpc.InvoiceHTLCState_ACCEPTED,
+		},
+		{
+			AmtMsat: 5_000_000,
+			State:   lnrpc.InvoiceHTLCState_CANCELED,
+		},
+	}
+	canceledReplayHtlcs := []*lnrpc.InvoiceHTLC{
+		{
+			AmtMsat: 90_000_000,
+			State:   lnrpc.InvoiceHTLCState_CANCELED,
+		},
+		{
+			AmtMsat: 90_000_000,
+			State:   lnrpc.InvoiceHTLCState_CANCELED,
+		},
+	}
+
+	coveringHtlcs := []*lnrpc.InvoiceHTLC{
+		{
+			AmtMsat: 4_000_000,
+			State:   lnrpc.InvoiceHTLCState_ACCEPTED,
+		},
 	}
 
 	testCases := []struct {
@@ -646,6 +652,202 @@ func TestAuxInvoiceManager(t *testing.T) {
 				{
 					AmtPaid: 4_000_000,
 				},
+			},
+			buyQuotes: rfq.BuyAcceptMap{
+				testScid: {
+					Peer: testNodeID,
+					AssetRate: rfqmsg.NewAssetRate(
+						testAssetRate, time.Now(),
+					),
+					Request: rfqmsg.BuyRequest{
+						AssetSpecifier: assetSpecifier,
+					},
+				},
+			},
+		},
+		{
+			name: "asset invoice, canceled htlcs",
+			requests: []lndclient.InvoiceHtlcModifyRequest{
+				{
+					CircuitKey: randCircuitKey(),
+					Invoice: &lnrpc.Invoice{
+						RouteHints:  testRouteHints(),
+						ValueMsat:   3_000_000,
+						PaymentAddr: []byte{1, 1, 1},
+						Htlcs:       mixedStateHtlcs,
+					},
+					WireCustomRecords: newWireCustomRecords(
+						t, []*rfqmsg.AssetBalance{
+							rfqmsg.NewAssetBalance(
+								assetID, 2,
+							),
+						}, fn.Some(testRfqID),
+					),
+				},
+			},
+			responses: []lndclient.InvoiceHtlcModifyResponse{
+				{
+					AmtPaid: 2_000_000,
+				},
+			},
+			buyQuotes: rfq.BuyAcceptMap{
+				testScid: {
+					Peer: testNodeID,
+					AssetRate: rfqmsg.NewAssetRate(
+						testAssetRate, time.Now(),
+					),
+					Request: rfqmsg.BuyRequest{
+						AssetSpecifier: assetSpecifier,
+					},
+				},
+			},
+		},
+		{
+			name: "asset invoice, canceled replay and unit shortfall",
+			requests: []lndclient.InvoiceHtlcModifyRequest{
+				{
+					CircuitKey: randCircuitKey(),
+					Invoice: &lnrpc.Invoice{
+						RouteHints:  testRouteHints(),
+						ValueMsat:   100_000_000,
+						PaymentAddr: []byte{1, 1, 1},
+						Htlcs:       canceledReplayHtlcs,
+					},
+					WireCustomRecords: newWireCustomRecords(
+						t, []*rfqmsg.AssetBalance{
+							rfqmsg.NewAssetBalance(assetID, 1),
+						}, fn.Some(testRfqID),
+					),
+				},
+				{
+					CircuitKey: randCircuitKey(),
+					Invoice: &lnrpc.Invoice{
+						RouteHints:  testRouteHints(),
+						ValueMsat:   2_000_000,
+						PaymentAddr: []byte{1, 1, 1},
+					},
+					WireCustomRecords: newWireCustomRecords(
+						t, []*rfqmsg.AssetBalance{
+							rfqmsg.NewAssetBalance(assetID, 1),
+						}, fn.Some(testRfqID),
+					),
+				},
+			},
+			responses: []lndclient.InvoiceHtlcModifyResponse{
+				{AmtPaid: 1_000_000},
+				{AmtPaid: 1_000_000},
+			},
+			buyQuotes: rfq.BuyAcceptMap{
+				testScid: {
+					Peer: testNodeID,
+					AssetRate: rfqmsg.NewAssetRate(
+						testAssetRate, time.Now(),
+					),
+					Request: rfqmsg.BuyRequest{
+						AssetSpecifier: assetSpecifier,
+					},
+				},
+			},
+		},
+		{
+			name: "asset invoice, accepted htlcs do not change value",
+			requests: []lndclient.InvoiceHtlcModifyRequest{
+				{
+					CircuitKey: randCircuitKey(),
+					Invoice: &lnrpc.Invoice{
+						RouteHints:  testRouteHints(),
+						ValueMsat:   3_000_000,
+						PaymentAddr: []byte{1, 1, 1},
+						Htlcs:       coveringHtlcs,
+					},
+					WireCustomRecords: newWireCustomRecords(
+						t, []*rfqmsg.AssetBalance{
+							rfqmsg.NewAssetBalance(
+								assetID, 1,
+							),
+						}, fn.Some(testRfqID),
+					),
+				},
+			},
+			responses: []lndclient.InvoiceHtlcModifyResponse{
+				{AmtPaid: 1_000_000},
+			},
+			buyQuotes: rfq.BuyAcceptMap{
+				testScid: {
+					Peer: testNodeID,
+					AssetRate: rfqmsg.NewAssetRate(
+						testAssetRate, time.Now(),
+					),
+					Request: rfqmsg.BuyRequest{
+						AssetSpecifier: assetSpecifier,
+					},
+				},
+			},
+		},
+		{
+			name: "amp asset invoice, custom records",
+			requests: []lndclient.InvoiceHtlcModifyRequest{
+				{
+					CircuitKey: randCircuitKey(),
+					Invoice: &lnrpc.Invoice{
+						RouteHints:  testRouteHints(),
+						ValueMsat:   3_000_000,
+						PaymentAddr: []byte{1, 1, 1},
+						IsAmp:       true,
+					},
+					WireCustomRecords: newWireCustomRecords(
+						t, []*rfqmsg.AssetBalance{
+							rfqmsg.NewAssetBalance(
+								assetID, 3,
+							),
+						}, fn.Some(testRfqID),
+					),
+				},
+			},
+			responses: []lndclient.InvoiceHtlcModifyResponse{
+				{AmtPaid: 3_000_000},
+			},
+			buyQuotes: rfq.BuyAcceptMap{
+				testScid: {
+					Peer: testNodeID,
+					AssetRate: rfqmsg.NewAssetRate(
+						testAssetRate, time.Now(),
+					),
+					Request: rfqmsg.BuyRequest{
+						AssetSpecifier: assetSpecifier,
+					},
+				},
+			},
+		},
+		{
+			name: "zero-valued asset invoice and keysend",
+			requests: []lndclient.InvoiceHtlcModifyRequest{
+				{
+					CircuitKey: randCircuitKey(),
+					Invoice: &lnrpc.Invoice{
+						RouteHints: testRouteHints(),
+					},
+					WireCustomRecords: newWireCustomRecords(
+						t, []*rfqmsg.AssetBalance{
+							rfqmsg.NewAssetBalance(assetID, 1),
+						}, fn.Some(testRfqID),
+					),
+				},
+				{
+					CircuitKey: randCircuitKey(),
+					Invoice: &lnrpc.Invoice{
+						IsKeysend: true,
+					},
+					WireCustomRecords: newWireCustomRecords(
+						t, []*rfqmsg.AssetBalance{
+							rfqmsg.NewAssetBalance(assetID, 1),
+						}, fn.Some(testRfqID),
+					),
+				},
+			},
+			responses: []lndclient.InvoiceHtlcModifyResponse{
+				{AmtPaid: 1_000_000},
+				{AmtPaid: 1_000_000},
 			},
 			buyQuotes: rfq.BuyAcceptMap{
 				testScid: {
@@ -2429,4 +2631,77 @@ func TestInvoiceQuoteSnapshot(t *testing.T) {
 	require.False(t, resp.CancelSet)
 	require.Equal(t, 2, mock.matches)
 	require.Equal(t, lnwire.MilliSatoshi(3_000_000), resp.AmtPaid)
+}
+
+// TestInvoiceRateCappedByHint ensures a payer-selected quote cannot overvalue assets.
+func TestInvoiceRateCappedByHint(t *testing.T) {
+	hintedID, paidID := dummyRfqID(201), dummyRfqID(202)
+	hintedRate := rfqmath.NewBigIntFixedPoint(100_000, 0)
+	paidRate := rfqmath.NewBigIntFixedPoint(95_000, 0)
+	quote := func(id rfqmsg.ID, rate rfqmath.BigIntFixedPoint) rfqmsg.BuyAccept {
+		return rfqmsg.BuyAccept{
+			ID: id, Peer: testNodeID,
+			Request:   rfqmsg.BuyRequest{AssetSpecifier: assetSpecifier},
+			AssetRate: rfqmsg.NewAssetRate(rate, time.Now().Add(time.Hour)),
+		}
+	}
+	mock := &mockRfqManager{peerBuyQuotes: rfq.BuyAcceptMap{
+		hintedID.Scid(): quote(hintedID, hintedRate),
+		paidID.Scid():   quote(paidID, paidRate),
+	}}
+	manager := NewAuxInvoiceManager(&InvoiceManagerConfig{RfqManager: mock})
+	channelData, err := json.Marshal(rfqmsg.JsonAssetChannel{
+		FundingAssets: []rfqmsg.JsonAssetUtxo{{
+			AssetGenesis: rfqmsg.JsonAssetGenesis{AssetID: assetID.String()},
+		}},
+	})
+	require.NoError(t, err)
+	manager.cfg.LightningClient = &mockLndClient{channels: []lndclient.ChannelInfo{{
+		ChannelID: 1, CustomChannelData: channelData,
+	}}}
+	req := lndclient.InvoiceHtlcModifyRequest{
+		CircuitKey: invoices.CircuitKey{ChanID: lnwire.NewShortChanIDFromInt(1)},
+		Invoice: &lnrpc.Invoice{
+			ValueMsat: 100_000_000,
+			RouteHints: []*lnrpc.RouteHint{{HopHints: []*lnrpc.HopHint{{
+				ChanId: uint64(hintedID.Scid()), NodeId: testNodeID.String(),
+			}}}},
+		},
+		WireCustomRecords: newWireCustomRecords(t,
+			[]*rfqmsg.AssetBalance{rfqmsg.NewAssetBalance(assetID, 95)},
+			fn.Some(paidID),
+		),
+	}
+	resp, err := manager.handleInvoiceAccept(context.Background(), req)
+	require.NoError(t, err)
+	require.False(t, resp.CancelSet)
+	require.Equal(t, lnwire.MilliSatoshi(95_000_000), resp.AmtPaid)
+	hintedValue, err := rfqmath.UnitsToMilliSatoshi(
+		rfqmath.NewBigIntFixedPoint(95, 0), hintedRate,
+	)
+	require.NoError(t, err)
+	require.Equal(t, lnwire.MilliSatoshi(95_000_000), hintedValue)
+
+	// The lowest msat-per-unit valuation across multiple hints bounds
+	// the credited amount, even when the payer uses a third quote.
+	higherHintID := dummyRfqID(203)
+	higherHintRate := rfqmath.NewBigIntFixedPoint(110_000, 0)
+	mock.peerBuyQuotes[higherHintID.Scid()] = quote(
+		higherHintID, higherHintRate,
+	)
+	req.Invoice.RouteHints[0].HopHints = append(
+		req.Invoice.RouteHints[0].HopHints,
+		&lnrpc.HopHint{
+			ChanId: uint64(higherHintID.Scid()),
+			NodeId: testNodeID.String(),
+		},
+	)
+	resp, err = manager.handleInvoiceAccept(context.Background(), req)
+	require.NoError(t, err)
+	require.False(t, resp.CancelSet)
+	higherHintValue, err := rfqmath.UnitsToMilliSatoshi(
+		rfqmath.NewBigIntFixedPoint(95, 0), higherHintRate,
+	)
+	require.NoError(t, err)
+	require.Equal(t, higherHintValue, resp.AmtPaid)
 }

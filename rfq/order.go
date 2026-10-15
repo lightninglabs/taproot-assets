@@ -336,6 +336,34 @@ func (c *AssetSalePolicy) checkHtlcCompliance(
 				"htlc_out_msat=%d)", htlc.AmountInMsat,
 				htlc.AmountOutMsat)
 		}
+
+		// A standalone sale must be paid in BTC, so the incoming HTLC
+		// is not expected to carry custom records. A no-op flagged HTLC
+		// returns its BTC value to the sender at settle time, and an
+		// HTLC carrying asset records pays in assets rather than BTC.
+		// Neither covers the outgoing asset value in BTC, so both must
+		// be rejected. Only a forward policy with a validated purchase
+		// leg may accept asset-carrying input.
+		noopTLV := uint64(lnwallet.NoOpHtlcTLVEntry.TypeVal())
+		if _, ok := htlc.InWireCustomRecords[noopTLV]; ok {
+			return fmt.Errorf("standalone sale HTLC carries no-op " +
+				"flag")
+		}
+
+		if len(htlc.InWireCustomRecords) > 0 {
+			htlcRecord, err := parseHtlcCustomRecords(
+				htlc.InWireCustomRecords,
+			)
+			if err != nil {
+				return fmt.Errorf("error parsing HTLC custom "+
+					"records: %w", err)
+			}
+
+			if len(htlcRecord.Balances()) > 0 {
+				return fmt.Errorf("standalone sale HTLC " +
+					"carries asset records")
+			}
+		}
 	}
 
 	// The RFQ quote sets an upper limit on the amount of assets this node

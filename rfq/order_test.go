@@ -15,6 +15,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightningnetwork/lnd/graph/db/models"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/stretchr/testify/require"
@@ -718,4 +719,80 @@ func TestRestoreSettledFill(t *testing.T) {
 	handler, err = NewOrderHandler(OrderHandlerCfg{})
 	require.NoError(t, err)
 	require.NoError(t, handler.restoreSettledFill(ctx))
+}
+
+// TestAssetSalePolicyRejectsNonBtcHtlc verifies that a standalone sale
+// policy rejects incoming HTLCs that do not pay in BTC: HTLCs flagged
+// no-op (lnd returns their BTC value to the sender at settle) and HTLCs
+// carrying asset records (asset-denominated input the sale never
+// validated). Regression test for TA-042.
+func TestAssetSalePolicyRejectsNonBtcHtlc(t *testing.T) {
+	t.Parallel()
+
+	spec := asset.NewSpecifierFromId(asset.ID{0x01})
+	peer := route.Vertex{0x0A}
+	rate := rfqmsg.NewAssetRate(
+		rfqmath.NewBigIntFixedPoint(100, 0),
+		time.Now().Add(time.Hour),
+	)
+	buyReq := &rfqmsg.BuyRequest{
+		Peer:           peer,
+		AssetSpecifier: spec,
+		AssetMaxAmt:    100,
+	}
+	policy := NewAssetSalePolicy(rfqmsg.BuyAccept{
+		Peer:      peer,
+		Request:   *buyReq,
+		AssetRate: rate,
+	}, false, nil)
+
+	scid := lnwire.NewShortChanIDFromInt(
+		uint64(policy.AcceptedQuoteId.Scid()),
+	)
+
+	// Case 1: the incoming HTLC carries only the no-op flag. lnd will
+	// convert the add to a NoOpAdd and credit the amount back to the
+	// sender at settle (lnwallet entryTypeForHtlc/evaluateNoOpHtlc), so
+	// the sale must reject it.
+	noopTLV := uint64(lnwallet.NoOpHtlcTLVEntry.TypeVal())
+	htlc := lndclient.InterceptedHtlc{
+		IncomingCircuitKey: testCircuitKey(1),
+		OutgoingChannelID:  scid,
+		AmountInMsat:       500_000_000,
+		AmountOutMsat:      500_000_000,
+		InWireCustomRecords: map[uint64][]byte{
+			noopTLV: {},
+		},
+	}
+
+	err := policy.CheckHtlcCompliance(context.Background(), htlc, nil)
+	require.ErrorContains(t, err, "no-op")
+	require.Zero(t, policy.CurrentAmountMsat)
+
+	// Case 2: the incoming HTLC carries asset records instead of BTC
+	// value. The equal-amount msat check passes, but the sale must
+	// reject the asset-denominated input.
+	assetRecords := rfqmsg.NewHtlc(
+		[]*rfqmsg.AssetBalance{
+			rfqmsg.NewAssetBalance(asset.ID{0x02}, 1),
+		},
+		fn.Some(policy.AcceptedQuoteId), fn.None[[]rfqmsg.ID](),
+	)
+	customRecords, err := lnwire.ParseCustomRecords(assetRecords.Bytes())
+	require.NoError(t, err)
+
+	htlc.IncomingCircuitKey = testCircuitKey(2)
+	htlc.InWireCustomRecords = customRecords
+
+	err = policy.CheckHtlcCompliance(context.Background(), htlc, nil)
+	require.ErrorContains(t, err, "asset records")
+	require.Zero(t, policy.CurrentAmountMsat)
+
+	// A plain BTC-paying HTLC without custom records must still pass.
+	htlc.IncomingCircuitKey = testCircuitKey(3)
+	htlc.InWireCustomRecords = nil
+	require.NoError(t, policy.CheckHtlcCompliance(
+		context.Background(), htlc, nil,
+	))
+	require.Equal(t, htlc.AmountOutMsat, policy.CurrentAmountMsat)
 }

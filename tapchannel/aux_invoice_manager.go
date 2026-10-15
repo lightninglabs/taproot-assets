@@ -308,8 +308,9 @@ func (s *AuxInvoiceManager) handleInvoiceAccept(ctx context.Context,
 	// and quotes are re-negotiated frequently anyway, so the SCID the
 	// payer's quote carries is not stable. Keysend payments have no route
 	// hints, so they are exempt.
+	assetRate := quote.rate
 	if !req.Invoice.IsKeysend {
-		err := s.assetsMatchInvoiceHints(
+		hintRate, err := s.assetsMatchInvoiceHints(
 			ctx, req.Invoice, htlc, resp.CircuitKey, quote.peer,
 		)
 		if err != nil {
@@ -319,6 +320,12 @@ func (s *AuxInvoiceManager) handleInvoiceAccept(ctx context.Context,
 			resp.CancelSet = true
 
 			return resp, nil
+		}
+
+		// A lower units-per-BTC rate credits more msat per asset unit.
+		// Never credit above the value offered in the invoice hints.
+		if hintRate.Cmp(assetRate) > 0 {
+			assetRate = hintRate
 		}
 	}
 
@@ -332,9 +339,8 @@ func (s *AuxInvoiceManager) handleInvoiceAccept(ctx context.Context,
 		return resp, nil
 	}
 
-	// Convert the total asset amount to milli-satoshis using the price from
-	// the accepted quote.
-	assetRate := quote.rate
+	// Convert the total asset amount to milli-satoshis at the more
+	// conservative of the accepted and invoice-hinted quote rates.
 
 	htlcAssetAmount := htlc.Amounts.Val.Sum()
 	totalAssetAmt := rfqmath.NewBigIntFixedPoint(htlcAssetAmount, 0)
@@ -354,68 +360,8 @@ func (s *AuxInvoiceManager) handleInvoiceAccept(ctx context.Context,
 		return resp, nil
 	}
 
-	// If all previously accepted HTLC amounts plus the intercepted HTLC
-	// amount together add up to just about the asset invoice amount, then
-	// we can settle the HTLCs to address the rounding error.
-	var acceptedHtlcSum lnwire.MilliSatoshi
-	for _, invoiceHtlc := range req.Invoice.Htlcs {
-		acceptedHtlcSum += lnwire.MilliSatoshi(invoiceHtlc.AmtMsat)
-	}
-
-	// We assume that each shard can have a rounding error of up to 1 asset
-	// unit. So we allow the final amount to be off by up to 1 asset unit
-	// per accepted HTLC (plus the one we're currently processing). The
-	// plus one here is because the invoice only has previously accepted
-	// HTLCs committed to it, but we're processing the current HTLC which
-	// is not yet in that list.
-	allowedMarginAssetUnits := uint64(len(req.Invoice.Htlcs) + 1)
-
-	// Convert the allowed margin asset units to milli-satoshis.
-	marginAssetUnits := rfqmath.NewBigIntFixedPoint(
-		allowedMarginAssetUnits, 0,
-	)
-	allowedMarginMSat, err := rfqmath.UnitsToMilliSatoshi(
-		marginAssetUnits, assetRate,
-	)
-	if err != nil {
-		iLog.Errorf("unable to convert margin asset units to mSat, "+
-			"canceling HTLCs: %v", err)
-
-		resp.CancelSet = true
-
-		return resp, nil
-	}
-
-	// Every HTLC makes a roundtrip from msats to units and then back to
-	// msats right here. Above we account for the asset units that may have
-	// been lost by our peer when converting their incoming HTLC amount to
-	// asset units, now we need to account for our loss for converting each
-	// HTLC to msats.
-	allowedMarginMSat += lnwire.MilliSatoshi(len(req.Invoice.Htlcs) + 1)
-
-	// If the sum of the accepted HTLCs plus the current HTLC amount plus
-	// the error margin is greater than the invoice amount, we'll accept it.
-	totalInbound := acceptedHtlcSum + resp.AmtPaid
-	totalInboundWithMargin := totalInbound + allowedMarginMSat
-	invoiceValue := lnwire.MilliSatoshi(req.Invoice.ValueMsat)
-
-	iLog.Debugf("accepted HTLC sum: %v, current HTLC amount: %v, allowed "+
-		"margin: %v (total %v), invoice value %v", acceptedHtlcSum,
-		resp.AmtPaid, allowedMarginMSat, totalInboundWithMargin,
-		invoiceValue)
-
-	// If we're within the error margin, we'll increase the current HTLCs
-	// amount to cover the error rate and make the total sum match the
-	// invoice amount exactly.
-	//
-	// Note: The total calculated margin should match what is implemented in
-	// our TestUnitConversionToleranceRapid test. That test serves as a
-	// sanity check for our tolerance model, which should allow all
-	// combinations of shards and asset rates to be captured by the total
-	// calculated tolerance.
-	if totalInboundWithMargin >= invoiceValue {
-		resp.AmtPaid = invoiceValue - acceptedHtlcSum
-	}
+	// Return only the value of the assets in this HTLC. lnd tracks the
+	// accepted set and decides when its paid amount covers the invoice.
 
 	return resp, nil
 }
@@ -504,77 +450,79 @@ func assetInvoiceHintScids(invoice *lnrpc.Invoice,
 	return scids
 }
 
-// assetsMatchInvoiceHints returns an error if any asset balance the HTLC
-// actually pays does not match the asset of at least one of the quotes the
-// invoice's route hints point to. This binds an asset invoice to its
-// invoiced asset through the paid balances themselves, without pinning the
-// payer to the exact quote instance, which is re-negotiated frequently.
+// assetsMatchInvoiceHints checks every paid asset against the invoice's
+// hinted quotes and returns the highest matching units-per-BTC rate. This
+// caps the credited msat even when the payer references a newer quote.
 func (s *AuxInvoiceManager) assetsMatchInvoiceHints(ctx context.Context,
 	invoice *lnrpc.Invoice, htlc *rfqmsg.Htlc,
-	circuitKey invoices.CircuitKey, peer route.Vertex) error {
+	circuitKey invoices.CircuitKey,
+	peer route.Vertex) (rfqmath.BigIntFixedPoint, error) {
 
 	channel, err := s.fetchChannelAssetData(ctx, circuitKey.ChanID, peer)
 	if err != nil {
-		return err
+		return rfqmath.BigIntFixedPoint{}, err
 	}
 
-	hintSpecifiers := s.assetInvoiceHintSpecifiers(invoice)
-	if len(hintSpecifiers) == 0 {
-		return fmt.Errorf("invoice has no route hints that map to " +
-			"accepted quotes")
+	hintQuotes := s.assetInvoiceHintQuotes(invoice)
+	if len(hintQuotes) == 0 {
+		return rfqmath.BigIntFixedPoint{}, fmt.Errorf("invoice has no " +
+			"route hints that map to accepted quotes")
 	}
 
+	highestRate := rfqmath.NewBigIntFixedPoint(0, 0)
 	for _, balance := range htlc.Balances() {
 		paidAsset := balance.AssetID.Val
-
 		matched := false
-		for _, hintSpecifier := range hintSpecifiers {
+		for _, hintQuote := range hintQuotes {
 			match, err := s.paidAssetMatchesSpecifier(
-				ctx, hintSpecifier, paidAsset, channel,
+				ctx, hintQuote.specifier, paidAsset, channel,
 			)
 			if err != nil {
-				return fmt.Errorf("unable to check paid asset "+
-					"%x against invoice hint: %w",
-					paidAsset[:], err)
+				return rfqmath.BigIntFixedPoint{}, fmt.Errorf(
+					"unable to check paid asset %x against "+
+						"invoice hint: %w", paidAsset[:], err,
+				)
 			}
-
 			if match {
 				matched = true
-				break
+				if hintQuote.rate.Cmp(highestRate) > 0 {
+					highestRate = hintQuote.rate
+				}
 			}
 		}
 
 		if !matched {
-			return fmt.Errorf("paid asset %x does not match "+
-				"any of the invoice's hinted quotes",
-				paidAsset[:])
+			return rfqmath.BigIntFixedPoint{}, fmt.Errorf(
+				"paid asset %x does not match any of the "+
+					"invoice's hinted quotes", paidAsset[:],
+			)
 		}
 	}
 
-	return nil
+	return highestRate, nil
 }
 
-// assetInvoiceHintSpecifiers returns the asset specifiers of the quotes the
-// invoice's route hints point to.
-func (s *AuxInvoiceManager) assetInvoiceHintSpecifiers(
-	invoice *lnrpc.Invoice) []asset.Specifier {
+// assetInvoiceHintQuotes returns accepted buy quote snapshots referenced by
+// the invoice's route hints.
+func (s *AuxInvoiceManager) assetInvoiceHintQuotes(
+	invoice *lnrpc.Invoice) []invoiceSettlementQuote {
 
 	hintScids := assetInvoiceHintScids(invoice, s)
-
 	buyQuotes := s.cfg.RfqManager.PeerAcceptedBuyQuotes()
-	specifiers := make([]asset.Specifier, 0, len(hintScids))
+	quotes := make([]invoiceSettlementQuote, 0, len(hintScids))
 	for scid := range hintScids {
 		// Invoice hints originate from our buy requests, never a peer's
 		// sell request that happens to reuse the same short ID.
 		quote, ok := buyQuotes[rfqmsg.SerialisedScid(scid)]
 		if ok {
-			specifiers = append(
-				specifiers, quote.Request.AssetSpecifier,
-			)
+			quotes = append(quotes, invoiceSettlementQuote{
+				specifier: quote.Request.AssetSpecifier,
+				rate:      quote.AssetRate.Rate,
+			})
 		}
 	}
 
-	return specifiers
+	return quotes
 }
 
 // GetBuyQuoteFromRouteHints is a helper method that extracts a buy quote from
