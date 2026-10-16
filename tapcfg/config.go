@@ -30,6 +30,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/rfq"
 	"github.com/lightninglabs/taproot-assets/rpcserver"
 	"github.com/lightninglabs/taproot-assets/tapdb"
+	"github.com/lightninglabs/taproot-assets/taptls"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/cert"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -1360,10 +1361,10 @@ func getCertificateConfig(cfg *Config, cfgLogger btclog.Logger) (*tls.Config,
 	return tlsCfg, restCreds, nil
 }
 
-// getRfqTLSConfig returns a TLS configuration shared by all RFQ gRPC client
+// getRfqTLSPolicy returns the TLS policy shared by all RFQ gRPC client
 // connections (price oracle, portfolio pilot), given a valid RFQ CLI
 // configuration.
-func getRfqTLSConfig(rfqCfg rfq.CliConfig) (*rfq.TLSConfig, error) {
+func getRfqTLSPolicy(rfqCfg rfq.CliConfig) (taptls.Policy, error) {
 	var certBytes []byte
 
 	// Read any specified certificate data.
@@ -1371,19 +1372,23 @@ func getRfqTLSConfig(rfqCfg rfq.CliConfig) (*rfq.TLSConfig, error) {
 		var err error
 		certBytes, err = os.ReadFile(rfqCfg.TLS.CertPath)
 		if err != nil {
-			return nil, fmt.Errorf("unable to read RFQ TLS "+
-				"certificate: %w", err)
+			return taptls.Policy{}, fmt.Errorf("unable to read "+
+				"RFQ TLS certificate: %w", err)
 		}
 	}
 
-	return &rfq.TLSConfig{
-		Disabled:           rfqCfg.TLS.Disable,
-		InsecureSkipVerify: rfqCfg.TLS.Insecure,
-		// Note the subtle flip on the flag, since the user has
-		// configured whether to *not* trust the system CA's.
-		TrustSystemRootCAs: !rfqCfg.TLS.NoSystemCAs,
-		CustomCertificates: certBytes,
-	}, nil
+	switch {
+	case rfqCfg.TLS.Disable:
+		return taptls.New(taptls.Config{Mode: taptls.ModePlaintext})
+
+	case rfqCfg.TLS.Insecure:
+		return taptls.New(taptls.Config{Mode: taptls.ModeSkipVerify})
+	}
+
+	return taptls.New(taptls.Config{
+		NoSystemRoots: rfqCfg.TLS.NoSystemCAs,
+		Roots:         certBytes,
+	})
 }
 
 // getPriceOracleMacaroonOpt reads the price oracle macaroon file

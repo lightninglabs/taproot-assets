@@ -573,12 +573,12 @@ func genServerConfig(ctx context.Context, cfg *Config,
 
 	rfqCfg := cfg.Experimental.Rfq
 
-	// Build the TLS configuration shared by all RFQ gRPC client
+	// Build the TLS policy shared by all RFQ gRPC client
 	// connections (price oracle, portfolio pilot).
-	rfqTLSConfig, err := getRfqTLSConfig(rfqCfg)
+	rfqTLSPolicy, err := getRfqTLSPolicy(rfqCfg)
 	if err != nil {
 		return nil, fmt.Errorf("couldn't construct RFQ TLS "+
-			"configuration: %w", err)
+			"policy: %w", err)
 	}
 
 	switch rfqCfg.PriceOracleAddress {
@@ -613,7 +613,7 @@ func genServerConfig(ctx context.Context, cfg *Config,
 		}
 
 		priceOracle, err = rfq.NewRpcPriceOracle(
-			rfqCfg.PriceOracleAddress, rfqTLSConfig,
+			rfqCfg.PriceOracleAddress, rfqTLSPolicy,
 			macaroonOpt, nodeID,
 		)
 		if err != nil {
@@ -636,7 +636,7 @@ func genServerConfig(ctx context.Context, cfg *Config,
 		}
 
 		portfolioPilot, err = rfq.NewRpcPortfolioPilot(
-			rfqCfg.PortfolioPilotAddress, rfqTLSConfig,
+			rfqCfg.PortfolioPilotAddress, rfqTLSPolicy,
 			macaroonOpt,
 		)
 		if err != nil {
