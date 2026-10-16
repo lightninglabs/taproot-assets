@@ -290,12 +290,13 @@ func (p *InternalPortfolioPilot) ResolveRequest(ctx context.Context,
 
 	// Enforce the requester's constraints on the responder side
 	// to avoid wasted round-trips.
-	status := checkAllConstraints(
-		request, resp.AssetRate.Rate, fn.None[uint64](),
+	status := CheckConstraints(
+		request.Constraints(), resp.AssetRate.Rate,
+		fn.None[uint64](),
 	)
 	if status != ValidAcceptQuoteRespStatus {
 		return NewRejectResolveResp(
-			rejectForStatus(status),
+			RejectForStatus(status),
 		), nil
 	}
 
@@ -391,8 +392,9 @@ func (p *InternalPortfolioPilot) VerifyAcceptQuote(ctx context.Context,
 
 	// Enforce all limit-order constraints (rate bound, min fill,
 	// FOK, and fill-vs-constraint compatibility).
-	status := checkAllConstraints(
-		req, counterRate.Rate, accept.AcceptedFillAmount(),
+	status := CheckConstraints(
+		req.Constraints(), counterRate.Rate,
+		accept.AcceptedFillAmount(),
 	)
 	if status != ValidAcceptQuoteRespStatus {
 		return status, nil
@@ -479,26 +481,27 @@ func (p *InternalPortfolioPilot) Close() error {
 	return nil
 }
 
-// checkAllConstraints runs every limit-order constraint check
-// against the given request, rate, and optional fill amount.
+// CheckConstraints runs every limit-order constraint check against
+// the given request constraints, rate, and optional fill amount. The
+// checks run in order: rate bound, min fill, FOK, fill constraints.
 // It returns the first non-valid status, or ValidAcceptQuoteRespStatus
-// if all checks pass.
-func checkAllConstraints(req rfqmsg.Request,
+// if all checks pass. A fill of fn.None implies the request max.
+func CheckConstraints(c rfqmsg.RequestConstraints,
 	rate rfqmath.BigIntFixedPoint,
 	fill fn.Option[uint64]) QuoteRespStatus {
 
 	for _, check := range []func() QuoteRespStatus{
 		func() QuoteRespStatus {
-			return checkRateBound(req, rate)
+			return checkRateBound(c, rate)
 		},
 		func() QuoteRespStatus {
-			return checkMinFill(req, rate)
+			return checkMinFill(c, rate)
 		},
 		func() QuoteRespStatus {
-			return checkFOK(req, rate)
+			return checkFOK(c, rate)
 		},
 		func() QuoteRespStatus {
-			return checkFillConstraints(req, fill)
+			return checkFillConstraints(c, fill)
 		},
 	} {
 		if s := check(); s != ValidAcceptQuoteRespStatus {
@@ -549,10 +552,9 @@ func isFOK(p fn.Option[rfqmsg.ExecutionPolicy]) bool {
 // rate must be >= the limit (floor); for a sell request it must be
 // <= the limit (ceiling). The comparison direction is encoded in
 // RequestConstraints.RateBoundCmp.
-func checkRateBound(req rfqmsg.Request,
+func checkRateBound(c rfqmsg.RequestConstraints,
 	acceptedRate rfqmath.BigIntFixedPoint) QuoteRespStatus {
 
-	c := req.Constraints()
 	miss := fn.MapOptionZ(
 		c.RateLimit,
 		func(limit rfqmath.BigIntFixedPoint) bool {
@@ -573,10 +575,9 @@ func checkRateBound(req rfqmsg.Request,
 
 // checkFOK verifies that the full max amount is transportable at the
 // accepted rate when the execution policy is FOK.
-func checkFOK(req rfqmsg.Request,
+func checkFOK(c rfqmsg.RequestConstraints,
 	acceptedRate rfqmath.BigIntFixedPoint) QuoteRespStatus {
 
-	c := req.Constraints()
 	if !isFOK(c.ExecutionPolicy) {
 		return ValidAcceptQuoteRespStatus
 	}
@@ -593,10 +594,9 @@ func checkFOK(req rfqmsg.Request,
 
 // checkMinFill verifies that the requester's minimum fill amount is
 // transportable at the accepted rate.
-func checkMinFill(req rfqmsg.Request,
+func checkMinFill(c rfqmsg.RequestConstraints,
 	acceptedRate rfqmath.BigIntFixedPoint) QuoteRespStatus {
 
-	c := req.Constraints()
 	notMet := fn.MapOptionZ(
 		c.MinAmount,
 		func(minAmt uint64) bool {
@@ -615,7 +615,7 @@ func checkMinFill(req rfqmsg.Request,
 // checkFillConstraints verifies that the negotiated fill amount (if
 // present) is compatible with the requester's min-fill and FOK
 // constraints.
-func checkFillConstraints(req rfqmsg.Request,
+func checkFillConstraints(c rfqmsg.RequestConstraints,
 	fill fn.Option[uint64]) QuoteRespStatus {
 
 	if fill.IsNone() {
@@ -625,7 +625,6 @@ func checkFillConstraints(req rfqmsg.Request,
 	}
 
 	fillAmt := fill.UnwrapOr(0)
-	c := req.Constraints()
 
 	// Fill must not exceed the request max.
 	if fillAmt > c.MaxAmount {
@@ -651,9 +650,10 @@ func checkFillConstraints(req rfqmsg.Request,
 	return ValidAcceptQuoteRespStatus
 }
 
-// rejectForStatus maps a constraint-violation QuoteRespStatus to the
-// corresponding RejectErr.
-func rejectForStatus(status QuoteRespStatus) rfqmsg.RejectErr {
+// RejectForStatus maps a constraint-violation QuoteRespStatus to the
+// corresponding RejectErr. Any other status maps to
+// rfqmsg.ErrUnknownReject.
+func RejectForStatus(status QuoteRespStatus) rfqmsg.RejectErr {
 	switch status {
 	case RateBoundMissQuoteRespStatus:
 		return rfqmsg.ErrPriceBoundMiss
