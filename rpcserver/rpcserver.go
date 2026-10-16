@@ -2086,6 +2086,16 @@ func (r *RPCServer) NewAddr(ctx context.Context,
 			proof.AuthMailboxUniRpcCourierType)
 	}
 
+	// A pinned certificate or a verification exception for the courier
+	// host is part of this node's TLS policy only.
+	if r.cfg.UniverseTLS.HostScoped(courierAddr.Host) {
+		rpcsLog.WarnS(ctx, "Proof courier host has a pinned "+
+			"certificate or a TLS verification exception on this "+
+			"node; senders without matching TLS configuration "+
+			"cannot verify the courier", nil,
+			"courier_addr", courierAddr.String())
+	}
+
 	// If the courier is an (auth mailbox) universe RPC type we will check
 	// that we can connect to it.
 	connCheckScheme := courierAddr.Scheme == proof.UniverseRpcCourierType ||

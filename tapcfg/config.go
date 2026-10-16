@@ -379,6 +379,20 @@ type UniverseConfig struct {
 	SupplyIgnoreCacheSize uint64 `long:"supply-ignore-cache-size" description:"The maximum number of entries in the supply ignore checker's negative lookup LRU cache."`
 
 	DisableSupplyVerifierChainWatch bool `long:"disable-supply-verifier-chain-watch" description:"Disable chain outpoint watching in supply verifier. If true, the supply verifier will not start state machines to watch on-chain outputs for spends. This option is intended for universe servers, where supply verification should only occur for commitments submitted by peers, not via on-chain spend detection."`
+
+	TLS UniverseTLSConfig `group:"tls" namespace:"tls"`
+}
+
+// UniverseTLSConfig houses the TLS options for connections to universe
+// servers, proof couriers and auth mailboxes.
+//
+// nolint: lll
+type UniverseTLSConfig struct {
+	Insecure bool `long:"insecure" description:"Disable certificate verification for connections to universe servers, proof couriers and auth mailboxes. Should only be used for testing."`
+
+	InsecureHosts []string `long:"insecurehost" description:"Disable certificate verification for connections to the given host. Can be specified multiple times."`
+
+	Pins map[string]string `long:"pin" key-value-delimiter:"=" description:"Trust only the PEM-encoded certificate at the given path for connections to the given host, in the form host=path. Can be specified multiple times."`
 }
 
 // AddrBookConfig is the config that houses any address Book related config
@@ -1389,6 +1403,50 @@ func getRfqTLSPolicy(rfqCfg rfq.CliConfig) (taptls.Policy, error) {
 		NoSystemRoots: rfqCfg.TLS.NoSystemCAs,
 		Roots:         certBytes,
 	})
+}
+
+// getUniverseTLSPolicy returns the TLS policy for connections to universe
+// servers, proof couriers and auth mailboxes, given a universe TLS CLI
+// configuration.
+func getUniverseTLSPolicy(tlsCfg UniverseTLSConfig,
+	cfgLogger btclog.Logger) (taptls.Policy, error) {
+
+	policyCfg := taptls.Config{
+		SkipVerifyHosts: tlsCfg.InsecureHosts,
+	}
+	if tlsCfg.Insecure {
+		policyCfg.Mode = taptls.ModeSkipVerify
+	}
+
+	if len(tlsCfg.Pins) > 0 {
+		policyCfg.Pins = make(map[string][]byte, len(tlsCfg.Pins))
+	}
+	for host, certPath := range tlsCfg.Pins {
+		certBytes, err := os.ReadFile(CleanAndExpandPath(certPath))
+		if err != nil {
+			return taptls.Policy{}, fmt.Errorf("unable to read "+
+				"certificate pinned for host %v: %w", host, err)
+		}
+
+		policyCfg.Pins[host] = certBytes
+	}
+
+	policy, err := taptls.New(policyCfg)
+	if err != nil {
+		return taptls.Policy{}, fmt.Errorf("invalid universe TLS "+
+			"config: %w", err)
+	}
+
+	if tlsCfg.Insecure {
+		cfgLogger.Warnf("Certificate verification disabled for " +
+			"universe servers, proof couriers and auth mailboxes")
+	}
+	for _, host := range tlsCfg.InsecureHosts {
+		cfgLogger.Warnf("Certificate verification disabled for "+
+			"host %v", host)
+	}
+
+	return policy, nil
 }
 
 // getPriceOracleMacaroonOpt reads the price oracle macaroon file
