@@ -290,8 +290,8 @@ type RpcConfig struct {
 	RestCORS []string `long:"restcors" description:"Add an ip:port/hostname to allow cross origin access from. To allow all origins, set as \"*\"."`
 
 	LetsEncryptDir    string `long:"letsencryptdir" description:"The directory to store Let's Encrypt certificates within"`
-	LetsEncryptListen string `long:"letsencryptlisten" description:"The IP:port on which lnd will listen for Let's Encrypt challenges. Let's Encrypt will always try to contact on port 80. Often non-root processes are not allowed to bind to ports lower than 1024. This configuration option allows a different port to be used, but must be used in combination with port forwarding from port 80. This configuration can also be used to specify another IP address to listen on, for example an IPv6 address."`
-	LetsEncryptDomain string `long:"letsencryptdomain" description:"Request a Let's Encrypt certificate for this domain. Note that the certificate is only requested and stored when the first rpc connection comes in."`
+	LetsEncryptListen string `long:"letsencryptlisten" description:"The IP:port on which tapd will listen for Let's Encrypt challenges. Let's Encrypt will always try to contact on port 80. Often non-root processes are not allowed to bind to ports lower than 1024. This configuration option allows a different port to be used, but must be used in combination with port forwarding from port 80. This configuration can also be used to specify another IP address to listen on, for example an IPv6 address. If the HTTP challenge on this address fails, tapd tries the TLS-ALPN challenge on port 443 of the same IP address."`
+	LetsEncryptDomain string `long:"letsencryptdomain" description:"Request a Let's Encrypt certificate for this domain. The certificate is obtained or renewed during startup, and startup fails if this fails."`
 	LetsEncryptEmail  string `long:"letsencryptemail" description:"The email address to use for Let's Encrypt account registration."`
 }
 
@@ -794,6 +794,14 @@ func ValidateConfig(cfg Config, cfgLogger btclog.Logger) (*Config, error) {
 			tapdDir, defaultTLSKeyFilename,
 		)
 		cfg.LogDir = filepath.Join(tapdDir, defaultLogDirname)
+
+		// Only the default Let's Encrypt directory moves into the tapd
+		// directory.
+		if cfg.RpcConf.LetsEncryptDir == defaultLetsEncryptDir {
+			cfg.RpcConf.LetsEncryptDir = filepath.Join(
+				tapdDir, defaultLetsEncryptDirname,
+			)
+		}
 	}
 
 	funcName := "ValidateConfig"
@@ -829,6 +837,9 @@ func ValidateConfig(cfg Config, cfgLogger btclog.Logger) (*Config, error) {
 	cfg.RpcConf.TLSKeyPath = CleanAndExpandPath(cfg.RpcConf.TLSKeyPath)
 	cfg.LogDir = CleanAndExpandPath(cfg.LogDir)
 	cfg.RpcConf.MacaroonPath = CleanAndExpandPath(cfg.RpcConf.MacaroonPath)
+	cfg.RpcConf.LetsEncryptDir = CleanAndExpandPath(
+		cfg.RpcConf.LetsEncryptDir,
+	)
 
 	if cfg.HashMailCourier != nil {
 		applyProofBackoffDefaults(cfg.HashMailCourier.BackoffCfg)
@@ -1202,6 +1213,57 @@ func getTLSConfig(cfg *Config,
 	return serverOpts, restDialOpts, restListen, nil
 }
 
+// letsEncryptConfig returns the certmagic config that obtains, renews and
+// serves the Let's Encrypt certificate. The config stores its data in the
+// Let's Encrypt directory. Its first issuer solves the HTTP challenge on the
+// Let's Encrypt listen address, and its second issuer, which certmagic tries
+// if the first fails, solves the TLS-ALPN challenge on port 443 of the listen
+// host. Certificate renewals of its cache use the same config.
+func letsEncryptConfig(rpcCfg *RpcConfig) (*certmagic.Config, error) {
+	host, portStr, err := net.SplitHostPort(rpcCfg.LetsEncryptListen)
+	if err != nil {
+		return nil, err
+	}
+	port, err := strconv.ParseUint(portStr, 10, 16)
+	if err != nil {
+		return nil, err
+	}
+
+	var certCfg *certmagic.Config
+	certCache := certmagic.NewCache(certmagic.CacheOptions{
+		GetConfigForCert: func(certmagic.Certificate) (*certmagic.Config,
+			error) {
+
+			return certCfg, nil
+		},
+	})
+
+	certCfg = certmagic.New(certCache, certmagic.Config{
+		Storage: &certmagic.FileStorage{
+			Path: rpcCfg.LetsEncryptDir,
+		},
+	})
+	template := certmagic.ACMEIssuer{
+		Agreed:      true,
+		Email:       rpcCfg.LetsEncryptEmail,
+		ListenHost:  host,
+		AltHTTPPort: int(port),
+	}
+
+	httpIssuer := template
+	httpIssuer.DisableTLSALPNChallenge = true
+
+	tlsALPNIssuer := template
+	tlsALPNIssuer.DisableHTTPChallenge = true
+
+	certCfg.Issuers = []certmagic.Issuer{
+		certmagic.NewACMEIssuer(certCfg, httpIssuer),
+		certmagic.NewACMEIssuer(certCfg, tlsALPNIssuer),
+	}
+
+	return certCfg, nil
+}
+
 // getCertificateConfig returns a useable TLS config and set of transport
 // credentials given a valid configuration..
 func getCertificateConfig(cfg *Config, cfgLogger btclog.Logger) (*tls.Config,
@@ -1212,44 +1274,16 @@ func getCertificateConfig(cfg *Config, cfgLogger btclog.Logger) (*tls.Config,
 	// generating the local tls cert files if needed.
 	if cfg.RpcConf.LetsEncryptDomain != "" {
 		domainNames := []string{cfg.RpcConf.LetsEncryptDomain}
-		certmagic.DefaultACME.Agreed = true
-		certmagic.DefaultACME.Email = cfg.RpcConf.LetsEncryptEmail
 
-		certCfg := certmagic.NewDefault()
-		host, portStr, err := net.SplitHostPort(
-			cfg.RpcConf.LetsEncryptListen,
-		)
+		cfgLogger.Infof("Setting up Let's Encrypt listener on %s "+
+			"with account %s", cfg.RpcConf.LetsEncryptListen,
+			cfg.RpcConf.LetsEncryptEmail)
+
+		certCfg, err := letsEncryptConfig(cfg.RpcConf)
 		if err != nil {
 			return nil, nil, err
 		}
 
-		cfgLogger.Infof("Setting up Let's Encrypt listener on "+
-			"%s:%s with account %s", host, portStr,
-			cfg.RpcConf.LetsEncryptEmail)
-
-		issuerCfg := certmagic.ACMEIssuer{
-			DisableTLSALPNChallenge: true,
-			ListenHost:              host,
-		}
-
-		if cfg.RpcConf.LetsEncryptListen != "" {
-			host, portStr, err = net.SplitHostPort(
-				cfg.RpcConf.LetsEncryptListen,
-			)
-			if err != nil {
-				return nil, nil, err
-			}
-			port, err := strconv.ParseUint(portStr, 10, 16)
-			if err != nil {
-				return nil, nil, err
-			}
-
-			issuerCfg.ListenHost = host
-			issuerCfg.AltHTTPPort = int(port)
-		}
-
-		issuer := certmagic.NewACMEIssuer(certCfg, issuerCfg)
-		certCfg.Issuers = append(certCfg.Issuers, issuer)
 		err = certCfg.ManageSync(nil, domainNames)
 		if err != nil {
 			return nil, nil, err
