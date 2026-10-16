@@ -193,6 +193,15 @@ type harnessOpts struct {
 
 	// mboxCleanupInterval if set, configures the mailbox cleanup interval.
 	mboxCleanupInterval *time.Duration
+
+	// strictUniverseTLS indicates whether the node verifies the
+	// certificates of universe servers, proof couriers and auth
+	// mailboxes. If false, verification is disabled.
+	strictUniverseTLS bool
+
+	// universeTLSPins maps a host to the path of the only certificate the
+	// node trusts for it. Only used if strictUniverseTLS is set.
+	universeTLSPins map[string]string
 }
 
 type harnessOption func(*harnessOpts)
@@ -316,6 +325,17 @@ func newTapdHarness(t *testing.T, ht *harnessTest, cfg tapdConfig,
 		args = append(args, "--proofcourieraddr="+proofCourierAddr)
 	}
 	ht.t.Logf("Using proof courier address: %v", proofCourierAddr)
+
+	// Universe server, proof courier and auth mailbox certificate
+	// verification.
+	if !opts.strictUniverseTLS {
+		args = append(args, "--universe.tls.insecure")
+	}
+	for host, certPath := range opts.universeTLSPins {
+		args = append(args, fmt.Sprintf(
+			"--universe.tls.pin=%s=%s", host, certPath,
+		))
+	}
 
 	// Configure proof courier backoff settings. Store on harness for
 	// test access.

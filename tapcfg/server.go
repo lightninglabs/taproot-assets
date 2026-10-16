@@ -38,7 +38,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapnode"
 	"github.com/lightninglabs/taproot-assets/tapreorg"
 	"github.com/lightninglabs/taproot-assets/tapscript"
-	"github.com/lightninglabs/taproot-assets/taptls"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightninglabs/taproot-assets/universe/mintpublish"
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
@@ -467,9 +466,7 @@ func genServerConfig(ctx context.Context, cfg *Config,
 
 	// The TLS policy for connections to universe servers, proof couriers
 	// and auth mailboxes.
-	uniTLSPolicy, err := taptls.New(taptls.Config{
-		Mode: taptls.ModeSkipVerify,
-	})
+	uniTLSPolicy, err := getUniverseTLSPolicy(cfg.Universe.TLS, cfgLogger)
 	if err != nil {
 		return nil, err
 	}

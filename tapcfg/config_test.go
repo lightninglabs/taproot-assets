@@ -1,9 +1,14 @@
 package tapcfg
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/btcsuite/btclog/v2"
+	"github.com/jessevdk/go-flags"
+	"github.com/lightningnetwork/lnd/cert"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/stretchr/testify/require"
 )
@@ -47,6 +52,99 @@ func TestValidateReOrgSafeDepth(t *testing.T) {
 			} else {
 				require.Error(t, err)
 			}
+		})
+	}
+}
+
+// TestUniverseTLSPolicy tests the parsing of the universe TLS flags and the
+// policy built from them.
+func TestUniverseTLSPolicy(t *testing.T) {
+	t.Parallel()
+
+	certPEM, _, err := cert.GenCertPair(
+		"tapcfg test", nil, nil, false, time.Hour,
+	)
+	require.NoError(t, err)
+
+	certPath := filepath.Join(t.TempDir(), "peer=1.cert")
+	require.NoError(t, os.WriteFile(certPath, certPEM, 0600))
+
+	missingPath := filepath.Join(t.TempDir(), "missing.cert")
+
+	pinFlag := "--universe.tls.pin=uni.example.com="
+
+	testCases := []struct {
+		name string
+		args []string
+		pins map[string]string
+		err  string
+	}{
+		{
+			name: "default",
+		},
+		{
+			name: "pins and exceptions",
+			args: []string{
+				pinFlag + certPath,
+				"--universe.tls.pin=[::1]=" + certPath,
+				"--universe.tls.insecurehost=other.example.com",
+			},
+			pins: map[string]string{
+				"uni.example.com": certPath,
+				"[::1]":           certPath,
+			},
+		},
+		{
+			name: "insecure",
+			args: []string{
+				"--universe.tls.insecure",
+			},
+		},
+		{
+			name: "insecure with pin",
+			args: []string{
+				"--universe.tls.insecure",
+				pinFlag + certPath,
+			},
+			err: "require mode verify",
+		},
+		{
+			name: "pinned and exempt host",
+			args: []string{
+				pinFlag + certPath,
+				"--universe.tls.insecurehost=uni.example.com",
+			},
+			err: "both pinned and exempt",
+		},
+		{
+			name: "missing pinned certificate",
+			args: []string{
+				pinFlag + missingPath,
+			},
+			err: "unable to read certificate pinned for host " +
+				"uni.example.com",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := DefaultConfig()
+			_, err := flags.ParseArgs(&cfg, tc.args)
+			require.NoError(t, err)
+
+			if tc.pins != nil {
+				require.Equal(t, tc.pins, cfg.Universe.TLS.Pins)
+			}
+
+			_, err = getUniverseTLSPolicy(
+				cfg.Universe.TLS, btclog.Disabled,
+			)
+			if tc.err != "" {
+				require.ErrorContains(t, err, tc.err)
+				return
+			}
+
+			require.NoError(t, err)
 		})
 	}
 }
