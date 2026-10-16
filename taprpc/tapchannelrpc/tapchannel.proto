@@ -219,6 +219,13 @@ message SendPaymentRequest {
     // This field is optional and can be left empty if no metadata is available.
     // The maximum length of this field is 32'768 bytes.
     string price_oracle_metadata = 8;
+
+    // Optional rate ceiling (asset units per BTC) as a
+    // fixed-point number. Forwarded to AddAssetSellOrder for
+    // each sell order negotiated to pay an invoice. Cannot be
+    // used with rfq_id, keysend payments or
+    // payment_request.first_hop_custom_records.
+    rfqrpc.FixedPoint asset_rate_limit = 9;
 }
 
 message AcceptedSellQuotes {

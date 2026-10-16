@@ -10269,6 +10269,10 @@ func (r *RPCServer) SendPayment(req *tchrpc.SendPaymentRequest,
 	pReq := req.PaymentRequest
 	ctx := stream.Context()
 
+	if err := validateSendPaymentRateLimit(req); err != nil {
+		return err
+	}
+
 	assetID, groupKey, err := parseAssetSpecifier(
 		req.AssetId, "", req.GroupKey, "",
 	)
@@ -10448,6 +10452,7 @@ func (r *RPCServer) SendPayment(req *tchrpc.SendPaymentRequest,
 		acquiredQuotes := r.acquirePaymentQuotes(
 			ctx, &rpcSpecifier, paymentMaxAmt, expiry, chanMap,
 			req.AllowOverpay, payHash, req.PriceOracleMetadata,
+			req.AssetRateLimit,
 		)
 
 		// Send out the information about the acquired quotes on the
@@ -11840,6 +11845,34 @@ func validateInvoiceExpiry(expiry int64) error {
 	return nil
 }
 
+// validateSendPaymentRateLimit returns an error if a SendPayment request
+// sets asset_rate_limit together with an RFQ ID, a keysend record or
+// first-hop custom records. The request's payment request must be set.
+func validateSendPaymentRateLimit(req *tchrpc.SendPaymentRequest) error {
+	if req.AssetRateLimit == nil {
+		return nil
+	}
+
+	pReq := req.PaymentRequest
+	_, isKeysend := pReq.DestCustomRecords[record.KeySendType]
+
+	switch {
+	case req.RfqId != nil:
+		return fmt.Errorf("asset_rate_limit cannot be used with " +
+			"rfq_id")
+
+	case isKeysend:
+		return fmt.Errorf("asset_rate_limit cannot be used with " +
+			"keysend payments")
+
+	case len(pReq.FirstHopCustomRecords) > 0:
+		return fmt.Errorf("asset_rate_limit cannot be used with " +
+			"first-hop custom records")
+	}
+
+	return nil
+}
+
 // validateInvoiceAmount validates the quote against the invoice we're trying to
 // add. It returns the value in msat that should be included in the invoice.
 func validateInvoiceAmount(acceptedQuote *rfqrpc.PeerAcceptedBuyQuote,
@@ -11999,7 +12032,8 @@ func (r *RPCServer) acquireBuyOrder(ctx context.Context,
 func (r *RPCServer) acquirePaymentQuotes(ctx context.Context,
 	rpcSpecifier *rfqrpc.AssetSpecifier, paymentMaxAmt lnwire.MilliSatoshi,
 	expiry time.Time, chanMap rfq.PeerChanMap, overpay bool, payHash string,
-	metadata string) []*rfqrpc.PeerAcceptedSellQuote {
+	metadata string,
+	assetRateLimit *rfqrpc.FixedPoint) []*rfqrpc.PeerAcceptedSellQuote {
 
 	var acquiredQuotes []*rfqrpc.PeerAcceptedSellQuote
 
@@ -12024,7 +12058,7 @@ func (r *RPCServer) acquirePaymentQuotes(ctx context.Context,
 
 			quote, err := r.acquireSellQuote(
 				rpcCtx, rpcSpecifier, paymentMaxAmt,
-				expiry, &peer, metadata,
+				expiry, &peer, metadata, assetRateLimit,
 			)
 			if err != nil {
 				fn.SendOrDone(collectorCtx, errorCollector, err)
@@ -12073,8 +12107,9 @@ func (r *RPCServer) acquirePaymentQuotes(ctx context.Context,
 // parameters and returns the quote if the negotiation was successful.
 func (r *RPCServer) acquireSellQuote(ctx context.Context,
 	rpcSpecifier *rfqrpc.AssetSpecifier, paymentMaxAmt lnwire.MilliSatoshi,
-	expiry time.Time, peerPubKey *route.Vertex,
-	metadata string) (*rfqrpc.PeerAcceptedSellQuote, error) {
+	expiry time.Time, peerPubKey *route.Vertex, metadata string,
+	assetRateLimit *rfqrpc.FixedPoint) (*rfqrpc.PeerAcceptedSellQuote,
+	error) {
 
 	resp, err := r.AddAssetSellOrder(
 		ctx, &rfqrpc.AddAssetSellOrderRequest{
@@ -12086,6 +12121,7 @@ func (r *RPCServer) acquireSellQuote(ctx context.Context,
 				rfq.DefaultTimeout.Seconds(),
 			),
 			PriceOracleMetadata: metadata,
+			AssetRateLimit:      assetRateLimit,
 		},
 	)
 	if err != nil {

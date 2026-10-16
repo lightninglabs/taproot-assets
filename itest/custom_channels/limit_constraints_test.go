@@ -367,6 +367,66 @@ func testCustomChannelsLimitConstraints(_ context.Context,
 	t.Logf("IOC payment completed: %d units sent", numUnitsIOC)
 
 	// -----------------------------------------------------------------
+	// SendPayment with an inline rate ceiling.
+	//
+	// Charlie pays Erin's invoices without a pre-negotiated quote.
+	// SendPayment forwards asset_rate_limit to the sell order it
+	// negotiates with Dave.
+	// -----------------------------------------------------------------
+	t.Logf("SendPayment with satisfied rate ceiling...")
+	invoiceRespCeil, err := erin.LightningClient.AddInvoice(
+		ctxb, &lnrpc.Invoice{
+			ValueMsat: invoiceMsat,
+		},
+	)
+	require.NoError(t.t, err)
+
+	numUnitsCeil, _ := payInvoiceWithAssets(
+		t.t, charlie, dave, invoiceRespCeil.PaymentRequest,
+		assetID, withAssetRateLimit(&rfqrpc.FixedPoint{
+			// Ceiling well above oracle rate.
+			Coefficient: "100000000000000",
+			Scale:       2,
+		}),
+	)
+	require.Greater(t.t, numUnitsCeil, uint64(0))
+
+	logBalance(t.t, nodes, assetID, "after rate ceiling payment")
+	t.Logf("Rate ceiling payment completed: %d units sent",
+		numUnitsCeil)
+
+	// Negative: rate ceiling below oracle rate.
+	t.Logf("SendPayment with violated rate ceiling...")
+	invoiceRespLow, err := erin.LightningClient.AddInvoice(
+		ctxb, &lnrpc.Invoice{
+			ValueMsat: invoiceMsat,
+		},
+	)
+	require.NoError(t.t, err)
+
+	payInvoiceWithAssets(
+		t.t, charlie, dave, invoiceRespLow.PaymentRequest,
+		assetID, withAssetRateLimit(&rfqrpc.FixedPoint{
+			// Ceiling below oracle rate.
+			Coefficient: "1000000",
+			Scale:       2,
+		}),
+		withPayErrSubStr("failed to acquire any quotes"),
+	)
+
+	// Negative: rate ceiling with a pre-negotiated quote.
+	t.Logf("SendPayment with rate ceiling and RFQ ID...")
+	payInvoiceWithAssets(
+		t.t, charlie, dave, invoiceRespLow.PaymentRequest,
+		assetID, withRFQ(quoteIDIOC),
+		withAssetRateLimit(&rfqrpc.FixedPoint{
+			Coefficient: "100000000000000",
+			Scale:       2,
+		}),
+		withPayErrSubStr("cannot be used with rfq_id"),
+	)
+
+	// -----------------------------------------------------------------
 	// AddInvoice with inline constraints.
 	//
 	// Dave calls AddInvoice with asset_rate_limit and
