@@ -38,7 +38,6 @@ linters:
         - exitAfterDefer
     gosec:
       excludes:
-        - G402 # Look for bad TLS connection settings
         - G306 # Poor file permissions used when writing to a new file.
         - G115 # Integer overflow conversion.
     govet:
