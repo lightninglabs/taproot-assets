@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha512"
-	"crypto/tls"
 	"fmt"
 	"net/url"
 	"sync"
@@ -19,10 +18,10 @@ import (
 	"github.com/lightninglabs/taproot-assets/rpcutils"
 	mboxrpc "github.com/lightninglabs/taproot-assets/taprpc/authmailboxrpc"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
+	"github.com/lightninglabs/taproot-assets/taptls"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	grpcconn "google.golang.org/grpc/connectivity"
-	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/status"
 )
@@ -108,6 +107,9 @@ type CourierCfg struct {
 	// UniverseRpcCfg contains universe RPC protocol specific config
 	// parameters.
 	UniverseRpcCfg *UniverseRpcCourierCfg
+
+	// TLS is the TLS policy for connections to courier services.
+	TLS taptls.Policy
 
 	// TransferLog is a log for recording proof delivery and retrieval
 	// attempts.
@@ -215,8 +217,8 @@ func (u *URLDispatch) NewCourier(ctx context.Context, addr *url.URL,
 	switch addr.Scheme {
 	case HashmailCourierType:
 		return NewHashMailCourier(
-			ctx, u.cfg.HashMailCfg, u.cfg.TransferLog, addr,
-			lazyConnect,
+			ctx, u.cfg.HashMailCfg, u.cfg.TLS, u.cfg.TransferLog,
+			addr, lazyConnect,
 		)
 
 	// The auth mailbox courier is a universe RPC courier that also
@@ -226,8 +228,9 @@ func (u *URLDispatch) NewCourier(ctx context.Context, addr *url.URL,
 	// handle the send fragment fetching differently.
 	case UniverseRpcCourierType, AuthMailboxUniRpcCourierType:
 		return NewUniverseRpcCourier(
-			ctx, u.cfg.UniverseRpcCfg, u.cfg.TransferLog,
-			u.cfg.LocalArchive, addr, lazyConnect,
+			ctx, u.cfg.UniverseRpcCfg, u.cfg.TLS,
+			u.cfg.TransferLog, u.cfg.LocalArchive, addr,
+			lazyConnect,
 		)
 
 	case MockCourierType:
@@ -320,42 +323,31 @@ type HashMailBox struct {
 	client hashmailrpc.HashMailClient
 }
 
-// serverDialOpts returns the set of server options needed to connect to the
-// server using a TLS connection.
-func serverDialOpts() ([]grpc.DialOption, error) {
-	var opts []grpc.DialOption
+// serverDialOpts returns the set of options needed to connect to the server
+// at the given address under the given TLS policy.
+func serverDialOpts(tlsPolicy taptls.Policy,
+	serverAddr string) []grpc.DialOption {
 
-	// Skip TLS certificate verification.
-	tlsConfig := tls.Config{InsecureSkipVerify: true}
-	transportCredentials := credentials.NewTLS(&tlsConfig)
-	opts = append(opts, grpc.WithTransportCredentials(transportCredentials))
-
-	opts = append(opts, grpc.WithKeepaliveParams(courierKeepalive))
-
-	return opts, nil
+	return []grpc.DialOption{
+		tlsPolicy.DialOption(serverAddr),
+		grpc.WithKeepaliveParams(courierKeepalive),
+	}
 }
 
 // NewHashMailBox makes a new mailbox by dialing to the server specified by the
-// address above.
-//
-// NOTE: The TLS certificate path argument (tlsCertPath) is optional. If unset,
-// then the system's TLS trust store is used.
-func NewHashMailBox(ctx context.Context, courierAddr *url.URL) (*HashMailBox,
-	error) {
+// address above, under the given TLS policy.
+func NewHashMailBox(ctx context.Context, courierAddr *url.URL,
+	tlsPolicy taptls.Policy) (*HashMailBox, error) {
 
 	if courierAddr.Scheme != HashmailCourierType {
 		return nil, fmt.Errorf("unsupported courier protocol: %v",
 			courierAddr.Scheme)
 	}
 
-	dialOpts, err := serverDialOpts()
-	if err != nil {
-		return nil, err
-	}
-
 	serverAddr := fmt.Sprintf(
 		"%s:%s", courierAddr.Hostname(), courierAddr.Port(),
 	)
+	dialOpts := serverDialOpts(tlsPolicy, serverAddr)
 	conn, err := grpc.DialContext(ctx, serverAddr, dialOpts...)
 	if err != nil {
 		return nil, err
@@ -826,6 +818,9 @@ type HashMailCourier struct {
 	// addr is the address of the hashmail server.
 	addr *url.URL
 
+	// tlsPolicy is the TLS policy for connections to the hashmail server.
+	tlsPolicy taptls.Policy
+
 	// transferLog is a log for recording proof delivery and retrieval
 	// attempts.
 	transferLog TransferLog
@@ -849,12 +844,13 @@ type HashMailCourier struct {
 
 // NewHashMailCourier creates a new hashmail proof courier service handle.
 func NewHashMailCourier(ctx context.Context, cfg *HashMailCourierCfg,
-	transferLog TransferLog, courierAddr *url.URL,
+	tlsPolicy taptls.Policy, transferLog TransferLog, courierAddr *url.URL,
 	lazyConnect bool) (*HashMailCourier, error) {
 
 	courier := HashMailCourier{
 		cfg:           cfg,
 		addr:          courierAddr,
+		tlsPolicy:     tlsPolicy,
 		transferLog:   transferLog,
 		backoffHandle: NewBackoffHandler(cfg.BackoffCfg, transferLog),
 		subscribers:   make(map[uint64]*fn.EventReceiver[fn.Event]),
@@ -905,7 +901,7 @@ func (h *HashMailCourier) ensureConnect(ctx context.Context) error {
 	}
 
 	// Instantiate a new connection to the mailbox service.
-	mailbox, err := NewHashMailBox(ctx, h.addr)
+	mailbox, err := NewHashMailBox(ctx, h.addr, h.tlsPolicy)
 	if err != nil {
 		return fmt.Errorf("unable to connect to hashmail server: %w",
 			err)
@@ -1241,6 +1237,9 @@ type UniverseRpcCourier struct {
 	// addr is the address of the courier service.
 	addr *url.URL
 
+	// tlsPolicy is the TLS policy for connections to the courier service.
+	tlsPolicy taptls.Policy
+
 	// localArchive is the local archive that the courier will use to
 	// store and query for proofs.
 	localArchive Archiver
@@ -1273,12 +1272,13 @@ type UniverseRpcCourier struct {
 // NewUniverseRpcCourier creates a new universe RPC proof courier service
 // handle.
 func NewUniverseRpcCourier(ctx context.Context, cfg *UniverseRpcCourierCfg,
-	transferLog TransferLog, localArchive Archiver, addr *url.URL,
-	lazyConnect bool) (*UniverseRpcCourier, error) {
+	tlsPolicy taptls.Policy, transferLog TransferLog, localArchive Archiver,
+	addr *url.URL, lazyConnect bool) (*UniverseRpcCourier, error) {
 
 	courier := UniverseRpcCourier{
 		cfg:           cfg,
 		addr:          addr,
+		tlsPolicy:     tlsPolicy,
 		localArchive:  localArchive,
 		backoffHandle: NewBackoffHandler(cfg.BackoffCfg, transferLog),
 		subscribers:   make(map[uint64]*fn.EventReceiver[fn.Event]),
@@ -1322,19 +1322,15 @@ func (c *UniverseRpcCourier) ensureConnect(ctx context.Context) error {
 		}
 	}
 
-	// At this point, we know that the connection is not ready. We'll now
-	// attempt to establish a new connection to the courier service.
-	dialOpts, err := serverDialOpts()
-	if err != nil {
-		return err
-	}
-
 	// Ensure that the addr field has been set correctly.
 	if c.addr == nil {
 		return fmt.Errorf("universe RPC courier address is not set")
 	}
 
+	// At this point, we know that the connection is not ready. We'll now
+	// attempt to establish a new connection to the courier service.
 	serverAddr := fmt.Sprintf("%s:%s", c.addr.Hostname(), c.addr.Port())
+	dialOpts := serverDialOpts(c.tlsPolicy, serverAddr)
 	conn, err := grpc.DialContext(ctx, serverAddr, dialOpts...)
 	if err != nil {
 		return err
@@ -1896,16 +1892,18 @@ func FetchProofProvenance(ctx context.Context, localArchive Archiver,
 }
 
 // CheckUniverseRpcCourierConnection checks if the universe RPC courier at the
-// given URL is reachable. It returns an error if the connection cannot be
-// established within the given timeout duration.
+// given URL is reachable under the given TLS policy. It returns an error if
+// the connection cannot be established within the given timeout duration.
 func CheckUniverseRpcCourierConnection(ctx context.Context,
-	timeout time.Duration, courierURL *url.URL) error {
+	timeout time.Duration, tlsPolicy taptls.Policy,
+	courierURL *url.URL) error {
 
 	// We now also make a quick test connection.
 	ctxt, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	courier, err := NewUniverseRpcCourier(
-		ctxt, &UniverseRpcCourierCfg{}, nil, nil, courierURL, false,
+		ctxt, &UniverseRpcCourierCfg{}, tlsPolicy, nil, nil,
+		courierURL, false,
 	)
 	if err != nil {
 		// Unimplemented here means that the courier is missing some

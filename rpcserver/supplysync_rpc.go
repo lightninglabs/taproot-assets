@@ -12,6 +12,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
+	"github.com/lightninglabs/taproot-assets/taptls"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
 	"github.com/lightninglabs/taproot-assets/universe/supplyverifier"
@@ -28,11 +29,11 @@ type RpcSupplySync struct {
 }
 
 // NewRpcSupplySync creates a new RpcSupplySync instance that dials out to
-// the target remote universe server address.
-func NewRpcSupplySync(
+// the target remote universe server address under the given TLS policy.
+func NewRpcSupplySync(tlsPolicy taptls.Policy,
 	serverAddr universe.ServerAddr) (supplyverifier.UniverseClient, error) {
 
-	conn, err := ConnectUniverse(serverAddr)
+	conn, err := ConnectUniverse(tlsPolicy, serverAddr)
 	if err != nil {
 		return nil, fmt.Errorf("unable to connect to universe RPC "+
 			"server: %w", err)
@@ -43,9 +44,6 @@ func NewRpcSupplySync(
 		conn:       conn,
 	}, nil
 }
-
-// Ensure NewRpcSupplySync is of type UniverseClientFactory.
-var _ supplyverifier.UniverseClientFactory = NewRpcSupplySync
 
 // InsertSupplyCommit inserts a supply commitment for a specific asset
 // group into the remote universe server.

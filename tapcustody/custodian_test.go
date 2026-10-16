@@ -30,6 +30,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/tapnode/tapnodemock"
 	"github.com/lightninglabs/taproot-assets/tapreorg"
+	"github.com/lightninglabs/taproot-assets/taptls"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -416,6 +417,10 @@ func newHarness(t *testing.T,
 		newMockVerifier(t), 2*eventTimeout, assetDB,
 	)
 
+	// The mock auth mailbox server serves plaintext.
+	mboxTLS, err := taptls.New(taptls.Config{Mode: taptls.ModePlaintext})
+	require.NoError(t, err)
+
 	errChan := make(chan error, 1)
 	cfg := &tapcustody.Config{
 		ChainParams:            chainParams,
@@ -430,7 +435,7 @@ func newHarness(t *testing.T,
 		AnchoringWatcher:       registrar,
 		AnchoringLog:           assetDB,
 		AnchoringThreshold:     1,
-		MboxInsecure:           true,
+		MboxTLS:                mboxTLS,
 		ErrChan:                errChan,
 	}
 	return &custodianHarness{
