@@ -1327,3 +1327,16 @@ func TestHandleIncomingBuyAcceptAliasFailure(t *testing.T) {
 	// A quote that cannot be honoured must not shut down the daemon.
 	require.Empty(t, errChan)
 }
+
+// TestEstimateAssetUnitsNilOracle checks that EstimateAssetUnits
+// returns an error when no price oracle is set.
+func TestEstimateAssetUnitsNilOracle(t *testing.T) {
+	t.Parallel()
+
+	_, err := EstimateAssetUnits(
+		context.Background(), nil,
+		asset.NewSpecifierFromId(asset.ID{0x01}), 1000,
+		fn.None[route.Vertex](), "", IntentPayInvoice,
+	)
+	require.ErrorContains(t, err, "price oracle is not set")
+}
