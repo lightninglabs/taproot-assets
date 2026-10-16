@@ -467,6 +467,7 @@ func rpcMarshalBuyRequest(
 		PriceOracleMetadata: req.PriceOracleMetadata,
 		PeerId:              peer[:],
 		AssetMinAmount:      req.AssetMinAmt.UnwrapOr(0),
+		RfqId:               req.ID[:],
 		AssetRateLimit:      rpcRateLimit,
 		ExecutionPolicy: marshalExecutionPolicy(
 			req.ExecutionPolicy,
@@ -522,6 +523,7 @@ func rpcMarshalSellRequest(
 		PriceOracleMetadata: req.PriceOracleMetadata,
 		PeerId:              peer[:],
 		PaymentMinAmount:    paymentMinAmt,
+		RfqId:               req.ID[:],
 		AssetRateLimit:      rpcRateLimit,
 		ExecutionPolicy: marshalExecutionPolicy(
 			req.ExecutionPolicy,
@@ -651,6 +653,69 @@ func rpcUnmarshalQuoteRespStatus(
 	default:
 		return 0, fmt.Errorf("unknown quote response status: %v",
 			status)
+	}
+}
+
+// MarshalPortfolioQuoteRespStatus converts a quote response status to
+// its portfolio pilot RPC enum. A status without an RPC counterpart is
+// an error.
+func MarshalPortfolioQuoteRespStatus(
+	status QuoteRespStatus) (pilotrpc.QuoteRespStatus, error) {
+
+	switch status {
+	case InvalidAssetRatesQuoteRespStatus:
+		return pilotrpc.QuoteRespStatus_INVALID_ASSET_RATES, nil
+	case InvalidExpiryQuoteRespStatus:
+		return pilotrpc.QuoteRespStatus_INVALID_EXPIRY, nil
+	case PriceOracleQueryErrQuoteRespStatus:
+		return pilotrpc.QuoteRespStatus_PRICE_ORACLE_QUERY_ERR, nil
+	case PortfolioPilotErrQuoteRespStatus:
+		return pilotrpc.QuoteRespStatus_PORTFOLIO_PILOT_ERR, nil
+	case ValidAcceptQuoteRespStatus:
+		return pilotrpc.QuoteRespStatus_VALID_ACCEPT_QUOTE, nil
+	case MinFillNotMetQuoteRespStatus:
+		return pilotrpc.QuoteRespStatus_MIN_FILL_NOT_MET, nil
+	case RateBoundMissQuoteRespStatus:
+		return pilotrpc.QuoteRespStatus_RATE_BOUND_MISS, nil
+	case FOKNotViableQuoteRespStatus:
+		return pilotrpc.QuoteRespStatus_FOK_NOT_VIABLE, nil
+	case FillExceedsMaxQuoteRespStatus:
+		return pilotrpc.QuoteRespStatus_FILL_EXCEEDS_MAX, nil
+	default:
+		return 0, fmt.Errorf("quote response status has no RPC "+
+			"counterpart: %d", status)
+	}
+}
+
+// MarshalPortfolioRejectErr converts a reject error to its portfolio
+// pilot RPC form. A reject code without an RPC counterpart maps to
+// REJECT_CODE_UNSPECIFIED.
+func MarshalPortfolioRejectErr(
+	rejectErr rfqmsg.RejectErr) *pilotrpc.RejectErr {
+
+	return &pilotrpc.RejectErr{
+		Code:    rpcMarshalRejectCode(rejectErr.Code),
+		Message: rejectErr.Msg,
+	}
+}
+
+// rpcMarshalRejectCode converts a reject code to its RPC enum.
+func rpcMarshalRejectCode(code rfqmsg.RejectCode) pilotrpc.RejectCode {
+	switch code {
+	case rfqmsg.PriceOracleUnspecifiedRejectCode:
+		return pilotrpc.RejectCode_REJECT_CODE_UNSPECIFIED
+	case rfqmsg.PriceOracleUnavailableRejectCode:
+		return pilotrpc.RejectCode_REJECT_CODE_PRICE_ORACLE_UNAVAILABLE
+	case rfqmsg.MinFillNotMetRejectCode:
+		return pilotrpc.RejectCode_REJECT_CODE_MIN_FILL_NOT_MET
+	case rfqmsg.PriceBoundMissRejectCode:
+		return pilotrpc.RejectCode_REJECT_CODE_PRICE_BOUND_MISS
+	case rfqmsg.FOKNotViableRejectCode:
+		return pilotrpc.RejectCode_REJECT_CODE_FOK_NOT_VIABLE
+	case rfqmsg.FillExceedsMaxRejectCode:
+		return pilotrpc.RejectCode_REJECT_CODE_FILL_EXCEEDS_MAX
+	default:
+		return pilotrpc.RejectCode_REJECT_CODE_UNSPECIFIED
 	}
 }
 

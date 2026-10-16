@@ -1,719 +1,264 @@
 // WARNING: This is a demonstration example only and is NOT
 // suitable for production use. Using this code in production
-// will almost certainly result in loss of funds. It is
-// intended solely to illustrate the PortfolioPilot RPC
-// interface.
+// will almost certainly result in loss of funds.
 //
-// This example demonstrates a basic RPC portfolio pilot server
-// that implements ResolveRequest, VerifyAcceptQuote, and
-// QueryAssetRates. The server returns asset rates fetched
-// live from CoinGecko (or a static rate if configured),
-// supports configurable fill caps, and enforces rate bound,
-// min fill, and fill constraint checks on accepted quotes.
+// basic-portfolio-pilot is an RPC portfolio pilot for a single
+// USD-pegged asset, priced from a BTC/USD reference price. It shows
+// what a pilot is responsible for, since tapd trades at whatever rates
+// an external pilot gives and accepts:
 //
-// Flags:
+//   - pilot.go prices quotes and checks the quotes of peers.
+//   - price.go keeps the reference price everything is derived from.
+//   - breaker.go wraps the pilot and sets the trading level: normal,
+//     degraded or halted.
+//   - monitor.go watches settled swaps and balances through tapd and
+//     lnd, and degrades or halts trading.
+//   - server.go serves the pilot over TLS and requires a macaroon.
+//   - main.go parses flags and wires the parts together. The breaker
+//     wraps the pilot; the price feed and the monitor report to the
+//     breaker.
 //
-//	-listen             Listen address (default
-//	                    "localhost:8096").
-//	-rate               Rate coefficient in units/BTC.
-//	                    0 (default) fetches live from
-//	                    CoinGecko.
-//	-fillcap-asset-units  Fill cap for buy orders (asset
-//	                    units). 0 = no cap.
-//	-fillcap-msat       Fill cap for sell orders (msat).
-//	                    0 = no cap.
+// Each file opens with the ideas it illustrates. Start with pilot.go.
+// See docs/portfolio_pilot.md for usage.
 package main
 
 import (
 	"context"
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
-	"crypto/tls"
-	"crypto/x509"
-	"crypto/x509/pkix"
-	"encoding/json"
-	"encoding/pem"
+	"encoding/hex"
 	"errors"
 	"flag"
-	"fmt"
-	"io"
 	"log"
-	"math/big"
 	"net"
-	"net/http"
 	"os"
 	"os/signal"
-	"sync"
+	"path/filepath"
 	"syscall"
 	"time"
 
-	"github.com/lightninglabs/taproot-assets/rfqmath"
-	"github.com/lightninglabs/taproot-assets/rfqmsg"
-	"github.com/lightninglabs/taproot-assets/rpcutils"
-	"github.com/lightninglabs/taproot-assets/taprpc/portfoliopilotrpc"
-	"github.com/lightningnetwork/lnd/lnwire"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/keepalive"
+	"github.com/lightninglabs/taproot-assets/taprpc/rfqrpc"
+	"github.com/lightningnetwork/lnd/lnrpc"
 )
 
-const (
-	// defaultListenAddress is the default listening address.
-	defaultListenAddress = "localhost:8096"
-
-	// defaultRateCoefficient is the default rate coefficient
-	// in units per BTC. This is an arbitrary demo value.
-	defaultRateCoefficient = 42_000_160_000
-)
-
-// pilotConfig holds the runtime configuration parsed from flags.
-type pilotConfig struct {
+// config holds the runtime configuration parsed from flags.
+type config struct {
 	listenAddr      string
-	rateCoefficient uint64
+	dataDir         string
+	extraDomain     string
+	assetID         []byte
+	groupKey        []byte
+	decimalDisplay  int
+	btcUSD          string
+	spreadPpm       uint64
+	maxDeviationPpm uint64
+	quoteLifetime   time.Duration
 	fillCapAsset    uint64
 	fillCapMsat     uint64
+	maxExposureUSD  uint64
+	maxJumpPpm      uint64
+	maxBadQuotes    int
+	tapd            nodeConfig
+	lnd             nodeConfig
+	maxLossUSD      uint64
+	minAssetUSD     uint64
+	minBTCSat       uint64
 }
 
-// parseFlags parses command-line flags into a pilotConfig.
-func parseFlags() pilotConfig {
-	cfg := pilotConfig{}
+// nodeConfig is the RPC address, TLS certificate and macaroon of a tapd
+// or lnd node.
+type nodeConfig struct {
+	addr, cert, macaroon string
+}
 
-	flag.StringVar(
-		&cfg.listenAddr, "listen",
-		defaultListenAddress, "listen address (host:port)",
-	)
-	flag.Uint64Var(
-		&cfg.rateCoefficient, "rate", 0,
-		"rate coefficient in asset units per BTC "+
-			"(0 = fetch live from CoinGecko)",
-	)
-	flag.Uint64Var(
-		&cfg.fillCapAsset, "fillcap-asset-units", 0,
-		"fill cap for buy orders (asset units); "+
-			"0 = no cap",
-	)
-	flag.Uint64Var(
-		&cfg.fillCapMsat, "fillcap-msat", 0,
-		"fill cap for sell orders (msat); 0 = no cap",
+// parseFlags parses and validates command-line flags.
+func parseFlags() (config, error) {
+	var (
+		cfg               config
+		assetID, groupKey string
 	)
 
+	flag.StringVar(&cfg.listenAddr, "listen", "127.0.0.1:8096",
+		"listen address")
+	flag.StringVar(&cfg.dataDir, "datadir", ".",
+		"directory for the TLS certificate, key, macaroon and halt "+
+			"file")
+	flag.StringVar(&cfg.extraDomain, "tlsextradomain", "",
+		"extra domain for a generated TLS certificate")
+	flag.StringVar(&assetID, "assetid", "", "hex asset ID")
+	flag.StringVar(&groupKey, "groupkey", "", "hex group key")
+	flag.IntVar(&cfg.decimalDisplay, "decimaldisplay", -1,
+		"decimal display of the asset (required)")
+	flag.StringVar(&cfg.btcUSD, "btcusd", "",
+		"static BTC/USD price; empty polls CoinGecko")
+	flag.Uint64Var(&cfg.spreadPpm, "spreadppm", 5_000,
+		"spread applied to our quotes, in ppm")
+	flag.Uint64Var(&cfg.maxDeviationPpm, "maxdeviationppm", 50_000,
+		"maximum deviation of a peer's quote, in ppm")
+	flag.DurationVar(&cfg.quoteLifetime, "quotelifetime",
+		5*time.Minute, "lifetime of our quotes")
+	flag.Uint64Var(&cfg.fillCapAsset, "fillcap-asset-units", 0,
+		"fill cap for buy requests, in asset units; 0 = none")
+	flag.Uint64Var(&cfg.fillCapMsat, "fillcap-msat", 0,
+		"fill cap for sell requests, in msat; 0 = none")
+	flag.Uint64Var(&cfg.maxExposureUSD, "maxexposureusd", 1_000,
+		"halt when unexpired quotes would exceed this many USD")
+	flag.Uint64Var(&cfg.maxJumpPpm, "maxpricejumpppm", 50_000,
+		"halt when the price moves more between fetches, in ppm; "+
+			"0 = off")
+	flag.IntVar(&cfg.maxBadQuotes, "maxbadquotes", 5,
+		"halt after this many peer quotes outside tolerance within "+
+			"10 minutes; 0 = off")
+	for _, n := range []struct {
+		name string
+		cfg  *nodeConfig
+	}{{"tapd", &cfg.tapd}, {"lnd", &cfg.lnd}} {
+		flag.StringVar(&n.cfg.addr, n.name+"rpcserver", "",
+			n.name+" RPC address; empty disables its checks")
+		flag.StringVar(&n.cfg.cert, n.name+"tlscertpath", "",
+			n.name+" TLS certificate")
+		flag.StringVar(&n.cfg.macaroon, n.name+"macaroonpath", "",
+			n.name+" read-only macaroon")
+	}
+	flag.Uint64Var(&cfg.maxLossUSD, "maxtradelossusd", 100,
+		"halt when the trade edge over an hour is below minus this "+
+			"many USD, degrade below half; 0 = off")
+	flag.Uint64Var(&cfg.minAssetUSD, "minassetusd", 0,
+		"degrade and block buy requests below this local asset "+
+			"balance; 0 = off")
+	flag.Uint64Var(&cfg.minBTCSat, "minbtcsat", 0,
+		"degrade and block sell requests below this local BTC "+
+			"balance; 0 = off")
 	flag.Parse()
 
-	return cfg
-}
+	var err error
+	switch {
+	case (assetID == "") == (groupKey == ""):
+		return cfg, errors.New("set exactly one of -assetid and " +
+			"-groupkey")
 
-// coingeckoURL is the CoinGecko simple-price endpoint.
-const coingeckoURL = "https://api.coingecko.com/api/v3" +
-	"/simple/price?ids=bitcoin&vs_currencies=usd"
-
-// fetchBTCPrice fetches the current BTC/USD price from
-// CoinGecko and returns the rate coefficient (price * 100,
-// since 1 USDX = 1 cent).
-func fetchBTCPrice() (uint64, error) {
-	client := &http.Client{Timeout: 10 * time.Second}
-
-	resp, err := client.Get(coingeckoURL)
-	if err != nil {
-		return 0, fmt.Errorf("coingecko request: %w",
-			err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf(
-			"coingecko status: %d", resp.StatusCode,
-		)
-	}
-
-	var result struct {
-		Bitcoin struct {
-			USD float64 `json:"usd"`
-		} `json:"bitcoin"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(
-		&result,
-	); err != nil {
-		return 0, fmt.Errorf("decode response: %w", err)
-	}
-
-	if result.Bitcoin.USD <= 0 {
-		return 0, fmt.Errorf("invalid price: %f",
-			result.Bitcoin.USD)
-	}
-
-	// Price in dollars → coefficient in cents.
-	coefficient := uint64(result.Bitcoin.USD * 100)
-
-	return coefficient, nil
-}
-
-// rateCache caches the live BTC/USD rate coefficient,
-// refreshing from CoinGecko when the TTL expires.
-type rateCache struct {
-	mu        sync.Mutex
-	rate      uint64
-	fetchedAt time.Time
-	ttl       time.Duration
-	fallback  uint64
-}
-
-// newRateCache creates a rate cache. If fallback is 0 the
-// default demo coefficient is used.
-func newRateCache(
-	ttl time.Duration, fallback uint64) *rateCache {
-
-	if fallback == 0 {
-		fallback = defaultRateCoefficient
-	}
-
-	return &rateCache{
-		ttl:      ttl,
-		fallback: fallback,
-	}
-}
-
-// getRate returns a fresh rate coefficient (cents/BTC).
-func (c *rateCache) getRate() uint64 {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if !c.fetchedAt.IsZero() &&
-		time.Since(c.fetchedAt) < c.ttl {
-
-		return c.rate
-	}
-
-	price, err := fetchBTCPrice()
-	if err != nil {
-		log.Printf("CoinGecko fetch error: %v", err)
-
-		if c.rate != 0 {
-			log.Printf("Using stale rate: %d",
-				c.rate)
-			return c.rate
+	case assetID != "":
+		cfg.assetID, err = hex.DecodeString(assetID)
+		if err != nil || len(cfg.assetID) != 32 {
+			return cfg, errors.New("invalid -assetid")
 		}
 
-		log.Printf("Using fallback rate: %d",
-			c.fallback)
-		return c.fallback
-	}
-
-	c.rate = price
-	c.fetchedAt = time.Now()
-	log.Printf("Fetched live rate: %d (≈$%d/BTC)",
-		price, price/100)
-
-	return c.rate
-}
-
-// setupLogger sets up the logger to write logs to both stdout and a file.
-func setupLogger() {
-	// Create a log file.
-	flags := os.O_CREATE | os.O_WRONLY | os.O_APPEND
-	file, err := os.OpenFile(
-		"basic-portfolio-pilot-example.log", flags, 0644,
-	)
-	if err != nil {
-		log.Fatalf("Failed to open log file: %v", err)
-	}
-
-	// Create a multi-writer to write to both stdout and the file.
-	multiWriter := io.MultiWriter(os.Stdout, file)
-
-	// Set the output and format of the standard logger.
-	log.SetOutput(multiWriter)
-	log.SetFlags(log.LstdFlags)
-}
-
-// makeAssetRate builds an asset rate from the given coefficient.
-func makeAssetRate(
-	coefficient uint64) (rfqmsg.AssetRate, error) {
-
-	rate := rfqmath.NewBigIntFixedPoint(coefficient, 0)
-	expiry := time.Now().Add(5 * time.Minute).UTC()
-
-	return rfqmsg.NewAssetRate(rate, expiry), nil
-}
-
-// makeRpcAssetRate returns the asset rate in RPC form.
-func makeRpcAssetRate(
-	coefficient uint64) (*portfoliopilotrpc.AssetRate, error) {
-
-	assetRate, err := makeAssetRate(coefficient)
-	if err != nil {
-		return nil, fmt.Errorf("create asset rate: %w", err)
-	}
-
-	rpcRate, err := rpcutils.MarshalPortfolioAssetRate(assetRate)
-	if err != nil {
-		return nil, fmt.Errorf("marshal asset rate: %w", err)
-	}
-
-	return rpcRate, nil
-}
-
-// RpcPortfolioPilotServer is a basic example RPC portfolio pilot
-// server.
-type RpcPortfolioPilotServer struct {
-	portfoliopilotrpc.UnimplementedPortfolioPilotServer
-
-	cfg   pilotConfig
-	cache *rateCache
-}
-
-// ResolveRequest resolves an incoming quote request by returning
-// either a provided rate hint or the configured rate. When a
-// fill cap is configured it is returned as AcceptedMaxAmount.
-func (p *RpcPortfolioPilotServer) ResolveRequest(_ context.Context,
-	req *portfoliopilotrpc.ResolveRequestRequest) (
-	*portfoliopilotrpc.ResolveRequestResponse, error) {
-
-	if req == nil {
-		return nil, fmt.Errorf("resolve request is nil")
-	}
-
-	var (
-		hint    *portfoliopilotrpc.AssetRate
-		fillCap uint64
-	)
-	switch r := req.GetRequest().(type) {
-	case *portfoliopilotrpc.ResolveRequestRequest_BuyRequest:
-		br := r.BuyRequest
-		hint = br.GetAssetRateHint()
-		fillCap = p.cfg.fillCapAsset
-		log.Printf("ResolveRequest buy: max=%d min=%d "+
-			"rate_limit=%v", br.GetAssetMaxAmount(),
-			br.GetAssetMinAmount(),
-			br.GetAssetRateLimit())
-	case *portfoliopilotrpc.ResolveRequestRequest_SellRequest:
-		sr := r.SellRequest
-		hint = sr.GetAssetRateHint()
-		fillCap = p.cfg.fillCapMsat
-		log.Printf("ResolveRequest sell: max=%d min=%d "+
-			"rate_limit=%v", sr.GetPaymentMaxAmount(),
-			sr.GetPaymentMinAmount(),
-			sr.GetAssetRateLimit())
 	default:
-		return nil, fmt.Errorf("unknown request type: %T", r)
-	}
-
-	if hint == nil {
-		coeff := p.cfg.rateCoefficient
-		if p.cache != nil {
-			coeff = p.cache.getRate()
-		}
-
-		var err error
-		hint, err = makeRpcAssetRate(coeff)
-		if err != nil {
-			return nil, fmt.Errorf("make asset rate: %w",
-				err)
+		cfg.groupKey, err = hex.DecodeString(groupKey)
+		if err != nil || len(cfg.groupKey) != 33 {
+			return cfg, errors.New("invalid -groupkey")
 		}
 	}
 
-	log.Printf("ResolveRequest accepting (fillcap=%d)",
-		fillCap)
+	switch {
+	case cfg.decimalDisplay < 0 || cfg.decimalDisplay > 12:
+		return cfg, errors.New("-decimaldisplay must be in [0, 12]")
 
-	return &portfoliopilotrpc.ResolveRequestResponse{
-		Result: &portfoliopilotrpc.
-			ResolveRequestResponse_Accept{
-			Accept: hint,
-		},
-		AcceptedMaxAmount: fillCap,
-	}, nil
+	case cfg.spreadPpm >= 500_000:
+		return cfg, errors.New("-spreadppm must be below 500000")
+
+	case cfg.quoteLifetime <= 0:
+		return cfg, errors.New("-quotelifetime must be positive")
+
+	case cfg.maxExposureUSD == 0 || cfg.maxExposureUSD > 1_000_000:
+		return cfg, errors.New("-maxexposureusd must be in " +
+			"[1, 1000000]")
+
+	case cfg.maxBadQuotes < 0:
+		return cfg, errors.New("-maxbadquotes must not be negative")
+
+	case cfg.maxLossUSD > 1_000_000 || cfg.minAssetUSD > 1_000_000:
+		return cfg, errors.New("-maxtradelossusd and -minassetusd " +
+			"must not exceed 1000000")
+	}
+
+	return cfg, nil
 }
 
-// amountIsTransportable returns true when amt converts to a
-// non-zero result at the given rate. For buy (rateBoundCmp < 0)
-// the amount is asset units converting to msat; for sell
-// (rateBoundCmp > 0) the amount is msat converting to asset
-// units.
-func amountIsTransportable(amt uint64,
-	rate rfqmath.BigIntFixedPoint, rateBoundCmp int) bool {
-
-	if rateBoundCmp < 0 {
-		// Buy: asset units → msat.
-		units := rfqmath.FixedPoint[rfqmath.BigInt]{
-			Coefficient: rfqmath.NewBigIntFromUint64(
-				amt,
-			),
-			Scale: 0,
-		}
-		mSat, err := rfqmath.UnitsToMilliSatoshi(units, rate)
-		if err != nil {
-			return false
-		}
-		return mSat != 0
-	}
-
-	// Sell: msat → asset units.
-	units := rfqmath.MilliSatoshiToUnits(
-		lnwire.MilliSatoshi(amt), rate,
-	)
-	zero := rfqmath.NewBigIntFromUint64(0)
-
-	return !units.Coefficient.Equals(zero)
-}
-
-// VerifyAcceptQuote verifies an accepted quote from a peer by
-// checking rate bound, min fill, and fill constraints. Returns
-// the appropriate QuoteRespStatus.
-func (p *RpcPortfolioPilotServer) VerifyAcceptQuote(
-	_ context.Context,
-	req *portfoliopilotrpc.VerifyAcceptQuoteRequest) (
-	*portfoliopilotrpc.VerifyAcceptQuoteResponse, error) {
-
-	if req == nil || req.Accept == nil {
-		return nil, fmt.Errorf("accept quote is nil")
-	}
-
-	accept := req.Accept
-	log.Printf("VerifyAcceptQuote peer=%x", accept.PeerId)
-
-	// Parse accepted rate.
-	rpcRate := accept.GetAcceptedRate()
-	if rpcRate == nil || rpcRate.GetRate() == nil {
-		log.Printf("VerifyAcceptQuote: invalid rate")
-		return &portfoliopilotrpc.VerifyAcceptQuoteResponse{
-			Status: portfoliopilotrpc.
-				QuoteRespStatus_INVALID_ASSET_RATES,
-		}, nil
-	}
-	acceptedRate, err := rpcutils.UnmarshalPortfolioFixedPoint(
-		rpcRate.GetRate(),
-	)
-	if err != nil {
-		log.Printf("VerifyAcceptQuote: unmarshal rate: %v",
-			err)
-		return &portfoliopilotrpc.VerifyAcceptQuoteResponse{
-			Status: portfoliopilotrpc.
-				QuoteRespStatus_INVALID_ASSET_RATES,
-		}, nil
-	}
-
-	// Extract constraints based on request type.
-	var (
-		minAmount    uint64
-		maxAmount    uint64
-		rateLimit    *portfoliopilotrpc.FixedPoint
-		rateBoundCmp int
-		isFOK        bool
-	)
-	switch r := accept.GetRequest().(type) {
-	case *portfoliopilotrpc.AcceptedQuote_BuyRequest:
-		br := r.BuyRequest
-		minAmount = br.GetAssetMinAmount()
-		maxAmount = br.GetAssetMaxAmount()
-		rateLimit = br.GetAssetRateLimit()
-		rateBoundCmp = -1 // floor
-		isFOK = br.GetExecutionPolicy() ==
-			portfoliopilotrpc.ExecutionPolicy_EXECUTION_POLICY_FOK
-	case *portfoliopilotrpc.AcceptedQuote_SellRequest:
-		sr := r.SellRequest
-		minAmount = sr.GetPaymentMinAmount()
-		maxAmount = sr.GetPaymentMaxAmount()
-		rateLimit = sr.GetAssetRateLimit()
-		rateBoundCmp = 1 // ceiling
-		isFOK = sr.GetExecutionPolicy() ==
-			portfoliopilotrpc.ExecutionPolicy_EXECUTION_POLICY_FOK
-	default:
-		return nil, fmt.Errorf(
-			"unknown request type: %T", r,
-		)
-	}
-
-	// Check expiry.
-	if rpcRate.GetExpiryTimestamp() > 0 {
-		expiry := time.Unix(
-			int64(rpcRate.GetExpiryTimestamp()), 0,
-		)
-		if time.Now().After(expiry) {
-			log.Printf("VerifyAcceptQuote: expired "+
-				"at %v", expiry)
-			return &portfoliopilotrpc.
-				VerifyAcceptQuoteResponse{
-				Status: portfoliopilotrpc.
-					QuoteRespStatus_INVALID_EXPIRY,
-			}, nil
-		}
-	}
-
-	// Check rate bound: buy requires accepted >= limit,
-	// sell requires accepted <= limit.
-	if rateLimit != nil {
-		limit, err := rpcutils.UnmarshalPortfolioFixedPoint(
-			rateLimit,
-		)
-		if err != nil {
-			return nil, fmt.Errorf(
-				"unmarshal rate limit: %w", err,
-			)
-		}
-		if acceptedRate.Cmp(*limit) == rateBoundCmp {
-			log.Printf("VerifyAcceptQuote: rate bound "+
-				"miss (accepted=%v limit=%v cmp=%d)",
-				acceptedRate, *limit, rateBoundCmp)
-			return &portfoliopilotrpc.
-				VerifyAcceptQuoteResponse{
-				Status: portfoliopilotrpc.
-					QuoteRespStatus_RATE_BOUND_MISS,
-			}, nil
-		}
-	}
-
-	// FOK: full max amount must be transportable.
-	if isFOK && !amountIsTransportable(
-		maxAmount, *acceptedRate, rateBoundCmp,
-	) {
-
-		log.Printf("VerifyAcceptQuote: FOK not viable "+
-			"(max=%d)", maxAmount)
-		return &portfoliopilotrpc.VerifyAcceptQuoteResponse{
-			Status: portfoliopilotrpc.
-				QuoteRespStatus_FOK_NOT_VIABLE,
-		}, nil
-	}
-
-	// Fill must not exceed the request max.
-	fillAmt := accept.GetAcceptedMaxAmount()
-	if fillAmt > 0 && fillAmt > maxAmount {
-		log.Printf("VerifyAcceptQuote: fill %d > max %d",
-			fillAmt, maxAmount)
-		return &portfoliopilotrpc.VerifyAcceptQuoteResponse{
-			Status: portfoliopilotrpc.
-				QuoteRespStatus_FILL_EXCEEDS_MAX,
-		}, nil
-	}
-
-	// FOK + fill cap: if cap < max, reject.
-	if isFOK && fillAmt > 0 && fillAmt < maxAmount {
-		log.Printf("VerifyAcceptQuote: FOK fill cap "+
-			"%d < max %d", fillAmt, maxAmount)
-		return &portfoliopilotrpc.VerifyAcceptQuoteResponse{
-			Status: portfoliopilotrpc.
-				QuoteRespStatus_FOK_NOT_VIABLE,
-		}, nil
-	}
-
-	// Check min fill is transportable at the accepted rate.
-	if minAmount > 0 && !amountIsTransportable(
-		minAmount, *acceptedRate, rateBoundCmp,
-	) {
-
-		log.Printf("VerifyAcceptQuote: min fill not met "+
-			"(min=%d)", minAmount)
-		return &portfoliopilotrpc.VerifyAcceptQuoteResponse{
-			Status: portfoliopilotrpc.
-				QuoteRespStatus_MIN_FILL_NOT_MET,
-		}, nil
-	}
-
-	// Check fill constraints: if a fill cap was negotiated,
-	// it must satisfy the minimum.
-	if fillAmt > 0 && minAmount > 0 && fillAmt < minAmount {
-		log.Printf("VerifyAcceptQuote: fill %d < min %d",
-			fillAmt, minAmount)
-		return &portfoliopilotrpc.VerifyAcceptQuoteResponse{
-			Status: portfoliopilotrpc.
-				QuoteRespStatus_MIN_FILL_NOT_MET,
-		}, nil
-	}
-
-	log.Printf("VerifyAcceptQuote: valid")
-	return &portfoliopilotrpc.VerifyAcceptQuoteResponse{
-		Status: portfoliopilotrpc.
-			QuoteRespStatus_VALID_ACCEPT_QUOTE,
-	}, nil
-}
-
-// QueryAssetRates returns the configured asset rate, or the
-// provided hint if one is given.
-func (p *RpcPortfolioPilotServer) QueryAssetRates(
-	_ context.Context,
-	req *portfoliopilotrpc.QueryAssetRatesRequest) (
-	*portfoliopilotrpc.QueryAssetRatesResponse, error) {
-
-	if req == nil {
-		return nil, fmt.Errorf("query request is nil")
-	}
-
-	if req.AssetRateHint != nil {
-		log.Print("QueryAssetRates using provided hint")
-		return &portfoliopilotrpc.QueryAssetRatesResponse{
-			AssetRate: req.AssetRateHint,
-		}, nil
-	}
-
-	coeff := p.cfg.rateCoefficient
-	if p.cache != nil {
-		coeff = p.cache.getRate()
-	}
-
-	rpcRate, err := makeRpcAssetRate(coeff)
-	if err != nil {
-		return nil, fmt.Errorf("make asset rate: %w", err)
-	}
-
-	log.Print("QueryAssetRates returning configured rate")
-	return &portfoliopilotrpc.QueryAssetRatesResponse{
-		AssetRate: rpcRate,
-	}, nil
-}
-
-// startService starts the given RPC server and blocks until the
-// server is shut down.
-func startService(grpcServer *grpc.Server, cfg pilotConfig) error {
-	serviceAddr := fmt.Sprintf(
-		"portfoliopilotrpc://%s", cfg.listenAddr,
-	)
-
-	var cache *rateCache
-	if cfg.rateCoefficient == 0 {
-		cache = newRateCache(
-			30*time.Second, 0,
-		)
-		log.Printf("Starting portfolio pilot at "+
-			"%s (rate=live, fillcap_asset=%d, "+
-			"fillcap_msat=%d)",
-			serviceAddr, cfg.fillCapAsset,
-			cfg.fillCapMsat)
-	} else {
-		log.Printf("Starting portfolio pilot at "+
-			"%s (rate=%d, fillcap_asset=%d, "+
-			"fillcap_msat=%d)",
-			serviceAddr, cfg.rateCoefficient,
-			cfg.fillCapAsset, cfg.fillCapMsat)
-	}
-
-	server := &RpcPortfolioPilotServer{
-		cfg:   cfg,
-		cache: cache,
-	}
-	portfoliopilotrpc.RegisterPortfolioPilotServer(
-		grpcServer, server,
-	)
-
-	grpcListener, err := net.Listen("tcp", cfg.listenAddr)
-	if err != nil {
-		return fmt.Errorf(
-			"RPC server unable to listen on %s: %w",
-			cfg.listenAddr, err,
-		)
-	}
-	if err := grpcServer.Serve(grpcListener); err != nil {
-		if errors.Is(err, grpc.ErrServerStopped) {
-			return nil
-		}
-		return fmt.Errorf("RPC server failed: %w", err)
-	}
-
-	return nil
-}
-
-// generateSelfSignedCert creates a self-signed TLS certificate and private
-// key.
-func generateSelfSignedCert() (tls.Certificate, error) {
-	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		return tls.Certificate{}, fmt.Errorf("generate ECDSA key: %w",
-			err)
-	}
-
-	keyUsage := x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature
-	extKeyUsage := []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}
-	template := x509.Certificate{
-		SerialNumber: big.NewInt(1),
-		Subject: pkix.Name{
-			Organization: []string{"basic-portfolio-pilot"},
-		},
-		NotBefore: time.Now(),
-		NotAfter:  time.Now().Add(24 * time.Hour), // Valid for 1 day
-
-		KeyUsage:              keyUsage,
-		ExtKeyUsage:           extKeyUsage,
-		BasicConstraintsValid: true,
-	}
-
-	certDER, err := x509.CreateCertificate(
-		rand.Reader, &template, &template, &privateKey.PublicKey,
-		privateKey,
-	)
-	if err != nil {
-		return tls.Certificate{}, fmt.Errorf("create certificate: %w",
-			err)
-	}
-
-	privateKeyBits, err := x509.MarshalECPrivateKey(privateKey)
-	if err != nil {
-		return tls.Certificate{}, fmt.Errorf("marshal ECDSA key: %w",
-			err)
-	}
-
-	certPEM := pem.EncodeToMemory(
-		&pem.Block{Type: "CERTIFICATE", Bytes: certDER},
-	)
-	keyPEM := pem.EncodeToMemory(
-		&pem.Block{Type: "EC PRIVATE KEY", Bytes: privateKeyBits},
-	)
-
-	tlsCert, err := tls.X509KeyPair(certPEM, keyPEM)
-	if err != nil {
-		return tls.Certificate{}, fmt.Errorf("load key pair: %w", err)
-	}
-
-	return tlsCert, nil
-}
-
-// main runs the example RPC portfolio pilot server.
 func main() {
-	cfg := parseFlags()
-	setupLogger()
-
-	tlsCert, err := generateSelfSignedCert()
+	cfg, err := parseFlags()
 	if err != nil {
-		log.Fatalf("Failed to generate TLS cert: %v", err)
+		log.Fatalf("Invalid flags: %v", err)
 	}
 
-	serverKeepalive := keepalive.ServerParameters{
-		Time:              time.Minute,
-		Timeout:           20 * time.Second,
-		MaxConnectionIdle: 24 * time.Hour,
-	}
-	clientKeepalive := keepalive.EnforcementPolicy{
-		PermitWithoutStream: true,
-		MinTime:             5 * time.Second,
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	unitsPerUSD := uint64(1)
+	for range cfg.decimalDisplay {
+		unitsPerUSD *= 10
 	}
 
-	creds := credentials.NewTLS(&tls.Config{
-		Certificates: []tls.Certificate{tlsCert},
-	})
-	backendService := grpc.NewServer(
-		grpc.Creds(creds),
-		grpc.KeepaliveParams(serverKeepalive),
-		grpc.KeepaliveEnforcementPolicy(clientKeepalive),
-	)
+	b := &breaker{
+		haltPath:     filepath.Join(cfg.dataDir, haltFile),
+		maxExposure:  cfg.maxExposureUSD * unitsPerUSD,
+		maxBadQuotes: cfg.maxBadQuotes,
+	}
+	if b.halted() {
+		log.Printf("Halted: remove %s to resume trading", b.haltPath)
+	}
 
-	errChan := make(chan error, 1)
+	feed := &priceFeed{maxJumpPpm: cfg.maxJumpPpm, onJump: b.trip}
+	if cfg.btcUSD != "" {
+		feed.btcUSD, err = parsePrice(cfg.btcUSD)
+		if err != nil {
+			log.Fatalf("Invalid -btcusd: %v", err)
+		}
+		feed.static = true
+	} else {
+		go feed.poll(ctx)
+	}
+	p := &pilot{cfg: cfg, feed: feed, degraded: b.degraded}
+	b.inner = p
+
+	m := &monitor{
+		pilot:    p,
+		breaker:  b,
+		maxLoss:  cfg.maxLossUSD * unitsPerUSD,
+		minAsset: cfg.minAssetUSD * unitsPerUSD,
+		minBTC:   cfg.minBTCSat * 1_000,
+		since:    time.Now(),
+		edges:    make(map[string]swapEdge),
+	}
+	if cfg.tapd.addr != "" {
+		conn, err := dialNode(cfg.tapd.addr, cfg.tapd.cert,
+			cfg.tapd.macaroon)
+		if err != nil {
+			log.Fatalf("tapd connection failed: %v", err)
+		}
+		m.tapd = rfqrpc.NewRfqClient(conn)
+	}
+	if cfg.lnd.addr != "" {
+		conn, err := dialNode(cfg.lnd.addr, cfg.lnd.cert,
+			cfg.lnd.macaroon)
+		if err != nil {
+			log.Fatalf("lnd connection failed: %v", err)
+		}
+		m.lnd = lnrpc.NewLightningClient(conn)
+	}
+	if m.tapd == nil || m.lnd == nil {
+		log.Printf("WARNING: trade edge or inventory checks " +
+			"disabled; set -tapdrpcserver and -lndrpcserver")
+	}
+	go m.run(ctx)
+
+	server, err := newServer(cfg, b)
+	if err != nil {
+		log.Fatalf("Server setup failed: %v", err)
+	}
+
+	lis, err := net.Listen("tcp", cfg.listenAddr)
+	if err != nil {
+		log.Fatalf("Listen failed: %v", err)
+	}
+	log.Printf("Listening on portfoliopilotrpc://%s", cfg.listenAddr)
+
 	go func() {
-		errChan <- startService(backendService, cfg)
+		sig := make(chan os.Signal, 1)
+		signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+		<-sig
+		server.GracefulStop()
 	}()
 
-	signalChan := make(chan os.Signal, 1)
-	signal.Notify(signalChan, os.Interrupt, syscall.SIGTERM)
-	defer signal.Stop(signalChan)
-
-	select {
-	case err = <-errChan:
-		if err != nil {
-			log.Fatalf("Start service error: %v", err)
-		}
-
-	case sig := <-signalChan:
-		log.Printf("Shutting down on signal: %v", sig)
-		backendService.GracefulStop()
-		if err = <-errChan; err != nil {
-			log.Printf("Shutdown error: %v", err)
-		}
+	if err := server.Serve(lis); err != nil {
+		log.Fatalf("Serve failed: %v", err)
 	}
 }

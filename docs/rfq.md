@@ -211,11 +211,13 @@ QueryAssetRates(ctx, query) → AssetRate
 
 The built-in `InternalPortfolioPilot` delegates to a `PriceOracle`. Custom
 implementations can add business rules: credit limits, KYC checks, spread
-adjustment, etc.
+adjustment, etc. When an external pilot is configured, it is the only check on
+the rates the node quotes and accepts; see the
+[portfolio pilot guide](portfolio_pilot.md#safety).
 
 ### Rate Tolerance
 
-When verifying a peer's Accept, the portfolio pilot uses
+When verifying a peer's Accept, the internal portfolio pilot uses
 `rfqmath.FixedPoint.WithinTolerance()` to check that the offered rate is within
 a configurable tolerance (default 50,000 ppm = 5%) of the oracle's current
 rate. This prevents a peer from quoting a rate that was valid an instant ago

@@ -274,6 +274,10 @@ message BuyRequest {
 
     // execution_policy is the optional execution policy for this request.
     ExecutionPolicy execution_policy = 8;
+
+    // rfq_id is the 32-byte ID of the quote request. It identifies the
+    // quote in tapd's RFQ events and forwarding history.
+    bytes rfq_id = 9;
 }
 
 // SellRequest represents a request to sell the subject asset.
@@ -304,6 +308,10 @@ message SellRequest {
 
     // execution_policy is the optional execution policy for this request.
     ExecutionPolicy execution_policy = 8;
+
+    // rfq_id is the 32-byte ID of the quote request. It identifies the
+    // quote in tapd's RFQ events and forwarding history.
+    bytes rfq_id = 9;
 }
 
 // ResolveRequestRequest specifies a quote request to resolve.

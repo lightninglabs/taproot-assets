@@ -6,6 +6,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
+	"github.com/lightninglabs/taproot-assets/taprpc/rfqrpc"
 	tchrpc "github.com/lightninglabs/taproot-assets/taprpc/tapchannelrpc"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
@@ -87,6 +88,22 @@ func testChannelRPCs(t *harnessTest) {
 	require.ErrorContains(
 		t.t, err, "keysend payment satoshi amount must be greater",
 	)
+
+	// A rate limit can't be combined with a pre-negotiated quote.
+	stream, err = t.tapd.SendPayment(ctx, &tchrpc.SendPaymentRequest{
+		AssetId: dummyByteArr[:],
+		PaymentRequest: &routerrpc.SendPaymentRequest{
+			PaymentRequest: "lnbcrt1",
+		},
+		RfqId: dummyByteArr[:],
+		AssetRateLimit: &rfqrpc.FixedPoint{
+			Coefficient: "100",
+		},
+	})
+	require.NoError(t.t, err)
+
+	_, err = stream.Recv()
+	require.ErrorContains(t.t, err, "cannot be used with rfq_id")
 
 	// Now let's also try the invoice path, which should fail because we
 	// don't have any asset channels with peers that we could ask for a

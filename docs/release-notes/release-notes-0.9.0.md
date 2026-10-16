@@ -224,6 +224,9 @@
   fixes database-backed MS-SMTs computing a wrong root after deleting a
   key they did not hold.
 
+* `AddInvoice` returns an error for an invoice amount given in satoshis
+  when no price oracle is configured.
+
 # New Features
 
 ## Functional Enhancements
@@ -344,6 +347,15 @@
   a repeated call finds the proof held, imports nothing twice, and
   attaches to the existing registration. A proof file the watcher
   cannot stake is rejected.
+
+* The `BuyRequest` and `SellRequest` messages of `portfoliopilotrpc`
+  carry the `rfq_id` of the quote request.
+
+* `SendPayment` in `tapchannelrpc` accepts an optional
+  `asset_rate_limit`, a rate ceiling in asset units per BTC. It is
+  forwarded as the rate limit of each sell order negotiated to pay an
+  invoice. A request that combines it with `rfq_id`, a keysend payment
+  or first-hop custom records is rejected.
 
 ## tapcli Updates
 
@@ -522,7 +534,25 @@
   `tapgarden` into `tapnode`, alongside the rest of the
   proof-verifier code.
 
+* The `rfq` package exports `CheckConstraints`, `RejectForStatus`,
+  `MarshalPortfolioQuoteRespStatus` and `MarshalPortfolioRejectErr`,
+  and the `rpcutils` package exports `UnmarshalPortfolioBuyConstraints`
+  and `UnmarshalPortfolioSellConstraints`. These derive the limit-order
+  constraints of a `portfoliopilotrpc` buy or sell request, run the
+  constraint checks of the internal portfolio pilot, and map the
+  result to a `portfoliopilotrpc` quote status or reject error.
+
 ## Tooling and Documentation
+
+* The portfolio pilot guide is rewritten as a user guide with a safety
+  section. The example portfolio pilot prices a single configured asset
+  from a reference price, ignores peer rate hints, rejects requests while
+  the reference price is stale, checks peer quotes against the reference
+  price, and serves TLS with a persisted certificate and macaroon
+  authentication. It degrades trading on a negative trade edge or an
+  inventory floor, read from tapd and lnd, and halts it on an exposure
+  limit, a price jump, repeated out-of-tolerance peer quotes, a larger
+  negative trade edge, or a halt file.
 
 # Contributors (Alphabetical Order)
 
