@@ -14,4 +14,6 @@ RUN apk add --no-cache ca-certificates
 
 COPY --from=builder /go/bin/portfolio-pilot /bin/
 
+WORKDIR /data
+
 ENTRYPOINT ["portfolio-pilot"]
