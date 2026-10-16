@@ -1258,7 +1258,13 @@ func getCertificateConfig(cfg *Config, cfgLogger btclog.Logger) (*tls.Config,
 		tlsCfg := certCfg.TLSConfig()
 		tlsCfg.NextProtos = append(tlsCfg.NextProtos, "h2")
 
-		restCreds := credentials.NewTLS(&tls.Config{})
+		// The REST proxy dials the RPC listener by IP address, with
+		// the domain as the TLS server name. The server name selects
+		// the certificate and is verified against it.
+		restCreds := credentials.NewTLS(&tls.Config{
+			ServerName: cfg.RpcConf.LetsEncryptDomain,
+			MinVersion: tls.VersionTLS12,
+		})
 
 		return tlsCfg, restCreds, nil
 	}
