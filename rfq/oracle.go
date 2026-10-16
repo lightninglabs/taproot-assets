@@ -13,6 +13,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightninglabs/taproot-assets/rpcutils"
 	oraclerpc "github.com/lightninglabs/taproot-assets/taprpc/priceoraclerpc"
+	"github.com/lightninglabs/taproot-assets/taptls"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"google.golang.org/grpc"
@@ -207,7 +208,7 @@ type RpcPriceOracle struct {
 // NewRpcPriceOracle creates a new RPC price oracle handle given the address
 // of the price oracle RPC server. An optional macaroon dial option can be
 // provided for authentication with the oracle server.
-func NewRpcPriceOracle(addrStr string, tlsConfig *TLSConfig,
+func NewRpcPriceOracle(addrStr string, tlsPolicy taptls.Policy,
 	macaroonOpt fn.Option[grpc.DialOption],
 	nodeID fn.Option[route.Vertex]) (*RpcPriceOracle, error) {
 
@@ -216,15 +217,8 @@ func NewRpcPriceOracle(addrStr string, tlsConfig *TLSConfig,
 		return nil, err
 	}
 
-	// Create transport credentials and dial options from the supplied TLS
-	// config.
-	transportCredentials, err := configureTransportCredentials(tlsConfig)
-	if err != nil {
-		return nil, err
-	}
-
 	dialOpts := []grpc.DialOption{
-		grpc.WithTransportCredentials(transportCredentials),
+		tlsPolicy.DialOption(),
 
 		// We require active keepalive to ensure success of price
 		// queries after idle periods.
