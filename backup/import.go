@@ -12,6 +12,7 @@ import (
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/taptls"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -112,6 +113,10 @@ type ImportConfig struct {
 	// Without it the groups are only accepted for the duration of the
 	// import. Optional.
 	GroupRegistrar GroupRegistrar
+
+	// UniverseTLS is the TLS policy for connections to the universe
+	// servers that proofs are fetched from.
+	UniverseTLS taptls.Policy
 }
 
 // keyMaterialComplete reports whether the key info of an entry carries the
@@ -644,8 +649,9 @@ func ImportBackup(ctx context.Context, backupBlob []byte,
 			len(walletBackup.FederationURLs) > 0 {
 
 			proofBlob, err := fetchProofFromUniverse(
-				ctx, walletBackup.FederationURLs,
-				assetBackup, cfg.ProofArchive,
+				ctx, cfg.UniverseTLS,
+				walletBackup.FederationURLs, assetBackup,
+				cfg.ProofArchive,
 			)
 			if err != nil {
 				log.Warnf("Skipping asset %d (id=%x):"+
