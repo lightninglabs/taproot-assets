@@ -467,6 +467,7 @@ func rpcMarshalBuyRequest(
 		PriceOracleMetadata: req.PriceOracleMetadata,
 		PeerId:              peer[:],
 		AssetMinAmount:      req.AssetMinAmt.UnwrapOr(0),
+		RfqId:               req.ID[:],
 		AssetRateLimit:      rpcRateLimit,
 		ExecutionPolicy: marshalExecutionPolicy(
 			req.ExecutionPolicy,
@@ -522,6 +523,7 @@ func rpcMarshalSellRequest(
 		PriceOracleMetadata: req.PriceOracleMetadata,
 		PeerId:              peer[:],
 		PaymentMinAmount:    paymentMinAmt,
+		RfqId:               req.ID[:],
 		AssetRateLimit:      rpcRateLimit,
 		ExecutionPolicy: marshalExecutionPolicy(
 			req.ExecutionPolicy,

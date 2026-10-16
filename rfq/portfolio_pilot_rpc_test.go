@@ -41,6 +41,7 @@ func TestRpcMarshalBuyRequest(t *testing.T) {
 			name: "FOK with constraints",
 			req: &rfqmsg.BuyRequest{
 				Peer:           peer,
+				ID:             rfqmsg.ID{0x0B},
 				AssetSpecifier: spec,
 				AssetMaxAmt:    1000,
 				AssetMinAmt:    fn.Some[uint64](100),
@@ -72,6 +73,8 @@ func TestRpcMarshalBuyRequest(t *testing.T) {
 
 			rpc, err := rpcMarshalBuyRequest(tc.req)
 			require.NoError(t, err)
+
+			require.Equal(t, tc.req.ID[:], rpc.RfqId)
 
 			require.Equal(
 				t, tc.req.AssetMaxAmt,
@@ -128,6 +131,7 @@ func TestRpcMarshalSellRequest(t *testing.T) {
 			name: "FOK with constraints",
 			req: &rfqmsg.SellRequest{
 				Peer:           peer,
+				ID:             rfqmsg.ID{0x0C},
 				AssetSpecifier: spec,
 				PaymentMaxAmt:  lnwire.MilliSatoshi(2000),
 				PaymentMinAmt: fn.Some(
@@ -161,6 +165,8 @@ func TestRpcMarshalSellRequest(t *testing.T) {
 
 			rpc, err := rpcMarshalSellRequest(tc.req)
 			require.NoError(t, err)
+
+			require.Equal(t, tc.req.ID[:], rpc.RfqId)
 
 			require.Equal(
 				t, uint64(tc.req.PaymentMaxAmt),
