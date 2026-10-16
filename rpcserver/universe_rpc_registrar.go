@@ -3,16 +3,15 @@ package rpcserver
 import (
 	"bytes"
 	"context"
-	"crypto/tls"
 	"fmt"
 	"time"
 
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
+	"github.com/lightninglabs/taproot-assets/taptls"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
 )
 
 // RpcUniverseRegistrar is an implementation of the universe.Registrar interface
@@ -27,11 +26,12 @@ type RpcUniverseRegistrar struct {
 }
 
 // NewRpcUniverseRegistrar creates a new RpcUniverseRegistrar instance that
-// dials out to the target remote universe server address.
-func NewRpcUniverseRegistrar(
+// dials out to the target remote universe server address under the given TLS
+// policy.
+func NewRpcUniverseRegistrar(tlsPolicy taptls.Policy,
 	serverAddr universe.ServerAddr) (universe.Registrar, error) {
 
-	conn, err := ConnectUniverse(serverAddr)
+	conn, err := ConnectUniverse(tlsPolicy, serverAddr)
 	if err != nil {
 		return nil, fmt.Errorf("unable to connect to universe RPC "+
 			"server: %w", err)
@@ -152,10 +152,11 @@ func (r *RpcUniverseRegistrar) Close() error {
 // universe.Registrar interface.
 var _ universe.Registrar = (*RpcUniverseRegistrar)(nil)
 
-// CheckFederationServer attempts to connect to the target server and ensure
-// that it is a valid federation server that isn't the local daemon.
-func CheckFederationServer(localRuntimeID int64, connectTimeout time.Duration,
-	server universe.ServerAddr) error {
+// CheckFederationServer attempts to connect to the target server under the
+// given TLS policy and ensure that it is a valid federation server that isn't
+// the local daemon.
+func CheckFederationServer(tlsPolicy taptls.Policy, localRuntimeID int64,
+	connectTimeout time.Duration, server universe.ServerAddr) error {
 
 	srvrLog.Debugf("Attempting to connect to federation server %v",
 		server.HostStr())
@@ -170,7 +171,7 @@ func CheckFederationServer(localRuntimeID int64, connectTimeout time.Duration,
 	srvrLog.Debugf("Resolved federation server address: %v",
 		resolvedAddr.String())
 
-	conn, err := ConnectUniverse(server)
+	conn, err := ConnectUniverse(tlsPolicy, server)
 	if err != nil {
 		return fmt.Errorf("error connecting to server %v: %w",
 			server.HostStr(), err)
@@ -203,18 +204,15 @@ type universeClientConn struct {
 }
 
 // ConnectUniverse connects to a remote Universe server using the provided
-// server address.
-func ConnectUniverse(
+// server address, under the given TLS policy.
+func ConnectUniverse(tlsPolicy taptls.Policy,
 	serverAddr universe.ServerAddr) (*universeClientConn, error) {
 
 	uniAddr := serverAddr.HostStr()
-	creds := credentials.NewTLS(&tls.Config{
-		InsecureSkipVerify: true,
-	})
 
 	// Create a dial options array.
 	opts := []grpc.DialOption{
-		grpc.WithTransportCredentials(creds),
+		tlsPolicy.DialOption(),
 		grpc.WithDefaultCallOptions(MaxMsgReceiveSize),
 	}
 

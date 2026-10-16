@@ -2095,7 +2095,8 @@ func (r *RPCServer) NewAddr(ctx context.Context,
 			"RPC", "courier_addr", courierAddr.String())
 
 		err := proof.CheckUniverseRpcCourierConnection(
-			ctx, proofCourierCheckTimeout, courierAddr,
+			ctx, proofCourierCheckTimeout, r.cfg.UniverseTLS,
+			courierAddr,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("connection check failed for "+
@@ -8188,14 +8189,17 @@ func (r *RPCServer) PushProof(ctx context.Context,
 	// Make sure that we aren't trying to push the proof to ourself, and
 	// then attempt to push the proof.
 	err = CheckFederationServer(
-		r.cfg.RuntimeID, universe.DefaultTimeout, remoteUniAddr,
+		r.cfg.UniverseTLS, r.cfg.RuntimeID, universe.DefaultTimeout,
+		remoteUniAddr,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("check federation "+
 			"server %v: %w", remoteUniAddr.HostStr(), err)
 	}
 
-	remoteUni, err := NewRpcUniverseRegistrar(remoteUniAddr)
+	remoteUni, err := NewRpcUniverseRegistrar(
+		r.cfg.UniverseTLS, remoteUniAddr,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("dial remote "+
 			"universe %v: %w", remoteUniAddr.HostStr(), err)
@@ -8582,7 +8586,8 @@ func (r *RPCServer) AddFederationServer(ctx context.Context,
 		// that we can actually connect to it and that it isn't
 		// ourselves.
 		err := CheckFederationServer(
-			r.cfg.RuntimeID, universe.DefaultTimeout, server,
+			r.cfg.UniverseTLS, r.cfg.RuntimeID,
+			universe.DefaultTimeout, server,
 		)
 		if err != nil {
 			return nil, fmt.Errorf(""+
@@ -12693,6 +12698,7 @@ func (r *RPCServer) ImportAssetsFromBackup(ctx context.Context,
 		KeyDeriver:     r.cfg.Lnd.WalletKit,
 		WalletProofs:   r.cfg.AssetStore,
 		GroupRegistrar: r.cfg.TapAddrBook,
+		UniverseTLS:    r.cfg.UniverseTLS,
 	}
 
 	numImported, numSkipped, err := backup.ImportBackup(
