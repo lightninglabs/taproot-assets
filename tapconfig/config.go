@@ -24,6 +24,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/tapnode"
 	"github.com/lightninglabs/taproot-assets/tapreorg"
+	"github.com/lightninglabs/taproot-assets/taptls"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
 	"github.com/lightninglabs/taproot-assets/universe/supplyverifier"
@@ -241,6 +242,10 @@ type Config struct {
 	AddrBookDisableSyncer bool
 
 	DefaultProofCourierAddr *url.URL
+
+	// UniverseTLS is the TLS policy for connections to universe servers,
+	// proof couriers and auth mailboxes.
+	UniverseTLS taptls.Policy
 
 	ProofArchive proof.Archiver
 

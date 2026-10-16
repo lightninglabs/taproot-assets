@@ -38,6 +38,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapnode"
 	"github.com/lightninglabs/taproot-assets/tapreorg"
 	"github.com/lightninglabs/taproot-assets/tapscript"
+	"github.com/lightninglabs/taproot-assets/taptls"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightninglabs/taproot-assets/universe/mintpublish"
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
@@ -464,6 +465,15 @@ func genServerConfig(ctx context.Context, cfg *Config,
 
 	uniArchive := universe.NewArchive(uniArchiveCfg)
 
+	// The TLS policy for connections to universe servers, proof couriers
+	// and auth mailboxes.
+	uniTLSPolicy, err := taptls.New(taptls.Config{
+		Mode: taptls.ModeSkipVerify,
+	})
+	if err != nil {
+		return nil, err
+	}
+
 	// Pool of outbound gRPC connections used by the federation push
 	// path. The previous per-call dial pattern in
 	// FederationEnvoy.pushProofToServer paid a TLS handshake for every
@@ -476,7 +486,7 @@ func genServerConfig(ctx context.Context, cfg *Config,
 	// would let a caller grow the pool's host map without bound. The
 	// syncer's existing per-call dial-and-close is fine — it already
 	// reuses one conn for the full sync round against a given host.
-	uniConnPool := rpcserver.NewUniverseConnPool()
+	uniConnPool := rpcserver.NewUniverseConnPool(uniTLSPolicy)
 
 	pooledRegistrar := func(
 		addr universe.ServerAddr) (universe.Registrar, error) {
@@ -489,8 +499,12 @@ func genServerConfig(ctx context.Context, cfg *Config,
 	}
 
 	universeSyncer := universe.NewSimpleSyncer(universe.SimpleSyncCfg{
-		LocalDiffEngine:     uniArchive,
-		NewRemoteDiffEngine: rpcserver.NewRpcUniverseDiff,
+		LocalDiffEngine: uniArchive,
+		NewRemoteDiffEngine: func(addr universe.ServerAddr) (
+			universe.DiffEngine, error) {
+
+			return rpcserver.NewRpcUniverseDiff(uniTLSPolicy, addr)
+		},
 		LocalRegistrar:      uniArchive,
 		SyncBatchSize:       defaultUniverseSyncBatchSize,
 		SyncRootConcurrency: defaultUniverseSyncRootConcurrency,
@@ -516,8 +530,8 @@ func genServerConfig(ctx context.Context, cfg *Config,
 			StaticFederationMembers: federationMembers,
 			ServerChecker: func(addr universe.ServerAddr) error {
 				return rpcserver.CheckFederationServer(
-					runtimeID, universe.DefaultTimeout,
-					addr,
+					uniTLSPolicy, runtimeID,
+					universe.DefaultTimeout, addr,
 				)
 			},
 			ErrChan: mainErrChan,
@@ -560,6 +574,7 @@ func genServerConfig(ctx context.Context, cfg *Config,
 	proofCourierDispatcher := proof.NewCourierDispatch(&proof.CourierCfg{
 		HashMailCfg:    cfg.HashMailCourier,
 		UniverseRpcCfg: cfg.UniverseRpcCourier,
+		TLS:            uniTLSPolicy,
 		TransferLog:    assetStore,
 		LocalArchive:   proofArchive,
 	})
@@ -704,7 +719,13 @@ func genServerConfig(ctx context.Context, cfg *Config,
 	supplySyncerStore := tapdb.NewSupplySyncerStore(uniDB)
 	supplySyncer := supplyverifier.NewSupplySyncer(
 		supplyverifier.SupplySyncerConfig{
-			ClientFactory:          rpcserver.NewRpcSupplySync,
+			ClientFactory: func(addr universe.ServerAddr) (
+				supplyverifier.UniverseClient, error) {
+
+				return rpcserver.NewRpcSupplySync(
+					uniTLSPolicy, addr,
+				)
+			},
 			Store:                  supplySyncerStore,
 			UniverseFederationView: federationDB,
 		},
@@ -841,6 +862,7 @@ func genServerConfig(ctx context.Context, cfg *Config,
 		ErrChan:                mainErrChan,
 		ProofCourierDispatcher: proofCourierDispatcher,
 		MboxBackoffCfg:         cfg.UniverseRpcCourier.BackoffCfg,
+		MboxTLS:                uniTLSPolicy,
 		ProofRetrievalDelay:    cfg.CustodianProofRetrievalDelay,
 		IgnoreChecker:          ignoreCheckerOpt,
 		AnchoringWatcher:       anchoringWatcher,
@@ -1002,6 +1024,7 @@ func genServerConfig(ctx context.Context, cfg *Config,
 			RfqManager:         rfqManager,
 			TxSender:           chainPorter,
 			DefaultCourierAddr: proofCourierAddr,
+			UniverseTLS:        uniTLSPolicy,
 			ProofFetcher:       proofCourierDispatcher,
 			AssetSyncer:        addrBook,
 			FeatureBits:        lndFeatureBitsVerifier,
@@ -1146,6 +1169,7 @@ func genServerConfig(ctx context.Context, cfg *Config,
 		AddrBook:                 addrBook,
 		AddrBookDisableSyncer:    cfg.AddrBook.DisableSyncer,
 		DefaultProofCourierAddr:  proofCourierAddr,
+		UniverseTLS:              uniTLSPolicy,
 		ProofArchive:             proofArchive,
 		AssetWallet:              assetWallet,
 		CoinSelect:               coinSelect,
