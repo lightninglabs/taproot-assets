@@ -442,6 +442,12 @@ func (a *Archive) verifyIssuanceProof(ctx context.Context, id Identifier,
 			"got %x", id.GroupKey.SerializeCompressed(),
 			newAsset.GroupKey.GroupPubKey.SerializeCompressed())
 
+	// A grouped asset can only be inserted under its group key.
+	case id.GroupKey == nil && newAsset.GroupKey != nil:
+		return nil, fmt.Errorf("grouped asset %v must be inserted "+
+			"under its group key %x", newAsset.ID(),
+			newAsset.GroupKey.GroupPubKey.SerializeCompressed())
+
 	// If the group key is nil, then the asset ID should match.
 	case id.GroupKey == nil && id.AssetID != newAsset.ID():
 		return nil, fmt.Errorf("asset id mismatch: expected %v, got %v",

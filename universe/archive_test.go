@@ -450,11 +450,16 @@ func mintTestAsset(t *testing.T, grouped bool) *Item {
 
 	scriptKey := asset.NewScriptKey(mintedAsset.ScriptKey.PubKey)
 
+	id := Identifier{
+		AssetID:   assetGenesis.ID(),
+		ProofType: ProofTypeIssuance,
+	}
+	if grouped {
+		id.GroupKey = &assetProof.Asset.GroupKey.GroupPubKey
+	}
+
 	return &Item{
-		ID: Identifier{
-			AssetID:   assetGenesis.ID(),
-			ProofType: ProofTypeIssuance,
-		},
+		ID: id,
 		Key: BaseLeafKey{
 			OutPoint:  assetProof.OutPoint(),
 			ScriptKey: &scriptKey,
@@ -669,4 +674,54 @@ func TestUpsertProofLeafRejectsUngroupedInGroupUniverse(t *testing.T) {
 		context.Background(), id, item.Key, item.Leaf,
 	)
 	require.ErrorContains(t, err, "group key mismatch")
+}
+
+// TestUpsertProofLeafRejectsGroupedInAssetIDUniverse tests that an issuance
+// proof for a grouped asset is rejected when it's inserted under its asset ID
+// rather than its group key, on both the single-leaf and batch paths.
+func TestUpsertProofLeafRejectsGroupedInAssetIDUniverse(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	newItem := func(t *testing.T) *Item {
+		item := mintTestAsset(t, true)
+		require.NotNil(t, item.Leaf.Asset.GroupKey)
+
+		item.ID.GroupKey = nil
+
+		return item
+	}
+
+	newArchive := func(item *Item) *Archive {
+		mv := &mockMultiverse{
+			knownRoots:   make(map[IdentifierKey]Root),
+			leafInserted: true,
+			upsertProof:  &Proof{Leaf: item.Leaf},
+		}
+
+		return newTestArchiveWithStats(mv, &mockTelemetry{})
+	}
+
+	t.Run("single", func(t *testing.T) {
+		t.Parallel()
+
+		item := newItem(t)
+		_, err := newArchive(item).UpsertProofLeaf(
+			ctx, item.ID, item.Key, item.Leaf,
+		)
+		require.ErrorContains(t, err, "must be inserted under its "+
+			"group key")
+	})
+
+	t.Run("batch", func(t *testing.T) {
+		t.Parallel()
+
+		item := newItem(t)
+		err := newArchive(item).UpsertProofLeafBatch(
+			ctx, []*Item{item},
+		)
+		require.ErrorContains(t, err, "must be inserted under its "+
+			"group key")
+	})
 }
