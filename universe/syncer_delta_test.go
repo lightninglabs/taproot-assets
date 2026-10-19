@@ -389,10 +389,12 @@ func (c *corruptDeltaEngine) SyncDelta(ctx context.Context,
 	return page, nil
 }
 
-// deltaLeafGen generates a random universe leaf.
+// deltaLeafGen generates a random universe leaf holding an ungrouped asset,
+// for insertion under an asset ID universe.
 var deltaLeafGen = rapid.Custom(func(t *rapid.T) *Leaf {
 	gen := asset.GenesisGen.Draw(t, "genesis")
-	a := asset.AssetGen.Draw(t, "asset")
+	scriptKey := asset.ScriptKeyGen.Draw(t, "script_key")
+	a := asset.AssetGenWithValues(t, gen, nil, scriptKey)
 	rawProof := rapid.SliceOfN(
 		rapid.Byte(), 8, 32,
 	).Draw(t, "raw_proof")
@@ -400,7 +402,7 @@ var deltaLeafGen = rapid.Custom(func(t *rapid.T) *Leaf {
 	return &Leaf{
 		GenesisWithGroup: GenesisWithGroup{Genesis: gen},
 		RawProof:         rawProof,
-		Asset:            &a,
+		Asset:            a,
 		Amt:              rapid.Uint64Range(1, 1_000).Draw(t, "amt"),
 	}
 })
@@ -677,6 +679,105 @@ func TestSyncUniverseDeltaTaintFallback(t *testing.T) {
 	requireConverged(t, local, remote)
 }
 
+// TestSyncSkipsGroupedLeavesUnderAssetID tests that enumeration and delta
+// sync skip remote leaves holding a grouped asset in an asset ID universe,
+// and converge on and report sync diffs for the remaining universes only.
+func TestSyncSkipsGroupedLeavesUnderAssetID(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	remote := newMemUniverseSet()
+
+	goodID := Identifier{ProofType: ProofTypeIssuance}
+	goodID.AssetID[0] = 1
+
+	groupedIssuanceID := Identifier{ProofType: ProofTypeIssuance}
+	groupedIssuanceID.AssetID[0] = 2
+	groupedTransferID := groupedIssuanceID
+	groupedTransferID.ProofType = ProofTypeTransfer
+	groupedIDs := []Identifier{groupedIssuanceID, groupedTransferID}
+
+	groupedLeaf := func() *Leaf {
+		a := asset.RandAsset(t, asset.Normal)
+		require.NotNil(t, a.GroupKey)
+
+		return &Leaf{
+			GenesisWithGroup: GenesisWithGroup{
+				Genesis:  a.Genesis,
+				GroupKey: a.GroupKey,
+			},
+			RawProof: test.RandBytes(24),
+			Asset:    a,
+			Amt:      a.Amount,
+		}
+	}
+
+	for i := 0; i < 3; i++ {
+		require.NoError(t, remote.insert(
+			goodID, randomTestLeafKey(t), randomTestLeaf(t),
+		))
+		for _, id := range groupedIDs {
+			require.NoError(t, remote.insert(
+				id, randomTestLeafKey(t), groupedLeaf(),
+			))
+		}
+	}
+
+	requireSkipped := func(t *testing.T, local *memUniverseSet,
+		diffs []AssetSyncDiff) {
+
+		require.Len(t, diffs, 1)
+		require.Equal(t, goodID, diffs[0].NewUniverseRoot.ID)
+		require.Len(t, diffs[0].NewLeafProofs, 3)
+
+		localRoot, err := local.RootNode(ctx, goodID)
+		require.NoError(t, err)
+		remoteRoot, err := remote.RootNode(ctx, goodID)
+		require.NoError(t, err)
+		require.True(
+			t, mssmt.IsEqualNode(localRoot.Node, remoteRoot.Node),
+		)
+
+		for _, id := range groupedIDs {
+			_, err := local.RootNode(ctx, id)
+			require.ErrorIs(t, err, ErrNoUniverseRoot)
+		}
+	}
+
+	t.Run("enumeration", func(t *testing.T) {
+		t.Parallel()
+
+		local := newMemUniverseSet()
+		syncer := newMemSyncer(
+			local, func() DiffEngine { return remote }, 50,
+		)
+
+		diffs, err := syncer.SyncUniverse(
+			ctx, ServerAddr{}, SyncFull, allowAllConfigs(),
+		)
+		require.NoError(t, err)
+
+		requireSkipped(t, local, diffs)
+	})
+
+	t.Run("delta", func(t *testing.T) {
+		t.Parallel()
+
+		local := newMemUniverseSet()
+		syncer := newMemSyncer(
+			local, func() DiffEngine { return remote }, 50,
+		)
+
+		res, err := syncer.SyncUniverseDelta(
+			ctx, ServerAddr{}, 0, allowAllConfigs(),
+		)
+		require.NoError(t, err)
+		require.Equal(t, remote.maxSeq(), res.NewCursor)
+
+		requireSkipped(t, local, res.Diffs)
+	})
+}
+
 // randomTestLeafKey returns a random leaf key outside a rapid context.
 func randomTestLeafKey(t *testing.T) LeafKey {
 	t.Helper()
@@ -687,11 +788,15 @@ func randomTestLeafKey(t *testing.T) LeafKey {
 	}
 }
 
-// randomTestLeaf returns a random leaf outside a rapid context.
+// randomTestLeaf returns a random leaf holding an ungrouped asset outside a
+// rapid context, for insertion under an asset ID universe.
 func randomTestLeaf(t *testing.T) *Leaf {
 	t.Helper()
 
-	a := asset.RandAsset(t, asset.Normal)
+	a := asset.RandAssetWithValues(
+		t, asset.RandGenesis(t, asset.Normal), nil,
+		asset.RandScriptKey(t),
+	)
 	return &Leaf{
 		GenesisWithGroup: GenesisWithGroup{Genesis: a.Genesis},
 		RawProof:         test.RandBytes(24),
