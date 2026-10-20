@@ -84,6 +84,12 @@ func (o *OracleHarness) SetPrice(specifier asset.Specifier, buyPrice,
 	o.sellPrices[specifier.String()] = sellPrice
 }
 
+// SetExpiryDelay sets how far in the future subsequently returned quote
+// expiry timestamps are set.
+func (o *OracleHarness) SetExpiryDelay(expiryDelay time.Duration) {
+	o.expiryDelay = expiryDelay
+}
+
 // Start runs the oracle harness.
 func (o *OracleHarness) Start(t *testing.T) {
 	// Start the mock RPC price oracle service.

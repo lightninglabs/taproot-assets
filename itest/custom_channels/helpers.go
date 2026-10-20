@@ -2460,6 +2460,7 @@ func payInvoiceWithSatoshiLastHop(t *testing.T,
 type assetHodlInvoice struct {
 	preimage lntypes.Preimage
 	payReq   string
+	payAddr  []byte
 }
 
 // createAssetHodlInvoice creates a hodl invoice for the given asset amount.
@@ -2498,7 +2499,8 @@ func createAssetHodlInvoice(t *testing.T, dstRfqPeer,
 		InvoiceRequest: &lnrpc.Invoice{
 			Memo: fmt.Sprintf("this is an asset invoice for "+
 				"%d units", assetAmount),
-			Expiry: timeoutSeconds,
+			Expiry:     timeoutSeconds,
+			RouteHints: cfg.routeHints,
 		},
 		HodlInvoice: &tchrpc.HodlInvoice{
 			PaymentHash: payHash[:],
@@ -2514,6 +2516,11 @@ func createAssetHodlInvoice(t *testing.T, dstRfqPeer,
 	}
 
 	resp, err := dst.TaprootAssetChannelsClient.AddInvoice(ctxt, request)
+	if cfg.errSubStr != "" {
+		require.ErrorContains(t, err, cfg.errSubStr)
+
+		return assetHodlInvoice{}
+	}
 	require.NoError(t, err)
 
 	decodedInvoice, err := dst.DecodePayReq(ctxt, &lnrpc.PayReqString{
@@ -2541,6 +2548,7 @@ func createAssetHodlInvoice(t *testing.T, dstRfqPeer,
 	return assetHodlInvoice{
 		preimage: preimage,
 		payReq:   resp.InvoiceResult.PaymentRequest,
+		payAddr:  decodedInvoice.PaymentAddr,
 	}
 }
 
