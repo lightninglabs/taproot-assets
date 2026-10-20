@@ -19,6 +19,7 @@ import (
 	cmsg "github.com/lightninglabs/taproot-assets/tapchannelmsg"
 	mboxrpc "github.com/lightninglabs/taproot-assets/taprpc/authmailboxrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/universerpc"
+	"github.com/lightninglabs/taproot-assets/taptls"
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -717,6 +718,12 @@ func TestValidateLocalProofCourier(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(cleanup)
 
+	// The mock server uses a self-signed certificate.
+	skipVerify, err := taptls.New(taptls.Config{
+		Mode: taptls.ModeSkipVerify,
+	})
+	require.NoError(t, err)
+
 	tests := []struct {
 		name        string
 		courierAddr *url.URL
@@ -759,6 +766,7 @@ func TestValidateLocalProofCourier(t *testing.T) {
 			fc := &FundingController{
 				cfg: FundingControllerCfg{
 					DefaultCourierAddr: tt.courierAddr,
+					UniverseTLS:        skipVerify,
 				},
 			}
 

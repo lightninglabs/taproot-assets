@@ -92,7 +92,7 @@ func testAuthMailboxRemoveMessage(t *harnessTest) {
 	// Create a mailbox client that we'll use to send and remove messages.
 	mboxClient := authmailbox.NewClient(&authmailbox.ClientConfig{
 		ServerAddress: t.tapd.rpcHost(),
-		SkipTlsVerify: true,
+		TLS:           pinnedTLSPolicy(t.t, t.tapd),
 		Signer:        lndClient.Signer,
 		MinBackoff:    time.Second,
 		MaxBackoff:    time.Second,

@@ -2,7 +2,6 @@ package authmailbox
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"fmt"
 	"net"
@@ -15,11 +14,11 @@ import (
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/proof"
 	mboxrpc "github.com/lightninglabs/taproot-assets/taprpc/authmailboxrpc"
+	"github.com/lightninglabs/taproot-assets/taptls"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/tor"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 )
 
@@ -63,18 +62,8 @@ type ClientConfig struct {
 	// connection.
 	ProxyAddress string
 
-	// Insecure signals that no TLS should be used if set to true.
-	Insecure bool
-
-	// SkipTlsVerify signals that the TLS certificate of the mailbox server
-	// should not be verified. This is only needed if the server uses a
-	// self-signed certificate.
-	SkipTlsVerify bool
-
-	// TLSPathServer is the path to a local file that holds the mailbox
-	// server's TLS certificate. This is only needed if the server is using
-	// a self-signed cert.
-	TLSPathServer string
+	// TLS is the TLS policy for the connection to the mailbox server.
+	TLS taptls.Policy
 
 	// DialOpts is a list of additional options that should be used when
 	// dialing the gRPC connection.
@@ -121,14 +110,10 @@ func NewClient(cfg *ClientConfig) *Client {
 func (c *Client) Start() error {
 	var startErr error
 	c.startOnce.Do(func() {
-		dialOpts, err := getServerDialOpts(
-			c.cfg.Insecure, c.cfg.SkipTlsVerify, c.cfg.ProxyAddress,
-			c.cfg.TLSPathServer, c.cfg.DialOpts...,
+		dialOpts := getServerDialOpts(
+			c.cfg.TLS, c.cfg.ServerAddress, c.cfg.ProxyAddress,
+			c.cfg.DialOpts...,
 		)
-		if err != nil {
-			startErr = err
-			return
-		}
 
 		serverConn, err := grpc.NewClient(
 			c.cfg.ServerAddress, dialOpts...,
@@ -278,44 +263,16 @@ func (c *Client) connectAndAuthenticate(ctx context.Context,
 	return sub, nil
 }
 
-// getServerDialOpts returns the dial options to connect to the mailbox server.
-func getServerDialOpts(insecure, skipTlsVerify bool, proxyAddress,
-	tlsPath string, dialOpts ...grpc.DialOption) ([]grpc.DialOption,
-	error) {
+// getServerDialOpts returns the dial options to connect to the mailbox server
+// at the given address under the given TLS policy.
+func getServerDialOpts(tlsPolicy taptls.Policy, serverAddr,
+	proxyAddress string, dialOpts ...grpc.DialOption) []grpc.DialOption {
 
 	// Create a copy of the dial options array.
 	opts := dialOpts
 
 	opts = append(opts, grpc.WithKeepaliveParams(clientKeepalive))
-
-	// There are four options to connect to a mailbox server, either
-	// completely skipping TLS verification, using an insecure (h2c)
-	// transport, using a self-signed certificate or with a certificate
-	// signed by a public CA.
-	switch {
-	case skipTlsVerify:
-		opts = append(opts, grpc.WithTransportCredentials(
-			credentials.NewTLS(&tls.Config{
-				InsecureSkipVerify: true,
-			}),
-		))
-
-	case insecure:
-		opts = append(opts, grpc.WithInsecure())
-
-	case tlsPath != "":
-		// Load the specified TLS certificate and build
-		// transport credentials
-		creds, err := credentials.NewClientTLSFromFile(tlsPath, "")
-		if err != nil {
-			return nil, err
-		}
-		opts = append(opts, grpc.WithTransportCredentials(creds))
-
-	default:
-		creds := credentials.NewTLS(&tls.Config{})
-		opts = append(opts, grpc.WithTransportCredentials(creds))
-	}
+	opts = append(opts, tlsPolicy.DialOption(serverAddr))
 
 	// If a SOCKS proxy address was specified,
 	// then we should dial through it.
@@ -334,5 +291,5 @@ func getServerDialOpts(insecure, skipTlsVerify bool, proxyAddress,
 		opts = append(opts, grpc.WithContextDialer(torDialer))
 	}
 
-	return opts, nil
+	return opts
 }

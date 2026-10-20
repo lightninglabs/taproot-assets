@@ -13,6 +13,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightninglabs/taproot-assets/rpcutils"
 	pilotrpc "github.com/lightninglabs/taproot-assets/taprpc/portfoliopilotrpc"
+	"github.com/lightninglabs/taproot-assets/taptls"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"google.golang.org/grpc"
@@ -68,7 +69,7 @@ type RpcPortfolioPilot struct {
 // NewRpcPortfolioPilot creates a new RPC portfolio pilot handle given the
 // address of the portfolio pilot RPC server. An optional macaroon dial option
 // can be provided for authentication with the pilot server.
-func NewRpcPortfolioPilot(addrStr string, tlsConfig *TLSConfig,
+func NewRpcPortfolioPilot(addrStr string, tlsPolicy taptls.Policy,
 	macaroonOpt fn.Option[grpc.DialOption]) (*RpcPortfolioPilot, error) {
 
 	addr, err := ParsePortfolioPilotAddress(addrStr)
@@ -77,15 +78,8 @@ func NewRpcPortfolioPilot(addrStr string, tlsConfig *TLSConfig,
 			err)
 	}
 
-	// Create transport credentials and dial options from the supplied TLS
-	// config.
-	transportCredentials, err := configureTransportCredentials(tlsConfig)
-	if err != nil {
-		return nil, err
-	}
-
 	dialOpts := []grpc.DialOption{
-		grpc.WithTransportCredentials(transportCredentials),
+		tlsPolicy.DialOption(addr.Hostname()),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
 			Time:                30 * time.Second,
 			Timeout:             20 * time.Second,
