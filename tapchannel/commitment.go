@@ -1755,9 +1755,15 @@ func InPlaceCustomCommitSort(tx *wire.MsgTx, cltvs []uint32,
 	tx.TxOut = make([]*wire.TxOut, len(tx.TxOut))
 	newCltvs := make([]uint32, len(cltvs))
 
+	// Each allocation is matched to at most one output.
+	used := make([]bool, len(allocations))
 	for i, original := range txOutOriginal {
 		var allocation *tapsend.Allocation
-		for _, a := range allocations {
+		for j, a := range allocations {
+			if used[j] {
+				continue
+			}
+
 			match, err := a.MatchesOutput(
 				original.PkScript, original.Value, cltvs[i],
 				htlcIndexes[i],
@@ -1769,6 +1775,7 @@ func InPlaceCustomCommitSort(tx *wire.MsgTx, cltvs []uint32,
 
 			if match {
 				allocation = a
+				used[j] = true
 				break
 			}
 		}
@@ -1790,6 +1797,10 @@ func InPlaceCustomCommitSort(tx *wire.MsgTx, cltvs []uint32,
 		if newOrder >= uint32(len(tx.TxOut)) {
 			return fmt.Errorf("order index %d out of bounds "+
 				"(num_tx_out=%d)", newOrder, len(tx.TxOut))
+		}
+
+		if tx.TxOut[newOrder] != nil {
+			return fmt.Errorf("duplicate order index %d", newOrder)
 		}
 
 		tx.TxOut[newOrder] = &wire.TxOut{
