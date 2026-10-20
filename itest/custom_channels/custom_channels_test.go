@@ -112,6 +112,10 @@ var testCases = []*ccTestCase{
 		test: testCustomChannelsInvoiceQuoteExpiryMismatch,
 	},
 	{
+		name: "hold invoice cltv",
+		test: testCustomChannelsHoldInvoiceCLTV,
+	},
+	{
 		name: "limit constraints",
 		test: testCustomChannelsLimitConstraints,
 	},

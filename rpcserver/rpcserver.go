@@ -11063,6 +11063,7 @@ func (r *RPCServer) AddInvoice(ctx context.Context,
 				Hash:            &payHash,
 				DescriptionHash: iReq.DescriptionHash,
 				Expiry:          iReq.Expiry,
+				CltvExpiry:      iReq.CltvExpiry,
 				// We set private to false as we don't want to
 				// add any hop hints other than this one.
 				Private:     false,
