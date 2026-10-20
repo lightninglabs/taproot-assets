@@ -143,7 +143,14 @@ func genServerConfig(ctx context.Context, cfg *Config,
 	tapdbAddrBook := tapdb.NewTapAddressBook(
 		addrBookDB, &tapChainParams, defaultClock,
 	)
-	assetStore := tapdb.NewAssetStore(assetDB, metaDB, defaultClock, dbType)
+	proofFileStore, err := proof.NewFileArchiver(cfg.networkDir)
+	if err != nil {
+		return nil, fmt.Errorf("unable to open disk archive: %w", err)
+	}
+	assetStore := tapdb.NewAssetStore(
+		assetDB, metaDB, defaultClock, dbType,
+		tapdb.WithProofFiles(proofFileStore),
+	)
 
 	keyRing := lndservices.NewLndRpcKeyRing(lndServices)
 	walletAnchor := lndservices.NewLndRpcWalletAnchor(
@@ -289,10 +296,6 @@ func genServerConfig(ctx context.Context, cfg *Config,
 		federationStore, defaultClock,
 	)
 
-	proofFileStore, err := proof.NewFileArchiver(cfg.networkDir)
-	if err != nil {
-		return nil, fmt.Errorf("unable to open disk archive: %w", err)
-	}
 	proofArchive := proof.NewMultiArchiver(
 		&proof.BaseVerifier{}, tapdb.DefaultStoreTimeout,
 		assetStore, proofFileStore,
