@@ -6,6 +6,7 @@ import (
 	"math/big"
 	"time"
 
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightninglabs/taproot-assets/taprpc/portfoliopilotrpc"
@@ -91,4 +92,86 @@ func UnmarshalPortfolioAssetRate(
 	assetRateMsg := rfqmsg.NewAssetRate(*rate, expiry)
 
 	return &assetRateMsg, nil
+}
+
+// UnmarshalPortfolioBuyConstraints returns the limit-order constraints
+// of a portfolio pilot buy request. Amounts are in asset units and the
+// rate limit is a floor (RateBoundCmp -1). A zero asset_min_amount is
+// an unset minimum, and EXECUTION_POLICY_IOC is an unset execution
+// policy.
+func UnmarshalPortfolioBuyConstraints(
+	req *portfoliopilotrpc.BuyRequest) (rfqmsg.RequestConstraints,
+	error) {
+
+	if req == nil {
+		return rfqmsg.RequestConstraints{},
+			fmt.Errorf("buy request is nil")
+	}
+
+	return unmarshalPortfolioConstraints(
+		req.AssetMaxAmount, req.AssetMinAmount, req.AssetRateLimit,
+		-1, req.ExecutionPolicy,
+	)
+}
+
+// UnmarshalPortfolioSellConstraints returns the limit-order constraints
+// of a portfolio pilot sell request. Amounts are in msat and the rate
+// limit is a ceiling (RateBoundCmp +1). A zero payment_min_amount is an
+// unset minimum, and EXECUTION_POLICY_IOC is an unset execution policy.
+func UnmarshalPortfolioSellConstraints(
+	req *portfoliopilotrpc.SellRequest) (rfqmsg.RequestConstraints,
+	error) {
+
+	if req == nil {
+		return rfqmsg.RequestConstraints{},
+			fmt.Errorf("sell request is nil")
+	}
+
+	return unmarshalPortfolioConstraints(
+		req.PaymentMaxAmount, req.PaymentMinAmount,
+		req.AssetRateLimit, 1, req.ExecutionPolicy,
+	)
+}
+
+// unmarshalPortfolioConstraints builds request constraints from the
+// limit-order fields of a portfolio pilot request.
+func unmarshalPortfolioConstraints(maxAmt, minAmt uint64,
+	rateLimit *portfoliopilotrpc.FixedPoint, rateBoundCmp int,
+	policy portfoliopilotrpc.ExecutionPolicy) (rfqmsg.RequestConstraints,
+	error) {
+
+	var zero rfqmsg.RequestConstraints
+
+	c := rfqmsg.RequestConstraints{
+		MaxAmount:    maxAmt,
+		RateBoundCmp: rateBoundCmp,
+	}
+
+	if minAmt != 0 {
+		c.MinAmount = fn.Some(minAmt)
+	}
+
+	if rateLimit != nil {
+		limit, err := UnmarshalPortfolioFixedPoint(rateLimit)
+		if err != nil {
+			return zero, fmt.Errorf("unmarshal rate limit: %w",
+				err)
+		}
+
+		c.RateLimit = fn.Some(*limit)
+	}
+
+	switch policy {
+	case portfoliopilotrpc.ExecutionPolicy_EXECUTION_POLICY_IOC:
+		// IOC maps to an unset execution policy.
+
+	case portfoliopilotrpc.ExecutionPolicy_EXECUTION_POLICY_FOK:
+		c.ExecutionPolicy = fn.Some(rfqmsg.ExecutionPolicyFOK)
+
+	default:
+		return zero, fmt.Errorf("unknown execution policy: %v",
+			policy)
+	}
+
+	return c, nil
 }

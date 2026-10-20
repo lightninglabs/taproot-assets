@@ -2225,6 +2225,10 @@
         "price_oracle_metadata": {
           "type": "string",
           "description": "An optional text field that can be used to provide additional metadata\nabout the payment to the price oracle. This can include information\nabout the wallet end user that initiated the transaction, or any\nauthentication information that the price oracle can use to give out a\nmore accurate (or discount) asset rate. Though not verified or enforced\nby tapd, the suggested format for this field is a JSON string.\nThis field is optional and can be left empty if no metadata is available.\nThe maximum length of this field is 32'768 bytes."
+        },
+        "asset_rate_limit": {
+          "$ref": "#/definitions/rfqrpcFixedPoint",
+          "description": "Optional rate ceiling (asset units per BTC) as a\nfixed-point number. Forwarded to AddAssetSellOrder for\neach sell order negotiated to pay an invoice. Cannot be\nused with rfq_id, keysend payments or\npayment_request.first_hop_custom_records."
         }
       }
     },

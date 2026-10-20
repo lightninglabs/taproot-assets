@@ -3,6 +3,7 @@ package rfq
 import (
 	"context"
 	"errors"
+	"math"
 	"testing"
 	"time"
 
@@ -2059,7 +2060,7 @@ func TestCheckRateBound(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			status := checkRateBound(tc.req, tc.rate)
+			status := checkRateBound(tc.req.Constraints(), tc.rate)
 			require.Equal(t, tc.expect, status)
 		})
 	}
@@ -2154,7 +2155,7 @@ func TestCheckMinFill(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			status := checkMinFill(tc.req, tc.rate)
+			status := checkMinFill(tc.req.Constraints(), tc.rate)
 			require.Equal(t, tc.expect, status)
 		})
 	}
@@ -2268,7 +2269,7 @@ func TestCheckFOK(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			status := checkFOK(tc.req, tc.rate)
+			status := checkFOK(tc.req.Constraints(), tc.rate)
 			require.Equal(t, tc.expect, status)
 		})
 	}
@@ -2450,9 +2451,115 @@ func TestCheckFillConstraints(t *testing.T) {
 			t.Parallel()
 
 			status := checkFillConstraints(
-				tc.req, tc.fill,
+				tc.req.Constraints(), tc.fill,
 			)
 			require.Equal(t, tc.expect, status)
 		})
+	}
+}
+
+// TestCheckConstraints verifies that CheckConstraints returns the
+// status of the first failing check, in the order rate bound, min
+// fill, FOK, fill constraints.
+func TestCheckConstraints(t *testing.T) {
+	t.Parallel()
+
+	// At 1e12 units/BTC, one asset unit converts to zero msat.
+	hugeRate := rfqmath.NewBigIntFixedPoint(1_000_000_000_000, 0)
+	floor := rfqmath.NewBigIntFixedPoint(2_000_000_000_000, 0)
+	fok := fn.Some(rfqmsg.ExecutionPolicyFOK)
+
+	tests := []struct {
+		name   string
+		c      rfqmsg.RequestConstraints
+		fill   fn.Option[uint64]
+		expect QuoteRespStatus
+	}{
+		{
+			name: "all checks fail",
+			c: rfqmsg.RequestConstraints{
+				MaxAmount:       1,
+				MinAmount:       fn.Some[uint64](1),
+				RateLimit:       fn.Some(floor),
+				RateBoundCmp:    -1,
+				ExecutionPolicy: fok,
+			},
+			fill:   fn.Some[uint64](5),
+			expect: RateBoundMissQuoteRespStatus,
+		},
+		{
+			name: "min fill, FOK and fill fail",
+			c: rfqmsg.RequestConstraints{
+				MaxAmount:       1,
+				MinAmount:       fn.Some[uint64](1),
+				RateBoundCmp:    -1,
+				ExecutionPolicy: fok,
+			},
+			fill:   fn.Some[uint64](5),
+			expect: MinFillNotMetQuoteRespStatus,
+		},
+		{
+			name: "FOK and fill fail",
+			c: rfqmsg.RequestConstraints{
+				MaxAmount:       1,
+				RateBoundCmp:    -1,
+				ExecutionPolicy: fok,
+			},
+			fill:   fn.Some[uint64](5),
+			expect: FOKNotViableQuoteRespStatus,
+		},
+		{
+			name: "fill fails",
+			c: rfqmsg.RequestConstraints{
+				MaxAmount:    1,
+				RateBoundCmp: -1,
+			},
+			fill:   fn.Some[uint64](5),
+			expect: FillExceedsMaxQuoteRespStatus,
+		},
+		{
+			name: "no check fails",
+			c: rfqmsg.RequestConstraints{
+				MaxAmount:    1,
+				RateBoundCmp: -1,
+			},
+			fill:   fn.None[uint64](),
+			expect: ValidAcceptQuoteRespStatus,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			status := CheckConstraints(tc.c, hugeRate, tc.fill)
+			require.Equal(t, tc.expect, status)
+		})
+	}
+}
+
+// TestRejectForStatus verifies the mapping from quote response
+// statuses to reject errors over every status value.
+func TestRejectForStatus(t *testing.T) {
+	t.Parallel()
+
+	expected := map[QuoteRespStatus]rfqmsg.RejectErr{
+		RateBoundMissQuoteRespStatus:  rfqmsg.ErrPriceBoundMiss,
+		MinFillNotMetQuoteRespStatus:  rfqmsg.ErrMinFillNotMet,
+		FOKNotViableQuoteRespStatus:   rfqmsg.ErrFOKNotViable,
+		FillExceedsMaxQuoteRespStatus: rfqmsg.ErrFillExceedsMax,
+	}
+
+	for s := 0; s <= math.MaxUint8; s++ {
+		status := QuoteRespStatus(s)
+
+		want, ok := expected[status]
+		if !ok {
+			want = rfqmsg.ErrUnknownReject
+		}
+
+		require.Equal(
+			t, want, RejectForStatus(status), "status %d", s,
+		)
 	}
 }

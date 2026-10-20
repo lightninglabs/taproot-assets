@@ -116,6 +116,7 @@ type payConfig struct {
 	outgoingChanIDs   []uint64
 	allowSelfPayment  bool
 	routeHints        []*lnrpc.RouteHint
+	assetRateLimit    *rfqrpc.FixedPoint
 }
 
 func defaultPayConfig() *payConfig {
@@ -202,6 +203,12 @@ func withAllowSelfPayment() payOpt {
 func withPayRouteHints(hints []*lnrpc.RouteHint) payOpt {
 	return func(c *payConfig) {
 		c.routeHints = hints
+	}
+}
+
+func withAssetRateLimit(limit *rfqrpc.FixedPoint) payOpt {
+	return func(c *payConfig) {
+		c.assetRateLimit = limit
 	}
 }
 
@@ -1240,6 +1247,7 @@ func payInvoiceWithAssets(t *testing.T, payer, rfqPeer *itest.IntegratedNode,
 		PaymentRequest: sendReq,
 		RfqId:          rfqBytes,
 		AllowOverpay:   cfg.allowOverpay,
+		AssetRateLimit: cfg.assetRateLimit,
 	}
 
 	switch {

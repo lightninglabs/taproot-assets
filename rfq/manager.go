@@ -1431,11 +1431,15 @@ func (m *Manager) QueryForwardsWithCount(ctx context.Context,
 
 // EstimateAssetUnits is a helper function that queries our price oracle to find
 // out how many units of an asset are needed to evaluate to the provided amount
-// in milli satoshi.
+// in milli satoshi. It returns an error if the price oracle is nil.
 func EstimateAssetUnits(ctx context.Context, oracle PriceOracle,
 	specifier asset.Specifier, amtMsat lnwire.MilliSatoshi,
 	counterparty fn.Option[route.Vertex], metadata string,
 	intent PriceQueryIntent) (uint64, error) {
+
+	if oracle == nil {
+		return 0, fmt.Errorf("price oracle is not set")
+	}
 
 	oracleRes, err := oracle.QueryBuyPrice(
 		ctx, specifier, fn.None[uint64](), fn.Some(amtMsat),

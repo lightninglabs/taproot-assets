@@ -394,8 +394,14 @@ type SendPaymentRequest struct {
 	// This field is optional and can be left empty if no metadata is available.
 	// The maximum length of this field is 32'768 bytes.
 	PriceOracleMetadata string `protobuf:"bytes,8,opt,name=price_oracle_metadata,json=priceOracleMetadata,proto3" json:"price_oracle_metadata,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	// Optional rate ceiling (asset units per BTC) as a
+	// fixed-point number. Forwarded to AddAssetSellOrder for
+	// each sell order negotiated to pay an invoice. Cannot be
+	// used with rfq_id, keysend payments or
+	// payment_request.first_hop_custom_records.
+	AssetRateLimit *rfqrpc.FixedPoint `protobuf:"bytes,9,opt,name=asset_rate_limit,json=assetRateLimit,proto3" json:"asset_rate_limit,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *SendPaymentRequest) Reset() {
@@ -482,6 +488,13 @@ func (x *SendPaymentRequest) GetPriceOracleMetadata() string {
 		return x.PriceOracleMetadata
 	}
 	return ""
+}
+
+func (x *SendPaymentRequest) GetAssetRateLimit() *rfqrpc.FixedPoint {
+	if x != nil {
+		return x.AssetRateLimit
+	}
+	return nil
 }
 
 type AcceptedSellQuotes struct {
@@ -1656,7 +1669,7 @@ const file_tapchannelrpc_tapchannel_proto_rawDesc = "" +
 	"\x0ecustom_records\x18\x01 \x03(\v2=.tapchannelrpc.EncodeCustomRecordsResponse.CustomRecordsEntryR\rcustomRecords\x1a@\n" +
 	"\x12CustomRecordsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\x04R\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\fR\x05value:\x028\x01\"\xc8\x02\n" +
+	"\x05value\x18\x02 \x01(\fR\x05value:\x028\x01\"\x86\x03\n" +
 	"\x12SendPaymentRequest\x12\x19\n" +
 	"\basset_id\x18\x01 \x01(\fR\aassetId\x12!\n" +
 	"\fasset_amount\x18\x02 \x01(\x04R\vassetAmount\x12\x1f\n" +
@@ -1666,7 +1679,8 @@ const file_tapchannelrpc_tapchannel_proto_rawDesc = "" +
 	"\x06rfq_id\x18\x05 \x01(\fR\x05rfqId\x12#\n" +
 	"\rallow_overpay\x18\x06 \x01(\bR\fallowOverpay\x12\x1b\n" +
 	"\tgroup_key\x18\a \x01(\fR\bgroupKey\x122\n" +
-	"\x15price_oracle_metadata\x18\b \x01(\tR\x13priceOracleMetadata\"e\n" +
+	"\x15price_oracle_metadata\x18\b \x01(\tR\x13priceOracleMetadata\x12<\n" +
+	"\x10asset_rate_limit\x18\t \x01(\v2\x12.rfqrpc.FixedPointR\x0eassetRateLimit\"e\n" +
 	"\x12AcceptedSellQuotes\x12O\n" +
 	"\x14accepted_sell_orders\x18\x01 \x03(\v2\x1d.rfqrpc.PeerAcceptedSellQuoteR\x12acceptedSellOrders\"\x80\x02\n" +
 	"\x13SendPaymentResponse\x12O\n" +
@@ -1786,10 +1800,10 @@ var file_tapchannelrpc_tapchannel_proto_goTypes = []any{
 	nil,                                    // 23: tapchannelrpc.RouterSendPaymentData.AssetAmountsEntry
 	nil,                                    // 24: tapchannelrpc.EncodeCustomRecordsResponse.CustomRecordsEntry
 	(*routerrpc.SendPaymentRequest)(nil),   // 25: routerrpc.SendPaymentRequest
-	(*rfqrpc.PeerAcceptedSellQuote)(nil),   // 26: rfqrpc.PeerAcceptedSellQuote
-	(*lnrpc.Payment)(nil),                  // 27: lnrpc.Payment
-	(*lnrpc.Invoice)(nil),                  // 28: lnrpc.Invoice
-	(*rfqrpc.FixedPoint)(nil),              // 29: rfqrpc.FixedPoint
+	(*rfqrpc.FixedPoint)(nil),              // 26: rfqrpc.FixedPoint
+	(*rfqrpc.PeerAcceptedSellQuote)(nil),   // 27: rfqrpc.PeerAcceptedSellQuote
+	(*lnrpc.Payment)(nil),                  // 28: lnrpc.Payment
+	(*lnrpc.Invoice)(nil),                  // 29: lnrpc.Invoice
 	(rfqrpc.ExecutionPolicy)(0),            // 30: rfqrpc.ExecutionPolicy
 	(*rfqrpc.PeerAcceptedBuyQuote)(nil),    // 31: rfqrpc.PeerAcceptedBuyQuote
 	(*lnrpc.AddInvoiceResponse)(nil),       // 32: lnrpc.AddInvoiceResponse
@@ -1808,56 +1822,57 @@ var file_tapchannelrpc_tapchannel_proto_depIdxs = []int32{
 	2,  // 1: tapchannelrpc.EncodeCustomRecordsRequest.router_send_payment:type_name -> tapchannelrpc.RouterSendPaymentData
 	24, // 2: tapchannelrpc.EncodeCustomRecordsResponse.custom_records:type_name -> tapchannelrpc.EncodeCustomRecordsResponse.CustomRecordsEntry
 	25, // 3: tapchannelrpc.SendPaymentRequest.payment_request:type_name -> routerrpc.SendPaymentRequest
-	26, // 4: tapchannelrpc.AcceptedSellQuotes.accepted_sell_orders:type_name -> rfqrpc.PeerAcceptedSellQuote
-	26, // 5: tapchannelrpc.SendPaymentResponse.accepted_sell_order:type_name -> rfqrpc.PeerAcceptedSellQuote
-	6,  // 6: tapchannelrpc.SendPaymentResponse.accepted_sell_orders:type_name -> tapchannelrpc.AcceptedSellQuotes
-	27, // 7: tapchannelrpc.SendPaymentResponse.payment_result:type_name -> lnrpc.Payment
-	28, // 8: tapchannelrpc.AddInvoiceRequest.invoice_request:type_name -> lnrpc.Invoice
-	8,  // 9: tapchannelrpc.AddInvoiceRequest.hodl_invoice:type_name -> tapchannelrpc.HodlInvoice
-	29, // 10: tapchannelrpc.AddInvoiceRequest.asset_rate_limit:type_name -> rfqrpc.FixedPoint
-	30, // 11: tapchannelrpc.AddInvoiceRequest.execution_policy:type_name -> rfqrpc.ExecutionPolicy
-	31, // 12: tapchannelrpc.AddInvoiceResponse.accepted_buy_quote:type_name -> rfqrpc.PeerAcceptedBuyQuote
-	32, // 13: tapchannelrpc.AddInvoiceResponse.invoice_result:type_name -> lnrpc.AddInvoiceResponse
-	33, // 14: tapchannelrpc.AssetPayReqResponse.decimal_display:type_name -> taprpc.DecimalDisplay
-	34, // 15: tapchannelrpc.AssetPayReqResponse.asset_group:type_name -> taprpc.AssetGroup
-	35, // 16: tapchannelrpc.AssetPayReqResponse.genesis_info:type_name -> taprpc.GenesisInfo
-	36, // 17: tapchannelrpc.AssetPayReqResponse.pay_req:type_name -> lnrpc.PayReq
-	37, // 18: tapchannelrpc.ListInvoicesRequest.request:type_name -> lnrpc.ListInvoiceRequest
-	38, // 19: tapchannelrpc.SubscribeInvoicesRequest.request:type_name -> lnrpc.InvoiceSubscription
-	28, // 20: tapchannelrpc.AssetInvoice.invoice:type_name -> lnrpc.Invoice
-	13, // 21: tapchannelrpc.AssetInvoice.asset_amounts:type_name -> tapchannelrpc.AssetAmount
-	16, // 22: tapchannelrpc.ListInvoicesResponse.invoices:type_name -> tapchannelrpc.AssetInvoice
-	39, // 23: tapchannelrpc.ListPaymentsRequest.request:type_name -> lnrpc.ListPaymentsRequest
-	40, // 24: tapchannelrpc.SubscribePaymentsRequest.request:type_name -> routerrpc.TrackPaymentsRequest
-	41, // 25: tapchannelrpc.TrackPaymentRequest.request:type_name -> routerrpc.TrackPaymentRequest
-	27, // 26: tapchannelrpc.AssetPayment.payment:type_name -> lnrpc.Payment
-	13, // 27: tapchannelrpc.AssetPayment.asset_amounts:type_name -> tapchannelrpc.AssetAmount
-	21, // 28: tapchannelrpc.ListPaymentsResponse.payments:type_name -> tapchannelrpc.AssetPayment
-	0,  // 29: tapchannelrpc.TaprootAssetChannels.FundChannel:input_type -> tapchannelrpc.FundChannelRequest
-	3,  // 30: tapchannelrpc.TaprootAssetChannels.EncodeCustomRecords:input_type -> tapchannelrpc.EncodeCustomRecordsRequest
-	5,  // 31: tapchannelrpc.TaprootAssetChannels.SendPayment:input_type -> tapchannelrpc.SendPaymentRequest
-	9,  // 32: tapchannelrpc.TaprootAssetChannels.AddInvoice:input_type -> tapchannelrpc.AddInvoiceRequest
-	11, // 33: tapchannelrpc.TaprootAssetChannels.DecodeAssetPayReq:input_type -> tapchannelrpc.AssetPayReq
-	14, // 34: tapchannelrpc.TaprootAssetChannels.ListInvoices:input_type -> tapchannelrpc.ListInvoicesRequest
-	18, // 35: tapchannelrpc.TaprootAssetChannels.ListPayments:input_type -> tapchannelrpc.ListPaymentsRequest
-	15, // 36: tapchannelrpc.TaprootAssetChannels.SubscribeInvoices:input_type -> tapchannelrpc.SubscribeInvoicesRequest
-	19, // 37: tapchannelrpc.TaprootAssetChannels.SubscribePayments:input_type -> tapchannelrpc.SubscribePaymentsRequest
-	20, // 38: tapchannelrpc.TaprootAssetChannels.TrackPayment:input_type -> tapchannelrpc.TrackPaymentRequest
-	1,  // 39: tapchannelrpc.TaprootAssetChannels.FundChannel:output_type -> tapchannelrpc.FundChannelResponse
-	4,  // 40: tapchannelrpc.TaprootAssetChannels.EncodeCustomRecords:output_type -> tapchannelrpc.EncodeCustomRecordsResponse
-	7,  // 41: tapchannelrpc.TaprootAssetChannels.SendPayment:output_type -> tapchannelrpc.SendPaymentResponse
-	10, // 42: tapchannelrpc.TaprootAssetChannels.AddInvoice:output_type -> tapchannelrpc.AddInvoiceResponse
-	12, // 43: tapchannelrpc.TaprootAssetChannels.DecodeAssetPayReq:output_type -> tapchannelrpc.AssetPayReqResponse
-	17, // 44: tapchannelrpc.TaprootAssetChannels.ListInvoices:output_type -> tapchannelrpc.ListInvoicesResponse
-	22, // 45: tapchannelrpc.TaprootAssetChannels.ListPayments:output_type -> tapchannelrpc.ListPaymentsResponse
-	16, // 46: tapchannelrpc.TaprootAssetChannels.SubscribeInvoices:output_type -> tapchannelrpc.AssetInvoice
-	21, // 47: tapchannelrpc.TaprootAssetChannels.SubscribePayments:output_type -> tapchannelrpc.AssetPayment
-	21, // 48: tapchannelrpc.TaprootAssetChannels.TrackPayment:output_type -> tapchannelrpc.AssetPayment
-	39, // [39:49] is the sub-list for method output_type
-	29, // [29:39] is the sub-list for method input_type
-	29, // [29:29] is the sub-list for extension type_name
-	29, // [29:29] is the sub-list for extension extendee
-	0,  // [0:29] is the sub-list for field type_name
+	26, // 4: tapchannelrpc.SendPaymentRequest.asset_rate_limit:type_name -> rfqrpc.FixedPoint
+	27, // 5: tapchannelrpc.AcceptedSellQuotes.accepted_sell_orders:type_name -> rfqrpc.PeerAcceptedSellQuote
+	27, // 6: tapchannelrpc.SendPaymentResponse.accepted_sell_order:type_name -> rfqrpc.PeerAcceptedSellQuote
+	6,  // 7: tapchannelrpc.SendPaymentResponse.accepted_sell_orders:type_name -> tapchannelrpc.AcceptedSellQuotes
+	28, // 8: tapchannelrpc.SendPaymentResponse.payment_result:type_name -> lnrpc.Payment
+	29, // 9: tapchannelrpc.AddInvoiceRequest.invoice_request:type_name -> lnrpc.Invoice
+	8,  // 10: tapchannelrpc.AddInvoiceRequest.hodl_invoice:type_name -> tapchannelrpc.HodlInvoice
+	26, // 11: tapchannelrpc.AddInvoiceRequest.asset_rate_limit:type_name -> rfqrpc.FixedPoint
+	30, // 12: tapchannelrpc.AddInvoiceRequest.execution_policy:type_name -> rfqrpc.ExecutionPolicy
+	31, // 13: tapchannelrpc.AddInvoiceResponse.accepted_buy_quote:type_name -> rfqrpc.PeerAcceptedBuyQuote
+	32, // 14: tapchannelrpc.AddInvoiceResponse.invoice_result:type_name -> lnrpc.AddInvoiceResponse
+	33, // 15: tapchannelrpc.AssetPayReqResponse.decimal_display:type_name -> taprpc.DecimalDisplay
+	34, // 16: tapchannelrpc.AssetPayReqResponse.asset_group:type_name -> taprpc.AssetGroup
+	35, // 17: tapchannelrpc.AssetPayReqResponse.genesis_info:type_name -> taprpc.GenesisInfo
+	36, // 18: tapchannelrpc.AssetPayReqResponse.pay_req:type_name -> lnrpc.PayReq
+	37, // 19: tapchannelrpc.ListInvoicesRequest.request:type_name -> lnrpc.ListInvoiceRequest
+	38, // 20: tapchannelrpc.SubscribeInvoicesRequest.request:type_name -> lnrpc.InvoiceSubscription
+	29, // 21: tapchannelrpc.AssetInvoice.invoice:type_name -> lnrpc.Invoice
+	13, // 22: tapchannelrpc.AssetInvoice.asset_amounts:type_name -> tapchannelrpc.AssetAmount
+	16, // 23: tapchannelrpc.ListInvoicesResponse.invoices:type_name -> tapchannelrpc.AssetInvoice
+	39, // 24: tapchannelrpc.ListPaymentsRequest.request:type_name -> lnrpc.ListPaymentsRequest
+	40, // 25: tapchannelrpc.SubscribePaymentsRequest.request:type_name -> routerrpc.TrackPaymentsRequest
+	41, // 26: tapchannelrpc.TrackPaymentRequest.request:type_name -> routerrpc.TrackPaymentRequest
+	28, // 27: tapchannelrpc.AssetPayment.payment:type_name -> lnrpc.Payment
+	13, // 28: tapchannelrpc.AssetPayment.asset_amounts:type_name -> tapchannelrpc.AssetAmount
+	21, // 29: tapchannelrpc.ListPaymentsResponse.payments:type_name -> tapchannelrpc.AssetPayment
+	0,  // 30: tapchannelrpc.TaprootAssetChannels.FundChannel:input_type -> tapchannelrpc.FundChannelRequest
+	3,  // 31: tapchannelrpc.TaprootAssetChannels.EncodeCustomRecords:input_type -> tapchannelrpc.EncodeCustomRecordsRequest
+	5,  // 32: tapchannelrpc.TaprootAssetChannels.SendPayment:input_type -> tapchannelrpc.SendPaymentRequest
+	9,  // 33: tapchannelrpc.TaprootAssetChannels.AddInvoice:input_type -> tapchannelrpc.AddInvoiceRequest
+	11, // 34: tapchannelrpc.TaprootAssetChannels.DecodeAssetPayReq:input_type -> tapchannelrpc.AssetPayReq
+	14, // 35: tapchannelrpc.TaprootAssetChannels.ListInvoices:input_type -> tapchannelrpc.ListInvoicesRequest
+	18, // 36: tapchannelrpc.TaprootAssetChannels.ListPayments:input_type -> tapchannelrpc.ListPaymentsRequest
+	15, // 37: tapchannelrpc.TaprootAssetChannels.SubscribeInvoices:input_type -> tapchannelrpc.SubscribeInvoicesRequest
+	19, // 38: tapchannelrpc.TaprootAssetChannels.SubscribePayments:input_type -> tapchannelrpc.SubscribePaymentsRequest
+	20, // 39: tapchannelrpc.TaprootAssetChannels.TrackPayment:input_type -> tapchannelrpc.TrackPaymentRequest
+	1,  // 40: tapchannelrpc.TaprootAssetChannels.FundChannel:output_type -> tapchannelrpc.FundChannelResponse
+	4,  // 41: tapchannelrpc.TaprootAssetChannels.EncodeCustomRecords:output_type -> tapchannelrpc.EncodeCustomRecordsResponse
+	7,  // 42: tapchannelrpc.TaprootAssetChannels.SendPayment:output_type -> tapchannelrpc.SendPaymentResponse
+	10, // 43: tapchannelrpc.TaprootAssetChannels.AddInvoice:output_type -> tapchannelrpc.AddInvoiceResponse
+	12, // 44: tapchannelrpc.TaprootAssetChannels.DecodeAssetPayReq:output_type -> tapchannelrpc.AssetPayReqResponse
+	17, // 45: tapchannelrpc.TaprootAssetChannels.ListInvoices:output_type -> tapchannelrpc.ListInvoicesResponse
+	22, // 46: tapchannelrpc.TaprootAssetChannels.ListPayments:output_type -> tapchannelrpc.ListPaymentsResponse
+	16, // 47: tapchannelrpc.TaprootAssetChannels.SubscribeInvoices:output_type -> tapchannelrpc.AssetInvoice
+	21, // 48: tapchannelrpc.TaprootAssetChannels.SubscribePayments:output_type -> tapchannelrpc.AssetPayment
+	21, // 49: tapchannelrpc.TaprootAssetChannels.TrackPayment:output_type -> tapchannelrpc.AssetPayment
+	40, // [40:50] is the sub-list for method output_type
+	30, // [30:40] is the sub-list for method input_type
+	30, // [30:30] is the sub-list for extension type_name
+	30, // [30:30] is the sub-list for extension extendee
+	0,  // [0:30] is the sub-list for field type_name
 }
 
 func init() { file_tapchannelrpc_tapchannel_proto_init() }

@@ -112,6 +112,26 @@ There are three flags/config options that should be evaluated though:
   proofs should be allowed in general, while `--allow-public-uni-proof-courier`
   controls whether an authentication token is required.
 
+## Trading assets over Lightning (RFQ)
+
+The rates of RFQ trades are decided by the node's portfolio pilot: the
+built-in pilot, which prices with the configured price oracle, or an external
+pilot set with `experimental.rfq.portfoliopilotaddress`. tapd does not check
+prices itself.
+
+* An external pilot is trusted with every rate the node quotes and accepts.
+  Only use one that checks peer quotes against an independent price. The
+  pilot in `docs/examples` is a demonstration.
+* Verify the certificates of the price oracle and pilot
+  (`experimental.rfq.tls.certpath`), and authenticate to them with a
+  macaroon. Do not set `experimental.rfq.tls.insecure`,
+  `experimental.rfq.tls.disable` or `experimental.rfq.skipquoteacceptverify`,
+  or use the mock price oracle, on `mainnet`.
+* `asset_rate_limit` on `AddInvoice`, `SendPayment` and the RFQ order RPCs
+  bounds the rate of a trade.
+
+See the [portfolio pilot guide](portfolio_pilot.md#safety).
+
 ## Important note for Umbrel/Lightning Terminal users
 
 **DO NOT UNDER ANY CIRCUMSTANCE** uninstall (or re-install) the "Lightning
