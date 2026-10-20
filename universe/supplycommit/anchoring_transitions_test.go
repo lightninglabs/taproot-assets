@@ -791,8 +791,10 @@ func TestSupplyCommitRestart(t *testing.T) {
 	})
 
 	// A machine restored with a parked batch resumes the interrupted
-	// cycle: the restart tick re-derives the batch from the record and
-	// runs it through to a fresh, registered broadcast.
+	// cycle. startAssetSM copies the transition's pending updates
+	// onto UpdatesPendingState, so the restart tick commits that
+	// in-memory batch instead of fetching the record again, and runs
+	// it through to a fresh, registered broadcast.
 	t.Run("anchoring_updates_pending_starts_cycle", func(t *testing.T) {
 		registrar := &mockAnchoringRegistrar{}
 		h, manager := newManagerHarness(t, &harnessCfg{
@@ -801,7 +803,6 @@ func TestSupplyCommitRestart(t *testing.T) {
 		})
 		defer stopManager(h, manager)
 
-		h.expectFetchState(&UpdatesPendingState{}, pendingBatch)
 		h.expectFetchState(&UpdatesPendingState{}, pendingBatch)
 		h.expectFreezePendingTransition()
 		h.expectAnchoringCommitCycle(registrar)

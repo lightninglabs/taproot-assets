@@ -1,0 +1,5 @@
+-- Programmatic migration. repairGenesisAnchorMigration points each
+-- genesis anchor at the chain transaction that spends the genesis
+-- outpoint, then abandons never-confirmed supply commitments whose
+-- inputs are not a real pre-commit or confirmed commitment outpoint.
+-- This file exists so the migration version is picked up.
