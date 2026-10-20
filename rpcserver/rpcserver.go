@@ -11054,6 +11054,18 @@ func (r *RPCServer) AddInvoice(ctx context.Context,
 			)
 		}
 
+		// With pre-existing route hints, the invoice carries the hints
+		// that passed the quote expiry filter.
+		if existingQuotes {
+			routeHints, err = invoicesrpc.CreateZpay32HopHints(
+				iReq.RouteHints,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("error parsing route "+
+					"hints: %w", err)
+			}
+		}
+
 		payReq, err := r.cfg.Lnd.Invoices.AddHoldInvoice(
 			ctx, &invoicesrpc.AddInvoiceData{
 				Memo: iReq.Memo,

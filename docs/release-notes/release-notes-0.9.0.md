@@ -229,6 +229,10 @@
   fixes database-backed MS-SMTs computing a wrong root after deleting a
   key they did not hold.
 
+* [PR#2362](https://github.com/lightninglabs/taproot-assets/pull/2362)
+  makes asset hold invoices created with pre-existing RFQ route hints
+  carry those hints.
+
 # New Features
 
 ## Functional Enhancements
