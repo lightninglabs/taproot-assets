@@ -1470,7 +1470,7 @@ func proofResponseBlob(resp *unirpc.AssetProofResponse) (
 	assetLeaf := resp.GetAssetLeaf()
 	if assetLeaf == nil {
 		return nil, zeroAssetID, fmt.Errorf(
-			"Universe response is missing asset leaf",
+			"universe response is missing asset leaf",
 		)
 	}
 
@@ -1660,7 +1660,7 @@ func (c *UniverseRpcCourier) DeliverProof(ctx context.Context,
 				}
 				if actualAssetID != assetID {
 					return fmt.Errorf(
-						"Universe proof asset ID "+
+						"universe proof asset ID "+
 							"mismatch: got %x, "+
 							"want %x",
 						actualAssetID, assetID,
@@ -1695,8 +1695,12 @@ func (c *UniverseRpcCourier) DeliverProof(ctx context.Context,
 					switch s.Code() {
 					case codes.Unavailable, codes.DeadlineExceeded,
 						codes.ResourceExhausted, codes.Canceled:
-
 						retry = true
+					case codes.OK, codes.Unknown, codes.InvalidArgument,
+						codes.NotFound, codes.AlreadyExists,
+						codes.PermissionDenied, codes.FailedPrecondition,
+						codes.Aborted, codes.OutOfRange, codes.Unimplemented,
+						codes.Internal, codes.DataLoss, codes.Unauthenticated:
 					}
 					if retry {
 						return fmt.Errorf(

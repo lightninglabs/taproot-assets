@@ -406,7 +406,7 @@ func FundGenesisTx(packet *psbt.Packet, feeRate chainfee.SatPerKWeight) uint32 {
 // FundPsbt funds a PSBT.
 func (m *MockWalletAnchor) FundPsbt(_ context.Context, packet *psbt.Packet,
 	_ uint32, _ chainfee.SatPerKWeight,
-	changeIdx int32) (*tapsend.FundedPsbt, error) {
+	_ int32) (*tapsend.FundedPsbt, error) {
 
 	// Take the PSBT packet and add an additional input and output to
 	// simulate the wallet funding the transaction.
@@ -438,7 +438,7 @@ func (m *MockWalletAnchor) FundPsbt(_ context.Context, packet *psbt.Packet,
 
 	// The change output was added last, so it will be the last output in
 	// the list. Update the change index to reflect this.
-	changeIdx = int32(len(packet.Outputs) - 1)
+	changeIdx := int32(len(packet.Outputs) - 1)
 
 	// We always have the change output be the second output, so this means
 	// the Taproot Asset commitment will live in the first output.

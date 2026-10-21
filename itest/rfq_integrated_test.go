@@ -55,7 +55,8 @@ type rfqIntegratedRPC struct {
 	n *IntegratedNode
 }
 
-func (r *rfqIntegratedRPC) AddInvoice(req *lnrpc.Invoice) *lnrpc.AddInvoiceResponse {
+func (r *rfqIntegratedRPC) AddInvoice(
+	req *lnrpc.Invoice) *lnrpc.AddInvoiceResponse {
 	r.t.Helper()
 	resp, err := r.n.LightningClient.AddInvoice(context.Background(), req)
 	require.NoError(r.t, err)
@@ -74,25 +75,30 @@ func (r *rfqIntegratedRPC) LookupInvoice(hash []byte) *lnrpc.Invoice {
 func (r *rfqIntegratedRPC) DecodePayReq(paymentRequest string) *lnrpc.PayReq {
 	r.t.Helper()
 	resp, err := r.n.LightningClient.DecodePayReq(
-		context.Background(), &lnrpc.PayReqString{PayReq: paymentRequest},
+		context.Background(),
+		&lnrpc.PayReqString{PayReq: paymentRequest},
 	)
 	require.NoError(r.t, err)
 	return resp
 }
 
-func (r *rfqIntegratedRPC) BuildRoute(req *routerrpc.BuildRouteRequest) *routerrpc.BuildRouteResponse {
+func (r *rfqIntegratedRPC) BuildRoute(
+	req *routerrpc.BuildRouteRequest) *routerrpc.BuildRouteResponse {
 	r.t.Helper()
 	var resp *routerrpc.BuildRouteResponse
 	err := wait.NoError(func() error {
 		var err error
-		resp, err = r.n.RouterClient.BuildRoute(context.Background(), req)
+		resp, err = r.n.RouterClient.BuildRoute(
+			context.Background(), req,
+		)
 		return err
 	}, wait.DefaultTimeout)
 	require.NoError(r.t, err)
 	return resp
 }
 
-func (r *rfqIntegratedRPC) SendToRouteV2(req *routerrpc.SendToRouteRequest) *lnrpc.HTLCAttempt {
+func (r *rfqIntegratedRPC) SendToRouteV2(
+	req *routerrpc.SendToRouteRequest) *lnrpc.HTLCAttempt {
 	r.t.Helper()
 	resp, err := r.n.RouterClient.SendToRouteV2(context.Background(), req)
 	require.NoError(r.t, err)
@@ -132,7 +138,8 @@ func rfqTapd(n *IntegratedNode) *rfqIntegratedTapd {
 	}
 }
 
-func newRfqIntegratedScenario(t *harnessTest, opts ...RfqOption) *rfqIntegratedScenario {
+func newRfqIntegratedScenario(
+	t *harnessTest, opts ...RfqOption) *rfqIntegratedScenario {
 	t.t.Helper()
 	options := DefaultRfqOptions()
 	for _, opt := range opts {
@@ -167,7 +174,8 @@ func newRfqIntegratedScenario(t *harnessTest, opts ...RfqOption) *rfqIntegratedS
 		"--trickledelay=50", "--gossip.sub-batch-delay=5ms",
 	}
 	tapdArgs := []string{
-		"--allow-public-uni-proof-courier", "--universe.public-access=rw",
+		"--allow-public-uni-proof-courier",
+		"--universe.public-access=rw",
 		"--universe.sync-all-assets", "--reorgsafedepth=1",
 	}
 	oracleFor := func(override string) string {
@@ -187,11 +195,17 @@ func newRfqIntegratedScenario(t *harnessTest, opts ...RfqOption) *rfqIntegratedS
 		args = append(args, "--experimental.rfq.sendpricehint",
 			"--experimental.rfq.acceptpricedeviationppm=50000")
 		if oracle != "" {
-			args = append(args, "--experimental.rfq.priceoracleaddress="+oracle,
-				"--experimental.rfq.tls.insecure")
+			args = append(
+				args,
+				"--experimental.rfq.priceoracleaddress="+oracle,
+				"--experimental.rfq.tls.insecure",
+			)
 		}
 		if pilot != "" {
-			args = append(args, "--experimental.rfq.portfoliopilotaddress="+pilot)
+			args = append(
+				args,
+				"--experimental.rfq.portfoliopilotaddress="+pilot,
+			)
 		}
 		return args
 	}
@@ -201,13 +215,16 @@ func newRfqIntegratedScenario(t *harnessTest, opts ...RfqOption) *rfqIntegratedS
 	courier := fmt.Sprintf("--proofcourieraddr=%s://127.0.0.1:%d",
 		proof.UniverseRpcCourierType, alicePort)
 	alice := net.NewNode("RFQ-Alice", aliceArgs, append(argsFor(
-		oracleFor(options.oracleServerAlice), pilotFor(options.pilotServerAlice),
+		oracleFor(options.oracleServerAlice),
+		pilotFor(options.pilotServerAlice),
 	), courier))
 	bob := net.NewNode("RFQ-Bob", lndArgs, append(argsFor(
-		oracleFor(options.oracleServerBob), pilotFor(options.pilotServerBob),
+		oracleFor(options.oracleServerBob),
+		pilotFor(options.pilotServerBob),
 	), courier))
 	carol := net.NewNode("RFQ-Carol", lndArgs, append(argsFor(
-		oracleFor(options.oracleServerCarol), pilotFor(options.pilotServerCarol),
+		oracleFor(options.oracleServerCarol),
+		pilotFor(options.pilotServerCarol),
 	), courier))
 	for _, n := range []*IntegratedNode{alice, bob, carol} {
 		net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, n)
@@ -219,10 +236,13 @@ func newRfqIntegratedScenario(t *harnessTest, opts ...RfqOption) *rfqIntegratedS
 	openBTC := func(a, b *IntegratedNode) *lnrpc.ChannelPoint {
 		t.t.Helper()
 		stream, err := net.OpenChannel(a, b, lntest.OpenChannelParams{
-			Amt: 300000, CommitmentType: lnrpc.CommitmentType_ANCHORS,
+			Amt:            300000,
+			CommitmentType: lnrpc.CommitmentType_ANCHORS,
 		})
 		require.NoError(t.t, err)
-		_, err = WaitForNTxsInMempool(net.Miner, 1, wait.MinerMempoolTimeout)
+		_, err = WaitForNTxsInMempool(
+			net.Miner, 1, wait.MinerMempoolTimeout,
+		)
 		require.NoError(t.t, err)
 		for i := 0; i < 6; i++ {
 			net.Miner.GenerateBlocks(1)
@@ -232,7 +252,10 @@ func newRfqIntegratedScenario(t *harnessTest, opts ...RfqOption) *rfqIntegratedS
 		require.NoError(t.t, err)
 		hash, err := lnrpc.GetChanPointFundingTxid(point)
 		require.NoError(t.t, err)
-		outpoint := &wire.OutPoint{Hash: *hash, Index: point.OutputIndex}
+		outpoint := &wire.OutPoint{
+			Hash:  *hash,
+			Index: point.OutputIndex,
+		}
 		require.NoError(t.t, net.AssertChannelExists(a, outpoint))
 		require.NoError(t.t, net.AssertChannelExists(b, outpoint))
 		return point
