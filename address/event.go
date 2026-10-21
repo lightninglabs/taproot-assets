@@ -277,6 +277,13 @@ func NewTransferFromFragment(addr *AddrWithKeyInfo, block *wire.MsgBlock,
 			fragment.BlockHeader.BlockHash())
 	}
 
+	if fragment.OutPoint.Index >= uint32(len(walletTx.TxOut)) {
+		return empty, fmt.Errorf("output index %d out of range for "+
+			"transaction %s with %d outputs",
+			fragment.OutPoint.Index, fragment.OutPoint.Hash,
+			len(walletTx.TxOut))
+	}
+
 	return IncomingTransfer{
 		Addr:              addr,
 		Tx:                walletTx,
