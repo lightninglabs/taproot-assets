@@ -1162,13 +1162,9 @@ func testSpendChangeOutputWhenProofTransferFail(t *harnessTest) {
 
 		// Second output: proof delivery pending (courier is down).
 		secondOutput := firstTransfer.Outputs[1]
-		if secondOutput.ProofDeliveryStatus !=
-			rpcutils.ProofDeliveryStatusPending {
 
-			return false
-		}
-
-		return true
+		return secondOutput.ProofDeliveryStatus ==
+			rpcutils.ProofDeliveryStatusPending
 	}, defaultWaitTimeout, 200*time.Millisecond)
 
 	// Define a target event selector to match the backoff wait
