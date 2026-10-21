@@ -55,9 +55,15 @@ type rfqIntegratedRPC struct {
 	n *IntegratedNode
 }
 
-func (r *rfqIntegratedRPC) AddInvoice(
-	req *lnrpc.Invoice,
-) *lnrpc.AddInvoiceResponse {
+type addInvoiceReq = lnrpc.Invoice
+type addInvoiceResp = lnrpc.AddInvoiceResponse
+type buildRouteReq = routerrpc.BuildRouteRequest
+type buildRouteResp = routerrpc.BuildRouteResponse
+type sendRouteReq = routerrpc.SendToRouteRequest
+type sendRouteResp = lnrpc.HTLCAttempt
+type rfqScenario = rfqIntegratedScenario
+
+func (r *rfqIntegratedRPC) AddInvoice(req *addInvoiceReq) *addInvoiceResp {
 	r.t.Helper()
 	resp, err := r.n.LightningClient.AddInvoice(context.Background(), req)
 	require.NoError(r.t, err)
@@ -83,9 +89,7 @@ func (r *rfqIntegratedRPC) DecodePayReq(paymentRequest string) *lnrpc.PayReq {
 	return resp
 }
 
-func (r *rfqIntegratedRPC) BuildRoute(
-	req *routerrpc.BuildRouteRequest,
-) *routerrpc.BuildRouteResponse {
+func (r *rfqIntegratedRPC) BuildRoute(req *buildRouteReq) *buildRouteResp {
 	r.t.Helper()
 	var resp *routerrpc.BuildRouteResponse
 	err := wait.NoError(func() error {
@@ -99,9 +103,7 @@ func (r *rfqIntegratedRPC) BuildRoute(
 	return resp
 }
 
-func (r *rfqIntegratedRPC) SendToRouteV2(
-	req *routerrpc.SendToRouteRequest,
-) *lnrpc.HTLCAttempt {
+func (r *rfqIntegratedRPC) SendToRouteV2(req *sendRouteReq) *sendRouteResp {
 	r.t.Helper()
 	resp, err := r.n.RouterClient.SendToRouteV2(context.Background(), req)
 	require.NoError(r.t, err)
@@ -141,8 +143,7 @@ func rfqTapd(n *IntegratedNode) *rfqIntegratedTapd {
 	}
 }
 
-func newRfqIntegratedScenario(
-	t *harnessTest, opts ...RfqOption) *rfqIntegratedScenario {
+func newRfqIntegratedScenario(t *harnessTest, opts ...RfqOption) *rfqScenario {
 	t.t.Helper()
 	options := DefaultRfqOptions()
 	for _, opt := range opts {

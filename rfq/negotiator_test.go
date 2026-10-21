@@ -467,6 +467,7 @@ func TestHandleIncomingQuoteRequestError(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			outgoing := make(chan rfqmsg.OutgoingMsg, 1)
 			errChan := make(chan error, 1)
+			fundingAssets := []rfqmsg.JsonAssetUtxo{{}}
 
 			negotiator, err := NewNegotiator(NegotiatorCfg{
 				PortfolioPilot: &mockPortfolioPilot{
@@ -477,7 +478,7 @@ func TestHandleIncomingQuoteRequestError(t *testing.T) {
 					_ ChanIntention) (PeerChanMap, error) {
 
 					assetChannel := rfqmsg.JsonAssetChannel{
-						FundingAssets: []rfqmsg.JsonAssetUtxo{{}},
+						FundingAssets: fundingAssets,
 						RemoteBalance: 1,
 					}
 					return PeerChanMap{

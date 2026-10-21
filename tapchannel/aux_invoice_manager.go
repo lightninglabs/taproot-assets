@@ -466,7 +466,8 @@ func (s *AuxInvoiceManager) assetsMatchInvoiceHints(ctx context.Context,
 	hintQuotes := s.assetInvoiceHintQuotes(invoice)
 	if len(hintQuotes) == 0 {
 		return rfqmath.BigIntFixedPoint{}, fmt.Errorf(
-			"invoice has no route hints that map to accepted quotes",
+			"invoice has no route hints that map to " +
+				"accepted quotes",
 		)
 	}
 

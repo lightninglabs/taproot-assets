@@ -395,7 +395,7 @@ func TestAuxInvoiceManager(t *testing.T) {
 			State:   lnrpc.InvoiceHTLCState_CANCELED,
 		},
 	}
-	canceledReplayHtlcs := []*lnrpc.InvoiceHTLC{
+	replayHtlcs := []*lnrpc.InvoiceHTLC{
 		{
 			AmtMsat: 90_000_000,
 			State:   lnrpc.InvoiceHTLCState_CANCELED,
@@ -712,7 +712,7 @@ func TestAuxInvoiceManager(t *testing.T) {
 						RouteHints:  testRouteHints(),
 						ValueMsat:   100_000_000,
 						PaymentAddr: []byte{1, 1, 1},
-						Htlcs:       canceledReplayHtlcs,
+						Htlcs:       replayHtlcs,
 					},
 					WireCustomRecords: newWireCustomRecords(
 						t, []*rfqmsg.AssetBalance{
@@ -735,7 +735,8 @@ func TestAuxInvoiceManager(t *testing.T) {
 						t, []*rfqmsg.AssetBalance{
 							rfqmsg.
 								NewAssetBalance(
-									assetID, 1,
+									assetID,
+									1,
 								),
 						}, fn.Some(testRfqID),
 					),
@@ -840,7 +841,8 @@ func TestAuxInvoiceManager(t *testing.T) {
 						t, []*rfqmsg.AssetBalance{
 							rfqmsg.
 								NewAssetBalance(
-									assetID, 1,
+									assetID,
+									1,
 								),
 						}, fn.Some(testRfqID),
 					),
@@ -854,7 +856,8 @@ func TestAuxInvoiceManager(t *testing.T) {
 						t, []*rfqmsg.AssetBalance{
 							rfqmsg.
 								NewAssetBalance(
-									assetID, 1,
+									assetID,
+									1,
 								),
 						}, fn.Some(testRfqID),
 					),
@@ -2654,9 +2657,8 @@ func TestInvoiceRateCappedByHint(t *testing.T) {
 	hintedID, paidID := dummyRfqID(201), dummyRfqID(202)
 	hintedRate := rfqmath.NewBigIntFixedPoint(100_000, 0)
 	paidRate := rfqmath.NewBigIntFixedPoint(95_000, 0)
-	quote := func(
-		id rfqmsg.ID, rate rfqmath.BigIntFixedPoint,
-	) rfqmsg.BuyAccept {
+	type buyQuote = rfqmsg.BuyAccept
+	quote := func(id rfqmsg.ID, rate rfqmath.BigIntFixedPoint) buyQuote {
 		return rfqmsg.BuyAccept{
 			ID: id, Peer: testNodeID,
 			Request: rfqmsg.BuyRequest{

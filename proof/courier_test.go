@@ -617,7 +617,7 @@ func TestUniverseRpcCourierGroupPublishRetry(t *testing.T) {
 				)
 				shortDelay := time.Millisecond
 				timeout := testTimeout
-				backoffCfg := &BackoffCfg{
+				backoff := &BackoffCfg{
 					SkipInitDelay:  true,
 					NumTries:       2,
 					InitialBackoff: shortDelay,
@@ -625,7 +625,7 @@ func TestUniverseRpcCourierGroupPublishRetry(t *testing.T) {
 				}
 				courier, err := NewUniverseRpcCourier(
 					ctx, &UniverseRpcCourierCfg{
-						BackoffCfg:            backoffCfg,
+						BackoffCfg:            backoff,
 						ServiceRequestTimeout: timeout,
 					}, noopTransferLog{}, nil, url, false,
 				)
@@ -689,8 +689,10 @@ func TestUniverseRpcCourierGroupPublishRetry(t *testing.T) {
 						"insert", "insert",
 						"insert", "insert", "send",
 					}, server.calls)
-					// Both namespaces are populated before notifying an older
-					// receiver that only uses the group namespace.
+					// Both namespaces are populated first.
+					// This precedes notification.
+					// Older receivers may only use group
+					// namespace.
 					require.Len(t, server.leaves, 2)
 				default:
 					require.NoError(t, err)
