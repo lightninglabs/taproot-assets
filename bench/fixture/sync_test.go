@@ -3,6 +3,7 @@ package fixture
 import (
 	"context"
 	"math/rand"
+	"slices"
 	"testing"
 
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -199,7 +200,7 @@ func TestSyncFixture_RemoteBehindPeer(t *testing.T) {
 	)
 	require.NoError(t, err)
 	_, err = f.Local.Multiverse.UpsertProofLeafBatch(
-		ctx, append(shared, extras...),
+		ctx, slices.Concat(shared, extras),
 	)
 	require.NoError(t, err)
 
