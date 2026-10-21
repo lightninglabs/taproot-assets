@@ -23,11 +23,11 @@ import (
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/btcutil/psbt"
-	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcd/btcutil/v2"
+	"github.com/btcsuite/btcd/chaincfg/v2"
+	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/psbt/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/davecgh/go-spew/spew"
 	proxy "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
@@ -11779,16 +11779,21 @@ func (r *RPCServer) acquirePaymentQuotes(ctx context.Context,
 
 // newPaymentSellOrderRequest creates a sell order used to acquire one of the
 // quotes that can jointly fund an asset payment.
-func newPaymentSellOrderRequest(rpcSpecifier *rfqrpc.AssetSpecifier,
-	paymentMaxAmt lnwire.MilliSatoshi, expiry time.Time,
-	peerPubKey *route.Vertex, metadata string) *rfqrpc.AddAssetSellOrderRequest {
+func newPaymentSellOrderRequest(
+	rpcSpecifier *rfqrpc.AssetSpecifier,
+	paymentMaxAmt lnwire.MilliSatoshi,
+	expiry time.Time,
+	peerPubKey *route.Vertex,
+	metadata string,
+) *rfqrpc.AddAssetSellOrderRequest {
 
 	return &rfqrpc.AddAssetSellOrderRequest{
 		AssetSpecifier: rpcSpecifier,
 		PaymentMaxAmt:  uint64(paymentMaxAmt),
-		// A payment can combine quotes backed by different asset channels,
-		// so each peer must be allowed to offer a partial fill. Explicit
-		// zero avoids the RPC default of requiring the full maximum amount
+		// A payment can combine quotes backed by different asset
+		// channels, so each peer must be allowed to offer a partial
+		// fill. Explicit zero avoids the RPC default of requiring the
+		// full maximum amount
 		// from every peer.
 		PaymentMinAmt:       fn.Ptr[uint64](0),
 		Expiry:              uint64(expiry.Unix()),

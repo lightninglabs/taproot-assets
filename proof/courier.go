@@ -1490,6 +1490,9 @@ func (c *UniverseRpcCourier) DeliverProof(ctx context.Context,
 	recipient Recipient, annotatedProof *AnnotatedProof,
 	sendFragment *SendManifest) error {
 
+	const groupError = "error inserting proof into group Universe " +
+		"courier namespace: %w"
+
 	// Decode annotated proof into proof file.
 	proofFile := &File{}
 	err := proofFile.Decode(bytes.NewReader(annotatedProof.Blob))
@@ -1685,24 +1688,30 @@ func (c *UniverseRpcCourier) DeliverProof(ctx context.Context,
 			if groupUniverseKey != nil {
 				groupErr := insertProof(groupUniverseKey)
 				if groupErr != nil {
-					// Older servers return rate limiter errors
-					// as Unknown rather than ResourceExhausted.
+					// Older servers return rate limiter
+					// errors as Unknown rather than
+					// ResourceExhausted.
 					s := status.Convert(groupErr)
 					retry := s.Code() == codes.Unknown &&
 						strings.HasPrefix(
-							s.Message(), "rate limiter: ",
+							s.Message(),
+							"rate limiter: ",
 						)
 					switch s.Code() {
-					case codes.Unavailable, codes.DeadlineExceeded,
-						codes.ResourceExhausted, codes.Canceled:
+					case codes.Unavailable,
+						codes.DeadlineExceeded,
+						codes.ResourceExhausted,
+						codes.Canceled:
 
 						retry = true
+					default:
+						// Preserve legacy rate-limit
+						// handling.
 					}
 					if retry {
 						return fmt.Errorf(
-							"error inserting proof into "+
-								"group Universe courier "+
-								"namespace: %w", groupErr,
+							groupError,
+							groupErr,
 						)
 					}
 

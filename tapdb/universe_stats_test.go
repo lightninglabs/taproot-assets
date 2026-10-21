@@ -9,6 +9,7 @@ import (
 	"math/rand"
 	"slices"
 	"sort"
+	"sync"
 	"testing"
 	"time"
 
@@ -271,6 +272,23 @@ func TestUniverseStatsEvents(t *testing.T) {
 	})
 }
 
+// gatedStatsDB holds a transaction until the test releases it.
+type gatedStatsDB struct {
+	BatchedUniverseStats
+
+	release <-chan struct{}
+	result  chan<- error
+}
+
+func (g *gatedStatsDB) ExecTx(ctx context.Context, opts TxOptions,
+	body func(UniverseStatsStore) error) error {
+
+	<-g.release
+	err := g.BatchedUniverseStats.ExecTx(ctx, opts, body)
+	g.result <- err
+	return err
+}
+
 // TestUniverseStatsAsyncCache tests that the cache of the universe aggregate
 // stats is asynchronously populated regardless of what the outcome of the
 // RPC call is.
@@ -300,25 +318,37 @@ func TestUniverseStatsAsyncCache(t *testing.T) {
 	val := sh.db.statsSnapshot.Load()
 	require.Nil(t, val)
 
-	const (
-		quickTimeoutDuration = time.Microsecond * 1
-		defaultTick          = time.Millisecond * 250
-	)
+	// Hold the background query until the client observes its deadline.
+	// Gate the transaction directly so both database backends behave alike.
+	release := make(chan struct{})
+	queryResult := make(chan error, 1)
+	sh.db.db = &gatedStatsDB{
+		BatchedUniverseStats: sh.db.db,
+		release:              release,
+		result:               queryResult,
+	}
+	releaseQuery := sync.OnceFunc(func() { close(release) })
+	t.Cleanup(releaseQuery)
 
-	// We now create a client context with a very quick timeout. This is
-	// meant to quickly fail the RPC call.
-	ctx, cancel := context.WithTimeout(
-		context.Background(), quickTimeoutDuration,
+	ctx, cancel := context.WithDeadline(
+		t.Context(), time.Now().Add(-time.Second),
 	)
 	defer cancel()
 
-	// The tiny timeout duration should make the following call result in a
-	// context deadline related error.
 	_, err := sh.db.AggregateSyncStats(ctx)
 	require.ErrorContains(t, err, "context deadline exceeded")
+	releaseQuery()
+
+	select {
+	case err := <-queryResult:
+		require.NoError(t, err)
+	case <-time.After(DefaultStoreTimeout):
+		t.Fatal("background stats query did not complete")
+	}
 
 	// Regardless of the above call failing, the cache should asynchronously
 	// get updated in the background, so let's wait until a value is loaded.
+	const defaultTick = time.Millisecond * 250
 	require.Eventually(t, func() bool {
 		val := sh.db.statsSnapshot.Load()
 		return val != nil

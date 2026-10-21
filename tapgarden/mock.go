@@ -12,14 +12,14 @@ import (
 	"testing"
 	"time"
 
+	btcaddr "github.com/btcsuite/btcd/address/v2"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/btcutil/psbt"
-	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/txscript"
-	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcd/chaincfg/v2"
+	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/psbt/v2"
+	"github.com/btcsuite/btcd/txscript/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/address"
@@ -475,7 +475,7 @@ func (m *MockWalletAnchor) SignAndFinalizePsbt(ctx context.Context,
 }
 
 func (m *MockWalletAnchor) ImportTaprootOutput(ctx context.Context,
-	pub *btcec.PublicKey) (btcutil.Address, error) {
+	pub *btcec.PublicKey) (btcaddr.Address, error) {
 
 	select {
 	case m.ImportPubKeySignal <- pub:
@@ -484,7 +484,7 @@ func (m *MockWalletAnchor) ImportTaprootOutput(ctx context.Context,
 		return nil, fmt.Errorf("shutting down")
 	}
 
-	return btcutil.NewAddressTaproot(
+	return btcaddr.NewAddressTaproot(
 		schnorr.SerializePubKey(pub), &chaincfg.RegressionNetParams,
 	)
 }
@@ -512,14 +512,14 @@ func (m *MockWalletAnchor) ListUnspentImportScripts(
 // ImportTapscript imports a Taproot output script into the wallet to track it
 // on-chain in a watch-only manner.
 func (m *MockWalletAnchor) ImportTapscript(_ context.Context,
-	tapscript *waddrmgr.Tapscript) (btcutil.Address, error) {
+	tapscript *waddrmgr.Tapscript) (btcaddr.Address, error) {
 
 	taprootKey, err := tapscript.TaprootKey()
 	if err != nil {
 		return nil, err
 	}
 
-	return btcutil.NewAddressTaproot(
+	return btcaddr.NewAddressTaproot(
 		schnorr.SerializePubKey(taprootKey),
 		&chaincfg.RegressionNetParams,
 	)

@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -395,7 +395,7 @@ func TestAuxInvoiceManager(t *testing.T) {
 			State:   lnrpc.InvoiceHTLCState_CANCELED,
 		},
 	}
-	canceledReplayHtlcs := []*lnrpc.InvoiceHTLC{
+	replayHtlcs := []*lnrpc.InvoiceHTLC{
 		{
 			AmtMsat: 90_000_000,
 			State:   lnrpc.InvoiceHTLCState_CANCELED,
@@ -703,7 +703,8 @@ func TestAuxInvoiceManager(t *testing.T) {
 			},
 		},
 		{
-			name: "asset invoice, canceled replay and unit shortfall",
+			name: "asset invoice, canceled replay and " +
+				"unit shortfall",
 			requests: []lndclient.InvoiceHtlcModifyRequest{
 				{
 					CircuitKey: randCircuitKey(),
@@ -711,11 +712,14 @@ func TestAuxInvoiceManager(t *testing.T) {
 						RouteHints:  testRouteHints(),
 						ValueMsat:   100_000_000,
 						PaymentAddr: []byte{1, 1, 1},
-						Htlcs:       canceledReplayHtlcs,
+						Htlcs:       replayHtlcs,
 					},
 					WireCustomRecords: newWireCustomRecords(
 						t, []*rfqmsg.AssetBalance{
-							rfqmsg.NewAssetBalance(assetID, 1),
+							rfqmsg.NewAssetBalance(
+								assetID,
+								1,
+							),
 						}, fn.Some(testRfqID),
 					),
 				},
@@ -728,7 +732,10 @@ func TestAuxInvoiceManager(t *testing.T) {
 					},
 					WireCustomRecords: newWireCustomRecords(
 						t, []*rfqmsg.AssetBalance{
-							rfqmsg.NewAssetBalance(assetID, 1),
+							rfqmsg.NewAssetBalance(
+								assetID,
+								1,
+							),
 						}, fn.Some(testRfqID),
 					),
 				},
@@ -750,7 +757,8 @@ func TestAuxInvoiceManager(t *testing.T) {
 			},
 		},
 		{
-			name: "asset invoice, accepted htlcs do not change value",
+			name: "asset invoice, accepted htlcs do not " +
+				"change value",
 			requests: []lndclient.InvoiceHtlcModifyRequest{
 				{
 					CircuitKey: randCircuitKey(),
@@ -829,7 +837,10 @@ func TestAuxInvoiceManager(t *testing.T) {
 					},
 					WireCustomRecords: newWireCustomRecords(
 						t, []*rfqmsg.AssetBalance{
-							rfqmsg.NewAssetBalance(assetID, 1),
+							rfqmsg.NewAssetBalance(
+								assetID,
+								1,
+							),
 						}, fn.Some(testRfqID),
 					),
 				},
@@ -840,7 +851,10 @@ func TestAuxInvoiceManager(t *testing.T) {
 					},
 					WireCustomRecords: newWireCustomRecords(
 						t, []*rfqmsg.AssetBalance{
-							rfqmsg.NewAssetBalance(assetID, 1),
+							rfqmsg.NewAssetBalance(
+								assetID,
+								1,
+							),
 						}, fn.Some(testRfqID),
 					),
 				},
@@ -2633,16 +2647,24 @@ func TestInvoiceQuoteSnapshot(t *testing.T) {
 	require.Equal(t, lnwire.MilliSatoshi(3_000_000), resp.AmtPaid)
 }
 
-// TestInvoiceRateCappedByHint ensures a payer-selected quote cannot overvalue assets.
+// TestInvoiceRateCappedByHint ensures a payer-selected quote cannot overvalue
+// assets.
 func TestInvoiceRateCappedByHint(t *testing.T) {
 	hintedID, paidID := dummyRfqID(201), dummyRfqID(202)
 	hintedRate := rfqmath.NewBigIntFixedPoint(100_000, 0)
 	paidRate := rfqmath.NewBigIntFixedPoint(95_000, 0)
-	quote := func(id rfqmsg.ID, rate rfqmath.BigIntFixedPoint) rfqmsg.BuyAccept {
+	quote := func(id rfqmsg.ID,
+		rate rfqmath.BigIntFixedPoint) rfqmsg.BuyAccept {
+
 		return rfqmsg.BuyAccept{
 			ID: id, Peer: testNodeID,
-			Request:   rfqmsg.BuyRequest{AssetSpecifier: assetSpecifier},
-			AssetRate: rfqmsg.NewAssetRate(rate, time.Now().Add(time.Hour)),
+			Request: rfqmsg.BuyRequest{
+				AssetSpecifier: assetSpecifier,
+			},
+			AssetRate: rfqmsg.NewAssetRate(
+				rate,
+				time.Now().Add(time.Hour),
+			),
 		}
 	}
 	mock := &mockRfqManager{peerBuyQuotes: rfq.BuyAcceptMap{
@@ -2652,23 +2674,36 @@ func TestInvoiceRateCappedByHint(t *testing.T) {
 	manager := NewAuxInvoiceManager(&InvoiceManagerConfig{RfqManager: mock})
 	channelData, err := json.Marshal(rfqmsg.JsonAssetChannel{
 		FundingAssets: []rfqmsg.JsonAssetUtxo{{
-			AssetGenesis: rfqmsg.JsonAssetGenesis{AssetID: assetID.String()},
+			AssetGenesis: rfqmsg.JsonAssetGenesis{
+				AssetID: assetID.String(),
+			},
 		}},
 	})
 	require.NoError(t, err)
-	manager.cfg.LightningClient = &mockLndClient{channels: []lndclient.ChannelInfo{{
-		ChannelID: 1, CustomChannelData: channelData,
-	}}}
+	manager.cfg.LightningClient = &mockLndClient{
+		channels: []lndclient.ChannelInfo{{
+			ChannelID: 1, CustomChannelData: channelData,
+		}},
+	}
 	req := lndclient.InvoiceHtlcModifyRequest{
-		CircuitKey: invoices.CircuitKey{ChanID: lnwire.NewShortChanIDFromInt(1)},
+		CircuitKey: invoices.CircuitKey{
+			ChanID: lnwire.NewShortChanIDFromInt(1),
+		},
 		Invoice: &lnrpc.Invoice{
 			ValueMsat: 100_000_000,
-			RouteHints: []*lnrpc.RouteHint{{HopHints: []*lnrpc.HopHint{{
-				ChanId: uint64(hintedID.Scid()), NodeId: testNodeID.String(),
-			}}}},
+			RouteHints: []*lnrpc.RouteHint{
+				{HopHints: []*lnrpc.HopHint{{
+					ChanId: uint64(
+						hintedID.Scid(),
+					), NodeId: testNodeID.String(),
+				}}},
+			},
 		},
-		WireCustomRecords: newWireCustomRecords(t,
-			[]*rfqmsg.AssetBalance{rfqmsg.NewAssetBalance(assetID, 95)},
+		WireCustomRecords: newWireCustomRecords(
+			t,
+			[]*rfqmsg.AssetBalance{
+				rfqmsg.NewAssetBalance(assetID, 95),
+			},
 			fn.Some(paidID),
 		),
 	}
