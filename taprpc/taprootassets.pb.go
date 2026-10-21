@@ -24,13 +24,15 @@ const (
 type AssetType int32
 
 const (
-	// Indicates that an asset is capable of being split/merged, with each of the
-	// units being fungible, even across a key asset ID boundary (assuming the
-	// key group is the same).
+	//
+	//Indicates that an asset is capable of being split/merged, with each of the
+	//units being fungible, even across a key asset ID boundary (assuming the
+	//key group is the same).
 	AssetType_NORMAL AssetType = 0
-	// Indicates that an asset is a collectible, meaning that each of the other
-	// items under the same key group are not fully fungible with each other.
-	// Collectibles also cannot be split or merged.
+	//
+	//Indicates that an asset is a collectible, meaning that each of the other
+	//items under the same key group are not fully fungible with each other.
+	//Collectibles also cannot be split or merged.
 	AssetType_COLLECTIBLE AssetType = 1
 )
 
@@ -76,11 +78,13 @@ func (AssetType) EnumDescriptor() ([]byte, []int) {
 type AssetMetaType int32
 
 const (
-	// Opaque is used for asset meta blobs that have no true structure and instead
-	// should be interpreted as opaque blobs.
+	//
+	//Opaque is used for asset meta blobs that have no true structure and instead
+	//should be interpreted as opaque blobs.
 	AssetMetaType_META_TYPE_OPAQUE AssetMetaType = 0
-	// JSON is used for asset meta blobs that are to be interpreted as valid JSON
-	// strings.
+	//
+	//JSON is used for asset meta blobs that are to be interpreted as valid JSON
+	//strings.
 	AssetMetaType_META_TYPE_JSON AssetMetaType = 1
 )
 
@@ -343,40 +347,47 @@ func (AddrVersion) EnumDescriptor() ([]byte, []int) {
 type ScriptKeyType int32
 
 const (
-	// The type of script key is not known. This should only be stored for assets
-	// where we don't know the internal key of the script key (e.g. for imported
-	// proofs).
+	//
+	//The type of script key is not known. This should only be stored for assets
+	//where we don't know the internal key of the script key (e.g. for imported
+	//proofs).
 	ScriptKeyType_SCRIPT_KEY_UNKNOWN ScriptKeyType = 0
-	// The script key is a normal BIP-86 key. This means that the internal key is
-	// turned into a Taproot output key by applying a BIP-86 tweak to it.
+	//
+	//The script key is a normal BIP-86 key. This means that the internal key is
+	//turned into a Taproot output key by applying a BIP-86 tweak to it.
 	ScriptKeyType_SCRIPT_KEY_BIP86 ScriptKeyType = 1
-	// The script key is a key that contains a script path that is defined by the
-	// user and is therefore external to the tapd wallet. Spending this key
-	// requires providing a specific witness and must be signed through the vPSBT
-	// signing flow.
+	//
+	//The script key is a key that contains a script path that is defined by the
+	//user and is therefore external to the tapd wallet. Spending this key
+	//requires providing a specific witness and must be signed through the vPSBT
+	//signing flow.
 	ScriptKeyType_SCRIPT_KEY_SCRIPT_PATH_EXTERNAL ScriptKeyType = 2
-	// The script key is a specific un-spendable key that indicates a burnt asset.
-	// Assets with this key type can never be spent again, as a burn key is a
-	// tweaked NUMS key that nobody knows the private key for.
+	//
+	//The script key is a specific un-spendable key that indicates a burnt asset.
+	//Assets with this key type can never be spent again, as a burn key is a
+	//tweaked NUMS key that nobody knows the private key for.
 	ScriptKeyType_SCRIPT_KEY_BURN ScriptKeyType = 3
-	// The script key is a specific un-spendable key that indicates a tombstone
-	// output. This is only the case for zero-value assets that result from a
-	// non-interactive (TAP address) send where no change was left over.
+	//
+	//The script key is a specific un-spendable key that indicates a tombstone
+	//output. This is only the case for zero-value assets that result from a
+	//non-interactive (TAP address) send where no change was left over.
 	ScriptKeyType_SCRIPT_KEY_TOMBSTONE ScriptKeyType = 4
-	// The script key is used for an asset that resides within a Taproot Asset
-	// Channel. That means the script key is either a funding key (OP_TRUE), a
-	// commitment output key (to_local, to_remote, htlc), or a HTLC second-level
-	// transaction output key. Keys related to channels are not shown in asset
-	// balances (unless specifically requested) and are never used for coin
-	// selection.
+	//
+	//The script key is used for an asset that resides within a Taproot Asset
+	//Channel. That means the script key is either a funding key (OP_TRUE), a
+	//commitment output key (to_local, to_remote, htlc), or a HTLC second-level
+	//transaction output key. Keys related to channels are not shown in asset
+	//balances (unless specifically requested) and are never used for coin
+	//selection.
 	ScriptKeyType_SCRIPT_KEY_CHANNEL ScriptKeyType = 5
-	// The script key is derived using the asset ID and a single leaf that contains
-	// an un-spendable Pedersen commitment key
-	// `(OP_CHECKSIG <NUMS_key + asset_id * G>)`. This can be used to create
-	// unique script keys for each virtual packet in the fragment, to avoid proof
-	// collisions in the universe, where the script keys should be spendable by
-	// a hardware wallet that only supports miniscript policies for signing P2TR
-	// outputs.
+	//
+	//The script key is derived using the asset ID and a single leaf that contains
+	//an un-spendable Pedersen commitment key
+	//`(OP_CHECKSIG <NUMS_key + asset_id * G>)`. This can be used to create
+	//unique script keys for each virtual packet in the fragment, to avoid proof
+	//collisions in the universe, where the script keys should be spendable by
+	//a hardware wallet that only supports miniscript policies for signing P2TR
+	//outputs.
 	ScriptKeyType_SCRIPT_KEY_UNIQUE_PEDERSEN ScriptKeyType = 6
 )
 
@@ -632,14 +643,16 @@ func (ParcelType) EnumDescriptor() ([]byte, []int) {
 
 type AssetMeta struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The raw data of the asset meta data. Based on the type below, this may be
-	// structured data such as a text file or PDF. The size of the data is limited
-	// to 1MiB.
+	//
+	//The raw data of the asset meta data. Based on the type below, this may be
+	//structured data such as a text file or PDF. The size of the data is limited
+	//to 1MiB.
 	Data []byte `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
 	// The type of the asset meta data.
 	Type AssetMetaType `protobuf:"varint,2,opt,name=type,proto3,enum=taprpc.AssetMetaType" json:"type,omitempty"`
-	// The hash of the meta. This is the hash of the TLV serialization of the meta
-	// itself.
+	//
+	//The hash of the meta. This is the hash of the TLV serialization of the meta
+	//itself.
 	MetaHash      []byte `protobuf:"bytes,3,opt,name=meta_hash,json=metaHash,proto3" json:"meta_hash,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1141,22 +1154,24 @@ func (x *ListAssetRequest) GetDirection() SortDirection {
 type AnchorInfo struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The transaction that anchors the Taproot Asset commitment where the asset
-	//
-	//	resides.
+	//  resides.
 	AnchorTx []byte `protobuf:"bytes,1,opt,name=anchor_tx,json=anchorTx,proto3" json:"anchor_tx,omitempty"`
 	// The block hash the contains the anchor transaction above.
 	AnchorBlockHash string `protobuf:"bytes,3,opt,name=anchor_block_hash,json=anchorBlockHash,proto3" json:"anchor_block_hash,omitempty"`
 	// The outpoint (txid:vout) that stores the Taproot Asset commitment.
 	AnchorOutpoint string `protobuf:"bytes,4,opt,name=anchor_outpoint,json=anchorOutpoint,proto3" json:"anchor_outpoint,omitempty"`
-	// The raw internal key that was used to create the anchor Taproot output key.
+	//
+	//The raw internal key that was used to create the anchor Taproot output key.
 	InternalKey []byte `protobuf:"bytes,5,opt,name=internal_key,json=internalKey,proto3" json:"internal_key,omitempty"`
-	// The Taproot merkle root hash of the anchor output the asset was committed
-	// to. If there is no Tapscript sibling, this is equal to the Taproot Asset
-	// root commitment hash.
+	//
+	//The Taproot merkle root hash of the anchor output the asset was committed
+	//to. If there is no Tapscript sibling, this is equal to the Taproot Asset
+	//root commitment hash.
 	MerkleRoot []byte `protobuf:"bytes,6,opt,name=merkle_root,json=merkleRoot,proto3" json:"merkle_root,omitempty"`
-	// The serialized preimage of a Tapscript sibling, if there was one. If this
-	// is empty, then the merkle_root hash is equal to the Taproot root hash of the
-	// anchor output.
+	//
+	//The serialized preimage of a Tapscript sibling, if there was one. If this
+	//is empty, then the merkle_root hash is equal to the Taproot root hash of the
+	//anchor output.
 	TapscriptSibling []byte `protobuf:"bytes,7,opt,name=tapscript_sibling,json=tapscriptSibling,proto3" json:"tapscript_sibling,omitempty"`
 	// The height of the block which contains the anchor transaction.
 	BlockHeight uint32 `protobuf:"varint,8,opt,name=block_height,json=blockHeight,proto3" json:"block_height,omitempty"`
@@ -1264,8 +1279,9 @@ type GenesisInfo struct {
 	AssetId []byte `protobuf:"bytes,4,opt,name=asset_id,json=assetId,proto3" json:"asset_id,omitempty"`
 	// The type of the asset.
 	AssetType AssetType `protobuf:"varint,5,opt,name=asset_type,json=assetType,proto3,enum=taprpc.AssetType" json:"asset_type,omitempty"`
-	// The index of the output that carries the unique Taproot Asset commitment in
-	// the genesis transaction.
+	//
+	//The index of the output that carries the unique Taproot Asset commitment in
+	//the genesis transaction.
 	OutputIndex   uint32 `protobuf:"varint,6,opt,name=output_index,json=outputIndex,proto3" json:"output_index,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1347,19 +1363,22 @@ func (x *GenesisInfo) GetOutputIndex() uint32 {
 // hierarchical deterministic (HD) wallet addresses according to BIP-86.
 type ExternalKey struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// This field specifies the extended public key derived at depth 3 of the
-	// BIP-86 hierarchy (e.g., m/86'/0'/0'). This key serves as the parent key for
-	// deriving child public keys and addresses.
+	//
+	//This field specifies the extended public key derived at depth 3 of the
+	//BIP-86 hierarchy (e.g., m/86'/0'/0'). This key serves as the parent key for
+	//deriving child public keys and addresses.
 	Xpub string `protobuf:"bytes,1,opt,name=xpub,proto3" json:"xpub,omitempty"`
-	// This field specifies the fingerprint of the master key, derived from the
-	// first 4 bytes of the hash160 of the master public key. It is used to
-	// identify the master key in BIP-86 derivation schemes.
+	//
+	//This field specifies the fingerprint of the master key, derived from the
+	//first 4 bytes of the hash160 of the master public key. It is used to
+	//identify the master key in BIP-86 derivation schemes.
 	MasterFingerprint []byte `protobuf:"bytes,2,opt,name=master_fingerprint,json=masterFingerprint,proto3" json:"master_fingerprint,omitempty"`
-	// This field specifies the extended BIP-86 derivation path used to derive a
-	// child key from the XPub. Starting from the base path of the XPub
-	// (e.g., m/86'/0'/0'), this path must contain exactly 5 components in total
-	// (e.g., m/86'/0'/0'/0/0), with the additional components defining specific
-	// child keys, such as individual addresses.
+	//
+	//This field specifies the extended BIP-86 derivation path used to derive a
+	//child key from the XPub. Starting from the base path of the XPub
+	//(e.g., m/86'/0'/0'), this path must contain exactly 5 components in total
+	//(e.g., m/86'/0'/0'/0/0), with the additional components defining specific
+	//child keys, such as individual addresses.
 	DerivationPath string `protobuf:"bytes,3,opt,name=derivation_path,json=derivationPath,proto3" json:"derivation_path,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
@@ -1418,27 +1437,32 @@ func (x *ExternalKey) GetDerivationPath() string {
 
 type GroupKeyRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The internal key for the asset group before any tweaks have been applied.
-	// If this field is set then external_key must be empty, and vice versa.
-	RawKey *KeyDescriptor `protobuf:"bytes,1,opt,name=raw_key,json=rawKey,proto3" json:"raw_key,omitempty"`
-	// The genesis of the group anchor asset, which is used to derive the single
-	// tweak for the group key. For a new group key, this will be the genesis of
-	// new_asset.
-	AnchorGenesis *GenesisInfo `protobuf:"bytes,2,opt,name=anchor_genesis,json=anchorGenesis,proto3" json:"anchor_genesis,omitempty"`
-	// The optional root of a tapscript tree that will be used when constructing a
-	// new asset group key. This enables future issuance authorized with a script
-	// witness.
-	TapscriptRoot []byte `protobuf:"bytes,3,opt,name=tapscript_root,json=tapscriptRoot,proto3" json:"tapscript_root,omitempty"`
-	// The serialized asset which we are requesting group membership for. A
-	// successful request will produce a witness that authorizes this asset to be a
-	// member of this asset group.
-	NewAsset []byte `protobuf:"bytes,4,opt,name=new_asset,json=newAsset,proto3" json:"new_asset,omitempty"`
-	// The external key is an optional field that allows specifying an
-	// external signing key for the group virtual transaction during minting.
-	// This key enables signing operations to be performed externally, outside
-	// the daemon.
 	//
-	// If this field is set then raw_key must be empty, and vice versa.
+	//The internal key for the asset group before any tweaks have been applied.
+	//If this field is set then external_key must be empty, and vice versa.
+	RawKey *KeyDescriptor `protobuf:"bytes,1,opt,name=raw_key,json=rawKey,proto3" json:"raw_key,omitempty"`
+	//
+	//The genesis of the group anchor asset, which is used to derive the single
+	//tweak for the group key. For a new group key, this will be the genesis of
+	//new_asset.
+	AnchorGenesis *GenesisInfo `protobuf:"bytes,2,opt,name=anchor_genesis,json=anchorGenesis,proto3" json:"anchor_genesis,omitempty"`
+	//
+	//The optional root of a tapscript tree that will be used when constructing a
+	//new asset group key. This enables future issuance authorized with a script
+	//witness.
+	TapscriptRoot []byte `protobuf:"bytes,3,opt,name=tapscript_root,json=tapscriptRoot,proto3" json:"tapscript_root,omitempty"`
+	//
+	//The serialized asset which we are requesting group membership for. A
+	//successful request will produce a witness that authorizes this asset to be a
+	//member of this asset group.
+	NewAsset []byte `protobuf:"bytes,4,opt,name=new_asset,json=newAsset,proto3" json:"new_asset,omitempty"`
+	//
+	//The external key is an optional field that allows specifying an
+	//external signing key for the group virtual transaction during minting.
+	//This key enables signing operations to be performed externally, outside
+	//the daemon.
+	//
+	//If this field is set then raw_key must be empty, and vice versa.
 	ExternalKey   *ExternalKey `protobuf:"bytes,5,opt,name=external_key,json=externalKey,proto3" json:"external_key,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1565,19 +1589,23 @@ func (x *TxOut) GetPkScript() []byte {
 
 type GroupVirtualTx struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The virtual transaction that represents the genesis state transition of a
-	// grouped asset.
+	//
+	//The virtual transaction that represents the genesis state transition of a
+	//grouped asset.
 	Transaction []byte `protobuf:"bytes,1,opt,name=transaction,proto3" json:"transaction,omitempty"`
-	// The transaction output that represents a grouped asset. The tweaked
-	// group key is set as the PkScript of this output. This is used in combination
-	// with Tx to produce an asset group witness.
+	//
+	//The transaction output that represents a grouped asset. The tweaked
+	//group key is set as the PkScript of this output. This is used in combination
+	//with Tx to produce an asset group witness.
 	PrevOut *TxOut `protobuf:"bytes,2,opt,name=prev_out,json=prevOut,proto3" json:"prev_out,omitempty"`
-	// The asset ID of the grouped asset in a GroupKeyRequest. This ID is
-	// needed to construct a sign descriptor, as it is the single tweak for the
-	// group internal key.
+	//
+	//The asset ID of the grouped asset in a GroupKeyRequest. This ID is
+	//needed to construct a sign descriptor, as it is the single tweak for the
+	//group internal key.
 	GenesisId []byte `protobuf:"bytes,3,opt,name=genesis_id,json=genesisId,proto3" json:"genesis_id,omitempty"`
-	// The tweaked group key for a specific GroupKeyRequest. This is used to
-	// construct a complete group key after producing an asset group witness.
+	//
+	//The tweaked group key for a specific GroupKeyRequest. This is used to
+	//construct a complete group key after producing an asset group witness.
 	TweakedKey    []byte `protobuf:"bytes,4,opt,name=tweaked_key,json=tweakedKey,proto3" json:"tweaked_key,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1700,14 +1728,17 @@ type AssetGroup struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The raw group key which is a normal public key.
 	RawGroupKey []byte `protobuf:"bytes,1,opt,name=raw_group_key,json=rawGroupKey,proto3" json:"raw_group_key,omitempty"`
-	// The tweaked group key, which is derived based on the genesis point and also
-	// asset type.
+	//
+	//The tweaked group key, which is derived based on the genesis point and also
+	//asset type.
 	TweakedGroupKey []byte `protobuf:"bytes,2,opt,name=tweaked_group_key,json=tweakedGroupKey,proto3" json:"tweaked_group_key,omitempty"`
-	// A witness that authorizes a specific asset to be part of the asset group
-	// specified by the above key.
+	//
+	//A witness that authorizes a specific asset to be part of the asset group
+	//specified by the above key.
 	AssetWitness []byte `protobuf:"bytes,3,opt,name=asset_witness,json=assetWitness,proto3" json:"asset_witness,omitempty"`
-	// The root hash of a tapscript tree, which enables future issuance authorized
-	// with a script witness.
+	//
+	//The root hash of a tapscript tree, which enables future issuance authorized
+	//with a script witness.
 	TapscriptRoot []byte `protobuf:"bytes,4,opt,name=tapscript_root,json=tapscriptRoot,proto3" json:"tapscript_root,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1872,16 +1903,17 @@ func (x *GenesisReveal) GetGenesisBaseReveal() *GenesisInfo {
 
 type DecimalDisplay struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Decimal display dictates the number of decimal places to shift the amount to
-	// the left converting from Taproot Asset integer representation to a
-	// UX-recognizable fractional quantity.
 	//
-	// For example, if the decimal_display value is 2 and there's 100 of those
-	// assets, then a wallet would display the amount as "1.00". This field is
-	// intended as information for wallets that display balances and has no impact
-	// on the behavior of the daemon or any other part of the protocol. This value
-	// is encoded in the MetaData field as a JSON field, therefore it is only
-	// compatible with assets that have a JSON MetaData field.
+	//Decimal display dictates the number of decimal places to shift the amount to
+	//the left converting from Taproot Asset integer representation to a
+	//UX-recognizable fractional quantity.
+	//
+	//For example, if the decimal_display value is 2 and there's 100 of those
+	//assets, then a wallet would display the amount as "1.00". This field is
+	//intended as information for wallets that display balances and has no impact
+	//on the behavior of the daemon or any other part of the protocol. This value
+	//is encoded in the MetaData field as a JSON field, therefore it is only
+	//compatible with assets that have a JSON MetaData field.
 	DecimalDisplay uint32 `protobuf:"varint,1,opt,name=decimal_display,json=decimalDisplay,proto3" json:"decimal_display,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
@@ -2403,9 +2435,10 @@ type ManagedUtxo struct {
 	InternalKey []byte `protobuf:"bytes,3,opt,name=internal_key,json=internalKey,proto3" json:"internal_key,omitempty"`
 	// The Taproot Asset root commitment hash.
 	TaprootAssetRoot []byte `protobuf:"bytes,4,opt,name=taproot_asset_root,json=taprootAssetRoot,proto3" json:"taproot_asset_root,omitempty"`
-	// The Taproot merkle root hash committed to by the outpoint of this UTXO.
-	// If there is no Tapscript sibling, this is equal to the Taproot Asset root
-	// commitment hash.
+	//
+	//The Taproot merkle root hash committed to by the outpoint of this UTXO.
+	//If there is no Tapscript sibling, this is equal to the Taproot Asset root
+	//commitment hash.
 	MerkleRoot []byte `protobuf:"bytes,5,opt,name=merkle_root,json=merkleRoot,proto3" json:"merkle_root,omitempty"`
 	// The assets held at this UTXO.
 	Assets []*Asset `protobuf:"bytes,6,rep,name=assets,proto3" json:"assets,omitempty"`
@@ -4004,19 +4037,22 @@ type Addr struct {
 	// be specified for V2 addresses. If this field is set, the asset_id
 	// field must be empty.
 	GroupKey []byte `protobuf:"bytes,5,opt,name=group_key,json=groupKey,proto3" json:"group_key,omitempty"`
-	// The specific script key the asset must commit to in order to transfer
-	// ownership to the creator of the address.
+	//
+	//The specific script key the asset must commit to in order to transfer
+	//ownership to the creator of the address.
 	ScriptKey []byte `protobuf:"bytes,6,opt,name=script_key,json=scriptKey,proto3" json:"script_key,omitempty"`
 	// The internal key used for the on-chain output.
 	InternalKey []byte `protobuf:"bytes,7,opt,name=internal_key,json=internalKey,proto3" json:"internal_key,omitempty"`
-	// The optional serialized tapscript sibling preimage to use for the receiving
-	// asset. This is usually empty as it is only needed when there should be an
-	// additional script path in the Taproot tree alongside the Taproot Asset
-	// commitment of the asset.
+	//
+	//The optional serialized tapscript sibling preimage to use for the receiving
+	//asset. This is usually empty as it is only needed when there should be an
+	//additional script path in the Taproot tree alongside the Taproot Asset
+	//commitment of the asset.
 	TapscriptSibling []byte `protobuf:"bytes,8,opt,name=tapscript_sibling,json=tapscriptSibling,proto3" json:"tapscript_sibling,omitempty"`
-	// The tweaked internal key that commits to the asset and represents the
-	// on-chain output key the Bitcoin transaction must send to in order to
-	// transfer assets described in this address.
+	//
+	//The tweaked internal key that commits to the asset and represents the
+	//on-chain output key the Bitcoin transaction must send to in order to
+	//transfer assets described in this address.
 	TaprootOutputKey []byte `protobuf:"bytes,9,opt,name=taproot_output_key,json=taprootOutputKey,proto3" json:"taproot_output_key,omitempty"`
 	// The address of the proof courier service used in proof transfer. For V2
 	// addresses the proof courier address is mandatory and must be a valid auth
@@ -4146,11 +4182,13 @@ func (x *Addr) GetAddressVersion() AddrVersion {
 
 type QueryAddrRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// If set, then only addresses created after this Unix timestamp will be
-	// returned.
+	//
+	//If set, then only addresses created after this Unix timestamp will be
+	//returned.
 	CreatedAfter int64 `protobuf:"varint,1,opt,name=created_after,json=createdAfter,proto3" json:"created_after,omitempty"`
-	// If set, then only addresses created before this Unix timestamp will be
-	// returned.
+	//
+	//If set, then only addresses created before this Unix timestamp will be
+	//returned.
 	CreatedBefore int64 `protobuf:"varint,2,opt,name=created_before,json=createdBefore,proto3" json:"created_before,omitempty"`
 	// The max number of addresses that should be returned.
 	Limit int32 `protobuf:"varint,3,opt,name=limit,proto3" json:"limit,omitempty"`
@@ -4265,46 +4303,56 @@ func (x *QueryAddrResponse) GetAddrs() []*Addr {
 
 type NewAddrRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The asset ID to create the address for. This is required for V0 and V1
-	// addresses. For V2 addresses, this field is optional and must be empty if the
-	// group key is set.
+	//
+	//The asset ID to create the address for. This is required for V0 and V1
+	//addresses. For V2 addresses, this field is optional and must be empty if the
+	//group key is set.
 	AssetId []byte `protobuf:"bytes,1,opt,name=asset_id,json=assetId,proto3" json:"asset_id,omitempty"`
-	// The number of asset units to be sent to the address. This is required for V0
-	// and V1 addresses. For V2 addresses, this field is optional and can be left
-	// at 0 to indicate that the sender can choose the amount of assets to send.
+	//
+	//The number of asset units to be sent to the address. This is required for V0
+	//and V1 addresses. For V2 addresses, this field is optional and can be left
+	//at 0 to indicate that the sender can choose the amount of assets to send.
 	Amt uint64 `protobuf:"varint,2,opt,name=amt,proto3" json:"amt,omitempty"`
-	// The optional script key that the receiving asset should be locked to. If no
-	// script key is provided, a normal BIP-86 key will be derived from the
-	// underlying wallet.
 	//
-	// NOTE: The script_key and internal_key fields should either both be set or
-	// both be empty.
+	//The optional script key that the receiving asset should be locked to. If no
+	//script key is provided, a normal BIP-86 key will be derived from the
+	//underlying wallet.
+	//
+	//NOTE: The script_key and internal_key fields should either both be set or
+	//both be empty.
 	ScriptKey *ScriptKey `protobuf:"bytes,3,opt,name=script_key,json=scriptKey,proto3" json:"script_key,omitempty"`
-	// The optional internal key of the receiving BTC level transaction output on
-	// which the receiving asset transfers will be committed to. If no internal key
-	// is provided, a key will be derived from the underlying wallet.
 	//
-	// NOTE: The script_key and internal_key fields should either both be set or
-	// both be empty.
+	//The optional internal key of the receiving BTC level transaction output on
+	//which the receiving asset transfers will be committed to. If no internal key
+	//is provided, a key will be derived from the underlying wallet.
+	//
+	//NOTE: The script_key and internal_key fields should either both be set or
+	//both be empty.
 	InternalKey *KeyDescriptor `protobuf:"bytes,4,opt,name=internal_key,json=internalKey,proto3" json:"internal_key,omitempty"`
-	// The optional serialized tapscript sibling preimage to use for the receiving
-	// asset. This is usually empty as it is only needed when there should be an
-	// additional script path in the Taproot tree alongside the Taproot Asset
-	// commitment of the asset.
+	//
+	//The optional serialized tapscript sibling preimage to use for the receiving
+	//asset. This is usually empty as it is only needed when there should be an
+	//additional script path in the Taproot tree alongside the Taproot Asset
+	//commitment of the asset.
 	TapscriptSibling []byte `protobuf:"bytes,5,opt,name=tapscript_sibling,json=tapscriptSibling,proto3" json:"tapscript_sibling,omitempty"`
-	// An optional proof courier address for use in proof transfer. If unspecified,
-	// the daemon configured default address will be used.
+	//
+	//An optional proof courier address for use in proof transfer. If unspecified,
+	//the daemon configured default address will be used.
 	ProofCourierAddr string `protobuf:"bytes,6,opt,name=proof_courier_addr,json=proofCourierAddr,proto3" json:"proof_courier_addr,omitempty"`
-	// The asset version to use when sending/receiving to/from this address.
+	//
+	//The asset version to use when sending/receiving to/from this address.
 	AssetVersion AssetVersion `protobuf:"varint,7,opt,name=asset_version,json=assetVersion,proto3,enum=taprpc.AssetVersion" json:"asset_version,omitempty"`
-	// The version of this address.
+	//
+	//The version of this address.
 	AddressVersion AddrVersion `protobuf:"varint,8,opt,name=address_version,json=addressVersion,proto3,enum=taprpc.AddrVersion" json:"address_version,omitempty"`
-	// The group key to receive assets for. This can only be specified for V2
-	// addresses. If this field is set, the asset_id field must be empty.
+	//
+	//The group key to receive assets for. This can only be specified for V2
+	//addresses. If this field is set, the asset_id field must be empty.
 	GroupKey []byte `protobuf:"bytes,9,opt,name=group_key,json=groupKey,proto3" json:"group_key,omitempty"`
-	// If set, the daemon skips the connectivity check to the proof courier service
-	// when creating an address. Connection checks currently apply only to certain
-	// address schemes. Use this to create addresses while offline.
+	//
+	//If set, the daemon skips the connectivity check to the proof courier service
+	//when creating an address. Connection checks currently apply only to certain
+	//address schemes. Use this to create addresses while offline.
 	SkipProofCourierConnCheck bool `protobuf:"varint,10,opt,name=skip_proof_courier_conn_check,json=skipProofCourierConnCheck,proto3" json:"skip_proof_courier_conn_check,omitempty"`
 	unknownFields             protoimpl.UnknownFields
 	sizeCache                 protoimpl.SizeCache
@@ -4496,20 +4544,24 @@ func (*ScriptKeyTypeQuery_AllTypes) isScriptKeyTypeQuery_Type() {}
 
 type ScriptKey struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The full Taproot output key the asset is locked to, as a
-	// 32-byte x-only (Schnorr) public key. This is either a
-	// BIP-86 key if the tap_tweak below is empty, or a key with
-	// the tap tweak applied to it.
+	//
+	//The full Taproot output key the asset is locked to, as a
+	//32-byte x-only (Schnorr) public key. This is either a
+	//BIP-86 key if the tap_tweak below is empty, or a key with
+	//the tap tweak applied to it.
 	PubKey []byte `protobuf:"bytes,1,opt,name=pub_key,json=pubKey,proto3" json:"pub_key,omitempty"`
-	// The key descriptor describing the internal key of the above Taproot key.
+	//
+	//The key descriptor describing the internal key of the above Taproot key.
 	KeyDesc *KeyDescriptor `protobuf:"bytes,2,opt,name=key_desc,json=keyDesc,proto3" json:"key_desc,omitempty"`
-	// The optional Taproot tweak to apply to the above internal key. If this is
-	// empty then a BIP-86 style tweak is applied to the internal key.
+	//
+	//The optional Taproot tweak to apply to the above internal key. If this is
+	//empty then a BIP-86 style tweak is applied to the internal key.
 	TapTweak []byte `protobuf:"bytes,3,opt,name=tap_tweak,json=tapTweak,proto3" json:"tap_tweak,omitempty"`
-	// The type of the script key. This type is either user-declared when custom
-	// script keys are added, or automatically determined by the daemon for
-	// standard operations (e.g. BIP-86 keys, burn keys, tombstone keys, channel
-	// related keys).
+	//
+	//The type of the script key. This type is either user-declared when custom
+	//script keys are added, or automatically determined by the daemon for
+	//standard operations (e.g. BIP-86 keys, burn keys, tombstone keys, channel
+	//related keys).
 	Type          ScriptKeyType `protobuf:"varint,4,opt,name=type,proto3,enum=taprpc.ScriptKeyType" json:"type,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -4575,9 +4627,11 @@ func (x *ScriptKey) GetType() ScriptKeyType {
 
 type KeyLocator struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The family of key being identified.
+	//
+	//The family of key being identified.
 	KeyFamily int32 `protobuf:"varint,1,opt,name=key_family,json=keyFamily,proto3" json:"key_family,omitempty"`
-	// The precise index of the key being identified.
+	//
+	//The precise index of the key being identified.
 	KeyIndex      int32 `protobuf:"varint,2,opt,name=key_index,json=keyIndex,proto3" json:"key_index,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -4629,9 +4683,11 @@ func (x *KeyLocator) GetKeyIndex() int32 {
 
 type KeyDescriptor struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The raw bytes of the key being identified.
+	//
+	//The raw bytes of the key being identified.
 	RawKeyBytes []byte `protobuf:"bytes,1,opt,name=raw_key_bytes,json=rawKeyBytes,proto3" json:"raw_key_bytes,omitempty"`
-	// The key locator that identifies which key to use for signing.
+	//
+	//The key locator that identifies which key to use for signing.
 	KeyLoc        *KeyLocator `protobuf:"bytes,2,opt,name=key_loc,json=keyLoc,proto3" json:"key_loc,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -4683,7 +4739,8 @@ func (x *KeyDescriptor) GetKeyLoc() *KeyLocator {
 
 type TapscriptFullTree struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The complete, ordered list of all tap leaves of the tree.
+	//
+	//The complete, ordered list of all tap leaves of the tree.
 	AllLeaves     []*TapLeaf `protobuf:"bytes,1,rep,name=all_leaves,json=allLeaves,proto3" json:"all_leaves,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -5450,17 +5507,21 @@ type AddrEvent struct {
 	Status AddrEventStatus `protobuf:"varint,3,opt,name=status,proto3,enum=taprpc.AddrEventStatus" json:"status,omitempty"`
 	// The outpoint that contains the inbound asset transfer.
 	Outpoint string `protobuf:"bytes,4,opt,name=outpoint,proto3" json:"outpoint,omitempty"`
-	// The amount in satoshis that were transferred on chain along with the asset.
-	// This amount is independent of the requested asset amount, which can be
-	// looked up on the address.
+	//
+	//The amount in satoshis that were transferred on chain along with the asset.
+	//This amount is independent of the requested asset amount, which can be
+	//looked up on the address.
 	UtxoAmtSat uint64 `protobuf:"varint,5,opt,name=utxo_amt_sat,json=utxoAmtSat,proto3" json:"utxo_amt_sat,omitempty"`
-	// The taproot sibling hash that was used to send to the Taproot output.
+	//
+	//The taproot sibling hash that was used to send to the Taproot output.
 	TaprootSibling []byte `protobuf:"bytes,6,opt,name=taproot_sibling,json=taprootSibling,proto3" json:"taproot_sibling,omitempty"`
-	// The height at which the on-chain output was confirmed. If this is zero, it
-	// means the output is unconfirmed.
+	//
+	//The height at which the on-chain output was confirmed. If this is zero, it
+	//means the output is unconfirmed.
 	ConfirmationHeight uint32 `protobuf:"varint,7,opt,name=confirmation_height,json=confirmationHeight,proto3" json:"confirmation_height,omitempty"`
-	// Indicates whether a proof file can be found for the address' asset ID and
-	// script key.
+	//
+	//Indicates whether a proof file can be found for the address' asset ID and
+	//script key.
 	HasProof      bool `protobuf:"varint,8,opt,name=has_proof,json=hasProof,proto3" json:"has_proof,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -6238,29 +6299,36 @@ func (*FetchAssetMetaRequest_MetaHashStr) isFetchAssetMetaRequest_Asset() {}
 
 type FetchAssetMetaResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The raw data of the asset meta data. Based on the type below, this may be
-	// structured data such as a text file or PDF. The size of the data is limited
-	// to 1MiB.
+	//
+	//The raw data of the asset meta data. Based on the type below, this may be
+	//structured data such as a text file or PDF. The size of the data is limited
+	//to 1MiB.
 	Data []byte `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
 	// The type of the asset meta data.
 	Type AssetMetaType `protobuf:"varint,2,opt,name=type,proto3,enum=taprpc.AssetMetaType" json:"type,omitempty"`
-	// The hash of the meta. This is the hash of the TLV serialization of the meta
-	// itself.
+	//
+	//The hash of the meta. This is the hash of the TLV serialization of the meta
+	//itself.
 	MetaHash []byte `protobuf:"bytes,3,opt,name=meta_hash,json=metaHash,proto3" json:"meta_hash,omitempty"`
-	// A map of unknown odd TLV types that were encountered during asset meta data
-	// decoding.
+	//
+	//A map of unknown odd TLV types that were encountered during asset meta data
+	//decoding.
 	UnknownOddTypes map[uint64][]byte `protobuf:"bytes,4,rep,name=unknown_odd_types,json=unknownOddTypes,proto3" json:"unknown_odd_types,omitempty" protobuf_key:"varint,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	// The decimal display value of the asset. This is used to determine the number
-	// of decimal places to display when presenting the asset amount to the user.
+	//
+	//The decimal display value of the asset. This is used to determine the number
+	//of decimal places to display when presenting the asset amount to the user.
 	DecimalDisplay uint32 `protobuf:"varint,5,opt,name=decimal_display,json=decimalDisplay,proto3" json:"decimal_display,omitempty"`
-	// Boolean flag indicating whether the asset-group issuer publishes
-	// universe-supply commitments to the canonical universe set.
+	//
+	//Boolean flag indicating whether the asset-group issuer publishes
+	//universe-supply commitments to the canonical universe set.
 	UniverseCommitments bool `protobuf:"varint,6,opt,name=universe_commitments,json=universeCommitments,proto3" json:"universe_commitments,omitempty"`
-	// List of canonical universe URLs where the asset-group issuer publishes
-	// asset-related proofs.
+	//
+	//List of canonical universe URLs where the asset-group issuer publishes
+	//asset-related proofs.
 	CanonicalUniverseUrls []string `protobuf:"bytes,7,rep,name=canonical_universe_urls,json=canonicalUniverseUrls,proto3" json:"canonical_universe_urls,omitempty"`
-	// The public key that is used to verify universe supply commitment related
-	// on-chain outputs and proofs.
+	//
+	//The public key that is used to verify universe supply commitment related
+	//on-chain outputs and proofs.
 	DelegationKey []byte `protobuf:"bytes,8,opt,name=delegation_key,json=delegationKey,proto3" json:"delegation_key,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -7118,18 +7186,23 @@ type AnchorTransaction struct {
 	// The on-chain anchor transaction PSBT packet that was created by the
 	// daemon.
 	AnchorPsbt []byte `protobuf:"bytes,1,opt,name=anchor_psbt,json=anchorPsbt,proto3" json:"anchor_psbt,omitempty"`
-	// The index of the (added) change output or -1 if no change was left over.
+	//
+	//The index of the (added) change output or -1 if no change was left over.
 	ChangeOutputIndex int32 `protobuf:"varint,2,opt,name=change_output_index,json=changeOutputIndex,proto3" json:"change_output_index,omitempty"`
-	// The total number of satoshis in on-chain fees paid by the anchor
-	// transaction.
+	//
+	//The total number of satoshis in on-chain fees paid by the anchor
+	//transaction.
 	ChainFeesSats int64 `protobuf:"varint,3,opt,name=chain_fees_sats,json=chainFeesSats,proto3" json:"chain_fees_sats,omitempty"`
-	// The fee rate in sat/kWU that was targeted by the anchor transaction.
+	//
+	//The fee rate in sat/kWU that was targeted by the anchor transaction.
 	TargetFeeRateSatKw int32 `protobuf:"varint,4,opt,name=target_fee_rate_sat_kw,json=targetFeeRateSatKw,proto3" json:"target_fee_rate_sat_kw,omitempty"`
-	// The list of UTXO lock leases that were acquired for the inputs in the funded
-	// PSBT packet from lnd. Only inputs added to the PSBT by this RPC are locked,
-	// inputs that were already present in the PSBT are not locked.
+	//
+	//The list of UTXO lock leases that were acquired for the inputs in the funded
+	//PSBT packet from lnd. Only inputs added to the PSBT by this RPC are locked,
+	//inputs that were already present in the PSBT are not locked.
 	LndLockedUtxos []*OutPoint `protobuf:"bytes,5,rep,name=lnd_locked_utxos,json=lndLockedUtxos,proto3" json:"lnd_locked_utxos,omitempty"`
-	// The final, signed anchor transaction that was broadcast to the network.
+	//
+	//The final, signed anchor transaction that was broadcast to the network.
 	FinalTx       []byte `protobuf:"bytes,6,opt,name=final_tx,json=finalTx,proto3" json:"final_tx,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -7382,10 +7455,12 @@ type BakeMacaroonRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The list of permissions the new macaroon should grant.
 	Permissions []*MacaroonPermission `protobuf:"bytes,1,rep,name=permissions,proto3" json:"permissions,omitempty"`
-	// The root key ID used to create the macaroon, must be a non-negative integer.
+	//
+	//The root key ID used to create the macaroon, must be a non-negative integer.
 	RootKeyId uint64 `protobuf:"varint,2,opt,name=root_key_id,json=rootKeyId,proto3" json:"root_key_id,omitempty"`
-	// Informs the RPC on whether to allow external permissions that tapd is not
-	// aware of.
+	//
+	//Informs the RPC on whether to allow external permissions that tapd is not
+	//aware of.
 	AllowExternalPermissions bool `protobuf:"varint,3,opt,name=allow_external_permissions,json=allowExternalPermissions,proto3" json:"allow_external_permissions,omitempty"`
 	unknownFields            protoimpl.UnknownFields
 	sizeCache                protoimpl.SizeCache

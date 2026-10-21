@@ -20,6 +20,11 @@ SHUFFLE_SEED = 0
 RACE_GCFLAGS = -gcflags='modernc.org/...=-race=false' \
 	-gcflags='github.com/decred/dcrd/dcrec/secp256k1/...=-race=false'
 
+# Race builds disable size-specialized malloc. Its allocation routines,
+# called only from packages built without race instrumentation, do not
+# register allocations with the race detector.
+unit-race unit-race-parallel: export GOEXPERIMENT = nosizespecializedmalloc
+
 GOLIST := go list -tags="$(DEV_TAGS)" -deps $(PKG)/... | grep '$(PKG)'| grep -v '/vendor/'
 GOLISTCOVER := $(shell go list -tags="$(DEV_TAGS)" -deps -f '{{.ImportPath}}' ./... | grep '$(PKG)' | sed -e 's/^$(ESCPKG)/./')
 

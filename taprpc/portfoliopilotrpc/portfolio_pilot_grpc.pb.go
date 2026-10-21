@@ -18,15 +18,18 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type PortfolioPilotClient interface {
-	// ResolveRequest resolves a quote request by returning either an accepted
-	// asset rate or a rejection reason.
+	//
+	//ResolveRequest resolves a quote request by returning either an accepted
+	//asset rate or a rejection reason.
 	ResolveRequest(ctx context.Context, in *ResolveRequestRequest, opts ...grpc.CallOption) (*ResolveRequestResponse, error)
-	// VerifyAcceptQuote verifies that an accepted quote from a peer meets
-	// acceptable conditions.
+	//
+	//VerifyAcceptQuote verifies that an accepted quote from a peer meets
+	//acceptable conditions.
 	VerifyAcceptQuote(ctx context.Context, in *VerifyAcceptQuoteRequest, opts ...grpc.CallOption) (*VerifyAcceptQuoteResponse, error)
-	// QueryAssetRates returns current asset rate information for a given asset
-	// and direction. This can be used for rate discovery, outgoing RFQ request
-	// construction, or general pricing information.
+	//
+	//QueryAssetRates returns current asset rate information for a given asset
+	//and direction. This can be used for rate discovery, outgoing RFQ request
+	//construction, or general pricing information.
 	QueryAssetRates(ctx context.Context, in *QueryAssetRatesRequest, opts ...grpc.CallOption) (*QueryAssetRatesResponse, error)
 }
 
@@ -69,15 +72,18 @@ func (c *portfolioPilotClient) QueryAssetRates(ctx context.Context, in *QueryAss
 // All implementations must embed UnimplementedPortfolioPilotServer
 // for forward compatibility
 type PortfolioPilotServer interface {
-	// ResolveRequest resolves a quote request by returning either an accepted
-	// asset rate or a rejection reason.
+	//
+	//ResolveRequest resolves a quote request by returning either an accepted
+	//asset rate or a rejection reason.
 	ResolveRequest(context.Context, *ResolveRequestRequest) (*ResolveRequestResponse, error)
-	// VerifyAcceptQuote verifies that an accepted quote from a peer meets
-	// acceptable conditions.
+	//
+	//VerifyAcceptQuote verifies that an accepted quote from a peer meets
+	//acceptable conditions.
 	VerifyAcceptQuote(context.Context, *VerifyAcceptQuoteRequest) (*VerifyAcceptQuoteResponse, error)
-	// QueryAssetRates returns current asset rate information for a given asset
-	// and direction. This can be used for rate discovery, outgoing RFQ request
-	// construction, or general pricing information.
+	//
+	//QueryAssetRates returns current asset rate information for a given asset
+	//and direction. This can be used for rate discovery, outgoing RFQ request
+	//construction, or general pricing information.
 	QueryAssetRates(context.Context, *QueryAssetRatesRequest) (*QueryAssetRatesResponse, error)
 	mustEmbedUnimplementedPortfolioPilotServer()
 }

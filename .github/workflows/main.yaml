@@ -20,7 +20,7 @@ env:
   # Go needs absolute directories; using the $HOME variable doesn't work here.
   GOPATH: /home/runner/work/go
 
-  GO_VERSION: '1.26.3'
+  GO_VERSION: '1.27.3'
 
   # Number of parallel itest jobs in the matrix and tranches per job.
   # Total tranches = NUM_ITEST_JOBS * ITEST_PARALLELISM.
@@ -249,7 +249,7 @@ jobs:
       - name: run golangci-lint
         uses: golangci/golangci-lint-action@v7
         with:
-          version: v2.10.1
+          version: v2.15.0
 
       - name: check Go version in Dockerfiles
         run: make check-go-version-dockerfile

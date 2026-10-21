@@ -19,72 +19,84 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type AssetWalletClient interface {
-	// FundVirtualPsbt selects inputs from the available asset commitments to fund
-	// a virtual transaction matching the template.
+	//
+	//FundVirtualPsbt selects inputs from the available asset commitments to fund
+	//a virtual transaction matching the template.
 	FundVirtualPsbt(ctx context.Context, in *FundVirtualPsbtRequest, opts ...grpc.CallOption) (*FundVirtualPsbtResponse, error)
-	// SignVirtualPsbt signs the inputs of a virtual transaction and prepares the
-	// commitments of the inputs and outputs.
+	//
+	//SignVirtualPsbt signs the inputs of a virtual transaction and prepares the
+	//commitments of the inputs and outputs.
 	SignVirtualPsbt(ctx context.Context, in *SignVirtualPsbtRequest, opts ...grpc.CallOption) (*SignVirtualPsbtResponse, error)
-	// AnchorVirtualPsbts merges and then commits multiple virtual transactions in
-	// a single BTC level anchor transaction. This RPC should be used if the BTC
-	// level anchor transaction of the assets to be spent are encumbered by a
-	// normal key and don't require any special spending conditions. For any custom
-	// spending conditions on the BTC level, the two RPCs CommitVirtualPsbts and
-	// PublishAndLogTransfer should be used instead (which in combination do the
-	// same as this RPC but allow for more flexibility).
+	//
+	//AnchorVirtualPsbts merges and then commits multiple virtual transactions in
+	//a single BTC level anchor transaction. This RPC should be used if the BTC
+	//level anchor transaction of the assets to be spent are encumbered by a
+	//normal key and don't require any special spending conditions. For any custom
+	//spending conditions on the BTC level, the two RPCs CommitVirtualPsbts and
+	//PublishAndLogTransfer should be used instead (which in combination do the
+	//same as this RPC but allow for more flexibility).
 	AnchorVirtualPsbts(ctx context.Context, in *AnchorVirtualPsbtsRequest, opts ...grpc.CallOption) (*taprpc.SendAssetResponse, error)
-	// CommitVirtualPsbts creates the output commitments and proofs for the given
-	// virtual transactions by committing them to the BTC level anchor transaction.
-	// In addition, the BTC level anchor transaction is funded and prepared up to
-	// the point where it is ready to be signed.
+	//
+	//CommitVirtualPsbts creates the output commitments and proofs for the given
+	//virtual transactions by committing them to the BTC level anchor transaction.
+	//In addition, the BTC level anchor transaction is funded and prepared up to
+	//the point where it is ready to be signed.
 	CommitVirtualPsbts(ctx context.Context, in *CommitVirtualPsbtsRequest, opts ...grpc.CallOption) (*CommitVirtualPsbtsResponse, error)
-	// PublishAndLogTransfer accepts a fully committed and signed anchor
-	// transaction and publishes it to the Bitcoin network. It also logs the
-	// transfer of the given active and passive assets in the database and ships
-	// any outgoing proofs to the counterparties.
+	//
+	//PublishAndLogTransfer accepts a fully committed and signed anchor
+	//transaction and publishes it to the Bitcoin network. It also logs the
+	//transfer of the given active and passive assets in the database and ships
+	//any outgoing proofs to the counterparties.
 	PublishAndLogTransfer(ctx context.Context, in *PublishAndLogRequest, opts ...grpc.CallOption) (*taprpc.SendAssetResponse, error)
-	// NextInternalKey derives the next internal key for the given key family and
-	// stores it as an internal key in the database to make sure it is identified
-	// as a local key later on when importing proofs. While an internal key can
-	// also be used as the internal key of a script key, it is recommended to use
-	// the NextScriptKey RPC instead, to make sure the tweaked Taproot output key
-	// is also recognized as a local key.
+	//
+	//NextInternalKey derives the next internal key for the given key family and
+	//stores it as an internal key in the database to make sure it is identified
+	//as a local key later on when importing proofs. While an internal key can
+	//also be used as the internal key of a script key, it is recommended to use
+	//the NextScriptKey RPC instead, to make sure the tweaked Taproot output key
+	//is also recognized as a local key.
 	NextInternalKey(ctx context.Context, in *NextInternalKeyRequest, opts ...grpc.CallOption) (*NextInternalKeyResponse, error)
-	// NextScriptKey derives the next script key (and its corresponding internal
-	// key) and stores them both in the database to make sure they are identified
-	// as local keys later on when importing proofs.
+	//
+	//NextScriptKey derives the next script key (and its corresponding internal
+	//key) and stores them both in the database to make sure they are identified
+	//as local keys later on when importing proofs.
 	NextScriptKey(ctx context.Context, in *NextScriptKeyRequest, opts ...grpc.CallOption) (*NextScriptKeyResponse, error)
-	// QueryInternalKey returns the key descriptor for the given internal key.
+	//
+	//QueryInternalKey returns the key descriptor for the given internal key.
 	QueryInternalKey(ctx context.Context, in *QueryInternalKeyRequest, opts ...grpc.CallOption) (*QueryInternalKeyResponse, error)
-	// QueryScriptKey returns the full script key descriptor for the given tweaked
-	// script key.
+	//
+	//QueryScriptKey returns the full script key descriptor for the given tweaked
+	//script key.
 	QueryScriptKey(ctx context.Context, in *QueryScriptKeyRequest, opts ...grpc.CallOption) (*QueryScriptKeyResponse, error)
 	// tapcli: `proofs proveownership`
-	// ProveAssetOwnership creates an ownership proof embedded in an asset
-	// transition proof. That ownership proof is a signed virtual transaction
-	// spending the asset with a valid witness to prove the prover owns the keys
-	// that can spend the asset.
+	//ProveAssetOwnership creates an ownership proof embedded in an asset
+	//transition proof. That ownership proof is a signed virtual transaction
+	//spending the asset with a valid witness to prove the prover owns the keys
+	//that can spend the asset.
 	ProveAssetOwnership(ctx context.Context, in *ProveAssetOwnershipRequest, opts ...grpc.CallOption) (*ProveAssetOwnershipResponse, error)
 	// tapcli: `proofs verifyownership`
-	// VerifyAssetOwnership verifies the asset ownership proof embedded in the
-	// given transition proof of an asset and returns true if the proof is valid.
+	//VerifyAssetOwnership verifies the asset ownership proof embedded in the
+	//given transition proof of an asset and returns true if the proof is valid.
 	VerifyAssetOwnership(ctx context.Context, in *VerifyAssetOwnershipRequest, opts ...grpc.CallOption) (*VerifyAssetOwnershipResponse, error)
 	// `tapcli: assets removelease`
-	// RemoveUTXOLease removes the lease/lock/reservation of the given managed
-	// UTXO.
+	//RemoveUTXOLease removes the lease/lock/reservation of the given managed
+	//UTXO.
 	RemoveUTXOLease(ctx context.Context, in *RemoveUTXOLeaseRequest, opts ...grpc.CallOption) (*RemoveUTXOLeaseResponse, error)
-	// DeclareScriptKey declares a new script key to the wallet. This is useful
-	// when the script key contains scripts, which would mean it wouldn't be
-	// recognized by the wallet automatically. Declaring a script key will make any
-	// assets sent to the script key be recognized as being local assets.
+	//
+	//DeclareScriptKey declares a new script key to the wallet. This is useful
+	//when the script key contains scripts, which would mean it wouldn't be
+	//recognized by the wallet automatically. Declaring a script key will make any
+	//assets sent to the script key be recognized as being local assets.
 	DeclareScriptKey(ctx context.Context, in *DeclareScriptKeyRequest, opts ...grpc.CallOption) (*DeclareScriptKeyResponse, error)
-	// ExportAssetWalletBackup exports a backup of all active assets in the wallet.
-	// The backup includes all data necessary to restore the assets in case of
-	// database or system failure.
+	//
+	//ExportAssetWalletBackup exports a backup of all active assets in the wallet.
+	//The backup includes all data necessary to restore the assets in case of
+	//database or system failure.
 	ExportAssetWalletBackup(ctx context.Context, in *ExportAssetWalletBackupRequest, opts ...grpc.CallOption) (*ExportAssetWalletBackupResponse, error)
-	// ImportAssetsFromBackup imports assets from a backup blob that was previously
-	// created using ExportAssetWalletBackup. This can be used to restore assets
-	// after database loss or to migrate assets to a new wallet.
+	//
+	//ImportAssetsFromBackup imports assets from a backup blob that was previously
+	//created using ExportAssetWalletBackup. This can be used to restore assets
+	//after database loss or to migrate assets to a new wallet.
 	ImportAssetsFromBackup(ctx context.Context, in *ImportAssetsFromBackupRequest, opts ...grpc.CallOption) (*ImportAssetsFromBackupResponse, error)
 }
 
@@ -235,72 +247,84 @@ func (c *assetWalletClient) ImportAssetsFromBackup(ctx context.Context, in *Impo
 // All implementations must embed UnimplementedAssetWalletServer
 // for forward compatibility
 type AssetWalletServer interface {
-	// FundVirtualPsbt selects inputs from the available asset commitments to fund
-	// a virtual transaction matching the template.
+	//
+	//FundVirtualPsbt selects inputs from the available asset commitments to fund
+	//a virtual transaction matching the template.
 	FundVirtualPsbt(context.Context, *FundVirtualPsbtRequest) (*FundVirtualPsbtResponse, error)
-	// SignVirtualPsbt signs the inputs of a virtual transaction and prepares the
-	// commitments of the inputs and outputs.
+	//
+	//SignVirtualPsbt signs the inputs of a virtual transaction and prepares the
+	//commitments of the inputs and outputs.
 	SignVirtualPsbt(context.Context, *SignVirtualPsbtRequest) (*SignVirtualPsbtResponse, error)
-	// AnchorVirtualPsbts merges and then commits multiple virtual transactions in
-	// a single BTC level anchor transaction. This RPC should be used if the BTC
-	// level anchor transaction of the assets to be spent are encumbered by a
-	// normal key and don't require any special spending conditions. For any custom
-	// spending conditions on the BTC level, the two RPCs CommitVirtualPsbts and
-	// PublishAndLogTransfer should be used instead (which in combination do the
-	// same as this RPC but allow for more flexibility).
+	//
+	//AnchorVirtualPsbts merges and then commits multiple virtual transactions in
+	//a single BTC level anchor transaction. This RPC should be used if the BTC
+	//level anchor transaction of the assets to be spent are encumbered by a
+	//normal key and don't require any special spending conditions. For any custom
+	//spending conditions on the BTC level, the two RPCs CommitVirtualPsbts and
+	//PublishAndLogTransfer should be used instead (which in combination do the
+	//same as this RPC but allow for more flexibility).
 	AnchorVirtualPsbts(context.Context, *AnchorVirtualPsbtsRequest) (*taprpc.SendAssetResponse, error)
-	// CommitVirtualPsbts creates the output commitments and proofs for the given
-	// virtual transactions by committing them to the BTC level anchor transaction.
-	// In addition, the BTC level anchor transaction is funded and prepared up to
-	// the point where it is ready to be signed.
+	//
+	//CommitVirtualPsbts creates the output commitments and proofs for the given
+	//virtual transactions by committing them to the BTC level anchor transaction.
+	//In addition, the BTC level anchor transaction is funded and prepared up to
+	//the point where it is ready to be signed.
 	CommitVirtualPsbts(context.Context, *CommitVirtualPsbtsRequest) (*CommitVirtualPsbtsResponse, error)
-	// PublishAndLogTransfer accepts a fully committed and signed anchor
-	// transaction and publishes it to the Bitcoin network. It also logs the
-	// transfer of the given active and passive assets in the database and ships
-	// any outgoing proofs to the counterparties.
+	//
+	//PublishAndLogTransfer accepts a fully committed and signed anchor
+	//transaction and publishes it to the Bitcoin network. It also logs the
+	//transfer of the given active and passive assets in the database and ships
+	//any outgoing proofs to the counterparties.
 	PublishAndLogTransfer(context.Context, *PublishAndLogRequest) (*taprpc.SendAssetResponse, error)
-	// NextInternalKey derives the next internal key for the given key family and
-	// stores it as an internal key in the database to make sure it is identified
-	// as a local key later on when importing proofs. While an internal key can
-	// also be used as the internal key of a script key, it is recommended to use
-	// the NextScriptKey RPC instead, to make sure the tweaked Taproot output key
-	// is also recognized as a local key.
+	//
+	//NextInternalKey derives the next internal key for the given key family and
+	//stores it as an internal key in the database to make sure it is identified
+	//as a local key later on when importing proofs. While an internal key can
+	//also be used as the internal key of a script key, it is recommended to use
+	//the NextScriptKey RPC instead, to make sure the tweaked Taproot output key
+	//is also recognized as a local key.
 	NextInternalKey(context.Context, *NextInternalKeyRequest) (*NextInternalKeyResponse, error)
-	// NextScriptKey derives the next script key (and its corresponding internal
-	// key) and stores them both in the database to make sure they are identified
-	// as local keys later on when importing proofs.
+	//
+	//NextScriptKey derives the next script key (and its corresponding internal
+	//key) and stores them both in the database to make sure they are identified
+	//as local keys later on when importing proofs.
 	NextScriptKey(context.Context, *NextScriptKeyRequest) (*NextScriptKeyResponse, error)
-	// QueryInternalKey returns the key descriptor for the given internal key.
+	//
+	//QueryInternalKey returns the key descriptor for the given internal key.
 	QueryInternalKey(context.Context, *QueryInternalKeyRequest) (*QueryInternalKeyResponse, error)
-	// QueryScriptKey returns the full script key descriptor for the given tweaked
-	// script key.
+	//
+	//QueryScriptKey returns the full script key descriptor for the given tweaked
+	//script key.
 	QueryScriptKey(context.Context, *QueryScriptKeyRequest) (*QueryScriptKeyResponse, error)
 	// tapcli: `proofs proveownership`
-	// ProveAssetOwnership creates an ownership proof embedded in an asset
-	// transition proof. That ownership proof is a signed virtual transaction
-	// spending the asset with a valid witness to prove the prover owns the keys
-	// that can spend the asset.
+	//ProveAssetOwnership creates an ownership proof embedded in an asset
+	//transition proof. That ownership proof is a signed virtual transaction
+	//spending the asset with a valid witness to prove the prover owns the keys
+	//that can spend the asset.
 	ProveAssetOwnership(context.Context, *ProveAssetOwnershipRequest) (*ProveAssetOwnershipResponse, error)
 	// tapcli: `proofs verifyownership`
-	// VerifyAssetOwnership verifies the asset ownership proof embedded in the
-	// given transition proof of an asset and returns true if the proof is valid.
+	//VerifyAssetOwnership verifies the asset ownership proof embedded in the
+	//given transition proof of an asset and returns true if the proof is valid.
 	VerifyAssetOwnership(context.Context, *VerifyAssetOwnershipRequest) (*VerifyAssetOwnershipResponse, error)
 	// `tapcli: assets removelease`
-	// RemoveUTXOLease removes the lease/lock/reservation of the given managed
-	// UTXO.
+	//RemoveUTXOLease removes the lease/lock/reservation of the given managed
+	//UTXO.
 	RemoveUTXOLease(context.Context, *RemoveUTXOLeaseRequest) (*RemoveUTXOLeaseResponse, error)
-	// DeclareScriptKey declares a new script key to the wallet. This is useful
-	// when the script key contains scripts, which would mean it wouldn't be
-	// recognized by the wallet automatically. Declaring a script key will make any
-	// assets sent to the script key be recognized as being local assets.
+	//
+	//DeclareScriptKey declares a new script key to the wallet. This is useful
+	//when the script key contains scripts, which would mean it wouldn't be
+	//recognized by the wallet automatically. Declaring a script key will make any
+	//assets sent to the script key be recognized as being local assets.
 	DeclareScriptKey(context.Context, *DeclareScriptKeyRequest) (*DeclareScriptKeyResponse, error)
-	// ExportAssetWalletBackup exports a backup of all active assets in the wallet.
-	// The backup includes all data necessary to restore the assets in case of
-	// database or system failure.
+	//
+	//ExportAssetWalletBackup exports a backup of all active assets in the wallet.
+	//The backup includes all data necessary to restore the assets in case of
+	//database or system failure.
 	ExportAssetWalletBackup(context.Context, *ExportAssetWalletBackupRequest) (*ExportAssetWalletBackupResponse, error)
-	// ImportAssetsFromBackup imports assets from a backup blob that was previously
-	// created using ExportAssetWalletBackup. This can be used to restore assets
-	// after database loss or to migrate assets to a new wallet.
+	//
+	//ImportAssetsFromBackup imports assets from a backup blob that was previously
+	//created using ExportAssetWalletBackup. This can be used to restore assets
+	//after database loss or to migrate assets to a new wallet.
 	ImportAssetsFromBackup(context.Context, *ImportAssetsFromBackupRequest) (*ImportAssetsFromBackupResponse, error)
 	mustEmbedUnimplementedAssetWalletServer()
 }

@@ -25,14 +25,17 @@ const (
 type CoinSelectType int32
 
 const (
-	// Use the default coin selection type, which currently allows script keys and
-	// key spend paths.
+	//
+	//Use the default coin selection type, which currently allows script keys and
+	//key spend paths.
 	CoinSelectType_COIN_SELECT_DEFAULT CoinSelectType = 0
-	// Explicitly only select inputs that are known to be BIP-086 compliant (have
-	// a key-spend path only and no script tree).
+	//
+	//Explicitly only select inputs that are known to be BIP-086 compliant (have
+	//a key-spend path only and no script tree).
 	CoinSelectType_COIN_SELECT_BIP86_ONLY CoinSelectType = 1
-	// Allow the selection of inputs that have a script tree spend path as well as
-	// a key spend path.
+	//
+	//Allow the selection of inputs that have a script tree spend path as well as
+	//a key spend path.
 	CoinSelectType_COIN_SELECT_SCRIPT_TREES_ALLOWED CoinSelectType = 2
 )
 
@@ -80,12 +83,14 @@ func (CoinSelectType) EnumDescriptor() ([]byte, []int) {
 type TransitionProofVersion int32
 
 const (
-	// The first version of the state transition proof. As the zero value of
-	// this enum it is also what an unset field carries, so selecting it
-	// applies the daemon's default proof version rather than V0.
+	//
+	//The first version of the state transition proof. As the zero value of
+	//this enum it is also what an unset field carries, so selecting it
+	//applies the daemon's default proof version rather than V0.
 	TransitionProofVersion_TRANSITION_PROOF_VERSION_V0 TransitionProofVersion = 0
-	// The second version of the state transition proof. This version adds spent
-	// transaction output (STXO) inclusion and exclusion proofs.
+	//
+	//The second version of the state transition proof. This version adds spent
+	//transaction output (STXO) inclusion and exclusion proofs.
 	TransitionProofVersion_TRANSITION_PROOF_VERSION_V1 TransitionProofVersion = 1
 )
 
@@ -192,8 +197,9 @@ type FundVirtualPsbtRequest struct {
 	//	*FundVirtualPsbtRequest_Psbt
 	//	*FundVirtualPsbtRequest_Raw
 	Template isFundVirtualPsbtRequest_Template `protobuf_oneof:"template"`
-	// Specify the type of coins that should be selected. Defaults to allowing both
-	// script trees and BIP-086 compliant inputs.
+	//
+	//Specify the type of coins that should be selected. Defaults to allowing both
+	//script trees and BIP-086 compliant inputs.
 	CoinSelectType CoinSelectType `protobuf:"varint,3,opt,name=coin_select_type,json=coinSelectType,proto3,enum=assetwalletrpc.CoinSelectType" json:"coin_select_type,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
@@ -266,12 +272,14 @@ type isFundVirtualPsbtRequest_Template interface {
 }
 
 type FundVirtualPsbtRequest_Psbt struct {
-	// Use an existing PSBT packet as the template for the funded PSBT.
+	//
+	//Use an existing PSBT packet as the template for the funded PSBT.
 	Psbt []byte `protobuf:"bytes,1,opt,name=psbt,proto3,oneof"`
 }
 
 type FundVirtualPsbtRequest_Raw struct {
-	// Use the asset outputs and optional asset inputs from this raw template.
+	//
+	//Use the asset outputs and optional asset inputs from this raw template.
 	Raw *TxTemplate `protobuf:"bytes,2,opt,name=raw,proto3,oneof"`
 }
 
@@ -281,20 +289,23 @@ func (*FundVirtualPsbtRequest_Raw) isFundVirtualPsbtRequest_Template() {}
 
 type FundVirtualPsbtResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The funded but not yet signed virtual PSBT packet.
+	//
+	//The funded but not yet signed virtual PSBT packet.
 	FundedPsbt []byte `protobuf:"bytes,1,opt,name=funded_psbt,json=fundedPsbt,proto3" json:"funded_psbt,omitempty"`
-	// The index of the added change output or -1 if no change was left over.
+	//
+	//The index of the added change output or -1 if no change was left over.
 	ChangeOutputIndex int32 `protobuf:"varint,2,opt,name=change_output_index,json=changeOutputIndex,proto3" json:"change_output_index,omitempty"`
-	// The list of passive virtual transactions that are anchored in the same BTC
-	// level anchor transaction inputs as the funded "active" asset above. These
-	// assets can be ignored when using the AnchorVirtualPsbts RPC, since they are
-	// retrieved, signed and committed automatically in that method. But the
-	// passive assets have to be included in the CommitVirtualPsbts RPC which is
-	// used when custom BTC level anchor transactions are created.
-	// The main difference to the "active" asset above is that the passive assets
-	// will not get their own entry in the transfer table of the database, since
-	// they are just carried along and not directly affected by the direct user
-	// action.
+	//
+	//The list of passive virtual transactions that are anchored in the same BTC
+	//level anchor transaction inputs as the funded "active" asset above. These
+	//assets can be ignored when using the AnchorVirtualPsbts RPC, since they are
+	//retrieved, signed and committed automatically in that method. But the
+	//passive assets have to be included in the CommitVirtualPsbts RPC which is
+	//used when custom BTC level anchor transactions are created.
+	//The main difference to the "active" asset above is that the passive assets
+	//will not get their own entry in the transfer table of the database, since
+	//they are just carried along and not directly affected by the direct user
+	//action.
 	PassiveAssetPsbts [][]byte `protobuf:"bytes,3,rep,name=passive_asset_psbts,json=passiveAssetPsbts,proto3" json:"passive_asset_psbts,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
@@ -353,26 +364,29 @@ func (x *FundVirtualPsbtResponse) GetPassiveAssetPsbts() [][]byte {
 
 type TxTemplate struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// An optional list of inputs to use. Every input must be an asset UTXO known
-	// to the wallet. The sum of all inputs must be greater than or equal to the
-	// sum of all outputs.
 	//
-	// If no inputs are specified, asset coin selection will be performed instead
-	// and inputs of sufficient value will be added to the resulting PSBT.
+	//An optional list of inputs to use. Every input must be an asset UTXO known
+	//to the wallet. The sum of all inputs must be greater than or equal to the
+	//sum of all outputs.
+	//
+	//If no inputs are specified, asset coin selection will be performed instead
+	//and inputs of sufficient value will be added to the resulting PSBT.
 	Inputs []*PrevId `protobuf:"bytes,1,rep,name=inputs,proto3" json:"inputs,omitempty"`
-	// DEPRECATED: A map of all Taproot Asset addresses that should be sent to.
-	// The keys are the Taproot Asset addresses in human-readable form, and the
-	// values are IGNORED and should not be set (use the addresses_with_amounts
-	// field below instead). The recipients map and addresses_with_amounts list
-	// are mutually exclusive, meaning that if addresses_with_amounts is set, then
-	// recipients must be empty, and vice versa.
+	//
+	//DEPRECATED: A map of all Taproot Asset addresses that should be sent to.
+	//The keys are the Taproot Asset addresses in human-readable form, and the
+	//values are IGNORED and should not be set (use the addresses_with_amounts
+	//field below instead). The recipients map and addresses_with_amounts list
+	//are mutually exclusive, meaning that if addresses_with_amounts is set, then
+	//recipients must be empty, and vice versa.
 	Recipients map[string]uint64 `protobuf:"bytes,2,rep,name=recipients,proto3" json:"recipients,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
-	// A list of addresses and the amounts of asset units to send to them. This
-	// must be used for V2 TAP addresses that don't specify an amount in the
-	// address itself and allow the sender to choose the amount to send. The
-	// recipients and addresses_with_amounts lists are mutually exclusive,
-	// meaning that if addresses_with_amounts is set, then recipients must be
-	// empty, and vice versa.
+	//
+	//A list of addresses and the amounts of asset units to send to them. This
+	//must be used for V2 TAP addresses that don't specify an amount in the
+	//address itself and allow the sender to choose the amount to send. The
+	//recipients and addresses_with_amounts lists are mutually exclusive,
+	//meaning that if addresses_with_amounts is set, then recipients must be
+	//empty, and vice versa.
 	AddressesWithAmounts []*taprpc.AddressWithAmount `protobuf:"bytes,3,rep,name=addresses_with_amounts,json=addressesWithAmounts,proto3" json:"addresses_with_amounts,omitempty"`
 	unknownFields        protoimpl.UnknownFields
 	sizeCache            protoimpl.SizeCache
@@ -431,12 +445,15 @@ func (x *TxTemplate) GetAddressesWithAmounts() []*taprpc.AddressWithAmount {
 
 type PrevId struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The bitcoin anchor output on chain that contains the input asset.
+	//
+	//The bitcoin anchor output on chain that contains the input asset.
 	Outpoint *taprpc.OutPoint `protobuf:"bytes,1,opt,name=outpoint,proto3" json:"outpoint,omitempty"`
-	// The asset ID of the previous asset tree.
+	//
+	//The asset ID of the previous asset tree.
 	Id []byte `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
-	// The tweaked Taproot output key committing to the possible spending
-	// conditions of the asset.
+	//
+	//The tweaked Taproot output key committing to the possible spending
+	//conditions of the asset.
 	ScriptKey     []byte `protobuf:"bytes,3,opt,name=script_key,json=scriptKey,proto3" json:"script_key,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -495,9 +512,10 @@ func (x *PrevId) GetScriptKey() []byte {
 
 type SignVirtualPsbtRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The PSBT of the virtual transaction that should be signed. The PSBT must
-	// contain all required inputs, outputs, UTXO data and custom fields required
-	// to identify the signing key.
+	//
+	//The PSBT of the virtual transaction that should be signed. The PSBT must
+	//contain all required inputs, outputs, UTXO data and custom fields required
+	//to identify the signing key.
 	FundedPsbt    []byte `protobuf:"bytes,1,opt,name=funded_psbt,json=fundedPsbt,proto3" json:"funded_psbt,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -542,9 +560,11 @@ func (x *SignVirtualPsbtRequest) GetFundedPsbt() []byte {
 
 type SignVirtualPsbtResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The signed virtual transaction in PSBT format.
+	//
+	//The signed virtual transaction in PSBT format.
 	SignedPsbt []byte `protobuf:"bytes,1,opt,name=signed_psbt,json=signedPsbt,proto3" json:"signed_psbt,omitempty"`
-	// The indices of signed inputs.
+	//
+	//The indices of signed inputs.
 	SignedInputs  []uint32 `protobuf:"varint,2,rep,packed,name=signed_inputs,json=signedInputs,proto3" json:"signed_inputs,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -596,8 +616,9 @@ func (x *SignVirtualPsbtResponse) GetSignedInputs() []uint32 {
 
 type AnchorVirtualPsbtsRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The list of virtual transactions that should be merged and committed to in
-	// the BTC level anchor transaction.
+	//
+	//The list of virtual transactions that should be merged and committed to in
+	//the BTC level anchor transaction.
 	VirtualPsbts  [][]byte `protobuf:"bytes,1,rep,name=virtual_psbts,json=virtualPsbts,proto3" json:"virtual_psbts,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -642,28 +663,31 @@ func (x *AnchorVirtualPsbtsRequest) GetVirtualPsbts() [][]byte {
 
 type CommitVirtualPsbtsRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The list of virtual transactions that should be mapped to the given BTC
-	// level anchor transaction template. The virtual transactions are expected to
-	// be signed (or use ASSET_VERSION_V1 with segregated witness to allow for
-	// signing after committing) and ready to be committed to the anchor
-	// transaction.
+	//
+	//The list of virtual transactions that should be mapped to the given BTC
+	//level anchor transaction template. The virtual transactions are expected to
+	//be signed (or use ASSET_VERSION_V1 with segregated witness to allow for
+	//signing after committing) and ready to be committed to the anchor
+	//transaction.
 	VirtualPsbts [][]byte `protobuf:"bytes,1,rep,name=virtual_psbts,json=virtualPsbts,proto3" json:"virtual_psbts,omitempty"`
-	// The list of passive virtual transactions that are anchored in the same BTC
-	// level anchor transaction inputs as the "active" assets above. These can be
-	// obtained by calling FundVirtualPsbt and using the passive assets returned.
-	// The virtual transactions are expected to be signed (or use ASSET_VERSION_V1
-	// with segregated witness to allow for signing after committing) and ready to
-	// be committed to the anchor transaction.
-	// The main difference to the "active" assets above is that the passive assets
-	// will not get their own entry in the transfer table of the database, since
-	// they are just carried along and not directly affected by the direct user
-	// action.
+	//
+	//The list of passive virtual transactions that are anchored in the same BTC
+	//level anchor transaction inputs as the "active" assets above. These can be
+	//obtained by calling FundVirtualPsbt and using the passive assets returned.
+	//The virtual transactions are expected to be signed (or use ASSET_VERSION_V1
+	//with segregated witness to allow for signing after committing) and ready to
+	//be committed to the anchor transaction.
+	//The main difference to the "active" assets above is that the passive assets
+	//will not get their own entry in the transfer table of the database, since
+	//they are just carried along and not directly affected by the direct user
+	//action.
 	PassiveAssetPsbts [][]byte `protobuf:"bytes,2,rep,name=passive_asset_psbts,json=passiveAssetPsbts,proto3" json:"passive_asset_psbts,omitempty"`
-	// The template of the BTC level anchor transaction that the virtual
-	// transactions should be mapped to. The template is expected to already
-	// contain all asset related inputs and outputs corresponding to the virtual
-	// transactions given above. This can be achieved by using
-	// tapfreighter.PrepareAnchoringTemplate for example.
+	//
+	//The template of the BTC level anchor transaction that the virtual
+	//transactions should be mapped to. The template is expected to already
+	//contain all asset related inputs and outputs corresponding to the virtual
+	//transactions given above. This can be achieved by using
+	//tapfreighter.PrepareAnchoringTemplate for example.
 	AnchorPsbt []byte `protobuf:"bytes,3,opt,name=anchor_psbt,json=anchorPsbt,proto3" json:"anchor_psbt,omitempty"`
 	// Types that are valid to be assigned to AnchorChangeOutput:
 	//
@@ -675,19 +699,23 @@ type CommitVirtualPsbtsRequest struct {
 	//	*CommitVirtualPsbtsRequest_TargetConf
 	//	*CommitVirtualPsbtsRequest_SatPerVbyte
 	Fees isCommitVirtualPsbtsRequest_Fees `protobuf_oneof:"fees"`
-	// The custom lock ID used to identify the lock lease for UTXOs that serve as
-	// inputs in the BTC-level anchor transaction. If left empty, LND's default
-	// lock ID will be used.
+	//
+	//The custom lock ID used to identify the lock lease for UTXOs that serve as
+	//inputs in the BTC-level anchor transaction. If left empty, LND's default
+	//lock ID will be used.
 	CustomLockId []byte `protobuf:"bytes,8,opt,name=custom_lock_id,json=customLockId,proto3" json:"custom_lock_id,omitempty"`
-	// If set, the UTXOs used as inputs in the BTC-level anchor transaction will be
-	// locked for the specified number of seconds. If unset, LND's default lock
-	// expiration of 10 minutes will be applied.
+	//
+	//If set, the UTXOs used as inputs in the BTC-level anchor transaction will be
+	//locked for the specified number of seconds. If unset, LND's default lock
+	//expiration of 10 minutes will be applied.
 	LockExpirationSeconds uint64 `protobuf:"varint,9,opt,name=lock_expiration_seconds,json=lockExpirationSeconds,proto3" json:"lock_expiration_seconds,omitempty"`
-	// If set, the psbt funding step will be skipped. This is useful if the intent
-	// is to create a zero-fee transaction.
+	//
+	//If set, the psbt funding step will be skipped. This is useful if the intent
+	//is to create a zero-fee transaction.
 	SkipFunding bool `protobuf:"varint,10,opt,name=skip_funding,json=skipFunding,proto3" json:"skip_funding,omitempty"`
-	// The version to use when generating the state transition proof suffixes.
-	// If unset, the daemon's default proof version is used.
+	//
+	//The version to use when generating the state transition proof suffixes.
+	//If unset, the daemon's default proof version is used.
 	TransitionProofVersion TransitionProofVersion `protobuf:"varint,11,opt,name=transition_proof_version,json=transitionProofVersion,proto3,enum=assetwalletrpc.TransitionProofVersion" json:"transition_proof_version,omitempty"`
 	unknownFields          protoimpl.UnknownFields
 	sizeCache              protoimpl.SizeCache
@@ -827,15 +855,17 @@ type isCommitVirtualPsbtsRequest_AnchorChangeOutput interface {
 }
 
 type CommitVirtualPsbtsRequest_ExistingOutputIndex struct {
-	// Use the existing output within the anchor PSBT with the specified
-	// index as the change output. Any leftover change will be added to the
-	// already specified amount of that output. To add a new change output to
-	// the PSBT, set the "add" field below instead.
+	//
+	//Use the existing output within the anchor PSBT with the specified
+	//index as the change output. Any leftover change will be added to the
+	//already specified amount of that output. To add a new change output to
+	//the PSBT, set the "add" field below instead.
 	ExistingOutputIndex int32 `protobuf:"varint,4,opt,name=existing_output_index,json=existingOutputIndex,proto3,oneof"`
 }
 
 type CommitVirtualPsbtsRequest_Add struct {
-	// Add a new P2TR change output to the PSBT if required.
+	//
+	//Add a new P2TR change output to the PSBT if required.
 	Add bool `protobuf:"varint,5,opt,name=add,proto3,oneof"`
 }
 
@@ -849,13 +879,15 @@ type isCommitVirtualPsbtsRequest_Fees interface {
 }
 
 type CommitVirtualPsbtsRequest_TargetConf struct {
-	// The target number of blocks that the transaction should be confirmed in.
+	//
+	//The target number of blocks that the transaction should be confirmed in.
 	TargetConf uint32 `protobuf:"varint,6,opt,name=target_conf,json=targetConf,proto3,oneof"`
 }
 
 type CommitVirtualPsbtsRequest_SatPerVbyte struct {
-	// The fee rate, expressed in sat/vbyte, that should be used to fund the
-	// BTC level anchor transaction.
+	//
+	//The fee rate, expressed in sat/vbyte, that should be used to fund the
+	//BTC level anchor transaction.
 	SatPerVbyte uint64 `protobuf:"varint,7,opt,name=sat_per_vbyte,json=satPerVbyte,proto3,oneof"`
 }
 
@@ -865,28 +897,33 @@ func (*CommitVirtualPsbtsRequest_SatPerVbyte) isCommitVirtualPsbtsRequest_Fees()
 
 type CommitVirtualPsbtsResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The funded BTC level anchor transaction with all outputs updated to commit
-	// to the virtual transactions given. The transaction is ready to be signed,
-	// unless some of the asset inputs don't belong to this daemon, in which case
-	// the anchor input derivation info must be added to those inputs first.
+	//
+	//The funded BTC level anchor transaction with all outputs updated to commit
+	//to the virtual transactions given. The transaction is ready to be signed,
+	//unless some of the asset inputs don't belong to this daemon, in which case
+	//the anchor input derivation info must be added to those inputs first.
 	AnchorPsbt []byte `protobuf:"bytes,1,opt,name=anchor_psbt,json=anchorPsbt,proto3" json:"anchor_psbt,omitempty"`
-	// The updated virtual transactions that now contain the state transition
-	// proofs for being committed to the BTC level anchor transaction above. If the
-	// assets in the virtual transaction outputs are ASSET_VERSION_V1 and not yet
-	// signed, then the proofs need to be updated to include the witness before
-	// they become fully valid.
+	//
+	//The updated virtual transactions that now contain the state transition
+	//proofs for being committed to the BTC level anchor transaction above. If the
+	//assets in the virtual transaction outputs are ASSET_VERSION_V1 and not yet
+	//signed, then the proofs need to be updated to include the witness before
+	//they become fully valid.
 	VirtualPsbts [][]byte `protobuf:"bytes,2,rep,name=virtual_psbts,json=virtualPsbts,proto3" json:"virtual_psbts,omitempty"`
-	// The updated passive virtual transactions that were committed to the same BTC
-	// level anchor transaction as the "active" virtual transactions given. If the
-	// assets in the virtual transaction outputs are ASSET_VERSION_V1 and not yet
-	// signed, then the proofs need to be updated to include the witness before
-	// they become fully valid.
+	//
+	//The updated passive virtual transactions that were committed to the same BTC
+	//level anchor transaction as the "active" virtual transactions given. If the
+	//assets in the virtual transaction outputs are ASSET_VERSION_V1 and not yet
+	//signed, then the proofs need to be updated to include the witness before
+	//they become fully valid.
 	PassiveAssetPsbts [][]byte `protobuf:"bytes,4,rep,name=passive_asset_psbts,json=passiveAssetPsbts,proto3" json:"passive_asset_psbts,omitempty"`
-	// The index of the (added) change output or -1 if no change was left over.
+	//
+	//The index of the (added) change output or -1 if no change was left over.
 	ChangeOutputIndex int32 `protobuf:"varint,5,opt,name=change_output_index,json=changeOutputIndex,proto3" json:"change_output_index,omitempty"`
-	// The list of UTXO lock leases that were acquired for the inputs in the funded
-	// PSBT packet from lnd. Only inputs added to the PSBT by this RPC are locked,
-	// inputs that were already present in the PSBT are not locked.
+	//
+	//The list of UTXO lock leases that were acquired for the inputs in the funded
+	//PSBT packet from lnd. Only inputs added to the PSBT by this RPC are locked,
+	//inputs that were already present in the PSBT are not locked.
 	LndLockedUtxos []*taprpc.OutPoint `protobuf:"bytes,6,rep,name=lnd_locked_utxos,json=lndLockedUtxos,proto3" json:"lnd_locked_utxos,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
@@ -959,30 +996,37 @@ func (x *CommitVirtualPsbtsResponse) GetLndLockedUtxos() []*taprpc.OutPoint {
 
 type PublishAndLogRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The funded BTC level anchor transaction with all outputs updated to commit
-	// to the virtual transactions given. The transaction is ready to be signed,
-	// unless some of the asset inputs don't belong to this daemon, in which case
-	// the anchor input derivation info must be added to those inputs first.
+	//
+	//The funded BTC level anchor transaction with all outputs updated to commit
+	//to the virtual transactions given. The transaction is ready to be signed,
+	//unless some of the asset inputs don't belong to this daemon, in which case
+	//the anchor input derivation info must be added to those inputs first.
 	AnchorPsbt []byte `protobuf:"bytes,1,opt,name=anchor_psbt,json=anchorPsbt,proto3" json:"anchor_psbt,omitempty"`
-	// The updated virtual transactions that contain the state transition proofs
-	// of being committed to the BTC level anchor transaction above.
+	//
+	//The updated virtual transactions that contain the state transition proofs
+	//of being committed to the BTC level anchor transaction above.
 	VirtualPsbts [][]byte `protobuf:"bytes,2,rep,name=virtual_psbts,json=virtualPsbts,proto3" json:"virtual_psbts,omitempty"`
-	// The updated passive virtual transactions that contain the state transition
-	// proofs of being committed to the BTC level anchor transaction above.
+	//
+	//The updated passive virtual transactions that contain the state transition
+	//proofs of being committed to the BTC level anchor transaction above.
 	PassiveAssetPsbts [][]byte `protobuf:"bytes,3,rep,name=passive_asset_psbts,json=passiveAssetPsbts,proto3" json:"passive_asset_psbts,omitempty"`
-	// The index of the (added) change output or -1 if no change was left over.
+	//
+	//The index of the (added) change output or -1 if no change was left over.
 	ChangeOutputIndex int32 `protobuf:"varint,4,opt,name=change_output_index,json=changeOutputIndex,proto3" json:"change_output_index,omitempty"`
-	// The list of UTXO lock leases that were acquired for the inputs in the funded
-	// PSBT packet from lnd. Only inputs added to the PSBT by this RPC are locked,
-	// inputs that were already present in the PSBT are not locked.
+	//
+	//The list of UTXO lock leases that were acquired for the inputs in the funded
+	//PSBT packet from lnd. Only inputs added to the PSBT by this RPC are locked,
+	//inputs that were already present in the PSBT are not locked.
 	LndLockedUtxos []*taprpc.OutPoint `protobuf:"bytes,5,rep,name=lnd_locked_utxos,json=lndLockedUtxos,proto3" json:"lnd_locked_utxos,omitempty"`
-	// If set, the anchor transaction will not be broadcast to the network. This
-	// is useful when an external system handles broadcasting, such as in custom
-	// transaction packaging workflows.
+	//
+	//If set, the anchor transaction will not be broadcast to the network. This
+	//is useful when an external system handles broadcasting, such as in custom
+	//transaction packaging workflows.
 	SkipAnchorTxBroadcast bool `protobuf:"varint,6,opt,name=skip_anchor_tx_broadcast,json=skipAnchorTxBroadcast,proto3" json:"skip_anchor_tx_broadcast,omitempty"`
-	// An optional short label for the transfer. This label can be used to track
-	// the progress of the transfer via the logs or an event subscription.
-	// Multiple transfers can share the same label.
+	//
+	//An optional short label for the transfer. This label can be used to track
+	//the progress of the transfer via the logs or an event subscription.
+	//Multiple transfers can share the same label.
 	Label         string `protobuf:"bytes,7,opt,name=label,proto3" json:"label,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
