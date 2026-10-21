@@ -571,7 +571,7 @@ func (s *Server) readIncomingStream(ctx context.Context,
 		switch {
 		// The default disconnect signal from the client, if the client
 		// is shut down.
-		case err == io.EOF || fn.IsCanceled(err):
+		case errors.Is(err, io.EOF) || fn.IsCanceled(err):
 			stream.abort()
 			return
 
