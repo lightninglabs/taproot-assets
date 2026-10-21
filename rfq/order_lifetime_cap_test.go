@@ -1,6 +1,7 @@
 package rfq
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -109,6 +110,7 @@ func capTestSalePolicySameQuote(t *testing.T,
 // 100-unit quote, then a second 80-unit HTLC must be rejected because only 20
 // units of lifetime capacity remain.
 func TestSalePolicySettledFillStaysConsumed(t *testing.T) {
+	ctx := context.Background()
 	policy, scid := capTestSalePolicy(t)
 
 	key1 := models.CircuitKey{ChanID: scid, HtlcID: 1}
@@ -116,11 +118,11 @@ func TestSalePolicySettledFillStaysConsumed(t *testing.T) {
 	// Admit the first 80-unit HTLC. Compliance checking tracks the HTLC
 	// atomically.
 	require.NoError(t,
-		policy.CheckHtlcCompliance(nil, capTestHtlc(scid, 1, 80), nil))
+		policy.CheckHtlcCompliance(ctx, capTestHtlc(scid, 1, 80), nil))
 
 	// While it is in flight, a concurrent second 80 must be rejected.
 	require.Error(t,
-		policy.CheckHtlcCompliance(nil, capTestHtlc(scid, 2, 80), nil))
+		policy.CheckHtlcCompliance(ctx, capTestHtlc(scid, 2, 80), nil))
 
 	// The first HTLC settles. handleHtlcSettle calls SettleHtlc.
 	policy.SettleHtlc(key1)
@@ -128,31 +130,32 @@ func TestSalePolicySettledFillStaysConsumed(t *testing.T) {
 	// Settlement permanently consumes capacity. Only 20 units remain, so a
 	// second 80-unit HTLC must still be rejected.
 	require.Error(t,
-		policy.CheckHtlcCompliance(nil, capTestHtlc(scid, 2, 80), nil),
+		policy.CheckHtlcCompliance(ctx, capTestHtlc(scid, 2, 80), nil),
 		"settled quote capacity must not become reusable")
 
 	// A 20-unit HTLC must still be accepted.
 	require.NoError(t,
-		policy.CheckHtlcCompliance(nil, capTestHtlc(scid, 3, 20), nil),
+		policy.CheckHtlcCompliance(ctx, capTestHtlc(scid, 3, 20), nil),
 		"remaining 20 units of capacity must stay usable")
 }
 
 // TestSalePolicyFailedFillRestoresCapacity asserts that a failed HTLC
 // releases its reservation, so an identical retry is admitted.
 func TestSalePolicyFailedFillRestoresCapacity(t *testing.T) {
+	ctx := context.Background()
 	policy, scid := capTestSalePolicy(t)
 
 	key1 := models.CircuitKey{ChanID: scid, HtlcID: 1}
 
 	require.NoError(t,
-		policy.CheckHtlcCompliance(nil, capTestHtlc(scid, 1, 80), nil))
+		policy.CheckHtlcCompliance(ctx, capTestHtlc(scid, 1, 80), nil))
 
 	// The HTLC fails. handleHtlcFail calls UntrackHtlc, which restores the
 	// failed reservation.
 	policy.UntrackHtlc(key1)
 
 	require.NoError(t,
-		policy.CheckHtlcCompliance(nil, capTestHtlc(scid, 2, 80), nil))
+		policy.CheckHtlcCompliance(ctx, capTestHtlc(scid, 2, 80), nil))
 }
 
 // TestSalePolicySettledFillRestoredAfterRestart asserts that settled fill
@@ -161,12 +164,13 @@ func TestSalePolicyFailedFillRestoresCapacity(t *testing.T) {
 // reconstructed from the persisted forwarding events, so a new 80-unit HTLC
 // must be rejected.
 func TestSalePolicySettledFillRestoredAfterRestart(t *testing.T) {
+	ctx := context.Background()
 	policy, scid := capTestSalePolicy(t)
 
 	key1 := models.CircuitKey{ChanID: scid, HtlcID: 1}
 
 	require.NoError(t,
-		policy.CheckHtlcCompliance(nil, capTestHtlc(scid, 1, 80), nil))
+		policy.CheckHtlcCompliance(ctx, capTestHtlc(scid, 1, 80), nil))
 	policy.SettleHtlc(key1) // settle
 
 	// Simulate restart: the policy is rebuilt from the persisted accept
@@ -180,14 +184,14 @@ func TestSalePolicySettledFillRestoredAfterRestart(t *testing.T) {
 
 	require.Error(t,
 		restartedPolicy.CheckHtlcCompliance(
-			nil, capTestHtlc(restartedScid, 2, 80), nil,
+			ctx, capTestHtlc(restartedScid, 2, 80), nil,
 		),
 		"restart must not reset settled fill accounting")
 
 	// The remaining 20 units of capacity must stay usable.
 	require.NoError(t,
 		restartedPolicy.CheckHtlcCompliance(
-			nil, capTestHtlc(restartedScid, 3, 20), nil,
+			ctx, capTestHtlc(restartedScid, 3, 20), nil,
 		),
 		"remaining 20 units of capacity must stay usable")
 }
