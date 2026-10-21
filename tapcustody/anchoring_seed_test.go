@@ -1,7 +1,6 @@
 package tapcustody
 
 import (
-	"errors"
 	"testing"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
@@ -215,9 +214,6 @@ func TestReceiveTriggerPointsUntriggerableTransfer(t *testing.T) {
 
 	_, err = receiveTriggerPoints(file, &tip)
 	require.Error(t, err)
-	require.True(
-		t, errors.Is(err, ErrUnwatchable),
-		"expected ErrUnwatchable, got %v", err,
-	)
+	require.ErrorIs(t, err, ErrUnwatchable)
 	require.NotErrorIs(t, err, ErrNoTriggers)
 }
