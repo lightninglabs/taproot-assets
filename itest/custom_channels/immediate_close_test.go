@@ -104,13 +104,14 @@ func testCustomChannelsImmediateClose(ctx context.Context,
 	assertWaitingCloseChannelAssetData(t.t, alice, chanPoint)
 	mineBlocks(t, net, 1, 1)
 
-	// After confirmation, Alice should enter pending force close. Unlike the
-	// cooperative close path, the local force close commitment transaction
-	// itself is not immediately tracked as an asset transfer for Alice.
+	// After confirmation, Alice should enter pending force close. Unlike
+	// the cooperative close path, the local force close commitment
+	// transaction itself is not immediately tracked as an asset transfer
+	// for Alice.
 	assertPendingForceCloseChannelAssetData(t.t, alice, chanPoint)
 
-	// With no remote asset balance, Alice eventually sweeps the local output
-	// after the CSV delay and regains the full on-chain balance.
+	// With no remote asset balance, Alice eventually sweeps the local
+	// output after the CSV delay and regains the full on-chain balance.
 	mineBlocks(t, net, 3, 0)
 
 	aliceSweepTxid, err := waitForNTxsInMempool(
