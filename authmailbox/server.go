@@ -429,6 +429,8 @@ func (s *Server) handleStream(ctx context.Context,
 		// messages to the client.
 		case <-stream.authSuccessChan:
 			stream.isAuthenticated.Store(true)
+			// authSuccessChan fires once per stream.
+			//nolint:fatcontext
 			ctx = btclog.WithCtx(ctx, btclog.Hex(
 				"receiver_id",
 				stream.receiverID.SerializeCompressed(),

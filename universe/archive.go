@@ -357,6 +357,8 @@ func (a *Archive) UpsertProofLeaf(ctx context.Context, id Identifier,
 
 	// Log a sync event for the newly inserted leaf in the background as an
 	// async goroutine.
+	// The event is logged detached from the request context.
+	//nolint:gosec
 	go func() {
 		err := a.cfg.UniverseStats.LogNewProofEvent(
 			context.Background(), id, key,
