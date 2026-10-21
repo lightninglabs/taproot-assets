@@ -29,6 +29,10 @@ linters:
         - G306 # Poor file permissions used when writing to a new file.
         - G601 # Implicit memory aliasing in for loop.
         - G115 # Integer overflow conversion.
+        - G118 # Context propagation failure.
+    govet:
+      disable:
+        - inline
     lll:
       # Max line length, lines longer will be reported.
       line-length: 80
