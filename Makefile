@@ -464,6 +464,10 @@ fmt: $(GOIMPORTS_BIN)
 	@$(call print, "Formatting source.")
 	gofmt -l -w -s $(GOFILES_NOVENDOR)
 
+fmt-check: fmt
+	@$(call print, "Verifying formatting.")
+	if test -n "$$(git status --porcelain)"; then echo "Code not properly formatted; run make fmt"; git status; git diff; exit 1; fi
+
 check-go-version-yaml:
 	@$(call print, "Checking for target Go version (v$(GO_VERSION)) in  YAML files (*.yaml, *.yml)")
 	./scripts/check-go-version-yaml.sh $(GO_VERSION)
@@ -558,6 +562,7 @@ clean:
 	unit-cover \
 	unit-race \
 	fmt \
+	fmt-check \
 	lint \
 	list \
 	rpc \
