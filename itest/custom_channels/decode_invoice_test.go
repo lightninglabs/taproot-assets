@@ -176,13 +176,13 @@ func testCustomChannelsDecodeAssetInvoice(_ context.Context,
 	// Mint a second tranche in the same group and assert decoding by group
 	// key still reports the anchor tranche genesis ID.
 	secondTranche := &mintrpc.MintAsset{
-		AssetType:    taprpc.AssetType_NORMAL,
-		Name:         "USD-second-tranche",
-		AssetMeta:    usdMetaData,
-		Amount:       100_000_000_000,
+		AssetType:      taprpc.AssetType_NORMAL,
+		Name:           "USD-second-tranche",
+		AssetMeta:      usdMetaData,
+		Amount:         100_000_000_000,
 		DecimalDisplay: decimalDisplay,
-		GroupedAsset: true,
-		GroupKey:     usdAsset.AssetGroup.TweakedGroupKey,
+		GroupedAsset:   true,
+		GroupKey:       usdAsset.AssetGroup.TweakedGroupKey,
 	}
 	secondMinted := itest.MintAssetsConfirmBatch(
 		t.t, net.Miner, asTapd(alice),
