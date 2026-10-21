@@ -107,8 +107,9 @@ func TestTaprootAssetsDaemon(t *testing.T) {
 			// We need to shut down any lnd nodes that were created
 			// for this test case.
 			t1.Cleanup(func() {
-				// Keep the shared miner/backend alive for the rest of the
-				// tranche; only recycle per-test nodes here.
+				// Keep the shared miner/backend alive for the
+				// rest of the tranche; only recycle per-test
+				// nodes here.
 				lndHarness.CleanShutDown()
 			})
 

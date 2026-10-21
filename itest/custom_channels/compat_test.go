@@ -66,12 +66,12 @@ func buildCompatBinary(t *testing.T, version string) string {
 	return binaryPath
 }
 
-// TestBackwardsCompatChannels runs a single, lean custom channel scenario with one
-// node (Charlie) running an older release binary and the other (Dave) running
-// the current build, for each historical version in compatVersions. It is gated
-// behind the `itest` build tag and intended to run only on release branches or
-// via manual dispatch, so we deliberately keep it to one scenario to avoid
-// inflating CI runtime with version-multiplied test cases.
+// TestBackwardsCompatChannels runs a single, lean custom channel scenario with
+// one node (Charlie) running an older release binary and the other (Dave)
+// running the current build, for each historical version in compatVersions. It
+// is gated behind the `itest` build tag and intended to run only on release
+// branches or via manual dispatch, so we deliberately keep it to one scenario
+// to avoid inflating CI runtime with version-multiplied test cases.
 func TestBackwardsCompatChannels(t *testing.T) {
 	if len(compatVersions) == 0 {
 		t.Skip("no compat versions configured")
@@ -204,8 +204,8 @@ func runBackwardsCompatLifecycle(ctx context.Context,
 	connectAllNodes(t.t, net, nodes)
 	fundAllNodes(t.t, net, nodes)
 
-	// Sanity check: Charlie really is running the pinned historical version,
-	// and Dave is running a different (current) build.
+	// Sanity check: Charlie really is running the pinned historical
+	// version, and Dave is running a different (current) build.
 	charlieInfo, err := asTapd(charlie).GetInfo(
 		ctx, &taprpc.GetInfoRequest{},
 	)
@@ -340,9 +340,9 @@ func runBackwardsCompatLifecycle(ctx context.Context,
 
 	mineBlocks(t, net, 6, 1)
 
-	// Dave already synced the asset genesis from Charlie in cycle 1, and the
-	// new channel's funding proof is delivered via the proof courier during
-	// funding, so no additional universe sync is needed here.
+	// Dave already synced the asset genesis from Charlie in cycle 1, and
+	// the new channel's funding proof is delivered via the proof courier
+	// during funding, so no additional universe sync is needed here.
 	require.NoError(t.t, net.AssertNodeKnown(charlie, dave))
 	require.NoError(t.t, net.AssertNodeKnown(dave, charlie))
 	assertAssetChan(
