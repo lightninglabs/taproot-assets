@@ -429,8 +429,9 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 						Scale:       3,
 					},
 					ExpiryTimestamp: uint64(
-						time.Now().Add(10 * time.Minute).
-							Unix(),
+						time.Now().Add(
+							10 * time.Minute,
+						).Unix(),
 					),
 				},
 			},
@@ -560,7 +561,8 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 		e, ok := event.Event.(*rfqrpc.RfqEvent_PeerAcceptedSellQuote)
 		require.True(t.t, ok, "unexpected event: %v", event)
 		acceptedQuote = e.PeerAcceptedSellQuote.PeerAcceptedSellQuote
-		require.Equal(t.t, mintedAssetIdBytes, acceptedQuote.AssetSpec.Id)
+		require.Equal(t.t, mintedAssetIdBytes,
+			acceptedQuote.AssetSpec.Id)
 	}, rfqTimeout)
 	require.NotEqual(t.t, acceptedQuotes.SellQuotes[0].Id, acceptedQuote.Id)
 
@@ -636,8 +638,9 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 		}
 	}
 
-	// First force the asset-marked HTLC over Alice and Bob's normal BTC
-	// channel. Bob must reject it before applying the otherwise valid quote.
+	// First force the asset-marked HTLC over Alice and Bob's
+	// normal BTC channel. Bob must reject it before applying
+	// the otherwise valid quote.
 	rejectedInvoiceResp := ts.CarolLnd.RPC.AddInvoice(&lnrpc.Invoice{
 		ValueMsat: int64(paymentAskAmt),
 	})
@@ -647,12 +650,16 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 	rejectedPayReq := ts.CarolLnd.RPC.DecodePayReq(
 		rejectedInvoice.PaymentRequest,
 	)
-	rejectedRoute := ts.AliceLnd.RPC.BuildRoute(&routerrpc.BuildRouteRequest{
-		AmtMsat:        int64(paymentAskAmt),
-		HopPubkeys:     [][]byte{ts.BobLnd.PubKey[:], ts.CarolLnd.PubKey[:]},
-		OutgoingChanId: outgoingChanID(ts.AliceBobBTCChannel),
-		PaymentAddr:    rejectedPayReq.PaymentAddr,
-	})
+	rejectedRoute := ts.AliceLnd.RPC.BuildRoute(
+		&routerrpc.BuildRouteRequest{
+			AmtMsat: int64(paymentAskAmt),
+			HopPubkeys: [][]byte{
+				ts.BobLnd.PubKey[:],
+				ts.CarolLnd.PubKey[:],
+			},
+			OutgoingChanId: outgoingChanID(ts.AliceBobBTCChannel),
+			PaymentAddr:    rejectedPayReq.PaymentAddr,
+		})
 	bobRejectCtx, cancelBobReject := context.WithTimeout(ctx, time.Second)
 	defer cancelBobReject()
 	bobRejectEvents, err := ts.BobTapd.SubscribeRfqEventNtfns(
@@ -664,12 +671,15 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 	event, err := bobRejectEvents.Recv()
 	require.Error(t.t, err)
 	require.Nil(t.t, event)
-	rejectedInvoice = ts.CarolLnd.RPC.LookupInvoice(rejectedInvoiceResp.RHash)
+	rejectedInvoice = ts.CarolLnd.RPC.LookupInvoice(
+		rejectedInvoiceResp.RHash,
+	)
 	require.Equal(t.t, lnrpc.Invoice_OPEN, rejectedInvoice.State)
 	require.NoError(t.t, bobRejectEvents.CloseSend())
 
-	// Then send a distinct payment over the backed asset channel. Bob applies
-	// the quote, accepts the asset HTLC and forwards the BTC payment to Carol.
+	// Then send a distinct payment over the backed asset
+	// channel. Bob applies the quote, accepts the asset HTLC
+	// and forwards the BTC payment to Carol.
 	bobEventNtfns, err := ts.BobTapd.SubscribeRfqEventNtfns(
 		ctx, &rfqrpc.SubscribeRfqEventNtfnsRequest{},
 	)
@@ -681,8 +691,11 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 	payReq := ts.CarolLnd.RPC.DecodePayReq(invoice.PaymentRequest)
 	routeBuildResp := ts.AliceLnd.RPC.BuildRoute(
 		&routerrpc.BuildRouteRequest{
-			AmtMsat:        int64(paymentAskAmt),
-			HopPubkeys:     [][]byte{ts.BobLnd.PubKey[:], ts.CarolLnd.PubKey[:]},
+			AmtMsat: int64(paymentAskAmt),
+			HopPubkeys: [][]byte{
+				ts.BobLnd.PubKey[:],
+				ts.CarolLnd.PubKey[:],
+			},
 			OutgoingChanId: outgoingChanID(ts.AliceBobChannel),
 			PaymentAddr:    payReq.PaymentAddr,
 		},

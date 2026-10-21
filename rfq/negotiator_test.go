@@ -478,8 +478,10 @@ func TestHandleIncomingQuoteRequestError(t *testing.T) {
 
 					return PeerChanMap{
 						*peer: {{
-							AssetInfo: rfqmsg.JsonAssetChannel{
-								FundingAssets: []rfqmsg.JsonAssetUtxo{
+							AssetInfo: rfqmsg.
+								JsonAssetChannel{
+								FundingAssets: []rfqmsg.
+									JsonAssetUtxo{
 									{},
 								},
 								RemoteBalance: 1,
@@ -558,9 +560,12 @@ func TestSellRequestChannelAdmission(t *testing.T) {
 					rate, fn.None[uint64](),
 				),
 			},
-			fetchChannel: func(_ context.Context, spec asset.Specifier,
-				requestPeer *route.Vertex, intention ChanIntention) (
-				PeerChanMap, error) {
+			fetchChannel: func(
+				_ context.Context,
+				spec asset.Specifier,
+				requestPeer *route.Vertex,
+				intention ChanIntention,
+			) (PeerChanMap, error) {
 
 				assert.Equal(t, request.AssetSpecifier, spec)
 				assert.Equal(t, peer, *requestPeer)
@@ -569,13 +574,18 @@ func TestSellRequestChannelAdmission(t *testing.T) {
 				funded := []rfqmsg.JsonAssetUtxo{{}}
 				return PeerChanMap{
 					peer: {
-						{AssetInfo: rfqmsg.JsonAssetChannel{
-							FundingAssets: funded, RemoteBalance: 1,
+						{AssetInfo: rfqmsg.
+							JsonAssetChannel{
+							FundingAssets: funded,
+							RemoteBalance: 1,
 						}},
-						{AssetInfo: rfqmsg.JsonAssetChannel{
-							FundingAssets: funded, RemoteBalance: 2,
+						{AssetInfo: rfqmsg.
+							JsonAssetChannel{
+							FundingAssets: funded,
+							RemoteBalance: 2,
 						}},
-						{AssetInfo: rfqmsg.JsonAssetChannel{
+						{AssetInfo: rfqmsg.
+							JsonAssetChannel{
 							RemoteBalance: 100,
 						}},
 					},
@@ -619,8 +629,12 @@ func TestSellRequestChannelAdmission(t *testing.T) {
 					rate, fn.None[uint64](),
 				),
 			},
-			fetchChannel: func(context.Context, asset.Specifier,
-				*route.Vertex, ChanIntention) (PeerChanMap, error) {
+			fetchChannel: func(
+				context.Context,
+				asset.Specifier,
+				*route.Vertex,
+				ChanIntention,
+			) (PeerChanMap, error) {
 
 				return nil, lookupErr
 			},
@@ -696,11 +710,15 @@ func TestMaxRemoteChannelBalance(t *testing.T) {
 			name: "largest eligible balance",
 			channels: PeerChanMap{
 				peer: {
-					{AssetInfo: rfqmsg.JsonAssetChannel{
-						FundingAssets: funded, RemoteBalance: 5,
+					{AssetInfo: rfqmsg.
+						JsonAssetChannel{
+						FundingAssets: funded,
+						RemoteBalance: 5,
 					}},
-					{AssetInfo: rfqmsg.JsonAssetChannel{
-						FundingAssets: funded, RemoteBalance: 9,
+					{AssetInfo: rfqmsg.
+						JsonAssetChannel{
+						FundingAssets: funded,
+						RemoteBalance: 9,
 					}},
 				},
 			},
@@ -712,8 +730,12 @@ func TestMaxRemoteChannelBalance(t *testing.T) {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
 			negotiator := &Negotiator{cfg: NegotiatorCfg{
-				fetchChannel: func(context.Context, asset.Specifier,
-					*route.Vertex, ChanIntention) (PeerChanMap, error) {
+				fetchChannel: func(
+					context.Context,
+					asset.Specifier,
+					*route.Vertex,
+					ChanIntention,
+				) (PeerChanMap, error) {
 
 					return test.channels, nil
 				},

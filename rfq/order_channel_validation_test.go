@@ -73,8 +73,10 @@ func testPurchasePolicy(t *testing.T, assetID asset.ID) *AssetPurchasePolicy {
 	return NewAssetPurchasePolicy(accept)
 }
 
-func testPurchaseHtlc(t *testing.T, policy *AssetPurchasePolicy,
-	incomingScid uint64, balances ...*rfqmsg.AssetBalance) lndclient.InterceptedHtlc {
+func testPurchaseHtlc(
+	t *testing.T, policy *AssetPurchasePolicy,
+	incomingScid uint64, balances ...*rfqmsg.AssetBalance,
+) lndclient.InterceptedHtlc {
 
 	t.Helper()
 
@@ -153,7 +155,8 @@ func TestResolveIncomingHtlcValidatesAssetChannel(t *testing.T) {
 			wantAction: lndclient.InterceptorActionFail,
 		},
 		{
-			name: "confirmed zero conf scid is not the incoming link id",
+			name: "confirmed zero conf scid is not the " +
+				"incoming link id",
 			channels: []lndclient.ChannelInfo{{
 				ChannelID:         4321,
 				ZeroConfScid:      incomingScid,
@@ -177,8 +180,10 @@ func TestResolveIncomingHtlcValidatesAssetChannel(t *testing.T) {
 		{
 			name: "channel missing claimed asset",
 			channels: []lndclient.ChannelInfo{{
-				ChannelID:         incomingScid,
-				CustomChannelData: testChannelData(t, otherAssetID),
+				ChannelID: incomingScid,
+				CustomChannelData: testChannelData(
+					t, otherAssetID,
+				),
 			}},
 			balances: []*rfqmsg.AssetBalance{
 				rfqmsg.NewAssetBalance(assetID, 1),
@@ -238,8 +243,11 @@ func TestResolveIncomingHtlcValidatesAssetChannel(t *testing.T) {
 					channels: testCase.channels,
 					err:      testCase.listErr,
 				},
-				SpecifierChecker: func(_ context.Context,
-					_ asset.Specifier, id asset.ID) (bool, error) {
+				SpecifierChecker: func(
+					_ context.Context,
+					_ asset.Specifier,
+					id asset.ID,
+				) (bool, error) {
 
 					return id == assetID, nil
 				},
@@ -298,8 +306,11 @@ func TestResolveIncomingHtlcAcceptsGroupKeyXCoordinate(t *testing.T) {
 				CustomChannelData: channelData,
 			}},
 		},
-		SpecifierChecker: func(_ context.Context, specifier asset.Specifier,
-			id asset.ID) (bool, error) {
+		SpecifierChecker: func(
+			_ context.Context,
+			specifier asset.Specifier,
+			id asset.ID,
+		) (bool, error) {
 
 			require.Equal(t, policy.AssetSpecifier, specifier)
 			return id == groupKeyID, nil
@@ -398,8 +409,11 @@ func TestValidateIncomingAssetChannelChecksForwardPolicy(t *testing.T) {
 				ChannelID: incomingScid,
 			}},
 		},
-		SpecifierChecker: func(context.Context, asset.Specifier, asset.ID) (
-			bool, error) {
+		SpecifierChecker: func(
+			context.Context,
+			asset.Specifier,
+			asset.ID,
+		) (bool, error) {
 
 			return true, nil
 		},

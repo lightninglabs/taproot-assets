@@ -324,10 +324,13 @@ func (s *rfqIntegratedScenario) fundAliceBobAssetChannel(t *testing.T,
 			return err
 		}
 		var assets rfqmsg.JsonAssetChannelBalances
-		if err := json.Unmarshal(balance.CustomChannelData, &assets); err != nil {
+		if err := json.Unmarshal(
+			balance.CustomChannelData, &assets,
+		); err != nil {
 			return err
 		}
-		got := assets.OpenChannels[hex.EncodeToString(assetID)].RemoteBalance
+		assetChannel := assets.OpenChannels[hex.EncodeToString(assetID)]
+		got := assetChannel.RemoteBalance
 		if got != amount {
 			return fmt.Errorf(
 				"Bob's remote asset balance: got %d, want %d",

@@ -390,8 +390,8 @@ func runBackwardsCompatLifecycle(ctx context.Context,
 	daveSweepTxHash := daveSweepBlocks[0].Transactions[1].TxHash()
 	locateAssetTransfers(t.t, dave, daveSweepTxHash)
 
-	// Charlie's to-local output is CSV-delayed; mine the delay, then confirm
-	// his sweep.
+	// Charlie's to-local output is CSV-delayed; mine the delay, then
+	// confirm his sweep.
 	mineBlocks(t, net, 4, 0)
 	_, err = waitForNTxsInMempool(net.Miner, 1, ccShortTimeout)
 	require.NoError(t.t, err)

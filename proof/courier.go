@@ -1685,28 +1685,40 @@ func (c *UniverseRpcCourier) DeliverProof(ctx context.Context,
 			if groupUniverseKey != nil {
 				groupErr := insertProof(groupUniverseKey)
 				if groupErr != nil {
-					// Older servers return rate limiter errors
-					// as Unknown rather than ResourceExhausted.
+					// Older servers return rate limiter errors as
+					// Unknown rather than ResourceExhausted.
 					s := status.Convert(groupErr)
 					retry := s.Code() == codes.Unknown &&
 						strings.HasPrefix(
-							s.Message(), "rate limiter: ",
+							s.Message(),
+							"rate limiter: ",
 						)
 					switch s.Code() {
-					case codes.Unavailable, codes.DeadlineExceeded,
-						codes.ResourceExhausted, codes.Canceled:
+					case codes.Unavailable,
+						codes.DeadlineExceeded,
+						codes.ResourceExhausted,
+						codes.Canceled:
 						retry = true
-					case codes.OK, codes.Unknown, codes.InvalidArgument,
-						codes.NotFound, codes.AlreadyExists,
-						codes.PermissionDenied, codes.FailedPrecondition,
-						codes.Aborted, codes.OutOfRange, codes.Unimplemented,
-						codes.Internal, codes.DataLoss, codes.Unauthenticated:
+					case codes.OK,
+						codes.Unknown,
+						codes.InvalidArgument,
+						codes.NotFound,
+						codes.AlreadyExists,
+						codes.PermissionDenied,
+						codes.FailedPrecondition,
+						codes.Aborted,
+						codes.OutOfRange,
+						codes.Unimplemented,
+						codes.Internal,
+						codes.DataLoss,
+						codes.Unauthenticated:
 					}
 					if retry {
 						return fmt.Errorf(
 							"error inserting proof into "+
 								"group Universe courier "+
-								"namespace: %w", groupErr,
+								"namespace: %w",
+							groupErr,
 						)
 					}
 

@@ -465,8 +465,9 @@ func (s *AuxInvoiceManager) assetsMatchInvoiceHints(ctx context.Context,
 
 	hintQuotes := s.assetInvoiceHintQuotes(invoice)
 	if len(hintQuotes) == 0 {
-		return rfqmath.BigIntFixedPoint{}, fmt.Errorf("invoice has no " +
-			"route hints that map to accepted quotes")
+		return rfqmath.BigIntFixedPoint{}, fmt.Errorf(
+			"invoice has no route hints that map to accepted quotes",
+		)
 	}
 
 	highestRate := rfqmath.NewBigIntFixedPoint(0, 0)
@@ -479,8 +480,9 @@ func (s *AuxInvoiceManager) assetsMatchInvoiceHints(ctx context.Context,
 			)
 			if err != nil {
 				return rfqmath.BigIntFixedPoint{}, fmt.Errorf(
-					"unable to check paid asset %x against "+
-						"invoice hint: %w", paidAsset[:], err,
+					"unable to check paid asset %x "+
+						"against invoice hint: %w",
+					paidAsset[:], err,
 				)
 			}
 			if match {

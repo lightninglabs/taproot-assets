@@ -309,9 +309,10 @@ func (n *Negotiator) maxRemoteChannelBalance(ctx context.Context,
 
 // backedSellRequestFill caps a sell-request fill at the value backed by a
 // single matching asset channel.
-func backedSellRequestFill(req *rfqmsg.SellRequest, rate rfqmsg.AssetRate,
-	pilotFill fn.Option[uint64], maxRemoteBalance uint64) (fn.Option[uint64],
-	error) {
+func backedSellRequestFill(
+	req *rfqmsg.SellRequest, rate rfqmsg.AssetRate,
+	pilotFill fn.Option[uint64], maxRemoteBalance uint64,
+) (fn.Option[uint64], error) {
 
 	if rate.Rate.Coefficient.IsZero() {
 		return fn.None[uint64](), fmt.Errorf("asset rate is zero")
@@ -381,7 +382,9 @@ func (n *Negotiator) HandleIncomingQuoteRequest(ctx context.Context,
 				)
 				sendOutgoingMsg(msg)
 
-				return fmt.Errorf("admit quote request: %w", err)
+				return fmt.Errorf(
+					"admit quote request: %w", err,
+				)
 			}
 			maxRemoteBalance = balance
 		}
@@ -421,7 +424,8 @@ func (n *Negotiator) HandleIncomingQuoteRequest(ctx context.Context,
 				)
 				if acceptErr != nil {
 					msg := rfqmsg.NewReject(
-						request.MsgPeer(), request.MsgID(),
+						request.MsgPeer(),
+						request.MsgID(),
 						customRejectErr(acceptErr),
 					)
 					sendOutgoingMsg(msg)
@@ -433,7 +437,8 @@ func (n *Negotiator) HandleIncomingQuoteRequest(ctx context.Context,
 				)
 				if status != ValidAcceptQuoteRespStatus {
 					msg := rfqmsg.NewReject(
-						request.MsgPeer(), request.MsgID(),
+						request.MsgPeer(),
+						request.MsgID(),
 						rejectForStatus(status),
 					)
 					sendOutgoingMsg(msg)

@@ -582,7 +582,8 @@ func TestUniverseRpcCourierGroupPublishRetry(t *testing.T) {
 			t.Run(name, func(t *testing.T) {
 				message := "semantic rejection"
 				if tc.legacyRateLimit {
-					message = "rate limiter: rate: Wait(n=1) would exceed context deadline"
+					message = "rate limiter: rate: Wait(n=1) " +
+						"would exceed context deadline"
 				}
 				insertErr := status.Error(code, message)
 				errors := []error{insertErr}
@@ -595,8 +596,12 @@ func TestUniverseRpcCourierGroupPublishRetry(t *testing.T) {
 				grpcServer := grpc.NewServer(
 					grpc.Creds(insecure.NewCredentials()),
 				)
-				universerpc.RegisterUniverseServer(grpcServer, server)
-				mboxrpc.RegisterMailboxServer(grpcServer, server)
+				universerpc.RegisterUniverseServer(
+					grpcServer, server,
+				)
+				mboxrpc.RegisterMailboxServer(
+					grpcServer, server,
+				)
 				addr, cleanup, err := test.StartMockGRPCServer(
 					t, grpcServer, true,
 				)
@@ -606,23 +611,34 @@ func TestUniverseRpcCourierGroupPublishRetry(t *testing.T) {
 					context.Background(), testTimeout,
 				)
 				defer cancel()
-				url := MockCourierURL(t, AuthMailboxUniRpcCourierType, addr)
+				url := MockCourierURL(
+					t, AuthMailboxUniRpcCourierType, addr,
+				)
+				shortDelay := time.Millisecond
+				timeout := testTimeout
 				courier, err := NewUniverseRpcCourier(
 					ctx, &UniverseRpcCourierCfg{
 						BackoffCfg: &BackoffCfg{
 							SkipInitDelay:  true,
 							NumTries:       2,
-							InitialBackoff: time.Millisecond,
-							MaxBackoff:     time.Millisecond,
+							InitialBackoff: shortDelay,
+							MaxBackoff:     shortDelay,
 						},
-						ServiceRequestTimeout: testTimeout,
+						ServiceRequestTimeout: timeout,
 					}, noopTransferLog{}, nil, url, false,
 				)
 				require.NoError(t, err)
-				t.Cleanup(func() { require.NoError(t, courier.Close()) })
+				t.Cleanup(func() {
+					require.NoError(t, courier.Close())
+				})
 				genesis := asset.RandGenesis(t, asset.Normal)
-				p := RandProof(t, genesis, test.RandPubKey(t), readTestData(t)[0], 0, 1)
-				p.Asset.GroupKey = &asset.GroupKey{GroupPubKey: *test.RandPubKey(t)}
+				p := RandProof(
+					t, genesis, test.RandPubKey(t),
+					readTestData(t)[0], 0, 1,
+				)
+				p.Asset.GroupKey = &asset.GroupKey{
+					GroupPubKey: *test.RandPubKey(t),
+				}
 				file, err := NewFile(V0, p)
 				require.NoError(t, err)
 				var buf bytes.Buffer
@@ -640,7 +656,9 @@ func TestUniverseRpcCourierGroupPublishRetry(t *testing.T) {
 				}
 				err = courier.DeliverProof(ctx,
 					Recipient{AssetID: genesis.ID()},
-					&AnnotatedProof{Blob: buf.Bytes()}, manifest,
+					&AnnotatedProof{
+						Blob: buf.Bytes(),
+					}, manifest,
 				)
 				transient := tc.legacyRateLimit ||
 					(code != codes.AlreadyExists &&
@@ -652,7 +670,9 @@ func TestUniverseRpcCourierGroupPublishRetry(t *testing.T) {
 				case transient && exhausted:
 					var backoffErr *BackoffExecError
 					require.ErrorAs(t, err, &backoffErr)
-					require.ErrorContains(t, err, "group Universe courier namespace")
+					require.ErrorContains(
+						t, err, "group Universe courier namespace",
+					)
 					require.Equal(t, []string{
 						"insert", "insert",
 						"insert", "insert",
@@ -664,12 +684,14 @@ func TestUniverseRpcCourierGroupPublishRetry(t *testing.T) {
 						"insert", "insert",
 						"insert", "insert", "send",
 					}, server.calls)
-					// Both namespaces are populated before notifying an
-					// older receiver that only uses the group namespace.
+					// Both namespaces are populated before notifying
+					// an older receiver that only uses the group namespace.
 					require.Len(t, server.leaves, 2)
 				default:
 					require.NoError(t, err)
-					require.Equal(t, []string{"insert", "insert", "send"}, server.calls)
+					require.Equal(t, []string{
+						"insert", "insert", "send",
+					}, server.calls)
 					require.Len(t, server.leaves, 1)
 				}
 			})
