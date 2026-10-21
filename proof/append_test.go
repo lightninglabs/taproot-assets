@@ -1345,12 +1345,12 @@ func buildMergeSuffixWithKeys(t *testing.T, sharedAnchorOut bool) (*Proof,
 	require.NoError(t, leafFile.Decode(bytes.NewReader(leafBlob)))
 
 	return suffix, map[asset.PrevID]*File{
-			*rootPrevID: rootFile,
-			*leafPrevID: leafFile,
-		}, map[asset.PrevID]*btcec.PrivateKey{
-			*rootPrevID: rootPrivKey,
-			*leafPrevID: leafPrivKey,
-		}
+		*rootPrevID: rootFile,
+		*leafPrevID: leafFile,
+	}, map[asset.PrevID]*btcec.PrivateKey{
+		*rootPrevID: rootPrivKey,
+		*leafPrevID: leafPrivKey,
+	}
 }
 
 // signAssetTransfer creates a virtual transaction for an asset transfer and
