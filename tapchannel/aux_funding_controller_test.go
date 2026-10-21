@@ -23,6 +23,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/msgmux"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -368,7 +369,7 @@ func TestAssignFundingProofsConcurrency(t *testing.T) {
 			err := f.assignFundingProofs(
 				pid, []*proof.Proof{&fundingProof},
 			)
-			require.NoError(t, err)
+			assert.NoError(t, err)
 		}()
 		go func() {
 			defer wg.Done()
@@ -377,7 +378,7 @@ func TestAssignFundingProofsConcurrency(t *testing.T) {
 				PeerPub: peer,
 				Message: cmsg.NewAssetFundingCreated(pid, nil),
 			})
-			require.True(t, ok)
+			assert.True(t, ok)
 		}()
 	}
 	wg.Wait()

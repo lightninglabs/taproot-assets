@@ -336,6 +336,9 @@ func TestMultiverseFetchDeltaPageSnapshot(t *testing.T) {
 			}
 
 			key := randLeafKey(t)
+			// randMintingLeaf only asserts on random proof
+			// generation.
+			//nolint:testifylint
 			leaf := randMintingLeaf(t, u.gen, u.id.GroupKey)
 			_, _, err := store.UpsertProofLeaf(
 				ctx, u.id, key, &leaf, nil,
@@ -423,9 +426,9 @@ func TestMultiverseLeafJournalCommitOrder(t *testing.T) {
 	// Writer B: a full single-leaf upsert through the public path. It
 	// must not be able to commit ahead of A.
 	bDone := make(chan error, 1)
+	keyB := randLeafKey(t)
+	leafB := randMintingLeaf(t, uniB.gen, uniB.id.GroupKey)
 	go func() {
-		keyB := randLeafKey(t)
-		leafB := randMintingLeaf(t, uniB.gen, uniB.id.GroupKey)
 		_, _, err := store.UpsertProofLeaf(
 			ctx, uniB.id, keyB, &leafB, nil,
 		)
