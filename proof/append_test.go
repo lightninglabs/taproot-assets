@@ -3,7 +3,6 @@ package proof
 import (
 	"bytes"
 	"context"
-	"errors"
 	"testing"
 
 	"github.com/btcsuite/btcd/blockchain"
@@ -127,7 +126,7 @@ func TestFinalProofSkipTimeLockCLTV(t *testing.T) {
 	_, err := f.Verify(context.Background(), MockVerifierCtx)
 	require.Error(t, err)
 	var vmErr vm.Error
-	require.True(t, errors.As(err, &vmErr))
+	require.ErrorAs(t, err, &vmErr)
 	require.Equal(t, vm.ErrUnfinalizedAsset, vmErr.Kind)
 
 	_, err = f.Verify(
@@ -147,7 +146,7 @@ func TestFinalProofSkipTimeLockCSV(t *testing.T) {
 	_, err := f.Verify(context.Background(), MockVerifierCtx)
 	require.Error(t, err)
 	var vmErr vm.Error
-	require.True(t, errors.As(err, &vmErr))
+	require.ErrorAs(t, err, &vmErr)
 	require.Equal(t, vm.ErrUnfinalizedAsset, vmErr.Kind)
 
 	_, err = f.Verify(

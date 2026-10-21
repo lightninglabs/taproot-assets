@@ -3,7 +3,6 @@ package tapdb
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -219,7 +218,7 @@ func TestBurnUniverseTreeInsertBurns(t *testing.T) {
 
 		result := burnTree.InsertBurns(ctx, spec, nonBurnLeaf)
 		require.Error(t, result.Err())
-		require.True(t, errors.Is(result.Err(), ErrNotBurn))
+		require.ErrorIs(t, result.Err(), ErrNotBurn)
 	})
 
 	// Test case 5: Test idempotency - inserting the same burn leaf multiple
