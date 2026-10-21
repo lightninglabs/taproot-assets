@@ -19,114 +19,115 @@ const _ = grpc.SupportPackageIsVersion7
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type TaprootAssetsClient interface {
 	// tapcli: `assets list`
-	// ListAssets lists the set of assets owned by the target daemon.
+	//ListAssets lists the set of assets owned by the target daemon.
 	ListAssets(ctx context.Context, in *ListAssetRequest, opts ...grpc.CallOption) (*ListAssetResponse, error)
 	// tapcli: `assets fetch`
-	// FetchAsset fetches asset(s) by asset ID or group key, with optional
-	// filters. At least one of asset_id or group_key must be set in the
-	// asset_specifier.
+	//FetchAsset fetches asset(s) by asset ID or group key, with optional
+	//filters. At least one of asset_id or group_key must be set in the
+	//asset_specifier.
 	FetchAsset(ctx context.Context, in *FetchAssetRequest, opts ...grpc.CallOption) (*FetchAssetResponse, error)
 	// tapcli: `assets utxos`
-	// ListUtxos lists the UTXOs managed by the target daemon, and the assets they
-	// hold.
+	//ListUtxos lists the UTXOs managed by the target daemon, and the assets they
+	//hold.
 	ListUtxos(ctx context.Context, in *ListUtxosRequest, opts ...grpc.CallOption) (*ListUtxosResponse, error)
 	// tapcli: `assets groups`
-	// ListGroups lists the asset groups known to the target daemon, and the assets
-	// held in each group.
+	//ListGroups lists the asset groups known to the target daemon, and the assets
+	//held in each group.
 	ListGroups(ctx context.Context, in *ListGroupsRequest, opts ...grpc.CallOption) (*ListGroupsResponse, error)
 	// tapcli: `assets balance`
-	// ListBalances lists asset balances
+	//ListBalances lists asset balances
 	ListBalances(ctx context.Context, in *ListBalancesRequest, opts ...grpc.CallOption) (*ListBalancesResponse, error)
 	// tapcli: `assets transfers`
-	// ListTransfers lists outbound asset transfers tracked by the target daemon.
+	//ListTransfers lists outbound asset transfers tracked by the target daemon.
 	ListTransfers(ctx context.Context, in *ListTransfersRequest, opts ...grpc.CallOption) (*ListTransfersResponse, error)
 	// tapcli: `stop`
-	// StopDaemon will send a shutdown request to the interrupt handler, triggering
-	// a graceful shutdown of the daemon.
+	//StopDaemon will send a shutdown request to the interrupt handler, triggering
+	//a graceful shutdown of the daemon.
 	StopDaemon(ctx context.Context, in *StopRequest, opts ...grpc.CallOption) (*StopResponse, error)
 	// tapcli: `debuglevel`
-	// DebugLevel allows a caller to programmatically set the logging verbosity of
-	// tapd. The logging can be targeted according to a coarse daemon-wide logging
-	// level, or in a granular fashion to specify the logging for a target
-	// sub-system.
+	//DebugLevel allows a caller to programmatically set the logging verbosity of
+	//tapd. The logging can be targeted according to a coarse daemon-wide logging
+	//level, or in a granular fashion to specify the logging for a target
+	//sub-system.
 	DebugLevel(ctx context.Context, in *DebugLevelRequest, opts ...grpc.CallOption) (*DebugLevelResponse, error)
 	// tapcli: `addrs query`
-	// QueryAddrs queries the set of Taproot Asset addresses stored in the
-	// database.
+	//QueryAddrs queries the set of Taproot Asset addresses stored in the
+	//database.
 	QueryAddrs(ctx context.Context, in *QueryAddrRequest, opts ...grpc.CallOption) (*QueryAddrResponse, error)
 	// tapcli: `addrs new`
-	// NewAddr makes a new address from the set of request params.
+	//NewAddr makes a new address from the set of request params.
 	NewAddr(ctx context.Context, in *NewAddrRequest, opts ...grpc.CallOption) (*Addr, error)
 	// tapcli: `addrs decode`
-	// DecodeAddr decode a Taproot Asset address into a partial asset message that
-	// represents the asset it wants to receive.
+	//DecodeAddr decode a Taproot Asset address into a partial asset message that
+	//represents the asset it wants to receive.
 	DecodeAddr(ctx context.Context, in *DecodeAddrRequest, opts ...grpc.CallOption) (*Addr, error)
 	// tapcli: `addrs receives`
-	// List all receives for incoming asset transfers for addresses that were
-	// created previously.
+	//List all receives for incoming asset transfers for addresses that were
+	//created previously.
 	AddrReceives(ctx context.Context, in *AddrReceivesRequest, opts ...grpc.CallOption) (*AddrReceivesResponse, error)
 	// tapcli: `proofs verify`
-	// VerifyProof attempts to verify a given proof file that claims to be anchored
-	// at the specified genesis point.
+	//VerifyProof attempts to verify a given proof file that claims to be anchored
+	//at the specified genesis point.
 	VerifyProof(ctx context.Context, in *ProofFile, opts ...grpc.CallOption) (*VerifyProofResponse, error)
 	// tapcli: `proofs decode`
-	// DecodeProof attempts to decode a given proof file into human readable
-	// format.
+	//DecodeProof attempts to decode a given proof file into human readable
+	//format.
 	DecodeProof(ctx context.Context, in *DecodeProofRequest, opts ...grpc.CallOption) (*DecodeProofResponse, error)
 	// tapcli: `proofs export`
-	// ExportProof exports the latest raw proof file anchored at the specified
-	// script_key.
+	//ExportProof exports the latest raw proof file anchored at the specified
+	//script_key.
 	ExportProof(ctx context.Context, in *ExportProofRequest, opts ...grpc.CallOption) (*ProofFile, error)
 	// tapcli: `proofs unpack`
-	// UnpackProofFile unpacks a proof file into a list of the individual raw
-	// proofs in the proof chain.
+	//UnpackProofFile unpacks a proof file into a list of the individual raw
+	//proofs in the proof chain.
 	UnpackProofFile(ctx context.Context, in *UnpackProofFileRequest, opts ...grpc.CallOption) (*UnpackProofFileResponse, error)
 	// tapcli: `assets send`
-	// SendAsset uses one or multiple passed Taproot Asset address(es) to attempt
-	// to complete an asset send. The method returns information w.r.t the on chain
-	// send, as well as the proof file information the receiver needs to fully
-	// receive the asset.
+	//SendAsset uses one or multiple passed Taproot Asset address(es) to attempt
+	//to complete an asset send. The method returns information w.r.t the on chain
+	//send, as well as the proof file information the receiver needs to fully
+	//receive the asset.
 	SendAsset(ctx context.Context, in *SendAssetRequest, opts ...grpc.CallOption) (*SendAssetResponse, error)
 	// tapcli: `assets burn`
-	// BurnAsset burns the given number of units of a given asset by sending them
-	// to a provably un-spendable script key. Burning means irrevocably destroying
-	// a certain number of assets, reducing the total supply of the asset. Because
-	// burning is such a destructive and non-reversible operation, some specific
-	// values need to be set in the request to avoid accidental burns.
+	//BurnAsset burns the given number of units of a given asset by sending them
+	//to a provably un-spendable script key. Burning means irrevocably destroying
+	//a certain number of assets, reducing the total supply of the asset. Because
+	//burning is such a destructive and non-reversible operation, some specific
+	//values need to be set in the request to avoid accidental burns.
 	BurnAsset(ctx context.Context, in *BurnAssetRequest, opts ...grpc.CallOption) (*BurnAssetResponse, error)
 	// tapcli: `assets listburns`
-	// ListBurns lists the asset burns that this wallet has performed. These assets
-	// are not recoverable in any way. Filters may be applied to return more
-	// specific results.
+	//ListBurns lists the asset burns that this wallet has performed. These assets
+	//are not recoverable in any way. Filters may be applied to return more
+	//specific results.
 	ListBurns(ctx context.Context, in *ListBurnsRequest, opts ...grpc.CallOption) (*ListBurnsResponse, error)
 	// tapcli: `getinfo`
-	// GetInfo returns the information for the node.
+	//GetInfo returns the information for the node.
 	GetInfo(ctx context.Context, in *GetInfoRequest, opts ...grpc.CallOption) (*GetInfoResponse, error)
 	// tapcli: `bakemacaroon`
-	// BakeMacaroon allows the creation of a new macaroon with custom
-	// permissions. No first-party caveats are added since this can be done
-	// offline.
+	//BakeMacaroon allows the creation of a new macaroon with custom
+	//permissions. No first-party caveats are added since this can be done
+	//offline.
 	BakeMacaroon(ctx context.Context, in *BakeMacaroonRequest, opts ...grpc.CallOption) (*BakeMacaroonResponse, error)
 	// tapcli: `assets meta`
-	// FetchAssetMeta allows a caller to fetch the reveal meta data for an asset
-	// either by the asset ID for that asset, or a meta hash.
+	//FetchAssetMeta allows a caller to fetch the reveal meta data for an asset
+	//either by the asset ID for that asset, or a meta hash.
 	FetchAssetMeta(ctx context.Context, in *FetchAssetMetaRequest, opts ...grpc.CallOption) (*FetchAssetMetaResponse, error)
 	// tapcli: `events receive`
-	// SubscribeReceiveEvents allows a caller to subscribe to receive events for
-	// incoming asset transfers.
+	//SubscribeReceiveEvents allows a caller to subscribe to receive events for
+	//incoming asset transfers.
 	SubscribeReceiveEvents(ctx context.Context, in *SubscribeReceiveEventsRequest, opts ...grpc.CallOption) (TaprootAssets_SubscribeReceiveEventsClient, error)
 	// tapcli: `events send`
-	// SubscribeSendEvents allows a caller to subscribe to send events for outgoing
-	// asset transfers.
+	//SubscribeSendEvents allows a caller to subscribe to send events for outgoing
+	//asset transfers.
 	SubscribeSendEvents(ctx context.Context, in *SubscribeSendEventsRequest, opts ...grpc.CallOption) (TaprootAssets_SubscribeSendEventsClient, error)
-	// RegisterTransfer informs the daemon about a new inbound transfer that has
-	// happened. This is used for interactive transfers where no TAP address is
-	// involved and the recipient is aware of the transfer through an out-of-band
-	// protocol but the daemon hasn't been informed about the completion of the
-	// transfer. For this to work, the proof must already be in the recipient's
-	// local universe (e.g. through the use of the universerpc.InsertProof RPC or
-	// the universe proof courier and universe sync mechanisms) and this call
-	// simply instructs the daemon to detect the transfer as an asset it owns.
+	//
+	//RegisterTransfer informs the daemon about a new inbound transfer that has
+	//happened. This is used for interactive transfers where no TAP address is
+	//involved and the recipient is aware of the transfer through an out-of-band
+	//protocol but the daemon hasn't been informed about the completion of the
+	//transfer. For this to work, the proof must already be in the recipient's
+	//local universe (e.g. through the use of the universerpc.InsertProof RPC or
+	//the universe proof courier and universe sync mechanisms) and this call
+	//simply instructs the daemon to detect the transfer as an asset it owns.
 	RegisterTransfer(ctx context.Context, in *RegisterTransferRequest, opts ...grpc.CallOption) (*RegisterTransferResponse, error)
 }
 
@@ -414,114 +415,115 @@ func (c *taprootAssetsClient) RegisterTransfer(ctx context.Context, in *Register
 // for forward compatibility
 type TaprootAssetsServer interface {
 	// tapcli: `assets list`
-	// ListAssets lists the set of assets owned by the target daemon.
+	//ListAssets lists the set of assets owned by the target daemon.
 	ListAssets(context.Context, *ListAssetRequest) (*ListAssetResponse, error)
 	// tapcli: `assets fetch`
-	// FetchAsset fetches asset(s) by asset ID or group key, with optional
-	// filters. At least one of asset_id or group_key must be set in the
-	// asset_specifier.
+	//FetchAsset fetches asset(s) by asset ID or group key, with optional
+	//filters. At least one of asset_id or group_key must be set in the
+	//asset_specifier.
 	FetchAsset(context.Context, *FetchAssetRequest) (*FetchAssetResponse, error)
 	// tapcli: `assets utxos`
-	// ListUtxos lists the UTXOs managed by the target daemon, and the assets they
-	// hold.
+	//ListUtxos lists the UTXOs managed by the target daemon, and the assets they
+	//hold.
 	ListUtxos(context.Context, *ListUtxosRequest) (*ListUtxosResponse, error)
 	// tapcli: `assets groups`
-	// ListGroups lists the asset groups known to the target daemon, and the assets
-	// held in each group.
+	//ListGroups lists the asset groups known to the target daemon, and the assets
+	//held in each group.
 	ListGroups(context.Context, *ListGroupsRequest) (*ListGroupsResponse, error)
 	// tapcli: `assets balance`
-	// ListBalances lists asset balances
+	//ListBalances lists asset balances
 	ListBalances(context.Context, *ListBalancesRequest) (*ListBalancesResponse, error)
 	// tapcli: `assets transfers`
-	// ListTransfers lists outbound asset transfers tracked by the target daemon.
+	//ListTransfers lists outbound asset transfers tracked by the target daemon.
 	ListTransfers(context.Context, *ListTransfersRequest) (*ListTransfersResponse, error)
 	// tapcli: `stop`
-	// StopDaemon will send a shutdown request to the interrupt handler, triggering
-	// a graceful shutdown of the daemon.
+	//StopDaemon will send a shutdown request to the interrupt handler, triggering
+	//a graceful shutdown of the daemon.
 	StopDaemon(context.Context, *StopRequest) (*StopResponse, error)
 	// tapcli: `debuglevel`
-	// DebugLevel allows a caller to programmatically set the logging verbosity of
-	// tapd. The logging can be targeted according to a coarse daemon-wide logging
-	// level, or in a granular fashion to specify the logging for a target
-	// sub-system.
+	//DebugLevel allows a caller to programmatically set the logging verbosity of
+	//tapd. The logging can be targeted according to a coarse daemon-wide logging
+	//level, or in a granular fashion to specify the logging for a target
+	//sub-system.
 	DebugLevel(context.Context, *DebugLevelRequest) (*DebugLevelResponse, error)
 	// tapcli: `addrs query`
-	// QueryAddrs queries the set of Taproot Asset addresses stored in the
-	// database.
+	//QueryAddrs queries the set of Taproot Asset addresses stored in the
+	//database.
 	QueryAddrs(context.Context, *QueryAddrRequest) (*QueryAddrResponse, error)
 	// tapcli: `addrs new`
-	// NewAddr makes a new address from the set of request params.
+	//NewAddr makes a new address from the set of request params.
 	NewAddr(context.Context, *NewAddrRequest) (*Addr, error)
 	// tapcli: `addrs decode`
-	// DecodeAddr decode a Taproot Asset address into a partial asset message that
-	// represents the asset it wants to receive.
+	//DecodeAddr decode a Taproot Asset address into a partial asset message that
+	//represents the asset it wants to receive.
 	DecodeAddr(context.Context, *DecodeAddrRequest) (*Addr, error)
 	// tapcli: `addrs receives`
-	// List all receives for incoming asset transfers for addresses that were
-	// created previously.
+	//List all receives for incoming asset transfers for addresses that were
+	//created previously.
 	AddrReceives(context.Context, *AddrReceivesRequest) (*AddrReceivesResponse, error)
 	// tapcli: `proofs verify`
-	// VerifyProof attempts to verify a given proof file that claims to be anchored
-	// at the specified genesis point.
+	//VerifyProof attempts to verify a given proof file that claims to be anchored
+	//at the specified genesis point.
 	VerifyProof(context.Context, *ProofFile) (*VerifyProofResponse, error)
 	// tapcli: `proofs decode`
-	// DecodeProof attempts to decode a given proof file into human readable
-	// format.
+	//DecodeProof attempts to decode a given proof file into human readable
+	//format.
 	DecodeProof(context.Context, *DecodeProofRequest) (*DecodeProofResponse, error)
 	// tapcli: `proofs export`
-	// ExportProof exports the latest raw proof file anchored at the specified
-	// script_key.
+	//ExportProof exports the latest raw proof file anchored at the specified
+	//script_key.
 	ExportProof(context.Context, *ExportProofRequest) (*ProofFile, error)
 	// tapcli: `proofs unpack`
-	// UnpackProofFile unpacks a proof file into a list of the individual raw
-	// proofs in the proof chain.
+	//UnpackProofFile unpacks a proof file into a list of the individual raw
+	//proofs in the proof chain.
 	UnpackProofFile(context.Context, *UnpackProofFileRequest) (*UnpackProofFileResponse, error)
 	// tapcli: `assets send`
-	// SendAsset uses one or multiple passed Taproot Asset address(es) to attempt
-	// to complete an asset send. The method returns information w.r.t the on chain
-	// send, as well as the proof file information the receiver needs to fully
-	// receive the asset.
+	//SendAsset uses one or multiple passed Taproot Asset address(es) to attempt
+	//to complete an asset send. The method returns information w.r.t the on chain
+	//send, as well as the proof file information the receiver needs to fully
+	//receive the asset.
 	SendAsset(context.Context, *SendAssetRequest) (*SendAssetResponse, error)
 	// tapcli: `assets burn`
-	// BurnAsset burns the given number of units of a given asset by sending them
-	// to a provably un-spendable script key. Burning means irrevocably destroying
-	// a certain number of assets, reducing the total supply of the asset. Because
-	// burning is such a destructive and non-reversible operation, some specific
-	// values need to be set in the request to avoid accidental burns.
+	//BurnAsset burns the given number of units of a given asset by sending them
+	//to a provably un-spendable script key. Burning means irrevocably destroying
+	//a certain number of assets, reducing the total supply of the asset. Because
+	//burning is such a destructive and non-reversible operation, some specific
+	//values need to be set in the request to avoid accidental burns.
 	BurnAsset(context.Context, *BurnAssetRequest) (*BurnAssetResponse, error)
 	// tapcli: `assets listburns`
-	// ListBurns lists the asset burns that this wallet has performed. These assets
-	// are not recoverable in any way. Filters may be applied to return more
-	// specific results.
+	//ListBurns lists the asset burns that this wallet has performed. These assets
+	//are not recoverable in any way. Filters may be applied to return more
+	//specific results.
 	ListBurns(context.Context, *ListBurnsRequest) (*ListBurnsResponse, error)
 	// tapcli: `getinfo`
-	// GetInfo returns the information for the node.
+	//GetInfo returns the information for the node.
 	GetInfo(context.Context, *GetInfoRequest) (*GetInfoResponse, error)
 	// tapcli: `bakemacaroon`
-	// BakeMacaroon allows the creation of a new macaroon with custom
-	// permissions. No first-party caveats are added since this can be done
-	// offline.
+	//BakeMacaroon allows the creation of a new macaroon with custom
+	//permissions. No first-party caveats are added since this can be done
+	//offline.
 	BakeMacaroon(context.Context, *BakeMacaroonRequest) (*BakeMacaroonResponse, error)
 	// tapcli: `assets meta`
-	// FetchAssetMeta allows a caller to fetch the reveal meta data for an asset
-	// either by the asset ID for that asset, or a meta hash.
+	//FetchAssetMeta allows a caller to fetch the reveal meta data for an asset
+	//either by the asset ID for that asset, or a meta hash.
 	FetchAssetMeta(context.Context, *FetchAssetMetaRequest) (*FetchAssetMetaResponse, error)
 	// tapcli: `events receive`
-	// SubscribeReceiveEvents allows a caller to subscribe to receive events for
-	// incoming asset transfers.
+	//SubscribeReceiveEvents allows a caller to subscribe to receive events for
+	//incoming asset transfers.
 	SubscribeReceiveEvents(*SubscribeReceiveEventsRequest, TaprootAssets_SubscribeReceiveEventsServer) error
 	// tapcli: `events send`
-	// SubscribeSendEvents allows a caller to subscribe to send events for outgoing
-	// asset transfers.
+	//SubscribeSendEvents allows a caller to subscribe to send events for outgoing
+	//asset transfers.
 	SubscribeSendEvents(*SubscribeSendEventsRequest, TaprootAssets_SubscribeSendEventsServer) error
-	// RegisterTransfer informs the daemon about a new inbound transfer that has
-	// happened. This is used for interactive transfers where no TAP address is
-	// involved and the recipient is aware of the transfer through an out-of-band
-	// protocol but the daemon hasn't been informed about the completion of the
-	// transfer. For this to work, the proof must already be in the recipient's
-	// local universe (e.g. through the use of the universerpc.InsertProof RPC or
-	// the universe proof courier and universe sync mechanisms) and this call
-	// simply instructs the daemon to detect the transfer as an asset it owns.
+	//
+	//RegisterTransfer informs the daemon about a new inbound transfer that has
+	//happened. This is used for interactive transfers where no TAP address is
+	//involved and the recipient is aware of the transfer through an out-of-band
+	//protocol but the daemon hasn't been informed about the completion of the
+	//transfer. For this to work, the proof must already be in the recipient's
+	//local universe (e.g. through the use of the universerpc.InsertProof RPC or
+	//the universe proof courier and universe sync mechanisms) and this call
+	//simply instructs the daemon to detect the transfer as an asset it owns.
 	RegisterTransfer(context.Context, *RegisterTransferRequest) (*RegisterTransferResponse, error)
 	mustEmbedUnimplementedTaprootAssetsServer()
 }
