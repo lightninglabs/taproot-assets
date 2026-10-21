@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"math"
+	"slices"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -372,14 +373,13 @@ func testMintFundSealAssets(t *harnessTest) {
 	matchingLeaf := false
 	for _, leaf := range collectibleGroupLeaves.Leaves {
 		leafGroupWitness := leaf.Asset.PrevWitnesses[0].TxWitness
-		for i, witElem := range hashLockWitness {
-			if !bytes.Equal(leafGroupWitness[i], witElem) {
-				break
-			}
-		}
+		if slices.EqualFunc(
+			leafGroupWitness, hashLockWitness, bytes.Equal,
+		) {
 
-		matchingLeaf = true
-		break
+			matchingLeaf = true
+			break
+		}
 	}
 	require.True(t.t, matchingLeaf)
 
