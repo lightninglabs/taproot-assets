@@ -1176,7 +1176,8 @@ func (c *Custodian) importAddrToWallet(ctx context.Context,
 
 // handleMailboxMessages processes the received mailbox messages and attempts
 // to decrypt them. If successful, it will then attempt to receive proofs for
-// the contained SendFragment messages using the proof courier service.
+// the contained SendFragment messages using the proof courier service. A
+// message that can't be decrypted or processed is skipped.
 func (c *Custodian) handleMailboxMessages(msgs *mbox.ReceivedMessages) error {
 	ctx, cancel := c.WithCtxQuitNoTimeout()
 	defer cancel()
@@ -1196,6 +1197,7 @@ func (c *Custodian) handleMailboxMessages(msgs *mbox.ReceivedMessages) error {
 	}
 
 	var maxMsgBlockHeight uint32
+msgLoop:
 	for _, mboxMsg := range msgs.Messages {
 		// Decrypt the mailbox message using the receiver's key.
 		log.Debugf("Decrypting mailbox message with ID %d for %x",
@@ -1232,8 +1234,10 @@ func (c *Custodian) handleMailboxMessages(msgs *mbox.ReceivedMessages) error {
 				)
 				c.publishSubscriberStatusEvent(errEvent)
 
-				return fmt.Errorf("unable to derive script "+
-					"key for asset: %w", err)
+				log.Errorf("Unable to derive script key for "+
+					"asset: %v", err)
+
+				continue msgLoop
 			}
 
 			err = c.cfg.AddrBook.InsertScriptKey(
@@ -1246,8 +1250,10 @@ func (c *Custodian) handleMailboxMessages(msgs *mbox.ReceivedMessages) error {
 				)
 				c.publishSubscriberStatusEvent(errEvent)
 
-				return fmt.Errorf("unable to insert script "+
-					"key into address book: %w", err)
+				log.Errorf("Unable to insert script key into "+
+					"address book: %v", err)
+
+				continue msgLoop
 			}
 
 			log.Tracef("Expecting to fetch proof for outpoint %s "+
@@ -1303,8 +1309,10 @@ func (c *Custodian) handleMailboxMessages(msgs *mbox.ReceivedMessages) error {
 				),
 			)
 
-			return fmt.Errorf("unable to fetch block %s: %w",
+			log.Errorf("Unable to fetch block %s: %v",
 				fragment.BlockHeader.BlockHash(), err)
+
+			continue
 		}
 
 		eventSrc, err := address.NewTransferFromFragment(
@@ -1318,8 +1326,10 @@ func (c *Custodian) handleMailboxMessages(msgs *mbox.ReceivedMessages) error {
 				),
 			)
 
-			return fmt.Errorf("error creating event source from "+
-				"fragment: %w", err)
+			log.Errorf("Unable to create event source from "+
+				"fragment: %v", err)
+
+			continue
 		}
 
 		// We have all the information we need to create a new address
@@ -1338,7 +1348,9 @@ func (c *Custodian) handleMailboxMessages(msgs *mbox.ReceivedMessages) error {
 				),
 			)
 
-			return fmt.Errorf("error creating event: %w", err)
+			log.Errorf("Unable to create event: %v", err)
+
+			continue
 		}
 
 		// Let's update our cache of ongoing events.
