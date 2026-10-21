@@ -2971,14 +2971,12 @@ func testPsbtExternalCommit(t *harnessTest) {
 				msg.NextSendState == nextState.String()
 		}
 
-		for {
-			msg, err := sendEvents.Recv()
-			if err != nil {
-				return false
-			}
-
-			return isMatchingState(msg)
+		msg, err := sendEvents.Recv()
+		if err != nil {
+			return false
 		}
+
+		return isMatchingState(msg)
 	}, defaultWaitTimeout, time.Second)
 
 	// Unmarshal the anchor transaction.

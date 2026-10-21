@@ -3094,8 +3094,8 @@ func (r *RPCServer) CommitVirtualPsbts(ctx context.Context,
 	var (
 		lockedUTXO      []*walletrpc.UtxoLease
 		lockedOutpoints []wire.OutPoint
-		fundedPacket    *psbt.Packet = pkt
-		changeIndex     int32        = -1
+		fundedPacket          = pkt
+		changeIndex     int32 = -1
 		success         bool
 	)
 

@@ -36,7 +36,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnutils"
-	"github.com/lightningnetwork/lnd/lnwallet"
 	lnwl "github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chancloser"
 	"github.com/lightningnetwork/lnd/lnwallet/types"
@@ -1237,7 +1236,7 @@ func (s *Server) ShouldHandleTraffic(cid lnwire.ShortChannelID,
 // NOTE: This method is part of the routing.TlvTrafficShaper interface.
 func (s *Server) PaymentBandwidth(fundingBlob, htlcBlob,
 	commitmentBlob lfn.Option[tlv.Blob], linkBandwidth,
-	htlcAmt lnwire.MilliSatoshi, htlcView lnwallet.AuxHtlcView,
+	htlcAmt lnwire.MilliSatoshi, htlcView lnwl.AuxHtlcView,
 	peer route.Vertex) (lnwire.MilliSatoshi, error) {
 
 	srvrLog.Debugf("PaymentBandwidth called, fundingBlob=%v, htlcBlob=%v, "+

@@ -2819,7 +2819,7 @@ func recvHtlcEventWithTimeout(c subscribeEventsClient,
 		return result.evt, result.err
 
 	case <-time.After(timeout):
-		return nil, fmt.Errorf("Htlc event receive timeout")
+		return nil, fmt.Errorf("htlc event receive timeout")
 	}
 }
 
@@ -3508,7 +3508,7 @@ func assertForceCloseSweeps(ctx context.Context,
 		}
 
 		if bobSweepTx == nil {
-			return fmt.Errorf("Bob's sweep transaction not found")
+			return fmt.Errorf("bob's sweep transaction not found")
 		}
 
 		return nil
