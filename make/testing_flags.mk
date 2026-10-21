@@ -15,6 +15,10 @@ NUM_CC_ITEST_TRANCHES = 1
 CC_ITEST_PARALLELISM = $(NUM_CC_ITEST_TRANCHES)
 SHUFFLE_SEED = 0
 
+# Race builds disable size-specialized malloc. Its allocation routines,
+# called only from packages built without race instrumentation, do not
+# register allocations with the race detector.
+unit-race unit-race-parallel: export GOEXPERIMENT = nosizespecializedmalloc
 GOLIST := go list -tags="$(DEV_TAGS)" -deps $(PKG)/... | grep '$(PKG)'| grep -v '/vendor/'
 GOLISTCOVER := $(shell go list -tags="$(DEV_TAGS)" -deps -f '{{.ImportPath}}' ./... | grep '$(PKG)' | sed -e 's/^$(ESCPKG)/./')
 
