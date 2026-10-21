@@ -9,6 +9,7 @@ import (
 	"math/rand"
 	"slices"
 	"sort"
+	"sync"
 	"testing"
 	"time"
 
@@ -300,25 +301,28 @@ func TestUniverseStatsAsyncCache(t *testing.T) {
 	val := sh.db.statsSnapshot.Load()
 	require.Nil(t, val)
 
-	const (
-		quickTimeoutDuration = time.Microsecond * 1
-		defaultTick          = time.Millisecond * 250
-	)
+	// Reserve the only connection so the background query cannot finish
+	// before the client observes its deadline.
+	db.BaseDB.DB.SetMaxOpenConns(1)
+	heldConn, err := db.BaseDB.DB.Conn(t.Context())
+	require.NoError(t, err)
+	releaseConn := sync.OnceFunc(func() {
+		require.NoError(t, heldConn.Close())
+	})
+	t.Cleanup(releaseConn)
 
-	// We now create a client context with a very quick timeout. This is
-	// meant to quickly fail the RPC call.
-	ctx, cancel := context.WithTimeout(
-		context.Background(), quickTimeoutDuration,
+	ctx, cancel := context.WithDeadline(
+		t.Context(), time.Now().Add(-time.Second),
 	)
 	defer cancel()
 
-	// The tiny timeout duration should make the following call result in a
-	// context deadline related error.
-	_, err := sh.db.AggregateSyncStats(ctx)
+	_, err = sh.db.AggregateSyncStats(ctx)
 	require.ErrorContains(t, err, "context deadline exceeded")
+	releaseConn()
 
 	// Regardless of the above call failing, the cache should asynchronously
 	// get updated in the background, so let's wait until a value is loaded.
+	const defaultTick = time.Millisecond * 250
 	require.Eventually(t, func() bool {
 		val := sh.db.statsSnapshot.Load()
 		return val != nil
