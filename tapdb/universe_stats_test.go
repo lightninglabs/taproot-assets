@@ -272,6 +272,23 @@ func TestUniverseStatsEvents(t *testing.T) {
 	})
 }
 
+// gatedStatsDB holds a transaction until the test releases it.
+type gatedStatsDB struct {
+	BatchedUniverseStats
+
+	release <-chan struct{}
+	result  chan<- error
+}
+
+func (g *gatedStatsDB) ExecTx(ctx context.Context, opts TxOptions,
+	body func(UniverseStatsStore) error) error {
+
+	<-g.release
+	err := g.BatchedUniverseStats.ExecTx(ctx, opts, body)
+	g.result <- err
+	return err
+}
+
 // TestUniverseStatsAsyncCache tests that the cache of the universe aggregate
 // stats is asynchronously populated regardless of what the outcome of the
 // RPC call is.
@@ -301,24 +318,33 @@ func TestUniverseStatsAsyncCache(t *testing.T) {
 	val := sh.db.statsSnapshot.Load()
 	require.Nil(t, val)
 
-	// Reserve the only connection so the background query cannot finish
-	// before the client observes its deadline.
-	db.BaseDB.DB.SetMaxOpenConns(1)
-	heldConn, err := db.BaseDB.DB.Conn(t.Context())
-	require.NoError(t, err)
-	releaseConn := sync.OnceFunc(func() {
-		require.NoError(t, heldConn.Close())
-	})
-	t.Cleanup(releaseConn)
+	// Hold the background query until the client observes its deadline.
+	// Gate the transaction directly so both database backends behave alike.
+	release := make(chan struct{})
+	queryResult := make(chan error, 1)
+	sh.db.db = &gatedStatsDB{
+		BatchedUniverseStats: sh.db.db,
+		release:              release,
+		result:               queryResult,
+	}
+	releaseQuery := sync.OnceFunc(func() { close(release) })
+	t.Cleanup(releaseQuery)
 
 	ctx, cancel := context.WithDeadline(
 		t.Context(), time.Now().Add(-time.Second),
 	)
 	defer cancel()
 
-	_, err = sh.db.AggregateSyncStats(ctx)
+	_, err := sh.db.AggregateSyncStats(ctx)
 	require.ErrorContains(t, err, "context deadline exceeded")
-	releaseConn()
+	releaseQuery()
+
+	select {
+	case err := <-queryResult:
+		require.NoError(t, err)
+	case <-time.After(DefaultStoreTimeout):
+		t.Fatal("background stats query did not complete")
+	}
 
 	// Regardless of the above call failing, the cache should asynchronously
 	// get updated in the background, so let's wait until a value is loaded.
