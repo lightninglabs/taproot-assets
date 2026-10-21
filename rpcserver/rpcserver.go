@@ -10295,7 +10295,7 @@ func (r *RPCServer) SendPayment(req *tchrpc.SendPaymentRequest,
 		update, err := updateStream.Recv()
 		if err != nil {
 			// Stream is closed; no more updates.
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				return nil
 			}
 			return fmt.Errorf("failed to receive payment "+
@@ -11044,7 +11044,7 @@ func (r *RPCServer) forwardAssetPaymentUpdates(ctx context.Context,
 
 // streamRecvError normalizes expected stream shutdown errors.
 func streamRecvError(ctx context.Context, err error) error {
-	if err == io.EOF {
+	if errors.Is(err, io.EOF) {
 		return nil
 	}
 
