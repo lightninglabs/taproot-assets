@@ -553,7 +553,7 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 	).Return(mockResult, nil).Once()
 	paymentSellReq := proto.Clone(sellReq).(*rfqrpc.AddAssetSellOrderRequest)
 	paymentSellReq.PaymentMaxAmt = paymentAskAmt
-	_, err = ts.AliceTapd.AddAssetSellOrder(ctx, &paymentSellReq)
+	_, err = ts.AliceTapd.AddAssetSellOrder(ctx, paymentSellReq)
 	require.NoError(t.t, err)
 	BeforeTimeout(t.t, func() {
 		event, err := aliceEventNtfns.Recv()
