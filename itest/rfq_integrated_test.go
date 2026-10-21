@@ -56,7 +56,8 @@ type rfqIntegratedRPC struct {
 }
 
 func (r *rfqIntegratedRPC) AddInvoice(
-	req *lnrpc.Invoice) *lnrpc.AddInvoiceResponse {
+	req *lnrpc.Invoice,
+) *lnrpc.AddInvoiceResponse {
 	r.t.Helper()
 	resp, err := r.n.LightningClient.AddInvoice(context.Background(), req)
 	require.NoError(r.t, err)
@@ -83,7 +84,8 @@ func (r *rfqIntegratedRPC) DecodePayReq(paymentRequest string) *lnrpc.PayReq {
 }
 
 func (r *rfqIntegratedRPC) BuildRoute(
-	req *routerrpc.BuildRouteRequest) *routerrpc.BuildRouteResponse {
+	req *routerrpc.BuildRouteRequest,
+) *routerrpc.BuildRouteResponse {
 	r.t.Helper()
 	var resp *routerrpc.BuildRouteResponse
 	err := wait.NoError(func() error {
@@ -98,7 +100,8 @@ func (r *rfqIntegratedRPC) BuildRoute(
 }
 
 func (r *rfqIntegratedRPC) SendToRouteV2(
-	req *routerrpc.SendToRouteRequest) *lnrpc.HTLCAttempt {
+	req *routerrpc.SendToRouteRequest,
+) *lnrpc.HTLCAttempt {
 	r.t.Helper()
 	resp, err := r.n.RouterClient.SendToRouteV2(context.Background(), req)
 	require.NoError(r.t, err)
@@ -204,7 +207,8 @@ func newRfqIntegratedScenario(
 		if pilot != "" {
 			args = append(
 				args,
-				"--experimental.rfq.portfoliopilotaddress="+pilot,
+				"--experimental.rfq.portfoliopilotaddress="+
+					pilot,
 			)
 		}
 		return args

@@ -582,7 +582,8 @@ func TestUniverseRpcCourierGroupPublishRetry(t *testing.T) {
 			t.Run(name, func(t *testing.T) {
 				message := "semantic rejection"
 				if tc.legacyRateLimit {
-					message = "rate limiter: rate: Wait(n=1) " +
+					message = "rate limiter: rate: " +
+						"Wait(n=1) " +
 						"would exceed context deadline"
 				}
 				insertErr := status.Error(code, message)
@@ -616,14 +617,15 @@ func TestUniverseRpcCourierGroupPublishRetry(t *testing.T) {
 				)
 				shortDelay := time.Millisecond
 				timeout := testTimeout
+				backoffCfg := &BackoffCfg{
+					SkipInitDelay:  true,
+					NumTries:       2,
+					InitialBackoff: shortDelay,
+					MaxBackoff:     shortDelay,
+				}
 				courier, err := NewUniverseRpcCourier(
 					ctx, &UniverseRpcCourierCfg{
-						BackoffCfg: &BackoffCfg{
-							SkipInitDelay:  true,
-							NumTries:       2,
-							InitialBackoff: shortDelay,
-							MaxBackoff:     shortDelay,
-						},
+						BackoffCfg:            backoffCfg,
 						ServiceRequestTimeout: timeout,
 					}, noopTransferLog{}, nil, url, false,
 				)
@@ -671,7 +673,10 @@ func TestUniverseRpcCourierGroupPublishRetry(t *testing.T) {
 					var backoffErr *BackoffExecError
 					require.ErrorAs(t, err, &backoffErr)
 					require.ErrorContains(
-						t, err, "group Universe courier namespace",
+						t, err,
+						"group Universe "+
+							"courier "+
+							"namespace",
 					)
 					require.Equal(t, []string{
 						"insert", "insert",
@@ -684,8 +689,8 @@ func TestUniverseRpcCourierGroupPublishRetry(t *testing.T) {
 						"insert", "insert",
 						"insert", "insert", "send",
 					}, server.calls)
-					// Both namespaces are populated before notifying
-					// an older receiver that only uses the group namespace.
+					// Both namespaces are populated before notifying an older
+					// receiver that only uses the group namespace.
 					require.Len(t, server.leaves, 2)
 				default:
 					require.NoError(t, err)

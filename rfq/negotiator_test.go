@@ -476,16 +476,13 @@ func TestHandleIncomingQuoteRequestError(t *testing.T) {
 					_ asset.Specifier, peer *route.Vertex,
 					_ ChanIntention) (PeerChanMap, error) {
 
+					assetChannel := rfqmsg.JsonAssetChannel{
+						FundingAssets: []rfqmsg.JsonAssetUtxo{{}},
+						RemoteBalance: 1,
+					}
 					return PeerChanMap{
 						*peer: {{
-							AssetInfo: rfqmsg.
-								JsonAssetChannel{
-								FundingAssets: []rfqmsg.
-									JsonAssetUtxo{
-									{},
-								},
-								RemoteBalance: 1,
-							},
+							AssetInfo: assetChannel,
 						}},
 					}, nil
 				},

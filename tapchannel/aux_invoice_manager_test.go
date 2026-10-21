@@ -718,7 +718,8 @@ func TestAuxInvoiceManager(t *testing.T) {
 						t, []*rfqmsg.AssetBalance{
 							rfqmsg.
 								NewAssetBalance(
-									assetID, 1,
+									assetID,
+									1,
 								),
 						}, fn.Some(testRfqID),
 					),

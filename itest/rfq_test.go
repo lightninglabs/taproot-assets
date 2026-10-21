@@ -551,7 +551,9 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 		oraclerpc.Intent_INTENT_PAY_INVOICE_QUALIFY,
 		mock.Anything, "sell-order-1", alicePubkey,
 	).Return(mockResult, nil).Once()
-	paymentSellReq := proto.Clone(sellReq).(*rfqrpc.AddAssetSellOrderRequest)
+	paymentSellReq := proto.Clone(
+		sellReq,
+	).(*rfqrpc.AddAssetSellOrderRequest)
 	paymentSellReq.PaymentMaxAmt = paymentAskAmt
 	_, err = ts.AliceTapd.AddAssetSellOrder(ctx, paymentSellReq)
 	require.NoError(t.t, err)
