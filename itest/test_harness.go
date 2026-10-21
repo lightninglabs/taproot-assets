@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/chaincfg/v2"
+	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/go-errors/errors"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/proof"
@@ -328,7 +328,7 @@ func setupHarnesses(t *testing.T, ht *harnessTest,
 			rpcAccts.Accounts,
 		)
 		require.NoError(t, err)
-		alice = lndHarness.NewNodeRemoteSigner(
+		alice = lndHarness.NewNodeWatchOnly(
 			"WatchOnly", []string{
 				"--remotesigner.enable",
 				fmt.Sprintf(

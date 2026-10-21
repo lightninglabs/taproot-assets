@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/stretchr/testify/require"
