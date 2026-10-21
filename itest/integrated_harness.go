@@ -766,5 +766,5 @@ func copyFile(dst, src string) error {
 		return err
 	}
 
-	return os.WriteFile(dst, data, 0600)
+	return os.WriteFile(dst, data, 0600) //nolint:gosec
 }
