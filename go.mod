@@ -1,6 +1,6 @@
 module github.com/lightninglabs/taproot-assets
 
-go 1.26.0
+go 1.26.8
 
 require (
 	github.com/btcsuite/btcd v0.26.0
@@ -14,9 +14,9 @@ require (
 	github.com/btcsuite/btcd/wire/v2 v2.0.0
 	github.com/btcsuite/btclog v1.0.0
 	github.com/btcsuite/btclog/v2 v2.0.1-0.20250728225537-6090e87c6c5b
-	github.com/btcsuite/btcwallet v0.18.0
+	github.com/btcsuite/btcwallet v0.18.1-0.20260903142755-a960541f35ed
 	github.com/btcsuite/btcwallet/wallet/txsizes v1.3.0
-	github.com/btcsuite/btcwallet/wtxmgr v1.6.0
+	github.com/btcsuite/btcwallet/wtxmgr v1.6.1-0.20260903142755-a960541f35ed
 	github.com/caddyserver/certmagic v0.17.2
 	github.com/davecgh/go-spew v1.1.1
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0
@@ -27,7 +27,7 @@ require (
 	github.com/grpc-ecosystem/go-grpc-middleware/providers/prometheus v1.0.0-rc.0
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.20.0
 	github.com/jackc/pgerrcode v0.0.0-20240316143900-6e2875d9b438
-	github.com/jackc/pgx/v5 v5.9.2
+	github.com/jackc/pgx/v5 v5.11.0
 	github.com/jessevdk/go-flags v1.6.1
 	github.com/lib/pq v1.10.9
 	github.com/lightninglabs/aperture v0.5.1-0.20260706191149-3c889b604a94
@@ -38,7 +38,7 @@ require (
 	github.com/lightningnetwork/lnd v0.21.3-beta
 	github.com/lightningnetwork/lnd/cert v1.2.2
 	github.com/lightningnetwork/lnd/clock v1.1.1
-	github.com/lightningnetwork/lnd/fn/v2 v2.0.9
+	github.com/lightningnetwork/lnd/fn/v2 v2.0.10-0.20260925031608-f2963ce1fd19
 	github.com/lightningnetwork/lnd/ticker v1.1.1
 	github.com/lightningnetwork/lnd/tlv v1.4.0
 	github.com/lightningnetwork/lnd/tor v1.2.0
@@ -57,7 +57,7 @@ require (
 	google.golang.org/protobuf v1.36.11
 	gopkg.in/macaroon-bakery.v2 v2.1.0
 	gopkg.in/macaroon.v2 v2.1.0
-	modernc.org/sqlite v1.34.5
+	modernc.org/sqlite v1.59.0
 	pgregory.net/rapid v1.2.0
 )
 
@@ -140,10 +140,10 @@ require (
 	github.com/lightningnetwork/lnd/actor v0.0.6 // indirect
 	github.com/lightningnetwork/lnd/healthcheck v1.2.6 // indirect
 	github.com/lightningnetwork/lnd/kvdb v1.5.1 // indirect
-	github.com/lightningnetwork/lnd/queue v1.2.0 // indirect
+	github.com/lightningnetwork/lnd/queue v1.2.1-0.20260925031608-f2963ce1fd19 // indirect
 	github.com/lightningnetwork/lnd/sqldb v1.0.13 // indirect
 	github.com/ltcsuite/ltcd v0.0.0-20190101042124-f37f8bf35796 // indirect
-	github.com/mattn/go-isatty v0.0.20 // indirect
+	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/mholt/acmez v1.0.4 // indirect
 	github.com/miekg/dns v1.1.50 // indirect
 	github.com/moby/docker-image-spec v1.3.1 // indirect
@@ -155,7 +155,7 @@ require (
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/mwitkow/grpc-proxy v0.0.0-20230212185441-f345521cb9c9 // indirect
-	github.com/ncruces/go-strftime v0.1.9 // indirect
+	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.1.1 // indirect
 	github.com/opencontainers/runc v1.3.6 // indirect
@@ -212,15 +212,15 @@ require (
 	gopkg.in/natefinch/lumberjack.v2 v2.0.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	modernc.org/libc v1.55.3 // indirect
-	modernc.org/mathutil v1.6.0 // indirect
-	modernc.org/memory v1.8.0 // indirect
+	modernc.org/libc v1.75.7 // indirect
+	modernc.org/mathutil v1.7.1 // indirect
+	modernc.org/memory v1.12.1 // indirect
 	sigs.k8s.io/yaml v1.2.0 // indirect
 )
 
 // We want to format raw bytes as hex instead of base64. The forked version
 // allows us to specify that as an option.
-replace google.golang.org/protobuf => github.com/lightninglabs/protobuf-go-hex-display v1.34.2-hex-display
+replace google.golang.org/protobuf => github.com/lightninglabs/protobuf-go-hex-display v1.36.11-hex-display
 
 // We are using a fork of the migration library with custom functionality that
 // did not yet make it into the upstream repository.
@@ -233,8 +233,9 @@ replace github.com/prometheus/common => github.com/prometheus/common v0.66.1
 
 replace github.com/lightningnetwork/lnd/tlv => ./third_party/lnd/tlv
 
-// Use the pgx v5 migration until lnd publishes a matching sqldb release.
-replace github.com/lightningnetwork/lnd/sqldb v1.0.13 => github.com/lightningnetwork/lnd/sqldb v1.0.13-0.20260514041430-e9b422f78581
+// Match lnd's SQL source until the next sqldb release.
+replace github.com/lightningnetwork/lnd/sqldb => github.com/lightningnetwork/lnd/sqldb v1.0.13-0.20260925031608-f2963ce1fd19
 
 // Released RPC submodules still require the legacy lnd dependency line.
-replace github.com/lightningnetwork/lnd => github.com/lightningnetwork/lnd v0.21.0-beta.rc2.0.20260903094101-d66a7c137d32
+// Keep btcd v2 alongside the released recovery and invoice replay fixes.
+replace github.com/lightningnetwork/lnd => github.com/lightningnetwork/lnd v0.21.0-beta.rc2.0.20260925031608-f2963ce1fd19
