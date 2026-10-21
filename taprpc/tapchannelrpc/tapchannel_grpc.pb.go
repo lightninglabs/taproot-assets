@@ -19,75 +19,75 @@ const _ = grpc.SupportPackageIsVersion7
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type TaprootAssetChannelsClient interface {
 	// litcli: `ln fundchannel`
-	// FundChannel initiates the channel funding negotiation with a peer for the
-	// creation of a channel that contains a specified amount of a given asset.
+	//FundChannel initiates the channel funding negotiation with a peer for the
+	//creation of a channel that contains a specified amount of a given asset.
 	FundChannel(ctx context.Context, in *FundChannelRequest, opts ...grpc.CallOption) (*FundChannelResponse, error)
 	// Deprecated: Do not use.
 	//
-	// Deprecated.
-	// EncodeCustomRecords allows RPC users to encode Taproot Asset channel related
-	// data into the TLV format that is used in the custom records of the lnd
-	// payment or other channel related RPCs. This RPC is completely stateless and
-	// does not perform any checks on the data provided, other than pure format
-	// validation.
+	//Deprecated.
+	//EncodeCustomRecords allows RPC users to encode Taproot Asset channel related
+	//data into the TLV format that is used in the custom records of the lnd
+	//payment or other channel related RPCs. This RPC is completely stateless and
+	//does not perform any checks on the data provided, other than pure format
+	//validation.
 	EncodeCustomRecords(ctx context.Context, in *EncodeCustomRecordsRequest, opts ...grpc.CallOption) (*EncodeCustomRecordsResponse, error)
 	// litcli: `ln sendpayment`
-	// SendPayment is a wrapper around lnd's routerrpc.SendPaymentV2 RPC method
-	// with asset specific parameters. It allows RPC users to send asset keysend
-	// payments (direct payments) or payments to an invoice with a specified asset
-	// amount.
+	//SendPayment is a wrapper around lnd's routerrpc.SendPaymentV2 RPC method
+	//with asset specific parameters. It allows RPC users to send asset keysend
+	//payments (direct payments) or payments to an invoice with a specified asset
+	//amount.
 	SendPayment(ctx context.Context, in *SendPaymentRequest, opts ...grpc.CallOption) (TaprootAssetChannels_SendPaymentClient, error)
 	// litcli: `ln addinvoice`
-	// AddInvoice is a wrapper around lnd's lnrpc.AddInvoice method with asset
-	// specific parameters. It allows RPC users to create invoices that correspond
-	// to the specified asset amount. If a peer pubkey is specified, then only that
-	// peer will be used for RFQ negotiations. If none is specified then RFQ quotes
-	// for all peers with suitable asset channels will be created.
+	//AddInvoice is a wrapper around lnd's lnrpc.AddInvoice method with asset
+	//specific parameters. It allows RPC users to create invoices that correspond
+	//to the specified asset amount. If a peer pubkey is specified, then only that
+	//peer will be used for RFQ negotiations. If none is specified then RFQ quotes
+	//for all peers with suitable asset channels will be created.
 	AddInvoice(ctx context.Context, in *AddInvoiceRequest, opts ...grpc.CallOption) (*AddInvoiceResponse, error)
 	// litcli: `ln decodeassetinvoice`
-	// DecodeAssetPayReq is similar to lnd's lnrpc.DecodePayReq, but it accepts an
-	// asset ID or group key and returns the invoice amount expressed in asset
-	// units along side the normal information.
+	//DecodeAssetPayReq is similar to lnd's lnrpc.DecodePayReq, but it accepts an
+	//asset ID or group key and returns the invoice amount expressed in asset
+	//units along side the normal information.
 	DecodeAssetPayReq(ctx context.Context, in *AssetPayReq, opts ...grpc.CallOption) (*AssetPayReqResponse, error)
 	// litcli: `ln listinvoices`
-	// ListInvoices is a wrapper around lnd's lnrpc.ListInvoices method that only
-	// returns invoices that involve at least one Taproot Asset. The full lnd
-	// invoice is returned along with the decoded asset amounts that the invoice's
-	// HTLCs carry, so that callers don't need to parse the custom channel data
-	// themselves. All request fields behave the same way as they do for lnd's
-	// lnrpc.ListInvoices RPC method.
+	//ListInvoices is a wrapper around lnd's lnrpc.ListInvoices method that only
+	//returns invoices that involve at least one Taproot Asset. The full lnd
+	//invoice is returned along with the decoded asset amounts that the invoice's
+	//HTLCs carry, so that callers don't need to parse the custom channel data
+	//themselves. All request fields behave the same way as they do for lnd's
+	//lnrpc.ListInvoices RPC method.
 	ListInvoices(ctx context.Context, in *ListInvoicesRequest, opts ...grpc.CallOption) (*ListInvoicesResponse, error)
 	// litcli: `ln listpayments`
-	// ListPayments is a wrapper around lnd's lnrpc.ListPayments method that only
-	// returns payments that involve at least one Taproot Asset. The full lnd
-	// payment is returned along with the decoded asset amounts that the payment's
-	// HTLCs carry, so that callers don't need to parse the custom channel data
-	// themselves. All request fields behave the same way as they do for lnd's
-	// lnrpc.ListPayments RPC method.
+	//ListPayments is a wrapper around lnd's lnrpc.ListPayments method that only
+	//returns payments that involve at least one Taproot Asset. The full lnd
+	//payment is returned along with the decoded asset amounts that the payment's
+	//HTLCs carry, so that callers don't need to parse the custom channel data
+	//themselves. All request fields behave the same way as they do for lnd's
+	//lnrpc.ListPayments RPC method.
 	ListPayments(ctx context.Context, in *ListPaymentsRequest, opts ...grpc.CallOption) (*ListPaymentsResponse, error)
 	// litcli: `ln subscribeinvoices`
-	// SubscribeInvoices is a wrapper around lnd's lnrpc.SubscribeInvoices method
-	// that only streams invoices that involve at least one Taproot Asset. The full
-	// lnd invoice is returned along with the decoded asset amounts that the
-	// invoice's HTLCs carry, so that callers don't need to parse the custom
-	// channel data themselves. All request fields behave the same way as they do
-	// for lnd's lnrpc.SubscribeInvoices RPC method.
+	//SubscribeInvoices is a wrapper around lnd's lnrpc.SubscribeInvoices method
+	//that only streams invoices that involve at least one Taproot Asset. The full
+	//lnd invoice is returned along with the decoded asset amounts that the
+	//invoice's HTLCs carry, so that callers don't need to parse the custom
+	//channel data themselves. All request fields behave the same way as they do
+	//for lnd's lnrpc.SubscribeInvoices RPC method.
 	SubscribeInvoices(ctx context.Context, in *SubscribeInvoicesRequest, opts ...grpc.CallOption) (TaprootAssetChannels_SubscribeInvoicesClient, error)
 	// litcli: `ln subscribepayments`
-	// SubscribePayments is a wrapper around lnd's routerrpc.TrackPayments method
-	// that only streams payment updates that involve at least one Taproot Asset.
-	// The full lnd payment is returned along with the decoded asset amounts that
-	// the payment's HTLCs carry, so that callers don't need to parse the custom
-	// channel data themselves. All request fields behave the same way as they do
-	// for lnd's routerrpc.TrackPayments RPC method.
+	//SubscribePayments is a wrapper around lnd's routerrpc.TrackPayments method
+	//that only streams payment updates that involve at least one Taproot Asset.
+	//The full lnd payment is returned along with the decoded asset amounts that
+	//the payment's HTLCs carry, so that callers don't need to parse the custom
+	//channel data themselves. All request fields behave the same way as they do
+	//for lnd's routerrpc.TrackPayments RPC method.
 	SubscribePayments(ctx context.Context, in *SubscribePaymentsRequest, opts ...grpc.CallOption) (TaprootAssetChannels_SubscribePaymentsClient, error)
 	// litcli: `ln trackpayment`
-	// TrackPayment is a wrapper around lnd's routerrpc.TrackPaymentV2 method that
-	// only streams payment updates that involve at least one Taproot Asset. The
-	// full lnd payment is returned along with the decoded asset amounts that the
-	// payment's HTLCs carry, so that callers don't need to parse the custom
-	// channel data themselves. All request fields behave the same way as they do
-	// for lnd's routerrpc.TrackPaymentV2 RPC method.
+	//TrackPayment is a wrapper around lnd's routerrpc.TrackPaymentV2 method that
+	//only streams payment updates that involve at least one Taproot Asset. The
+	//full lnd payment is returned along with the decoded asset amounts that the
+	//payment's HTLCs carry, so that callers don't need to parse the custom
+	//channel data themselves. All request fields behave the same way as they do
+	//for lnd's routerrpc.TrackPaymentV2 RPC method.
 	TrackPayment(ctx context.Context, in *TrackPaymentRequest, opts ...grpc.CallOption) (TaprootAssetChannels_TrackPaymentClient, error)
 }
 
@@ -287,75 +287,75 @@ func (x *taprootAssetChannelsTrackPaymentClient) Recv() (*AssetPayment, error) {
 // for forward compatibility
 type TaprootAssetChannelsServer interface {
 	// litcli: `ln fundchannel`
-	// FundChannel initiates the channel funding negotiation with a peer for the
-	// creation of a channel that contains a specified amount of a given asset.
+	//FundChannel initiates the channel funding negotiation with a peer for the
+	//creation of a channel that contains a specified amount of a given asset.
 	FundChannel(context.Context, *FundChannelRequest) (*FundChannelResponse, error)
 	// Deprecated: Do not use.
 	//
-	// Deprecated.
-	// EncodeCustomRecords allows RPC users to encode Taproot Asset channel related
-	// data into the TLV format that is used in the custom records of the lnd
-	// payment or other channel related RPCs. This RPC is completely stateless and
-	// does not perform any checks on the data provided, other than pure format
-	// validation.
+	//Deprecated.
+	//EncodeCustomRecords allows RPC users to encode Taproot Asset channel related
+	//data into the TLV format that is used in the custom records of the lnd
+	//payment or other channel related RPCs. This RPC is completely stateless and
+	//does not perform any checks on the data provided, other than pure format
+	//validation.
 	EncodeCustomRecords(context.Context, *EncodeCustomRecordsRequest) (*EncodeCustomRecordsResponse, error)
 	// litcli: `ln sendpayment`
-	// SendPayment is a wrapper around lnd's routerrpc.SendPaymentV2 RPC method
-	// with asset specific parameters. It allows RPC users to send asset keysend
-	// payments (direct payments) or payments to an invoice with a specified asset
-	// amount.
+	//SendPayment is a wrapper around lnd's routerrpc.SendPaymentV2 RPC method
+	//with asset specific parameters. It allows RPC users to send asset keysend
+	//payments (direct payments) or payments to an invoice with a specified asset
+	//amount.
 	SendPayment(*SendPaymentRequest, TaprootAssetChannels_SendPaymentServer) error
 	// litcli: `ln addinvoice`
-	// AddInvoice is a wrapper around lnd's lnrpc.AddInvoice method with asset
-	// specific parameters. It allows RPC users to create invoices that correspond
-	// to the specified asset amount. If a peer pubkey is specified, then only that
-	// peer will be used for RFQ negotiations. If none is specified then RFQ quotes
-	// for all peers with suitable asset channels will be created.
+	//AddInvoice is a wrapper around lnd's lnrpc.AddInvoice method with asset
+	//specific parameters. It allows RPC users to create invoices that correspond
+	//to the specified asset amount. If a peer pubkey is specified, then only that
+	//peer will be used for RFQ negotiations. If none is specified then RFQ quotes
+	//for all peers with suitable asset channels will be created.
 	AddInvoice(context.Context, *AddInvoiceRequest) (*AddInvoiceResponse, error)
 	// litcli: `ln decodeassetinvoice`
-	// DecodeAssetPayReq is similar to lnd's lnrpc.DecodePayReq, but it accepts an
-	// asset ID or group key and returns the invoice amount expressed in asset
-	// units along side the normal information.
+	//DecodeAssetPayReq is similar to lnd's lnrpc.DecodePayReq, but it accepts an
+	//asset ID or group key and returns the invoice amount expressed in asset
+	//units along side the normal information.
 	DecodeAssetPayReq(context.Context, *AssetPayReq) (*AssetPayReqResponse, error)
 	// litcli: `ln listinvoices`
-	// ListInvoices is a wrapper around lnd's lnrpc.ListInvoices method that only
-	// returns invoices that involve at least one Taproot Asset. The full lnd
-	// invoice is returned along with the decoded asset amounts that the invoice's
-	// HTLCs carry, so that callers don't need to parse the custom channel data
-	// themselves. All request fields behave the same way as they do for lnd's
-	// lnrpc.ListInvoices RPC method.
+	//ListInvoices is a wrapper around lnd's lnrpc.ListInvoices method that only
+	//returns invoices that involve at least one Taproot Asset. The full lnd
+	//invoice is returned along with the decoded asset amounts that the invoice's
+	//HTLCs carry, so that callers don't need to parse the custom channel data
+	//themselves. All request fields behave the same way as they do for lnd's
+	//lnrpc.ListInvoices RPC method.
 	ListInvoices(context.Context, *ListInvoicesRequest) (*ListInvoicesResponse, error)
 	// litcli: `ln listpayments`
-	// ListPayments is a wrapper around lnd's lnrpc.ListPayments method that only
-	// returns payments that involve at least one Taproot Asset. The full lnd
-	// payment is returned along with the decoded asset amounts that the payment's
-	// HTLCs carry, so that callers don't need to parse the custom channel data
-	// themselves. All request fields behave the same way as they do for lnd's
-	// lnrpc.ListPayments RPC method.
+	//ListPayments is a wrapper around lnd's lnrpc.ListPayments method that only
+	//returns payments that involve at least one Taproot Asset. The full lnd
+	//payment is returned along with the decoded asset amounts that the payment's
+	//HTLCs carry, so that callers don't need to parse the custom channel data
+	//themselves. All request fields behave the same way as they do for lnd's
+	//lnrpc.ListPayments RPC method.
 	ListPayments(context.Context, *ListPaymentsRequest) (*ListPaymentsResponse, error)
 	// litcli: `ln subscribeinvoices`
-	// SubscribeInvoices is a wrapper around lnd's lnrpc.SubscribeInvoices method
-	// that only streams invoices that involve at least one Taproot Asset. The full
-	// lnd invoice is returned along with the decoded asset amounts that the
-	// invoice's HTLCs carry, so that callers don't need to parse the custom
-	// channel data themselves. All request fields behave the same way as they do
-	// for lnd's lnrpc.SubscribeInvoices RPC method.
+	//SubscribeInvoices is a wrapper around lnd's lnrpc.SubscribeInvoices method
+	//that only streams invoices that involve at least one Taproot Asset. The full
+	//lnd invoice is returned along with the decoded asset amounts that the
+	//invoice's HTLCs carry, so that callers don't need to parse the custom
+	//channel data themselves. All request fields behave the same way as they do
+	//for lnd's lnrpc.SubscribeInvoices RPC method.
 	SubscribeInvoices(*SubscribeInvoicesRequest, TaprootAssetChannels_SubscribeInvoicesServer) error
 	// litcli: `ln subscribepayments`
-	// SubscribePayments is a wrapper around lnd's routerrpc.TrackPayments method
-	// that only streams payment updates that involve at least one Taproot Asset.
-	// The full lnd payment is returned along with the decoded asset amounts that
-	// the payment's HTLCs carry, so that callers don't need to parse the custom
-	// channel data themselves. All request fields behave the same way as they do
-	// for lnd's routerrpc.TrackPayments RPC method.
+	//SubscribePayments is a wrapper around lnd's routerrpc.TrackPayments method
+	//that only streams payment updates that involve at least one Taproot Asset.
+	//The full lnd payment is returned along with the decoded asset amounts that
+	//the payment's HTLCs carry, so that callers don't need to parse the custom
+	//channel data themselves. All request fields behave the same way as they do
+	//for lnd's routerrpc.TrackPayments RPC method.
 	SubscribePayments(*SubscribePaymentsRequest, TaprootAssetChannels_SubscribePaymentsServer) error
 	// litcli: `ln trackpayment`
-	// TrackPayment is a wrapper around lnd's routerrpc.TrackPaymentV2 method that
-	// only streams payment updates that involve at least one Taproot Asset. The
-	// full lnd payment is returned along with the decoded asset amounts that the
-	// payment's HTLCs carry, so that callers don't need to parse the custom
-	// channel data themselves. All request fields behave the same way as they do
-	// for lnd's routerrpc.TrackPaymentV2 RPC method.
+	//TrackPayment is a wrapper around lnd's routerrpc.TrackPaymentV2 method that
+	//only streams payment updates that involve at least one Taproot Asset. The
+	//full lnd payment is returned along with the decoded asset amounts that the
+	//payment's HTLCs carry, so that callers don't need to parse the custom
+	//channel data themselves. All request fields behave the same way as they do
+	//for lnd's routerrpc.TrackPaymentV2 RPC method.
 	TrackPayment(*TrackPaymentRequest, TaprootAssetChannels_TrackPaymentServer) error
 	mustEmbedUnimplementedTaprootAssetChannelsServer()
 }

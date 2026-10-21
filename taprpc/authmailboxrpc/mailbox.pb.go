@@ -395,14 +395,14 @@ type SendMessageRequest_TxProof struct {
 	// The Bitcoin Merkle Inclusion Proof used as the sender's
 	// authentication. The server MUST perform full validation of this
 	// proof:
-	//  1. Verify claimed_outpoint.txid_hex matches hash(raw_tx_data).
-	//  2. Verify claimed_outpoint.index is valid for the transaction.
-	//  3. Verify merkle_proof connects the transaction hash to the
-	//     raw_block_header_data's Merkle root.
-	//  4. Verify block_header validity (e.g., PoW, potentially chain
-	//     context).
-	//  5. Ensure the claimed_outpoint has not been used previously (check
-	//     used_proofs table).
+	// 1. Verify claimed_outpoint.txid_hex matches hash(raw_tx_data).
+	// 2. Verify claimed_outpoint.index is valid for the transaction.
+	// 3. Verify merkle_proof connects the transaction hash to the
+	//    raw_block_header_data's Merkle root.
+	// 4. Verify block_header validity (e.g., PoW, potentially chain
+	//    context).
+	// 5. Ensure the claimed_outpoint has not been used previously (check
+	//    used_proofs table).
 	TxProof *BitcoinMerkleInclusionProof `protobuf:"bytes,4,opt,name=tx_proof,json=txProof,proto3,oneof"`
 }
 
