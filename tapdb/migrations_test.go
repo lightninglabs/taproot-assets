@@ -1464,6 +1464,7 @@ func TestMigration65BackfillSupplyUpdateEventKeys(t *testing.T) {
 		require.NoError(t, preRows.Scan(&typeID, &data, &key))
 		require.Nil(t, key, "event_key must be NULL pre-backfill")
 	}
+	require.NoError(t, preRows.Err())
 	require.NoError(t, preRows.Close())
 
 	// Advance to latest -- the programmatic migration at 65 runs the
@@ -1495,6 +1496,7 @@ func TestMigration65BackfillSupplyUpdateEventKeys(t *testing.T) {
 		require.Len(t, key, 32)
 		seen++
 	}
+	require.NoError(t, postRows.Err())
 	require.NoError(t, postRows.Close())
 	require.Equal(t, len(seeds), seen)
 }
@@ -1951,6 +1953,7 @@ func TestMigration65BackfillPagesLargeTables(t *testing.T) {
 			t, supplyUpdateEventKey(groupKey, 0, data), key,
 		)
 	}
+	require.NoError(t, rows.Err())
 	require.NoError(t, rows.Close())
 }
 

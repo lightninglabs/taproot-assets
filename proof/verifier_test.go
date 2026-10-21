@@ -168,9 +168,7 @@ func makeV0InclusionProof(t *testing.T, opts ...createProofOpt) ([]*Proof,
 		}
 	}
 
-	proofs := make([]*Proof, 1)
-
-	proofs[0] = &Proof{
+	proofs := []*Proof{{
 		Asset: *randAsset,
 		InclusionProof: TaprootProof{
 			InternalKey: internalKey,
@@ -179,7 +177,7 @@ func makeV0InclusionProof(t *testing.T, opts ...createProofOpt) ([]*Proof,
 			},
 		},
 		AnchorTx: *anchorTx,
-	}
+	}}
 
 	for _, outIdx := range indexes {
 		for _, a := range cfg.additionalAssets[outIdx] {

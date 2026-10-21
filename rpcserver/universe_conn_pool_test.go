@@ -2,7 +2,6 @@ package rpcserver
 
 import (
 	"crypto/tls"
-	"errors"
 	"net"
 	"sync"
 	"testing"
@@ -174,8 +173,7 @@ func TestUniverseConnPoolEvictDuringDial(t *testing.T) {
 	wg.Wait()
 
 	require.Nil(t, getConn)
-	require.True(t, errors.Is(getErr, ErrServerEvicted),
-		"got %v", getErr)
+	require.ErrorIs(t, getErr, ErrServerEvicted)
 
 	// The pool must not have an entry for the evicted address.
 	// A subsequent Get should dial fresh — and now that the test

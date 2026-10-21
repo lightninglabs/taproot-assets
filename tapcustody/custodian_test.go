@@ -799,7 +799,7 @@ func TestV2AddressHandling(t *testing.T) {
 	t.Logf("Storing proof for recipient key %x",
 		mockProof.ScriptKey.SerializeCompressed())
 
-	err = h.courier.DeliverProof(nil, recipient, mockProof, nil)
+	err = h.courier.DeliverProof(ctxb, recipient, mockProof, nil)
 	require.NoError(t, err)
 
 	// Now we can send the message to the custodian's mailbox subscription.
@@ -963,7 +963,7 @@ func TestTransactionHandling(t *testing.T) {
 
 	mockProof := randProof(t, outputIdx, tx.Tx, genesis[0], addrs[0])
 	recipient := proof.Recipient{}
-	err := h.courier.DeliverProof(nil, recipient, mockProof, nil)
+	err := h.courier.DeliverProof(ctx, recipient, mockProof, nil)
 	require.NoError(t, err)
 
 	require.NoError(t, h.c.Start())
@@ -1039,7 +1039,7 @@ func runTransactionConfirmedOnlyTest(t *testing.T, withRestart bool) {
 		mockProof := randProof(
 			t, outputIndexes[idx], tx.Tx, genesis[idx], addrs[idx],
 		)
-		_ = h.courier.DeliverProof(nil, recipient, mockProof, nil)
+		_ = h.courier.DeliverProof(ctx, recipient, mockProof, nil)
 	}
 
 	// We want events to be created for each address, they should be in the

@@ -367,6 +367,8 @@ func (a *Archive) UpsertProofLeaf(ctx context.Context, id Identifier,
 	// The multiverse decides that inside its write transaction, so two
 	// clients racing to register the same new leaf log exactly one event.
 	if leafInserted {
+		// The event is logged detached from the request context.
+		//nolint:gosec
 		go func() {
 			err := a.cfg.UniverseStats.LogNewProofEvent(
 				context.Background(), id, key,

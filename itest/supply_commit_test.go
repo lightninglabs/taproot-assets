@@ -882,7 +882,7 @@ func testSupplyCommitMintBurn(t *harnessTest) {
 	expectedTotal := int64(
 		mintReq.Asset.Amount + secondMintReq.Asset.Amount,
 	)
-	fetchResp, supplyOutpoint = WaitForSupplyCommit(
+	_, supplyOutpoint = WaitForSupplyCommit(
 		t.t, ctxb, t.tapd, groupKeyBytes, fn.Some(supplyOutpoint),
 		func(resp *unirpc.FetchSupplyCommitResponse) bool {
 			return resp.IssuanceSubtreeRoot != nil &&
