@@ -2363,6 +2363,7 @@ func TestSupplySyncerPushLog(t *testing.T) {
 	)
 	err = rows.Scan(&rootHashBytes, &rootSum)
 	require.NoError(t, err)
+	require.NoError(t, rows.Err())
 	require.NoError(t, rows.Close())
 
 	var rootHash mssmt.NodeHash
