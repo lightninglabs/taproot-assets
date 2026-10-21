@@ -1450,3 +1450,33 @@ func TestAssetReceiveErrorEvent(t *testing.T) {
 		t, address.StatusTransactionDetected, earlyErrorEvent.Status,
 	)
 }
+
+// TestV2FragmentBatchSkip tests that the custodian creates no event for a send
+// fragment with an unknown script key derivation method, and processes the
+// message after it in the same batch.
+func TestV2FragmentBatchSkip(t *testing.T) {
+	t.Parallel()
+
+	h := newHarness(t, nil)
+	r := newV2Receiver(h)
+
+	// Both messages are stored before the custodian subscribes, so they
+	// arrive in a single batch, in the order they were stored.
+	badFragment, _ := r.newTransfer(100)
+	badOutput := badFragment.Outputs[r.genesis.ID()]
+	badOutput.DerivationMethod = asset.ScriptKeyDerivationMethod(99)
+	badFragment.Outputs[r.genesis.ID()] = badOutput
+	r.storeFragment(badFragment)
+
+	goodFragment, _ := r.newTransfer(101)
+	r.storeFragment(goodFragment)
+
+	require.NoError(t, h.c.Start())
+	t.Cleanup(func() {
+		require.NoError(t, h.c.Stop())
+	})
+	h.assertStartup()
+
+	events := h.assertEventsPresent(1, address.StatusCompleted)
+	require.Equal(t, goodFragment.OutPoint, events[0].Outpoint)
+}
