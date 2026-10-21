@@ -2,6 +2,7 @@ package fixture
 
 import (
 	"context"
+	crand "crypto/rand"
 	"database/sql"
 	"fmt"
 	"math"
@@ -10,8 +11,6 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-
-	crand "crypto/rand"
 
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightninglabs/taproot-assets/asset"

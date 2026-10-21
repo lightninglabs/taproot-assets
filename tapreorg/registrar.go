@@ -6,11 +6,10 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
-
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 )
 
 // Registrar is the watcher surface a subsystem uses to stake local
