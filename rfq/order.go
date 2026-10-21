@@ -326,9 +326,11 @@ func (c *AssetSalePolicy) checkHtlcCompliance(
 	}
 
 	if requireIncomingBtc {
-		// The outgoing amount still represents the BTC value of the assets
+		// The outgoing amount still represents the BTC value of the
+		// assets
 		// at this point. The interceptor response replaces it with the
-		// on-chain dust amount, after which lnd can no longer verify that
+		// on-chain dust amount, after which lnd can no longer verify
+		// that
 		// the incoming HTLC paid the requested asset value.
 		if htlc.AmountInMsat < htlc.AmountOutMsat {
 			return fmt.Errorf("HTLC incoming amount is less than "+
@@ -346,8 +348,10 @@ func (c *AssetSalePolicy) checkHtlcCompliance(
 		// leg may accept asset-carrying input.
 		noopTLV := uint64(lnwallet.NoOpHtlcTLVEntry.TypeVal())
 		if _, ok := htlc.InWireCustomRecords[noopTLV]; ok {
-			return fmt.Errorf("standalone sale HTLC carries no-op " +
-				"flag")
+			return fmt.Errorf(
+				"standalone sale HTLC carries no-op " +
+					"flag",
+			)
 		}
 
 		if len(htlc.InWireCustomRecords) > 0 {
@@ -982,7 +986,9 @@ func (a *AssetForwardPolicy) CheckHtlcCompliance(ctx context.Context,
 	// The incoming policy has already established value coverage from the
 	// incoming asset records, so the sale half must not compare the asset
 	// channel's dust wire amount against the outgoing asset value.
-	if err := a.outgoingPolicy.checkHtlcCompliance(htlc, false); err != nil {
+	if err := a.outgoingPolicy.checkHtlcCompliance(
+		htlc, false,
+	); err != nil {
 		// The incoming policy has already tracked the HTLC. Roll back
 		// that tracking, as the HTLC will be rejected.
 		a.incomingPolicy.UntrackHtlc(htlc.IncomingCircuitKey)
@@ -1351,12 +1357,18 @@ func (h *OrderHandler) validateIncomingAssetChannel(ctx context.Context,
 			ctx, specifier, balance.AssetID.Val,
 		)
 		if err != nil {
-			return fmt.Errorf("check HTLC asset %s against policy: %w",
-				balance.AssetID.Val.String(), err)
+			return fmt.Errorf(
+				"check HTLC asset %s against policy: %w",
+				balance.AssetID.Val.String(),
+				err,
+			)
 		}
 		if !matches {
-			return fmt.Errorf("HTLC asset %s does not match policy %s",
-				balance.AssetID.Val.String(), specifier.String())
+			return fmt.Errorf(
+				"HTLC asset %s does not match policy %s",
+				balance.AssetID.Val.String(),
+				specifier.String(),
+			)
 		}
 
 		htlcAssetIDs.Add(balance.AssetID.Val)
@@ -1369,8 +1381,11 @@ func (h *OrderHandler) validateIncomingAssetChannel(ctx context.Context,
 	}
 
 	if !assetData.HasAllAssetIDs(htlcAssetIDs) {
-		return fmt.Errorf("incoming channel %d is not funded by all HTLC "+
-			"assets", chanID)
+		return fmt.Errorf(
+			"incoming channel %d is not funded by all HTLC "+
+				"assets",
+			chanID,
+		)
 	}
 
 	return nil
@@ -1397,19 +1412,29 @@ func (h *OrderHandler) incomingChannelAssetData(ctx context.Context,
 		}
 
 		if len(channel.CustomChannelData) == 0 {
-			return nil, fmt.Errorf("incoming channel %d has no asset "+
-				"funding data", chanID)
+			return nil, fmt.Errorf(
+				"incoming channel %d has no asset "+
+					"funding data",
+				chanID,
+			)
 		}
 
 		var data rfqmsg.JsonAssetChannel
 		err := json.Unmarshal(channel.CustomChannelData, &data)
 		if err != nil {
-			return nil, fmt.Errorf("decode incoming channel %d asset "+
-				"funding data: %w", chanID, err)
+			return nil, fmt.Errorf(
+				"decode incoming channel %d asset "+
+					"funding data: %w",
+				chanID,
+				err,
+			)
 		}
 		if len(data.FundingAssets) == 0 {
-			return nil, fmt.Errorf("incoming channel %d has no funded "+
-				"assets", chanID)
+			return nil, fmt.Errorf(
+				"incoming channel %d has no funded "+
+					"assets",
+				chanID,
+			)
 		}
 		return &data, nil
 	}
@@ -1482,12 +1507,19 @@ func (h *OrderHandler) resolveIncomingHtlc(ctx context.Context,
 	// A purchase policy replaces the incoming wire amount with the quoted
 	// value of the assets carried by the HTLC. Before allowing that value
 	// substitution, prove that the actual incoming channel is funded by all
-	// of those assets. The RFQ ID is attacker-controlled and cannot establish
+	// of those assets. The RFQ ID is attacker-controlled and cannot
+	// establish
 	// channel provenance by itself.
 	err = h.validateIncomingAssetChannel(ctx, htlc, policy)
 	if err != nil {
-		log.Warnf("HTLC did not arrive over a matching asset channel: %v "+
-			"(HTLC=%v, policy=%v)", err, htlc, policy)
+		log.Warnf(
+			"HTLC did not arrive over a matching asset "+
+				"channel: %v "+
+				"(HTLC=%v, policy=%v)",
+			err,
+			htlc,
+			policy,
+		)
 
 		return &lndclient.InterceptedHtlcResponse{
 			Action: lndclient.InterceptorActionFail,

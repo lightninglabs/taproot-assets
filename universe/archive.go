@@ -388,7 +388,10 @@ func (a *Archive) verifyIssuanceProof(ctx context.Context, id Identifier,
 	// input's known confirmation height from the uncommitted batch.
 	lookup, err := a.cfg.ChainLookupGenerator.GenProofChainLookup(newProof)
 	if err != nil {
-		return nil, fmt.Errorf("unable to generate chain lookup: %w", err)
+		return nil, fmt.Errorf(
+			"unable to generate chain lookup: %w",
+			err,
+		)
 	}
 	if prevAssetSnapshot != nil &&
 		prevAssetSnapshot.AnchorBlockHeight != 0 {
@@ -669,9 +672,12 @@ func NewUniverseKeyFromBytes(b []byte) (UniverseKey, error) {
 
 // getPrevAssetSnapshot returns the previous asset snapshot, including its
 // height when it is in the uncommitted batch. Genesis proofs return nil.
-func (a *Archive) getPrevAssetSnapshot(ctx context.Context,
-	uniID Identifier, newAsset *asset.Asset,
-	batchProofs map[batchProofKey]batchProof) (*proof.AssetSnapshot, error) {
+func (a *Archive) getPrevAssetSnapshot(
+	ctx context.Context,
+	uniID Identifier,
+	newAsset *asset.Asset,
+	batchProofs map[batchProofKey]batchProof,
+) (*proof.AssetSnapshot, error) {
 
 	// If this is a genesis proof, then there is no previous asset (and
 	// therefore no previous asset snapshot).
