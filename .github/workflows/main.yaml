@@ -166,11 +166,16 @@ jobs:
       - name: Build default image
         uses: docker/build-push-action@v4
         with:
+          context: .
           tags: 'default-taproot-assets'
+          build-args: |
+            git_url=${{ github.server_url }}/${{ github.event.pull_request.head.repo.full_name || github.repository }}.git
+            checkout=${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Build dev image
         uses: docker/build-push-action@v4
         with:
+          context: .
           file: dev.Dockerfile
           tags: 'dev-taproot-assets'
 
