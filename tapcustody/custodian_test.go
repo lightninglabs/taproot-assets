@@ -780,10 +780,10 @@ func newV2Receiver(h *custodianHarness) *v2Receiver {
 	}
 }
 
-// newTransfer adds a block holding a new transaction to the chain bridge,
-// delivers a proof for the address's asset anchored in that transaction to
-// the courier, and returns the proof and a send fragment for the transfer that
-// claims the given block height.
+// newTransfer adds a block holding a new transaction to the chain bridge at the
+// given height, delivers a proof for the address's asset anchored in that
+// transaction to the courier, and returns the proof and a send fragment for the
+// transfer.
 func (r *v2Receiver) newTransfer(height uint32) (*proof.SendFragment,
 	*proof.AnnotatedProof) {
 
@@ -800,6 +800,7 @@ func (r *v2Receiver) newTransfer(height uint32) (*proof.SendFragment,
 		Transactions: []*wire.MsgTx{{}, tx.Tx},
 	}
 	r.h.chainBridge.SetBlock(block.BlockHash(), block)
+	r.h.chainBridge.SetBlockHeight(block.BlockHash(), height)
 
 	derivationMethod := asset.ScriptKeyDerivationUniquePedersen
 	outScriptKey, err := asset.DeriveUniqueScriptKey(
@@ -1476,6 +1477,32 @@ func TestV2FragmentBatchSkip(t *testing.T) {
 		require.NoError(t, h.c.Stop())
 	})
 	h.assertStartup()
+
+	events := h.assertEventsPresent(1, address.StatusCompleted)
+	require.Equal(t, goodFragment.OutPoint, events[0].Outpoint)
+}
+
+// TestV2FragmentHeightMismatch tests that the custodian creates no event for a
+// send fragment whose block height differs from its block's height, and keeps
+// processing the messages after it.
+func TestV2FragmentHeightMismatch(t *testing.T) {
+	t.Parallel()
+
+	h := newHarness(t, nil)
+	r := newV2Receiver(h)
+
+	require.NoError(t, h.c.Start())
+	t.Cleanup(func() {
+		require.NoError(t, h.c.Stop())
+	})
+	h.assertStartup()
+
+	badFragment, _ := r.newTransfer(100)
+	badFragment.BlockHeight = 1_000_000
+	r.sendFragment(badFragment)
+
+	goodFragment, _ := r.newTransfer(101)
+	r.sendFragment(goodFragment)
 
 	events := h.assertEventsPresent(1, address.StatusCompleted)
 	require.Equal(t, goodFragment.OutPoint, events[0].Outpoint)

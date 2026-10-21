@@ -1297,6 +1297,26 @@ msgLoop:
 			continue
 		}
 
+		// The block mentioned in the fragment must be on chain at the
+		// fragment's block height.
+		err = c.cfg.ChainBridge.VerifyBlock(
+			ctx, fragment.BlockHeader, fragment.BlockHeight,
+		)
+		if err != nil {
+			c.publishSubscriberStatusEvent(
+				NewAssetReceiveErrorEvent(
+					err, *tapAddr.Tap, op,
+					0, address.StatusTransactionDetected,
+				),
+			)
+
+			log.Errorf("Unable to verify block %s at height %d: "+
+				"%v", fragment.BlockHeader.BlockHash(),
+				fragment.BlockHeight, err)
+
+			continue
+		}
+
 		// Let's now make sure we can fetch the block mentioned in the
 		// fragment, so we can extract the transaction from it.
 		block, err := c.cfg.ChainBridge.GetBlock(
