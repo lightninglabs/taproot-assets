@@ -688,33 +688,8 @@ func TestV2AddressHandling(t *testing.T) {
 	ctxb := context.Background()
 	h := newHarness(t, nil)
 
-	mockServer := authmailbox.NewMockServerWithSigner(t, h.signer)
-	t.Cleanup(func() {
-		mockServer.Stop(t)
-	})
-
-	// We need to derive a new sender key for the address, the key ring will
-	// need to sign with that key later.
-	receiverKey, err := h.keyRing.DeriveNextTaprootAssetKey(ctxb)
-	require.NoError(t, err)
-
 	// Before we start the custodian, we create a V2 address.
-	addr, genesis := randAddrV2(h, url.URL{
-		Scheme: proof.AuthMailboxUniRpcCourierType,
-		Host:   mockServer.ListenAddr,
-	}, asset.ScriptKey{
-		PubKey: receiverKey.PubKey,
-		TweakedScriptKey: &asset.TweakedScriptKey{
-			RawKey: receiverKey,
-			Type:   asset.ScriptKeyBip86,
-		},
-	})
-
-	t.Logf("Receiver script key: %x",
-		receiverKey.PubKey.SerializeCompressed())
-
-	err = h.tapdbBook.InsertAddrs(ctxb, *addr)
-	require.NoError(t, err)
+	r := newV2Receiver(h)
 
 	// We now start the custodian and make sure it's started up correctly.
 	require.NoError(t, h.c.Start())
@@ -730,103 +705,16 @@ func TestV2AddressHandling(t *testing.T) {
 	case <-time.After(testTimeout):
 	}
 
-	// Now, we'll craft a mailbox message that contains a send fragment.
-	// First, we need a sender key.
-	senderPrivKey, err := btcec.NewPrivateKey()
-	require.NoError(t, err)
-	senderPubKey := senderPrivKey.PubKey()
+	// Now we send a mailbox message that contains a send fragment to the
+	// custodian's mailbox subscription.
+	fragment, mockProof := r.newTransfer(123)
 
-	// We'll use ECDH to derive a shared secret.
-	sharedSecret, err := ecies.ECDH(senderPrivKey, receiverKey.PubKey)
-	require.NoError(t, err)
-
-	// Now we create the send fragment.
-	outputIdx, tx := randWalletTx(nil)
-	tx.Confirmations = 1
-	blockHeader := wire.BlockHeader{
-		Version:    1,
-		PrevBlock:  test.RandHash(),
-		MerkleRoot: test.RandHash(),
-		Timestamp:  time.Now(),
-		Bits:       0,
-		Nonce:      0,
-	}
-	block := &wire.MsgBlock{
-		Header: blockHeader,
-		Transactions: []*wire.MsgTx{
-			{},
-			tx.Tx,
-		},
-	}
-	derivationMethod := asset.ScriptKeyDerivationUniquePedersen
-	fragment := &proof.SendFragment{
-		Version: proof.SendFragmentV1,
-		OutPoint: wire.OutPoint{
-			Hash:  tx.Tx.TxHash(),
-			Index: uint32(outputIdx),
-		},
-		Outputs: map[asset.ID]proof.SendOutput{
-			genesis.ID(): {
-				Amount:           addr.Amount,
-				DerivationMethod: derivationMethod,
-			},
-		},
-		BlockHeight: 123,
-		BlockHeader: blockHeader,
-	}
-	h.chainBridge.SetBlock(block.BlockHash(), block)
-
-	// Now we encode and encrypt the fragment.
-	fragmentBytes, err := fn.Encode(fragment)
-	require.NoError(t, err)
-
-	encryptedFragment, err := ecies.EncryptSha256ChaCha20Poly1305(
-		sharedSecret, fragmentBytes, senderPubKey.SerializeCompressed(),
-	)
-	require.NoError(t, err)
-
-	// We also need a proof for the courier.
-	outScriptKey, err := asset.DeriveUniqueScriptKey(
-		addr.ScriptKey, genesis.ID(),
-		asset.ScriptKeyDerivationUniquePedersen,
-	)
-	require.NoError(t, err)
-
-	mockProof := randProofWithScriptKey(
-		t, outputIdx, tx.Tx, genesis, addr, outScriptKey,
-	)
-	recipient := proof.Recipient{}
-	t.Logf("Storing proof for recipient key %x",
-		mockProof.ScriptKey.SerializeCompressed())
-
-	err = h.courier.DeliverProof(ctxb, recipient, mockProof, nil)
-	require.NoError(t, err)
-
-	// Now we can send the message to the custodian's mailbox subscription.
-	addrStr, err := addr.EncodeAddress()
-	require.NoError(t, err)
-	t.Logf("Sending message for address %s", addrStr)
-
-	msgStore := mockServer.MsgStore()
-	publish := func() {
-		msg := &authmailbox.Message{
-			ReceiverKey:      *receiverKey.PubKey,
-			EncryptedPayload: encryptedFragment,
-			ArrivalTimestamp: time.Now(),
-			ProofBlockHeight: 123,
-		}
-		msg.ID, err = msgStore.StoreMessage(
-			ctxb, *proof.MockTxProof(t), msg,
-		)
-		require.NoError(t, err)
-
-		mockServer.PublishMessage(msg)
-	}
+	msgStore := r.server.MsgStore()
 	noMessages := func() bool {
 		return msgStore.NumMessages(ctxb) == 0
 	}
 
-	publish()
+	r.sendFragment(fragment)
 
 	// We expect one event to be created, and it should be completed.
 	h.assertEventsPresent(1, address.StatusCompleted)
@@ -840,9 +728,153 @@ func TestV2AddressHandling(t *testing.T) {
 
 	// A second message for the same transfer is skipped, as the transfer
 	// was already fully processed, and removed as well.
-	publish()
+	r.sendFragment(fragment)
 	require.Eventually(t, noMessages, testTimeout, testPollInterval)
 	h.assertEventsPresent(1, address.StatusCompleted)
+}
+
+// v2Receiver is a V2 address whose send fragments reach the custodian
+// through a mock auth mailbox server.
+type v2Receiver struct {
+	h           *custodianHarness
+	server      *authmailbox.MockServer
+	receiverKey keychain.KeyDescriptor
+	addr        *address.AddrWithKeyInfo
+	genesis     *asset.Genesis
+}
+
+// newV2Receiver starts a mock auth mailbox server and inserts a V2 address
+// that uses it as its proof courier into the address book.
+func newV2Receiver(h *custodianHarness) *v2Receiver {
+	t := h.t
+	ctxb := context.Background()
+
+	server := authmailbox.NewMockServerWithSigner(t, h.signer)
+	t.Cleanup(func() {
+		server.Stop(t)
+	})
+
+	receiverKey, err := h.keyRing.DeriveNextTaprootAssetKey(ctxb)
+	require.NoError(t, err)
+
+	addr, genesis := randAddrV2(h, url.URL{
+		Scheme: proof.AuthMailboxUniRpcCourierType,
+		Host:   server.ListenAddr,
+	}, asset.ScriptKey{
+		PubKey: receiverKey.PubKey,
+		TweakedScriptKey: &asset.TweakedScriptKey{
+			RawKey: receiverKey,
+			Type:   asset.ScriptKeyBip86,
+		},
+	})
+
+	err = h.tapdbBook.InsertAddrs(ctxb, *addr)
+	require.NoError(t, err)
+
+	return &v2Receiver{
+		h:           h,
+		server:      server,
+		receiverKey: receiverKey,
+		addr:        addr,
+		genesis:     genesis,
+	}
+}
+
+// newTransfer adds a block holding a new transaction to the chain bridge at the
+// given height, delivers a proof for the address's asset anchored in that
+// transaction to the courier, and returns the proof and a send fragment for the
+// transfer.
+func (r *v2Receiver) newTransfer(height uint32) (*proof.SendFragment,
+	*proof.AnnotatedProof) {
+
+	t := r.h.t
+
+	outputIdx, tx := randWalletTx(nil)
+	block := &wire.MsgBlock{
+		Header: wire.BlockHeader{
+			Version:    1,
+			PrevBlock:  test.RandHash(),
+			MerkleRoot: test.RandHash(),
+			Timestamp:  time.Now(),
+		},
+		Transactions: []*wire.MsgTx{{}, tx.Tx},
+	}
+	r.h.chainBridge.SetBlock(block.BlockHash(), block)
+	r.h.chainBridge.SetBlockHeight(block.BlockHash(), height)
+
+	derivationMethod := asset.ScriptKeyDerivationUniquePedersen
+	outScriptKey, err := asset.DeriveUniqueScriptKey(
+		r.addr.ScriptKey, r.genesis.ID(), derivationMethod,
+	)
+	require.NoError(t, err)
+
+	mockProof := randProofWithScriptKey(
+		t, outputIdx, tx.Tx, r.genesis, r.addr, outScriptKey,
+	)
+	err = r.h.courier.DeliverProof(
+		context.Background(), proof.Recipient{}, mockProof, nil,
+	)
+	require.NoError(t, err)
+
+	fragment := &proof.SendFragment{
+		Version:     proof.SendFragmentV1,
+		BlockHeader: block.Header,
+		BlockHeight: height,
+		OutPoint: wire.OutPoint{
+			Hash:  tx.Tx.TxHash(),
+			Index: uint32(outputIdx),
+		},
+		Outputs: map[asset.ID]proof.SendOutput{
+			r.genesis.ID(): {
+				Amount:           r.addr.Amount,
+				DerivationMethod: derivationMethod,
+			},
+		},
+	}
+
+	return fragment, mockProof
+}
+
+// storeFragment encrypts the fragment to the receiver key and stores it on
+// the mailbox server.
+func (r *v2Receiver) storeFragment(
+	fragment *proof.SendFragment) *authmailbox.Message {
+
+	t := r.h.t
+
+	senderPrivKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	sharedSecret, err := ecies.ECDH(senderPrivKey, r.receiverKey.PubKey)
+	require.NoError(t, err)
+
+	fragmentBytes, err := fn.Encode(fragment)
+	require.NoError(t, err)
+
+	payload, err := ecies.EncryptSha256ChaCha20Poly1305(
+		sharedSecret, fragmentBytes,
+		senderPrivKey.PubKey().SerializeCompressed(),
+	)
+	require.NoError(t, err)
+
+	msg := &authmailbox.Message{
+		ReceiverKey:      *r.receiverKey.PubKey,
+		EncryptedPayload: payload,
+		ArrivalTimestamp: time.Now(),
+		ProofBlockHeight: fragment.BlockHeight,
+	}
+	msg.ID, err = r.server.MsgStore().StoreMessage(
+		context.Background(), *proof.MockTxProof(t), msg,
+	)
+	require.NoError(t, err)
+
+	return msg
+}
+
+// sendFragment stores the fragment on the mailbox server and publishes it to
+// the receiver's subscription.
+func (r *v2Receiver) sendFragment(fragment *proof.SendFragment) {
+	r.server.PublishMessage(r.storeFragment(fragment))
 }
 
 // TestBookAssetSyncer makes sure that addresses can be created for assets
@@ -1418,4 +1450,60 @@ func TestAssetReceiveErrorEvent(t *testing.T) {
 	require.Equal(
 		t, address.StatusTransactionDetected, earlyErrorEvent.Status,
 	)
+}
+
+// TestV2FragmentBatchSkip tests that the custodian creates no event for a send
+// fragment with an unknown script key derivation method, and processes the
+// message after it in the same batch.
+func TestV2FragmentBatchSkip(t *testing.T) {
+	t.Parallel()
+
+	h := newHarness(t, nil)
+	r := newV2Receiver(h)
+
+	// Both messages are stored before the custodian subscribes, so they
+	// arrive in a single batch, in the order they were stored.
+	badFragment, _ := r.newTransfer(100)
+	badOutput := badFragment.Outputs[r.genesis.ID()]
+	badOutput.DerivationMethod = asset.ScriptKeyDerivationMethod(99)
+	badFragment.Outputs[r.genesis.ID()] = badOutput
+	r.storeFragment(badFragment)
+
+	goodFragment, _ := r.newTransfer(101)
+	r.storeFragment(goodFragment)
+
+	require.NoError(t, h.c.Start())
+	t.Cleanup(func() {
+		require.NoError(t, h.c.Stop())
+	})
+	h.assertStartup()
+
+	events := h.assertEventsPresent(1, address.StatusCompleted)
+	require.Equal(t, goodFragment.OutPoint, events[0].Outpoint)
+}
+
+// TestV2FragmentHeightMismatch tests that the custodian creates no event for a
+// send fragment whose block height differs from its block's height, and keeps
+// processing the messages after it.
+func TestV2FragmentHeightMismatch(t *testing.T) {
+	t.Parallel()
+
+	h := newHarness(t, nil)
+	r := newV2Receiver(h)
+
+	require.NoError(t, h.c.Start())
+	t.Cleanup(func() {
+		require.NoError(t, h.c.Stop())
+	})
+	h.assertStartup()
+
+	badFragment, _ := r.newTransfer(100)
+	badFragment.BlockHeight = 1_000_000
+	r.sendFragment(badFragment)
+
+	goodFragment, _ := r.newTransfer(101)
+	r.sendFragment(goodFragment)
+
+	events := h.assertEventsPresent(1, address.StatusCompleted)
+	require.Equal(t, goodFragment.OutPoint, events[0].Outpoint)
 }
