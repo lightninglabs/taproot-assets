@@ -328,6 +328,14 @@ func (s *SyncVerifyState) ProcessEvent(event Event,
 				"pre-commitments: %w", err)
 		}
 
+		provenance, err := env.SupplySyncer.Provenance(
+			ctx, canonicalUniverses,
+		)
+		if err != nil {
+			return retryLater(fmt.Errorf("unable to resolve proof "+
+				"provenance sources: %w", err))
+		}
+
 		verifier, err := NewVerifier(
 			VerifierCfg{
 				AssetSpec:        env.AssetSpec,
@@ -337,6 +345,7 @@ func (s *SyncVerifyState) ProcessEvent(event Event,
 				GroupFetcher:     env.GroupFetcher,
 				SupplyCommitView: env.SupplyCommitView,
 				SupplyTreeView:   env.SupplyTreeView,
+				Provenance:       provenance,
 			},
 		)
 		if err != nil {
@@ -348,7 +357,14 @@ func (s *SyncVerifyState) ProcessEvent(event Event,
 			ctx, env.AssetSpec, supplyCommit.RootCommitment,
 			supplyCommit.SupplyLeaves, preCommits,
 		)
-		if err != nil {
+		switch {
+		case errors.Is(err, ErrBurnProvenance):
+			// The servers may not hold a burn's provenance yet,
+			// or may serve a stale one.
+			return retryLater(fmt.Errorf("unable to verify supply "+
+				"commitment: %w", err))
+
+		case err != nil:
 			return nil, fmt.Errorf("unable to verify supply "+
 				"commitment: %w", err)
 		}
