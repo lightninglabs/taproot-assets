@@ -953,7 +953,8 @@ func TestAuxInvoiceManager(t *testing.T) {
 					Peer: testNodeID,
 					AssetRate: rfqmsg.NewAssetRate(
 						rfqmath.NewBigIntFixedPoint(
-							uint64(200_000_000_000), 0,
+							uint64(200_000_000_000),
+							0,
 						),
 						time.Now(),
 					),
@@ -1427,6 +1428,7 @@ func genHtlc(t *rapid.T, balance []*rfqmsg.AssetBalance,
 // method also returns the assetUnits and the rfqID used by the htlc.
 func genRequest(t *rapid.T) (lndclient.InvoiceHtlcModifyRequest, uint64,
 	asset.ID, rfqmsg.ID) {
+
 	request := lndclient.InvoiceHtlcModifyRequest{
 		CircuitKey: invoices.CircuitKey{
 			ChanID: lnwire.NewShortChanIDFromInt(
