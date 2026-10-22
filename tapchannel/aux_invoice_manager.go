@@ -170,12 +170,55 @@ func (s *AuxInvoiceManager) Start() error {
 // handleInvoiceAccept is the handler that will be called for each invoice that
 // is accepted. It will intercept the HTLCs that attempt to settle the invoice
 // and modify them if necessary.
+//
+// The crediting contract with lnd has three non-obvious constraints, and
+// the checks below exist because of them:
+//
+// First, AmtPaid replaces the HTLC's wire amount only when it is
+// non-zero. lnd treats a zero AmountPaid as "no override" and credits
+// the nominal wire amount, which for an asset HTLC is a no-op carrier
+// that never transfers. So a response must never go out with a zero
+// amount unless the set is canceled: within this contract, "this HTLC
+// contributes nothing" can only be expressed as a cancel. The deferred
+// invariant below enforces that at the exit, and the explicit zero
+// check after the conversion rejects HTLCs whose balance converts to
+// zero (a unit worth less than 1 msat) with a log line.
+//
+// Second, the double floor problem. The payer converts msat to asset
+// units and floors, we convert the units back to msat and floor again,
+// so an honest payment can come up short of the invoice value. The
+// margin below absorbs that: 1 asset unit per shard covers the payer's
+// floor, 1 msat per shard covers ours. This tolerance is deliberately
+// also the maximum a payer can intentionally underpay, which is why it
+// was once removed; restoring it is a conscious trade-off.
+//
+// Third, who owns set-level arithmetic. Only HTLCs in the accepted
+// state are counted, because lnd retains canceled HTLCs on the invoice
+// and counting them once let a replayed set wrap the credit.
+// The top-up is computed from the shortfall rather than by assigning
+// the remainder, which cannot wrap and never caps an over-delivering
+// HTLC: overpayment and set coverage are lnd's concerns, not ours.
 func (s *AuxInvoiceManager) handleInvoiceAccept(ctx context.Context,
 	req lndclient.InvoiceHtlcModifyRequest) (
-	*lndclient.InvoiceHtlcModifyResponse, error) {
+	resp *lndclient.InvoiceHtlcModifyResponse, err error) {
+
+	// lnd treats a zero AmountPaid as "no override" and credits the
+	// HTLC's nominal wire amount. Within that contract, "this HTLC
+	// contributes nothing" can only be expressed as a cancel, so tapd
+	// must never emit a zero amount without also canceling.
+	defer func() {
+		if err == nil && resp != nil && !resp.CancelSet &&
+			resp.AmtPaid == 0 {
+
+			log.Warnf("invoice HTLC response credits zero " +
+				"without cancel, canceling HTLCs")
+
+			resp.CancelSet = true
+		}
+	}()
 
 	// By default, we'll return the same amount that was requested.
-	resp := &lndclient.InvoiceHtlcModifyResponse{
+	resp = &lndclient.InvoiceHtlcModifyResponse{
 		CircuitKey: req.CircuitKey,
 		AmtPaid:    req.ExitHtlcAmt,
 	}
@@ -360,8 +403,85 @@ func (s *AuxInvoiceManager) handleInvoiceAccept(ctx context.Context,
 		return resp, nil
 	}
 
-	// Return only the value of the assets in this HTLC. lnd tracks the
-	// accepted set and decides when its paid amount covers the invoice.
+	// A positive asset amount can convert to zero milli-satoshis when a
+	// unit is worth less than one. Returning zero would not credit
+	// nothing: lnd treats a zero AmountPaid as "no override" and credits
+	// the HTLC's nominal wire amount, which a no-op HTLC never transfers.
+	// Cancel the set instead, the HTLC delivers no creditable value.
+	if resp.AmtPaid == 0 {
+		iLog.Warnf("asset HTLC converts to zero msat, canceling HTLCs")
+
+		resp.CancelSet = true
+
+		return resp, nil
+	}
+
+	// If all previously accepted HTLC amounts plus the intercepted HTLC
+	// amount together add up to just about the asset invoice amount, then
+	// we can settle the HTLCs to address the rounding error. Only HTLCs in
+	// the accepted state are counted.
+	var (
+		acceptedHtlcSum  lnwire.MilliSatoshi
+		numAcceptedHtlcs uint64
+	)
+	for _, invoiceHtlc := range req.Invoice.Htlcs {
+		if invoiceHtlc.State != lnrpc.InvoiceHTLCState_ACCEPTED {
+			continue
+		}
+
+		acceptedHtlcSum += lnwire.MilliSatoshi(invoiceHtlc.AmtMsat)
+		numAcceptedHtlcs++
+	}
+
+	// We assume that each shard can have a rounding error of up to 1 asset
+	// unit. So we allow the final amount to be off by up to 1 asset unit
+	// per accepted HTLC (plus the one we're currently processing). The
+	// plus one here is because the invoice only has previously accepted
+	// HTLCs committed to it, but we're processing the current HTLC which
+	// is not yet in that list.
+	allowedMarginAssetUnits := numAcceptedHtlcs + 1
+
+	// Convert the allowed margin asset units to milli-satoshis.
+	marginAssetUnits := rfqmath.NewBigIntFixedPoint(
+		allowedMarginAssetUnits, 0,
+	)
+	allowedMarginMSat, err := rfqmath.UnitsToMilliSatoshi(
+		marginAssetUnits, assetRate,
+	)
+	if err != nil {
+		iLog.Errorf("unable to convert margin asset units to mSat, "+
+			"canceling HTLCs: %v", err)
+
+		resp.CancelSet = true
+
+		return resp, nil
+	}
+
+	// Every HTLC makes a roundtrip from msats to units and then back to
+	// msats right here. Above we account for the asset units that may have
+	// been lost by our peer when converting their incoming HTLC amount to
+	// asset units, now we need to account for our loss for converting each
+	// HTLC to msats.
+	allowedMarginMSat += lnwire.MilliSatoshi(numAcceptedHtlcs + 1)
+
+	// If the accepted set plus this HTLC falls short of the invoice by no
+	// more than the margin, top this HTLC up by the shortfall. The
+	// shortfall is only computed when the total is below the invoice
+	// value, so it cannot wrap. An over-delivering HTLC is returned at its
+	// exact value; overpayment is lnd's concern, not ours.
+	invoiceValue := lnwire.MilliSatoshi(req.Invoice.ValueMsat)
+	totalInbound := acceptedHtlcSum + resp.AmtPaid
+
+	iLog.Debugf("accepted HTLC sum: %v, current HTLC amount: %v, allowed "+
+		"margin: %v (total %v), invoice value %v", acceptedHtlcSum,
+		resp.AmtPaid, allowedMarginMSat,
+		totalInbound+allowedMarginMSat, invoiceValue)
+
+	if totalInbound < invoiceValue &&
+		invoiceValue-totalInbound <= allowedMarginMSat {
+
+		resp.AmtPaid += invoiceValue - totalInbound
+	}
 
 	return resp, nil
 }

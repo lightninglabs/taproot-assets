@@ -304,6 +304,26 @@ func (m *mockHtlcModifierProperty) HtlcModifier(ctx context.Context,
 		)
 		require.NoError(m.t, err)
 
+		// Mirror the invoice-level rounding adjustment. The generated
+		// invoices carry no accepted HTLCs, so once the converted value
+		// plus the per-shard margin reaches the invoice value, the
+		// credit is set to the invoice value.
+		invoiceValue := lnwire.MilliSatoshi(r.Invoice.ValueMsat)
+		if invoiceValue > 0 {
+			marginUnits := rfqmath.NewBigIntFixedPoint(1, 0)
+			marginMsat, err := rfqmath.UnitsToMilliSatoshi(
+				marginUnits, assetRate,
+			)
+			require.NoError(m.t, err)
+
+			marginMsat += 1
+			if amtPaid < invoiceValue &&
+				invoiceValue-amtPaid <= marginMsat {
+
+				amtPaid = invoiceValue
+			}
+		}
+
 		if res.CancelSet || amtPaid != res.AmtPaid {
 			m.t.Errorf("unexpected final asset value, "+
 				"wanted %d, got %d (cancel=%t)", amtPaid,
@@ -410,6 +430,16 @@ func TestAuxInvoiceManager(t *testing.T) {
 		{
 			AmtMsat: 4_000_000,
 			State:   lnrpc.InvoiceHTLCState_ACCEPTED,
+		},
+	}
+	dustHtlcs := []*lnrpc.InvoiceHTLC{
+		{
+			AmtMsat: 2_000_000,
+			State:   lnrpc.InvoiceHTLCState_ACCEPTED,
+		},
+		{
+			AmtMsat: 90_000_000,
+			State:   lnrpc.InvoiceHTLCState_CANCELED,
 		},
 	}
 
@@ -744,7 +774,7 @@ func TestAuxInvoiceManager(t *testing.T) {
 			},
 			responses: []lndclient.InvoiceHtlcModifyResponse{
 				{AmtPaid: 1_000_000},
-				{AmtPaid: 1_000_000},
+				{AmtPaid: 2_000_000},
 			},
 			buyQuotes: rfq.BuyAcceptMap{
 				testScid: {
@@ -781,6 +811,181 @@ func TestAuxInvoiceManager(t *testing.T) {
 			},
 			responses: []lndclient.InvoiceHtlcModifyResponse{
 				{AmtPaid: 1_000_000},
+			},
+			buyQuotes: rfq.BuyAcceptMap{
+				testScid: {
+					Peer: testNodeID,
+					AssetRate: rfqmsg.NewAssetRate(
+						testAssetRate, time.Now(),
+					),
+					Request: rfqmsg.BuyRequest{
+						AssetSpecifier: assetSpecifier,
+					},
+				},
+			},
+		},
+		{
+			name: "asset invoice, rounding dust topped up",
+			requests: []lndclient.InvoiceHtlcModifyRequest{
+				{
+					CircuitKey: randCircuitKey(),
+					Invoice: &lnrpc.Invoice{
+						RouteHints:  testRouteHints(),
+						ValueMsat:   1_000_001,
+						PaymentAddr: []byte{1, 1, 1},
+					},
+					WireCustomRecords: newWireCustomRecords(
+						t, []*rfqmsg.AssetBalance{
+							rfqmsg.NewAssetBalance(
+								assetID, 1,
+							),
+						}, fn.Some(testRfqID),
+					),
+				},
+			},
+			responses: []lndclient.InvoiceHtlcModifyResponse{
+				{AmtPaid: 1_000_001},
+			},
+			buyQuotes: rfq.BuyAcceptMap{
+				testScid: {
+					Peer: testNodeID,
+					AssetRate: rfqmsg.NewAssetRate(
+						testAssetRate, time.Now(),
+					),
+					Request: rfqmsg.BuyRequest{
+						AssetSpecifier: assetSpecifier,
+					},
+				},
+			},
+		},
+		{
+			name: "asset invoice, overdelivery credited exact",
+			requests: []lndclient.InvoiceHtlcModifyRequest{
+				{
+					CircuitKey: randCircuitKey(),
+					Invoice: &lnrpc.Invoice{
+						RouteHints:  testRouteHints(),
+						ValueMsat:   1_000_000,
+						PaymentAddr: []byte{1, 1, 1},
+					},
+					WireCustomRecords: newWireCustomRecords(
+						t, []*rfqmsg.AssetBalance{
+							rfqmsg.NewAssetBalance(
+								assetID, 2,
+							),
+						}, fn.Some(testRfqID),
+					),
+				},
+			},
+			responses: []lndclient.InvoiceHtlcModifyResponse{
+				{AmtPaid: 2_000_000},
+			},
+			buyQuotes: rfq.BuyAcceptMap{
+				testScid: {
+					Peer: testNodeID,
+					AssetRate: rfqmsg.NewAssetRate(
+						testAssetRate, time.Now(),
+					),
+					Request: rfqmsg.BuyRequest{
+						AssetSpecifier: assetSpecifier,
+					},
+				},
+			},
+		},
+		{
+			name: "asset invoice, shortfall above margin",
+			requests: []lndclient.InvoiceHtlcModifyRequest{
+				{
+					CircuitKey: randCircuitKey(),
+					Invoice: &lnrpc.Invoice{
+						RouteHints:  testRouteHints(),
+						ValueMsat:   4_000_000,
+						PaymentAddr: []byte{1, 1, 1},
+					},
+					WireCustomRecords: newWireCustomRecords(
+						t, []*rfqmsg.AssetBalance{
+							rfqmsg.NewAssetBalance(
+								assetID, 2,
+							),
+						}, fn.Some(testRfqID),
+					),
+				},
+			},
+			responses: []lndclient.InvoiceHtlcModifyResponse{
+				{AmtPaid: 2_000_000},
+			},
+			buyQuotes: rfq.BuyAcceptMap{
+				testScid: {
+					Peer: testNodeID,
+					AssetRate: rfqmsg.NewAssetRate(
+						testAssetRate, time.Now(),
+					),
+					Request: rfqmsg.BuyRequest{
+						AssetSpecifier: assetSpecifier,
+					},
+				},
+			},
+		},
+		{
+			name: "asset invoice, zero converted value cancels",
+			requests: []lndclient.InvoiceHtlcModifyRequest{
+				{
+					CircuitKey: randCircuitKey(),
+					Invoice: &lnrpc.Invoice{
+						RouteHints:  testRouteHints(),
+						ValueMsat:   500_000,
+						PaymentAddr: []byte{1, 1, 1},
+					},
+					WireCustomRecords: newWireCustomRecords(
+						t, []*rfqmsg.AssetBalance{
+							rfqmsg.NewAssetBalance(
+								assetID, 1,
+							),
+						}, fn.Some(testRfqID),
+					),
+				},
+			},
+			responses: []lndclient.InvoiceHtlcModifyResponse{
+				{CancelSet: true},
+			},
+			buyQuotes: rfq.BuyAcceptMap{
+				testScid: {
+					Peer: testNodeID,
+					AssetRate: rfqmsg.NewAssetRate(
+						rfqmath.NewBigIntFixedPoint(
+							uint64(200_000_000_000), 0,
+						),
+						time.Now(),
+					),
+					Request: rfqmsg.BuyRequest{
+						AssetSpecifier: assetSpecifier,
+					},
+				},
+			},
+		},
+		{
+			name: "asset invoice, dust topped up with " +
+				"accepted shards",
+			requests: []lndclient.InvoiceHtlcModifyRequest{
+				{
+					CircuitKey: randCircuitKey(),
+					Invoice: &lnrpc.Invoice{
+						RouteHints:  testRouteHints(),
+						ValueMsat:   3_000_005,
+						PaymentAddr: []byte{1, 1, 1},
+						Htlcs:       dustHtlcs,
+					},
+					WireCustomRecords: newWireCustomRecords(
+						t, []*rfqmsg.AssetBalance{
+							rfqmsg.NewAssetBalance(
+								assetID, 1,
+							),
+						}, fn.Some(testRfqID),
+					),
+				},
+			},
+			responses: []lndclient.InvoiceHtlcModifyResponse{
+				{AmtPaid: 1_000_005},
 			},
 			buyQuotes: rfq.BuyAcceptMap{
 				testScid: {
