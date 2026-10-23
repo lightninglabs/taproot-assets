@@ -26,12 +26,6 @@
   always using LND's default. A zero value still uses the configured default,
   and LND rejects values outside its supported range.
 
-- [Forward-port the v0.8.5 proof upgrade](https://github.com/lightninglabs/taproot-assets/pull/2333)
-  to the btcd-v2 development line: spender commitments, split-root evidence,
-  asset identity checks, and network activation heights. Released spender
-  feature bits remain 4/5; the unreleased negotiated channel configuration
-  feature moves to 6/7.
-
 - [Importing an asset wallet
   backup](https://github.com/lightninglabs/taproot-assets/pull/2277) into a
   node whose database was wiped but whose proofs directory survived no longer
@@ -61,30 +55,6 @@
   recently created one are automatically cancelled. A new
   `--repair.cancel-duplicate-batches` startup flag applies the same
   repair on demand.
-
-* [PR#2228](https://github.com/lightninglabs/taproot-assets/pull/2228)
-  fixes `VerifyProof` failing the whole RPC for an invalid proof when
-  decoding the last proof requires unknown asset metadata; it now
-  returns `valid=false` as documented.
-
-* [PR#2231](https://github.com/lightninglabs/taproot-assets/pull/2231)
-  fixes a bug in which ListPayments returned every Lightning payment, aux
-  or otherwise. Non-asset payments are now excluded, as are the
-  same payments in SubscribePayments and TrackPayment.
-
-* [PR#2232](https://github.com/lightninglabs/taproot-assets/pull/2232)
-  fixes a bug in which accepting an RFQ quote could shut down the daemon
-  if the channel selected as the SCID alias base had not negotiated
-  the `option_scid_alias` feature.
-
-* [PR#2235](https://github.com/lightninglabs/taproot-assets/pull/2235)
-  fixes a bug in which a forwarded HTLC that ends up being resolved on
-  chain could shut down the daemon, and prevent it from starting again,
-  because `lnd` rejects any resolution the HTLC interceptor sends for
-  such an HTLC. It also makes the RFQ order handler act on final HTLC
-  events, which `lnd` sends without an event type and which were
-  therefore dropped, and makes the quote accounting idempotent for HTLCs
-  that `lnd` offers more than once.
 
 * [PR#2247](https://github.com/lightninglabs/taproot-assets/pull/2247)
   fixes several latent bugs in asset minting. Note for operators:
@@ -141,50 +111,6 @@
   long-running node the series steps down. The per-day `sync_events`
   series is unchanged and still reflects sync traffic volume.
 
-* [PR#2267](https://github.com/lightninglabs/taproot-assets/pull/2267)
-  rejects a negative `expiry` when adding a Taproot Asset channel
-  invoice. A negative expiry previously skipped the default and was
-  passed through to lnd, which treated it as unset and applied its own
-  86400 second default instead of returning an error. Fixes
-  [#2261](https://github.com/lightninglabs/taproot-assets/issues/2261).
-
-* [PR#2283](https://github.com/lightninglabs/taproot-assets/pull/2283)
-  fixes force-close resolution of an asset channel whose resolved
-  commitment output holds no assets, as when the whole asset balance
-  sits with the remote party. The aux sweeper tried to build sweep
-  packets from an empty input set, failed with `no inputs provided`,
-  and lnd treated that as a hard error, leaving the channel in
-  `pending_force_closing` and re-running the failing resolution on
-  every block. The sweeper now returns an empty resolution for such
-  outputs, so lnd sweeps them as plain BTC outputs.
-
-* [PR#2294](https://github.com/lightninglabs/taproot-assets/pull/2294)
-  fixes a bug in which a grouped receive holding several assets under
-  one script key at one outpoint could be imported but never completed.
-  Completing the address event looked each output's proof up by script
-  key and outpoint alone, so the lookup returned every asset's proof at
-  once and the event failed with `ErrMultipleProofs` on every attempt.
-  The proof is now looked up by asset as well.
-
-* [PR#2317](https://github.com/lightninglabs/taproot-assets/pull/2317)
-  updates RFQ quote accounting to track settled amounts separately from
-  pending HTLC reservations and restore settled usage from forwarding records
-  on startup. Failed HTLCs continue to release their reservations.
-
-* [PR#2319](https://github.com/lightninglabs/taproot-assets/pull/2319)
-  makes the encoding of proofs canonical. The STXO proofs within a proof, and
-  the outputs of a send fragment, were encoded in the random iteration
-  order of a map, so encoding the same proof twice could yield different
-  bytes. A supply commitment verifier re-encodes burn proofs to compute
-  their universe leaves, and could reject a supply commitment for a burned
-  asset that spent several inputs. Both are now encoded sorted by key.
-
-* [PR#2328](https://github.com/lightninglabs/taproot-assets/pull/2328)
-  makes a universe check the outpoint of a leaf key against the proof
-  inserted under it. The universe and the script key of a leaf key were
-  already checked against the proof; the outpoint now has to match the
-  anchor outpoint of the proof as well.
-
 * [PR#2323](https://github.com/lightninglabs/taproot-assets/pull/2323)
   fixes a bug in which a batch minting the anchor of a version 1 asset
   group, such as one with an external group key, never finished if the
@@ -224,10 +150,6 @@
   could let an HTLC claim miss its deadline. Output positions are now
   derived from the final sweep transaction. Fixes
   [#2205](https://github.com/lightninglabs/taproot-assets/issues/2205).
-
-* [PR#2338](https://github.com/lightninglabs/taproot-assets/pull/2338)
-  fixes database-backed MS-SMTs computing a wrong root after deleting a
-  key they did not hold.
 
 * [PR#2362](https://github.com/lightninglabs/taproot-assets/pull/2362)
   makes asset hold invoices created with pre-existing RFQ route hints
@@ -352,10 +274,6 @@
 
 ## RPC Updates
 
-* [PR#2226](https://github.com/lightninglabs/taproot-assets/pull/2226)
-  lets `CommitVirtualPsbts` select the transition proof version and adds
-  BIP-371 tapscript sibling exclusion proofs for version 1 proofs.
-
 * [PR#2287](https://github.com/lightninglabs/taproot-assets/pull/2287)
   makes `RegisterTransfer` safe to retry. It previously failed with
   "proof already exists for this transfer" when the proof was already
@@ -402,11 +320,6 @@
 
 ## Code Health
 
-* [PR#2245](https://github.com/lightninglabs/taproot-assets/pull/2245)
-  bumps `google.golang.org/grpc` from v1.82.1 to v1.83.1 in the main,
-  `taprpc`, and basic price oracle example modules, mirroring the bump
-  done in `lnd`.
-
 ## Breaking Changes
 
 * [PR#2259](https://github.com/lightninglabs/taproot-assets/pull/2259)
@@ -433,56 +346,6 @@
   are gone.
 
 ## Performance Improvements
-
-* [PR#2251](https://github.com/lightninglabs/taproot-assets/pull/2251)
-  batches the per-asset witness and proof queries issued when loading
-  assets from the database. Loading assets previously issued one witness
-  query per asset, and reconstructing input commitments issued one proof
-  query per asset, which dominated every path that materialises assets
-  on nodes holding many assets
-  ([#2249](https://github.com/lightninglabs/taproot-assets/issues/2249)).
-
-* [PR#2252](https://github.com/lightninglabs/taproot-assets/pull/2252)
-  bounds input selection when funding a send. Eligible coins are now
-  listed in pages of descending amounts and listing stops as soon as the
-  accumulated amount covers the send target, instead of loading every
-  eligible coin the node holds
-  ([#2250](https://github.com/lightninglabs/taproot-assets/issues/2250)).
-  Sends that request specific inputs keep listing every eligible coin, as
-  the requested inputs are filtered for after the listing. A send that
-  cannot be funded is somewhat slower than before, as the listing is
-  repeated unbounded before reporting insufficient funds, so that a coin
-  the paged listing may have missed can't be mistaken for missing funds.
-
-* [PR#2264](https://github.com/lightninglabs/taproot-assets/pull/2264)
-  bounds pinned input coin selection to the requested anchor UTXOs
-  instead of materializing all eligible wallet assets.
-
-* [PR#2265](https://github.com/lightninglabs/taproot-assets/pull/2265)
-  reduces orphan UTXO scan work by filtering normal funded anchors in a
-  single database query instead of materializing assets once per managed
-  UTXO.
-
-* [PR#2299](https://github.com/lightninglabs/taproot-assets/pull/2299)
-  encodes nested TLV records once. The TLV stream asks each record for
-  its size before writing it, and the size functions of nested records
-  serialized their value to measure it, so every level of nesting
-  doubled the encoding work below it. Encoding a single proof is now
-  roughly seven times faster, and encoding a channel commitment blob
-  carrying proofs for a dozen outputs roughly nineteen times faster.
-
-* [PR#2300](https://github.com/lightninglabs/taproot-assets/pull/2300)
-  avoids deep-copying the split commitment proof when the VM validates
-  a split asset, cutting the allocations of split validation by roughly
-  three quarters.
-
-* [PR#2343](https://github.com/lightninglabs/taproot-assets/pull/2343)
-  serves the pages of `QueryAssetStats` from one cached result per
-  filter and sort. Each page previously ran the full stats query, which
-  computes the stats of every asset before applying the offset, so
-  paging through the stats of a large universe repeated that work once
-  per page. Assets with equal sort keys, and all assets when no sort is
-  given, are now ordered by asset ID.
 
 ## Deprecations
 
@@ -545,13 +408,6 @@
   proof-verifier code.
 
 ## Tooling and Documentation
-
-- [Raise the minimum Go version and the build toolchain to
-  1.27.3](https://github.com/lightninglabs/taproot-assets/pull/2364). Go
-  1.27.3 carries the fix for CVE-2026-111943, which distrusts a set of
-  intermediate certificates in `crypto/x509`. Release binaries are statically
-  linked, so they only pick up the new trust decision when rebuilt with a
-  patched toolchain.
 
 # Contributors (Alphabetical Order)
 

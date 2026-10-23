@@ -30,6 +30,7 @@ import (
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 )
 
 var (
@@ -350,11 +351,11 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 	oracleURL := fmt.Sprintf("rfqrpc://%s", oracleAddr)
 
 	// Initialize a new test scenario.
-	ts := newRfqTestScenario(t, WithRfqOracleServer(oracleURL))
+	ts := newRfqIntegratedScenario(t, WithRfqOracleServer(oracleURL))
 
 	// Mint an asset with Alice's tapd node.
 	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner(), ts.AliceTapd,
+		t.t, t.lndHarness.Miner(), rfqTapd(ts.AliceTapd),
 		[]*mintrpc.MintAssetRequest{issuableAssets[0]},
 	)
 	mintedAssetIdBytes := rpcAssets[0].AssetGenesis.AssetId
@@ -378,12 +379,6 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 		},
 	)
 	require.NoError(t.t, err, "unable to upsert asset buy offer")
-
-	// Subscribe to Alice's RFQ events stream.
-	aliceEventNtfns, err := ts.AliceTapd.SubscribeRfqEventNtfns(
-		ctx, &rfqrpc.SubscribeRfqEventNtfnsRequest{},
-	)
-	require.NoError(t.t, err)
 
 	// Alice sends a sell order to Bob for some amount of the newly minted
 	// asset.
@@ -434,8 +429,9 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 						Scale:       3,
 					},
 					ExpiryTimestamp: uint64(
-						time.Now().Add(time.Minute).
-							Unix(),
+						time.Now().Add(
+							10 * time.Minute,
+						).Unix(),
 					),
 				},
 			},
@@ -453,7 +449,7 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 		askAmt, mock.Anything,
 		oraclerpc.Intent_INTENT_PAY_INVOICE_HINT,
 		mock.Anything, "sell-order-1", alicePubkey,
-	).Return(mockResult, nil).Once()
+	).Return(mockResult, nil).Twice()
 
 	// Then the counterparty will do a purchase call with the intent to pay
 	// an invoice. Bob handles this, so Bob's pubkey should appear as
@@ -488,8 +484,17 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 			"channel",
 	)
 
-	// Now we set the skip flag and we shouldn't get an error anymore.
+	// Skipping Alice's preflight cannot bypass Bob's backing admission.
 	sellReq.SkipAssetChannelCheck = true
+	_, err = ts.AliceTapd.AddAssetSellOrder(ctx, sellReq)
+	require.ErrorContains(t.t, err, "rejected quote")
+	// Fund the asset channel before sending a fresh, non-bypass order.
+	ts.fundAliceBobAssetChannel(t.t, mintedAssetIdBytes)
+	aliceEventNtfns, err := ts.AliceTapd.SubscribeRfqEventNtfns(
+		ctx, &rfqrpc.SubscribeRfqEventNtfnsRequest{},
+	)
+	require.NoError(t.t, err)
+	sellReq.SkipAssetChannelCheck = false
 	_, err = ts.AliceTapd.AddAssetSellOrder(ctx, sellReq)
 	require.NoError(t.t, err, "unable to upsert asset sell order")
 
@@ -521,102 +526,202 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 	actualAssetID := acceptedQuote.AssetSpec.Id
 	expectedAssetID := mintedAssetIdBytes
 	require.Equal(t.t, expectedAssetID, actualAssetID)
+	// The original 42000-msat quote is below the real asset channel's
+	// 354000-msat HTLC dust threshold. Preserve that negotiation, then
+	// negotiate a second quote large enough for an actual asset HTLC.
+	const paymentAskAmt = uint64(420_000)
+	oracle.On(
+		"QueryAssetRates", oraclerpc.TransactionType_SALE,
+		buySpecifier, mock.Anything, btcSpecifier,
+		paymentAskAmt, mock.Anything,
+		oraclerpc.Intent_INTENT_PAY_INVOICE_HINT,
+		mock.Anything, "sell-order-1", alicePubkey,
+	).Return(mockResult, nil).Once()
+	oracle.On(
+		"QueryAssetRates", oraclerpc.TransactionType_PURCHASE,
+		buySpecifier, mock.Anything, btcSpecifier,
+		paymentAskAmt, mock.Anything,
+		oraclerpc.Intent_INTENT_PAY_INVOICE,
+		mock.Anything, "sell-order-1", bobPubkey,
+	).Return(mockResult, nil).Once()
+	oracle.On(
+		"QueryAssetRates", oraclerpc.TransactionType_SALE,
+		buySpecifier, mock.Anything, btcSpecifier,
+		paymentAskAmt, mock.Anything,
+		oraclerpc.Intent_INTENT_PAY_INVOICE_QUALIFY,
+		mock.Anything, "sell-order-1", alicePubkey,
+	).Return(mockResult, nil).Once()
+	paymentSellReq, ok := proto.Clone(
+		sellReq,
+	).(*rfqrpc.AddAssetSellOrderRequest)
+	require.True(t.t, ok)
+	paymentSellReq.PaymentMaxAmt = paymentAskAmt
+	_, err = ts.AliceTapd.AddAssetSellOrder(ctx, paymentSellReq)
+	require.NoError(t.t, err)
+	BeforeTimeout(t.t, func() {
+		event, err := aliceEventNtfns.Recv()
+		require.NoError(t.t, err)
+		e, ok := event.Event.(*rfqrpc.RfqEvent_PeerAcceptedSellQuote)
+		require.True(t.t, ok, "unexpected event: %v", event)
+		acceptedQuote = e.PeerAcceptedSellQuote.PeerAcceptedSellQuote
+		require.Equal(
+			t.t, mintedAssetIdBytes, acceptedQuote.AssetSpec.Id,
+		)
+	}, rfqTimeout)
+	require.NotEqual(t.t, acceptedQuotes.SellQuotes[0].Id, acceptedQuote.Id)
 
 	// Type cast the accepted quote ID bytes to an `rfqmsg.ID`.
 	var acceptedQuoteId rfqmsg.ID
 	copy(acceptedQuoteId[:], acceptedQuote.Id[:])
 
-	// Register to receive RFQ events from Bob's tapd node. We'll use this
-	// to wait for Bob to receive the HTLC with the asset transfer specific
-	// scid.
-	bobEventNtfns, err := ts.BobTapd.SubscribeRfqEventNtfns(
-		ctx, &rfqrpc.SubscribeRfqEventNtfnsRequest{},
-	)
-	require.NoError(t.t, err)
-
-	// Carol generates and invoice for Alice to settle via Bob.
-	addInvoiceResp := ts.CarolLnd.RPC.AddInvoice(&lnrpc.Invoice{
-		ValueMsat: int64(askAmt),
-	})
-	invoice := ts.CarolLnd.RPC.LookupInvoice(addInvoiceResp.RHash)
-
-	// Decode the payment request to get the payment address.
-	payReq := ts.CarolLnd.RPC.DecodePayReq(invoice.PaymentRequest)
-
-	// We now need to construct a route for the payment from Alice to Carol.
-	// The route will be Alice -> Bob -> Carol. We'll add the accepted quote
-	// ID as a record to the custom records field of the route's first hop.
-	// This will allow Bob to validate the payment against the accepted
-	// quote.
-	routeBuildRequest := routerrpc.BuildRouteRequest{
-		AmtMsat: int64(askAmt),
-		HopPubkeys: [][]byte{
-			ts.BobLnd.PubKey[:],
-			ts.CarolLnd.PubKey[:],
-		},
-		PaymentAddr: payReq.PaymentAddr,
-	}
-	routeBuildResp := ts.AliceLnd.RPC.BuildRoute(&routeBuildRequest)
-
-	// Send the payment to the route.
-	t.Log("Alice paying invoice")
-
-	// Construct first hop custom records for payment.
-	//
-	// The custom records will contain the accepted quote ID and the asset
-	// amounts that Alice will pay to Bob.
-	//
-	// We select an asset amount which is sufficient to cover the invoice
-	// amount.
+	// Construct the asset records carried by both payment attempts.
 	paymentAssetAmount := uint64(42)
 	assetAmounts := []*rfqmsg.AssetBalance{
 		rfqmsg.NewAssetBalance(mintedAssetId, paymentAssetAmount),
 	}
-
 	htlcCustomRecords := rfqmsg.NewHtlc(
 		assetAmounts, fn.Some(acceptedQuoteId), fn.None[[]rfqmsg.ID](),
 	)
-
-	// Convert the custom records to a TLV map for inclusion in
-	// SendToRouteRequest.
 	firstHopCustomRecords, err := tlv.RecordsToMap(
 		htlcCustomRecords.Records(),
 	)
 	require.NoError(t.t, err)
 
-	routeReq := routerrpc.SendToRouteRequest{
-		PaymentHash:           invoice.RHash,
-		Route:                 routeBuildResp.Route,
-		FirstHopCustomRecords: firstHopCustomRecords,
-	}
-	sendAttempt := ts.AliceLnd.RPC.SendToRouteV2(&routeReq)
+	// Locate each Alice-to-Bob channel explicitly so the two payment
+	// attempts exercise the intended incoming channel at Bob.
+	outgoingChanID := func(point *lnrpc.ChannelPoint) uint64 {
+		txid, err := lnrpc.GetChanPointFundingTxid(point)
+		require.NoError(t.t, err)
+		channelPoint := fmt.Sprintf("%s:%d", txid, point.OutputIndex)
+		channels, err := ts.AliceTapd.LightningClient.ListChannels(
+			ctx, &lnrpc.ListChannelsRequest{},
+		)
+		require.NoError(t.t, err)
+		for _, channel := range channels.Channels {
+			if channel.ChannelPoint == channelPoint {
+				return channel.ChanId
+			}
+		}
 
-	// The payment will succeed since it the asset amount transport is
-	// sufficient to cover the invoice amount.
+		require.FailNow(t.t, "channel not found", channelPoint)
+		return 0
+	}
+
+	// SendToRouteV2 can return an in-flight attempt on older lnd versions.
+	// If it does, track the payment until its terminal update arrives.
+	sendToRoute := func(invoice *lnrpc.Invoice,
+		route *lnrpc.Route) *lnrpc.HTLCAttempt {
+
+		routeReq := &routerrpc.SendToRouteRequest{
+			PaymentHash:           invoice.RHash,
+			Route:                 route,
+			FirstHopCustomRecords: firstHopCustomRecords,
+		}
+		attempt := ts.AliceLnd.RPC.SendToRouteV2(routeReq)
+		if attempt.Status != lnrpc.HTLCAttempt_IN_FLIGHT {
+			return attempt
+		}
+
+		trackCtx, cancelTrack := context.WithTimeout(ctx, rfqTimeout)
+		defer cancelTrack()
+		paymentStream, err := ts.AliceTapd.RouterClient.TrackPaymentV2(
+			trackCtx, &routerrpc.TrackPaymentRequest{
+				PaymentHash:       invoice.RHash,
+				NoInflightUpdates: true,
+			},
+		)
+		require.NoError(t.t, err)
+		for {
+			payment, err := paymentStream.Recv()
+			require.NoError(t.t, err)
+			if payment.Status == lnrpc.Payment_IN_FLIGHT {
+				continue
+			}
+			require.NotEmpty(t.t, payment.Htlcs)
+			return payment.Htlcs[len(payment.Htlcs)-1]
+		}
+	}
+
+	// First force the asset-marked HTLC over Alice and Bob's
+	// normal BTC channel. Bob must reject it before applying
+	// the otherwise valid quote.
+	rejectedInvoiceResp := ts.CarolLnd.RPC.AddInvoice(&lnrpc.Invoice{
+		ValueMsat: int64(paymentAskAmt),
+	})
+	rejectedInvoice := ts.CarolLnd.RPC.LookupInvoice(
+		rejectedInvoiceResp.RHash,
+	)
+	rejectedPayReq := ts.CarolLnd.RPC.DecodePayReq(
+		rejectedInvoice.PaymentRequest,
+	)
+	rejectedRoute := ts.AliceLnd.RPC.BuildRoute(
+		&routerrpc.BuildRouteRequest{
+			AmtMsat: int64(paymentAskAmt),
+			HopPubkeys: [][]byte{
+				ts.BobLnd.PubKey[:],
+				ts.CarolLnd.PubKey[:],
+			},
+			OutgoingChanId: outgoingChanID(ts.AliceBobBTCChannel),
+			PaymentAddr:    rejectedPayReq.PaymentAddr,
+		})
+	bobRejectCtx, cancelBobReject := context.WithTimeout(ctx, time.Second)
+	defer cancelBobReject()
+	bobRejectEvents, err := ts.BobTapd.SubscribeRfqEventNtfns(
+		bobRejectCtx, &rfqrpc.SubscribeRfqEventNtfnsRequest{},
+	)
+	require.NoError(t.t, err)
+	rejectedAttempt := sendToRoute(rejectedInvoice, rejectedRoute.Route)
+	require.Equal(t.t, lnrpc.HTLCAttempt_FAILED, rejectedAttempt.Status)
+	event, err := bobRejectEvents.Recv()
+	require.Error(t.t, err)
+	require.Nil(t.t, event)
+	rejectedInvoice = ts.CarolLnd.RPC.LookupInvoice(
+		rejectedInvoiceResp.RHash,
+	)
+	require.Equal(t.t, lnrpc.Invoice_OPEN, rejectedInvoice.State)
+	require.NoError(t.t, bobRejectEvents.CloseSend())
+
+	// Then send a distinct payment over the backed asset
+	// channel. Bob applies the quote, accepts the asset HTLC
+	// and forwards the BTC payment to Carol.
+	bobEventNtfns, err := ts.BobTapd.SubscribeRfqEventNtfns(
+		ctx, &rfqrpc.SubscribeRfqEventNtfnsRequest{},
+	)
+	require.NoError(t.t, err)
+	addInvoiceResp := ts.CarolLnd.RPC.AddInvoice(&lnrpc.Invoice{
+		ValueMsat: int64(paymentAskAmt),
+	})
+	invoice := ts.CarolLnd.RPC.LookupInvoice(addInvoiceResp.RHash)
+	payReq := ts.CarolLnd.RPC.DecodePayReq(invoice.PaymentRequest)
+	routeBuildResp := ts.AliceLnd.RPC.BuildRoute(
+		&routerrpc.BuildRouteRequest{
+			AmtMsat: int64(paymentAskAmt),
+			HopPubkeys: [][]byte{
+				ts.BobLnd.PubKey[:],
+				ts.CarolLnd.PubKey[:],
+			},
+			OutgoingChanId: outgoingChanID(ts.AliceBobChannel),
+			PaymentAddr:    payReq.PaymentAddr,
+		},
+	)
+	t.Log("Alice paying invoice over the asset channel")
+	sendAttempt := sendToRoute(invoice, routeBuildResp.Route)
 	require.Equal(t.t, lnrpc.HTLCAttempt_SUCCEEDED, sendAttempt.Status)
 
-	// At this point Bob should have received a HTLC with the asset transfer
-	// specific scid. We'll wait for Bob to publish an accept HTLC event and
-	// then validate it against the accepted quote.
 	t.Log("Waiting for Bob to receive HTLC")
 	BeforeTimeout(t.t, func() {
 		event, err := bobEventNtfns.Recv()
 		require.NoError(t.t, err)
-
 		_, ok := event.Event.(*rfqrpc.RfqEvent_AcceptHtlc)
 		require.True(t.t, ok, "unexpected event: %v", event)
 	}, rfqTimeout)
-
-	// Confirm that Carol receives the lightning payment from Alice via Bob.
 	invoice = ts.CarolLnd.RPC.LookupInvoice(addInvoiceResp.RHash)
 	require.Equal(t.t, lnrpc.Invoice_SETTLED, invoice.State)
 
 	// Close event notification streams.
-	err = aliceEventNtfns.CloseSend()
-	require.NoError(t.t, err)
+	require.NoError(t.t, aliceEventNtfns.CloseSend())
+	require.NoError(t.t, bobEventNtfns.CloseSend())
 
-	err = bobEventNtfns.CloseSend()
-	require.NoError(t.t, err)
 }
 
 // testRfqNegotiationGroupKey checks that two nodes can negotiate and register
@@ -632,11 +737,11 @@ func testRfqNegotiationGroupKey(t *harnessTest) {
 	oracleURL := fmt.Sprintf("rfqrpc://%s", oracleAddr)
 
 	// Initialize a new test scenario.
-	ts := newRfqTestScenario(t, WithRfqOracleServer(oracleURL))
+	ts := newRfqIntegratedScenario(t, WithRfqOracleServer(oracleURL))
 
 	// Mint an asset with Alice's tapd node.
 	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner(), ts.AliceTapd,
+		t.t, t.lndHarness.Miner(), rfqTapd(ts.AliceTapd),
 		[]*mintrpc.MintAssetRequest{issuableAssets[0]},
 	)
 
@@ -655,12 +760,6 @@ func testRfqNegotiationGroupKey(t *harnessTest) {
 	oracle.SetPrice(specifierGK, bidPrice, askPrice)
 
 	ctx := context.Background()
-
-	// Subscribe to Alice's RFQ events stream.
-	aliceEventNtfns, err := ts.AliceTapd.SubscribeRfqEventNtfns(
-		ctx, &rfqrpc.SubscribeRfqEventNtfnsRequest{},
-	)
-	require.NoError(t.t, err)
 
 	// Alice sends a sell order to Bob for some amount of the newly minted
 	// asset.
@@ -693,8 +792,19 @@ func testRfqNegotiationGroupKey(t *harnessTest) {
 		t.t, err, "no asset channel balance found",
 	)
 
-	// Now we set the skip flag and we shouldn't get an error anymore.
+	// Skipping the local channel check cannot bypass Bob's remote backing
+	// admission: Bob rejects the quote without an asset channel.
 	sellReq.SkipAssetChannelCheck = true
+	_, err = ts.AliceTapd.AddAssetSellOrder(ctx, sellReq)
+	require.ErrorContains(t.t, err, "rejected quote")
+	// The same request succeeds without a bypass once backing exists.
+	ts.fundAliceBobAssetChannel(t.t, rpcAssets[0].AssetGenesis.AssetId)
+	// Subscribe only after the deliberate rejection: it closes the stream.
+	aliceEventNtfns, err := ts.AliceTapd.SubscribeRfqEventNtfns(
+		ctx, &rfqrpc.SubscribeRfqEventNtfnsRequest{},
+	)
+	require.NoError(t.t, err)
+	sellReq.SkipAssetChannelCheck = false
 	_, err = ts.AliceTapd.AddAssetSellOrder(ctx, sellReq)
 	require.NoError(t.t, err, "unable to upsert asset sell order")
 
@@ -713,7 +823,7 @@ func testRfqNegotiationGroupKey(t *harnessTest) {
 		require.Equal(t.t, expectedGroupKeyBytes, actualGroupKeyBytes)
 	}, rfqTimeout)
 
-	// We now repeat the same flow, where Alice is making a BuyOrderRequest.
+	// Bob now buys from Alice, whose channel holds all 5000 units.
 	assetMaxAmt := uint64(1000)
 	buyOrderExpiry := sellOrderExpiry
 
@@ -729,20 +839,20 @@ func testRfqNegotiationGroupKey(t *harnessTest) {
 		TimeoutSeconds: uint32(rfqTimeout.Seconds()),
 	}
 
-	_, err = ts.AliceTapd.AddAssetBuyOrder(ctx, buyReq)
-	require.ErrorContains(
-		t.t, err, "no asset channel balance found",
+	// Carol has no asset channel to Bob, so secure admission rejects her.
+	_, err = ts.CarolTapd.AddAssetBuyOrder(ctx, buyReq)
+	require.ErrorContains(t.t, err, "no asset channel balance found")
+	// Bob's remote balance is backed by Alice, so no bypass is needed.
+	buyReq.PeerPubKey = ts.AliceLnd.PubKey[:]
+	bobEvents, err := ts.BobTapd.SubscribeRfqEventNtfns(
+		ctx, &rfqrpc.SubscribeRfqEventNtfnsRequest{},
 	)
-
-	// Now we set the skip flag and we shouldn't get an error anymore.
-	buyReq.SkipAssetChannelCheck = true
-	_, err = ts.AliceTapd.AddAssetBuyOrder(ctx, buyReq)
 	require.NoError(t.t, err)
-
-	// Wait until Alice receives an incoming buy quote accept message (sent
-	// from Bob) RFQ event notification.
+	_, err = ts.BobTapd.AddAssetBuyOrder(ctx, buyReq)
+	require.NoError(t.t, err)
+	// Wait for Bob's accepted buy quote from Alice.
 	BeforeTimeout(t.t, func() {
-		event, err := aliceEventNtfns.Recv()
+		event, err := bobEvents.Recv()
 		require.NoError(t.t, err)
 
 		e, ok := event.Event.(*rfqrpc.RfqEvent_PeerAcceptedBuyQuote)
@@ -773,16 +883,22 @@ func testRfqPortfolioPilotRpc(t *harnessTest) {
 	oracleURL := fmt.Sprintf("rfqrpc://%s", oracleAddr)
 	pilotURL := fmt.Sprintf("portfoliopilotrpc://%s", pilotAddr)
 
-	ts := newRfqTestScenario(
+	ts := newRfqIntegratedScenario(
 		t, WithRfqOracleServer(oracleURL),
 		WithRfqPortfolioPilotServer(pilotURL),
 	)
 
+	// The pilot's 20000-msat fill cap requires more than 5000 units at
+	// its original 42_000_160_000-unit-per-BTC quote rate.
+	const pilotChannelUnits = uint64(10_000)
+	mintReq := CopyRequest(issuableAssets[0])
+	mintReq.Asset.Amount = pilotChannelUnits
 	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner(), ts.BobTapd,
-		[]*mintrpc.MintAssetRequest{issuableAssets[0]},
+		t.t, t.lndHarness.Miner(), rfqTapd(ts.AliceTapd),
+		[]*mintrpc.MintAssetRequest{mintReq},
 	)
 	mintedAssetId := rpcAssets[0].AssetGenesis.AssetId
+	ts.fundAliceBobAssetChannel(t.t, mintedAssetId, pilotChannelUnits)
 
 	var assetID asset.ID
 	copy(assetID[:], mintedAssetId)
@@ -1057,6 +1173,14 @@ func testRfqPortfolioPilotRpc(t *harnessTest) {
 		t.t, uint64(20000), matchedSell.AcceptedMaxAmount,
 		"expected fill cap of 20000",
 	)
+	channelCap, err := rfqmath.UnitsToMilliSatoshi(
+		rfqmath.NewBigIntFixedPoint(pilotChannelUnits, 0),
+		rfqmath.NewBigIntFixedPoint(42_000_160_000, 0),
+	)
+	require.NoError(t.t, err)
+	require.LessOrEqual(
+		t.t, matchedSell.AcceptedMaxAmount, uint64(channelCap),
+	)
 
 	err = aliceEvents.CloseSend()
 	require.NoError(t.t, err)
@@ -1076,14 +1200,15 @@ func testRfqLimitConstraints(t *harnessTest) {
 	oracleURL := fmt.Sprintf("rfqrpc://%s", oracleAddr)
 
 	// Initialize the standard 3-node test scenario.
-	ts := newRfqTestScenario(t, WithRfqOracleServer(oracleURL))
+	ts := newRfqIntegratedScenario(t, WithRfqOracleServer(oracleURL))
 
-	// Mint an asset with Bob's tapd node.
+	// Mint an asset with Alice's tapd node.
 	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner(), ts.BobTapd,
+		t.t, t.lndHarness.Miner(), rfqTapd(ts.AliceTapd),
 		[]*mintrpc.MintAssetRequest{issuableAssets[0]},
 	)
 	mintedAssetId := rpcAssets[0].AssetGenesis.AssetId
+	ts.fundAliceBobAssetChannel(t.t, mintedAssetId)
 
 	var assetID asset.ID
 	copy(assetID[:], mintedAssetId)

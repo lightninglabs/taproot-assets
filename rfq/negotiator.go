@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -27,6 +28,11 @@ const (
 	DefaultAcceptPriceDeviationPpm = 50_000
 )
 
+// channelFetcher returns the active asset channels that match a peer and asset
+// specifier.
+type channelFetcher func(context.Context, asset.Specifier, *route.Vertex,
+	ChanIntention) (PeerChanMap, error)
+
 // NegotiatorCfg holds the configuration for the negotiator.
 type NegotiatorCfg struct {
 	// PriceOracle is the price oracle that the negotiator will use to
@@ -35,6 +41,10 @@ type NegotiatorCfg struct {
 
 	// PortfolioPilot makes financial decisions when evaluating quotes.
 	PortfolioPilot PortfolioPilot
+
+	// fetchChannel looks up active asset channels for built-in quote
+	// admission.
+	fetchChannel channelFetcher
 
 	// OutgoingMessages is a channel which is populated with outgoing peer
 	// messages. These are messages which are destined to be sent to peers.
@@ -262,6 +272,75 @@ func (n *Negotiator) HandleOutgoingBuyOrder(ctx context.Context,
 	return request.ID, nil
 }
 
+// maxRemoteChannelBalance returns the largest remote balance of an active
+// channel matching an incoming sell request.
+func (n *Negotiator) maxRemoteChannelBalance(ctx context.Context,
+	req *rfqmsg.SellRequest) (uint64, error) {
+
+	if n.cfg.fetchChannel == nil {
+		return 0, fmt.Errorf("asset channel lookup unavailable")
+	}
+
+	peer := req.MsgPeer()
+	peerChannels, err := n.cfg.fetchChannel(
+		ctx, req.AssetSpecifier, &peer, ReceiveIntention,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("fetch backing asset channel: %w", err)
+	}
+
+	var maxRemoteBalance uint64
+	for _, channel := range peerChannels[peer] {
+		if len(channel.AssetInfo.FundingAssets) == 0 {
+			continue
+		}
+
+		if channel.AssetInfo.RemoteBalance > maxRemoteBalance {
+			maxRemoteBalance = channel.AssetInfo.RemoteBalance
+		}
+	}
+
+	if maxRemoteBalance == 0 {
+		return 0, fmt.Errorf("no remote asset channel balance for peer")
+	}
+
+	return maxRemoteBalance, nil
+}
+
+// backedSellRequestFill caps a sell-request fill at the value backed by a
+// single matching asset channel.
+func backedSellRequestFill(req *rfqmsg.SellRequest, rate rfqmsg.AssetRate,
+	pilotFill fn.Option[uint64], maxRemoteBalance uint64) (
+	fn.Option[uint64], error) {
+
+	if rate.Rate.Coefficient.IsZero() {
+		return fn.None[uint64](), fmt.Errorf("asset rate is zero")
+	}
+
+	units := rfqmath.NewBigIntFixedPoint(maxRemoteBalance, 0)
+	backedPayment, err := rfqmath.UnitsToMilliSatoshi(units, rate.Rate)
+	if err != nil {
+		return fn.None[uint64](), fmt.Errorf(
+			"convert asset channel backing: %w", err,
+		)
+	}
+	if backedPayment == 0 {
+		return fn.None[uint64](), fmt.Errorf(
+			"asset channel backing rounds to zero",
+		)
+	}
+
+	fillAmount := pilotFill.UnwrapOr(uint64(backedPayment))
+	if fillAmount > uint64(backedPayment) {
+		fillAmount = uint64(backedPayment)
+	}
+	if fillAmount > uint64(req.PaymentMaxAmt) {
+		fillAmount = uint64(req.PaymentMaxAmt)
+	}
+
+	return fn.Some(fillAmount), nil
+}
+
 // HandleIncomingQuoteRequest handles an incoming asset buy or sell quote
 // request. It runs as a goroutine to avoid blocking the caller. The function
 // queries the portfolio pilot to determine whether to accept or reject the
@@ -288,6 +367,27 @@ func (n *Negotiator) HandleIncomingQuoteRequest(ctx context.Context,
 	// The portfolio pilot might be an external service, responses could be
 	// delayed.
 	n.Goroutine(func() error {
+		var (
+			sellReq          *rfqmsg.SellRequest
+			maxRemoteBalance uint64
+		)
+		if req, ok := request.(*rfqmsg.SellRequest); ok {
+			sellReq = req
+			balance, err := n.maxRemoteChannelBalance(ctx, req)
+			if err != nil {
+				msg := rfqmsg.NewReject(
+					request.MsgPeer(), request.MsgID(),
+					customRejectErr(err),
+				)
+				sendOutgoingMsg(msg)
+
+				return fmt.Errorf(
+					"admit quote request: %w", err,
+				)
+			}
+			maxRemoteBalance = balance
+		}
+
 		resp, err := n.cfg.PortfolioPilot.ResolveRequest(ctx, request)
 		if err != nil {
 			// Construct an appropriate RejectErr based on
@@ -316,13 +416,41 @@ func (n *Negotiator) HandleIncomingQuoteRequest(ctx context.Context,
 		var acceptErr error
 		fillAmount := resp.FillAmount()
 		resp.WhenAccept(func(assetRate rfqmsg.AssetRate) {
+			if sellReq != nil {
+				fillAmount, acceptErr = backedSellRequestFill(
+					sellReq, assetRate, fillAmount,
+					maxRemoteBalance,
+				)
+				if acceptErr != nil {
+					msg := rfqmsg.NewReject(
+						request.MsgPeer(),
+						request.MsgID(),
+						customRejectErr(acceptErr),
+					)
+					sendOutgoingMsg(msg)
+					return
+				}
+
+				status := checkAllConstraints(
+					request, assetRate.Rate, fillAmount,
+				)
+				if status != ValidAcceptQuoteRespStatus {
+					msg := rfqmsg.NewReject(
+						request.MsgPeer(),
+						request.MsgID(),
+						rejectForStatus(status),
+					)
+					sendOutgoingMsg(msg)
+					return
+				}
+			}
+
 			msg, err := rfqmsg.NewQuoteAcceptFromRequest(
 				request, assetRate, fillAmount,
 			)
 			if err != nil {
 				acceptErr = fmt.Errorf("create quote accept "+
-					"message from request: %w",
-					err)
+					"message from request: %w", err)
 				return
 			}
 

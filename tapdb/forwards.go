@@ -26,7 +26,7 @@ type ForwardStore interface {
 		[]sqlc.QueryPendingForwardsRow, error)
 
 	// QuerySettledFillByRfqID fetches the total settled outgoing amount
-	// grouped by RFQ session ID.
+	// grouped by RFQ session ID, including both policy legs of forwards.
 	QuerySettledFillByRfqID(ctx context.Context) (
 		[]sqlc.QuerySettledFillByRfqIDRow, error)
 
@@ -124,7 +124,8 @@ func (s *PersistedForwardStore) PendingForwards(
 }
 
 // SettledFillByRfqID returns the total settled outgoing amount (in
-// millisatoshis) of all settled forwarding events, grouped by RFQ session ID.
+// millisatoshis) of all settled forwarding events, grouped by RFQ session ID,
+// including both policy legs of forwards.
 func (s *PersistedForwardStore) SettledFillByRfqID(
 	ctx context.Context,
 ) (map[rfqmsg.ID]uint64, error) {

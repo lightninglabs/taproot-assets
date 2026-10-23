@@ -1325,11 +1325,11 @@ VALUES (
     sqlc.narg('spent_by')
 )
 ON CONFLICT(outpoint) DO UPDATE SET
+    -- Proof replay can update discovery metadata but cannot undo a spend.
     group_key            = EXCLUDED.group_key,
     taproot_internal_key = EXCLUDED.taproot_internal_key,
     outpoint             = EXCLUDED.outpoint,
-    chain_txn_db_id      = EXCLUDED.chain_txn_db_id,
-    spent_by             = EXCLUDED.spent_by
+    chain_txn_db_id      = EXCLUDED.chain_txn_db_id
 RETURNING id;
 
 -- name: UpsertMintSupplyPreCommit :one
