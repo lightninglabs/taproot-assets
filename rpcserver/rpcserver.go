@@ -3564,6 +3564,34 @@ func (r *RPCServer) PublishAndLogTransfer(ctx context.Context,
 		return nil, fmt.Errorf("error decoding packet: %w", err)
 	}
 
+	// The BTC level transaction must be fully complete, and we must be able
+	// to extract the final transaction from it.
+	finalTx, err := psbt.Extract(pkt)
+	if err != nil {
+		return nil, fmt.Errorf("error extracting final anchor "+
+			"transaction: %w", err)
+	}
+
+	// Return the existing transfer before validating possibly spent inputs.
+	// Concurrent first submissions are deduplicated by the
+	// porter's atomic registration using this same anchor txid.
+	parcels, err := r.cfg.ChainPorter.QueryParcels(
+		ctx, fn.Some(finalTx.TxHash()), false,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error querying transfer: %w", err)
+	}
+	if len(parcels) > 0 {
+		resolver := newTransferAssetInfoResolver(ctx, r.cfg.TapAddrBook)
+		parcel, err := marshalOutboundParcel(parcels[0], resolver)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling outbound "+
+				"parcel: %w", err)
+		}
+
+		return &taprpc.SendAssetResponse{Transfer: parcel}, nil
+	}
+
 	activePackets, err := decodeVirtualPackets(req.VirtualPsbts)
 	if err != nil {
 		return nil, fmt.Errorf("error decoding active packets: %w", err)
@@ -3595,14 +3623,6 @@ func (r *RPCServer) PublishAndLogTransfer(ctx context.Context,
 	if err != nil {
 		return nil, fmt.Errorf("error calculating transaction fees: %w",
 			err)
-	}
-
-	// The BTC level transaction must be fully complete, and we must be able
-	// to extract the final transaction from it.
-	finalTx, err := psbt.Extract(pkt)
-	if err != nil {
-		return nil, fmt.Errorf("error extracting final anchor "+
-			"transaction: %w", err)
 	}
 
 	anchorTx := &tapsend.AnchorTransaction{
