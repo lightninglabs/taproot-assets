@@ -1,11 +1,16 @@
 package tapchannel
 
 import (
+	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"sync"
+	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -16,7 +21,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lnrpc"
-	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -71,6 +75,10 @@ type RfqLookup interface {
 	RfqPeerFromScid(scid uint64) (route.Vertex, error)
 }
 
+// htlcModifierRetryDelay is the delay between attempts to re-establish the
+// invoice HTLC modifier stream after it ends.
+var htlcModifierRetryDelay = time.Second
+
 // InvoiceManagerConfig defines the configuration for the auxiliary invoice
 // manager.
 type InvoiceManagerConfig struct {
@@ -99,12 +107,6 @@ type AuxInvoiceManager struct {
 	stopOnce  sync.Once
 
 	cfg *InvoiceManagerConfig
-
-	// channelFundingCache is a cache used to store the channel funding
-	// information for the channels that are used to receive assets. The map
-	// is keyed by the main channel ID, and the value is the asset channel
-	// funding information.
-	channelFundingCache lnutils.SyncMap[uint64, rfqmsg.JsonAssetChannel]
 
 	// ContextGuard provides a wait group and main quit channel that can be
 	// used to create guarded contexts.
@@ -137,13 +139,28 @@ func (s *AuxInvoiceManager) Start() error {
 			ctx, cancel := s.WithCtxQuitNoTimeout()
 			defer cancel()
 
-			err := s.cfg.InvoiceHtlcModifier.HtlcModifier(
-				ctx, s.handleInvoiceAccept,
-			)
-			if err != nil {
-				log.Errorf("Error setting up invoice "+
-					"acceptor: %v", err)
-				return
+			// Any error returned by the HTLC modifier tears the
+			// stream down in lnd. A single error must not
+			// permanently disable the asset invoice gate, so we
+			// re-establish the stream until we're shutting down.
+			for {
+				err := s.cfg.InvoiceHtlcModifier.HtlcModifier(
+					ctx, s.handleInvoiceAccept,
+				)
+
+				if err != nil && ctx.Err() == nil {
+					log.Warnf("Error setting up invoice "+
+						"acceptor: %v", err)
+				}
+
+				// Even a clean stream exit must be retried
+				// unless the manager is shutting down.
+
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(htlcModifierRetryDelay):
+				}
 			}
 		}()
 	})
@@ -244,7 +261,15 @@ func (s *AuxInvoiceManager) handleInvoiceAccept(ctx context.Context,
 
 	htlc, err := rfqmsg.HtlcFromCustomRecords(req.WireCustomRecords)
 	if err != nil {
-		return nil, fmt.Errorf("unable to decode htlc: %w", err)
+		// The custom records are supplied by the payer, so a malformed
+		// record is a peer-input-driven failure. Cancel the set instead
+		// of returning an error, which would tear the HTLC modifier
+		// stream down in lnd.
+		iLog.Errorf("unable to decode htlc, canceling HTLCs: %v", err)
+
+		resp.CancelSet = true
+
+		return resp, nil
 	}
 
 	iLog.Debugf("received htlc: %v", limitSpewer.Sdump(htlc))
@@ -261,8 +286,51 @@ func (s *AuxInvoiceManager) handleInvoiceAccept(ctx context.Context,
 		return resp, nil
 	}
 
+	// Take one quote snapshot for both identity validation and valuation.
+	// The RFQ maps can change while the HTLC is being checked, including
+	// replacement of a quote under the same RFQ ID.
+	rfqID := htlc.RfqID.ValOpt().UnsafeFromSome()
+	quote, err := s.settlementQuote(rfqID)
+	if err != nil {
+		iLog.Debugf("unable to get settlement quote, "+
+			"canceling HTLCs: %v", err)
+		resp.CancelSet = true
+		return resp, nil
+	}
+
+	// For asset invoices, the assets actually paid must match the quotes
+	// the invoice's route hints point to. Otherwise, on a node with
+	// accepted quotes for multiple assets, a payer could settle an invoice
+	// created for one asset with units of a different asset. The check is
+	// on the HTLC's own balance records, not on the asset description of
+	// the quote the payer chose to reference: a quote can claim both a
+	// specific asset and a group while a different group member is paid,
+	// and quotes are re-negotiated frequently anyway, so the SCID the
+	// payer's quote carries is not stable. Keysend payments have no route
+	// hints, so they are exempt.
+	assetRate := quote.rate
+	if !req.Invoice.IsKeysend {
+		hintRate, err := s.assetsMatchInvoiceHints(
+			ctx, req.Invoice, htlc, resp.CircuitKey, quote.peer,
+		)
+		if err != nil {
+			iLog.Debugf("asset HTLC does not match the invoice's "+
+				"hinted quotes, canceling HTLCs: %v", err)
+
+			resp.CancelSet = true
+
+			return resp, nil
+		}
+
+		// A lower units-per-BTC rate credits more msat per asset unit.
+		// Never credit above the value offered in the invoice hints.
+		if hintRate.Cmp(assetRate) > 0 {
+			assetRate = hintRate
+		}
+	}
+
 	// We now run some validation checks on the asset HTLC.
-	err = s.validateAssetHTLC(ctx, htlc, resp.CircuitKey)
+	err = s.validateAssetHTLC(ctx, htlc, resp.CircuitKey, quote)
 	if err != nil {
 		iLog.Errorf("failed to validate asset HTLC: %v", err)
 
@@ -271,162 +339,65 @@ func (s *AuxInvoiceManager) handleInvoiceAccept(ctx context.Context,
 		return resp, nil
 	}
 
-	// Convert the total asset amount to milli-satoshis using the price from
-	// the accepted quote.
-	rfqID := htlc.RfqID.ValOpt().UnsafeFromSome()
-	assetRate, err := s.priceFromQuote(rfqID)
-	if err != nil {
-		return nil, fmt.Errorf("unable to get price from quote with "+
-			"ID %x / SCID %d: %w", rfqID[:], rfqID.Scid(), err)
-	}
+	// Convert the total asset amount to milli-satoshis at the more
+	// conservative of the accepted and invoice-hinted quote rates.
 
 	htlcAssetAmount := htlc.Amounts.Val.Sum()
 	totalAssetAmt := rfqmath.NewBigIntFixedPoint(htlcAssetAmount, 0)
 	resp.AmtPaid, err = rfqmath.UnitsToMilliSatoshi(
-		totalAssetAmt, *assetRate,
+		totalAssetAmt, assetRate,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("unable to convert HTLC asset "+
-			"amount to mSat: %w", err)
+		// The asset amounts are supplied by the payer, so this is a
+		// peer-input-driven failure. Cancel the set instead of
+		// returning an error, which would tear the HTLC modifier
+		// stream down in lnd.
+		iLog.Errorf("unable to convert HTLC asset amount to mSat, "+
+			"canceling HTLCs: %v", err)
+
+		resp.CancelSet = true
+
+		return resp, nil
 	}
 
-	// If all previously accepted HTLC amounts plus the intercepted HTLC
-	// amount together add up to just about the asset invoice amount, then
-	// we can settle the HTLCs to address the rounding error.
-	var acceptedHtlcSum lnwire.MilliSatoshi
-	for _, invoiceHtlc := range req.Invoice.Htlcs {
-		acceptedHtlcSum += lnwire.MilliSatoshi(invoiceHtlc.AmtMsat)
-	}
-
-	// We assume that each shard can have a rounding error of up to 1 asset
-	// unit. So we allow the final amount to be off by up to 1 asset unit
-	// per accepted HTLC (plus the one we're currently processing). The
-	// plus one here is because the invoice only has previously accepted
-	// HTLCs committed to it, but we're processing the current HTLC which
-	// is not yet in that list.
-	allowedMarginAssetUnits := uint64(len(req.Invoice.Htlcs) + 1)
-
-	// Convert the allowed margin asset units to milli-satoshis.
-	marginAssetUnits := rfqmath.NewBigIntFixedPoint(
-		allowedMarginAssetUnits, 0,
-	)
-	allowedMarginMSat, err := rfqmath.UnitsToMilliSatoshi(
-		marginAssetUnits, *assetRate,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("unable to convert margin asset "+
-			"units to mSat: %w", err)
-	}
-
-	// Every HTLC makes a roundtrip from msats to units and then back to
-	// msats right here. Above we account for the asset units that may have
-	// been lost by our peer when converting their incoming HTLC amount to
-	// asset units, now we need to account for our loss for converting each
-	// HTLC to msats.
-	allowedMarginMSat += lnwire.MilliSatoshi(len(req.Invoice.Htlcs) + 1)
-
-	// If the sum of the accepted HTLCs plus the current HTLC amount plus
-	// the error margin is greater than the invoice amount, we'll accept it.
-	totalInbound := acceptedHtlcSum + resp.AmtPaid
-	totalInboundWithMargin := totalInbound + allowedMarginMSat
-	invoiceValue := lnwire.MilliSatoshi(req.Invoice.ValueMsat)
-
-	iLog.Debugf("accepted HTLC sum: %v, current HTLC amount: %v, allowed "+
-		"margin: %v (total %v), invoice value %v", acceptedHtlcSum,
-		resp.AmtPaid, allowedMarginMSat, totalInboundWithMargin,
-		invoiceValue)
-
-	// If we're within the error margin, we'll increase the current HTLCs
-	// amount to cover the error rate and make the total sum match the
-	// invoice amount exactly.
-	//
-	// Note: The total calculated margin should match what is implemented in
-	// our TestUnitConversionToleranceRapid test. That test serves as a
-	// sanity check for our tolerance model, which should allow all
-	// combinations of shards and asset rates to be captured by the total
-	// calculated tolerance.
-	if totalInboundWithMargin >= invoiceValue {
-		resp.AmtPaid = invoiceValue - acceptedHtlcSum
-	}
+	// Return only the value of the assets in this HTLC. lnd tracks the
+	// accepted set and decides when its paid amount covers the invoice.
 
 	return resp, nil
 }
 
-// identifierAndPeerFromQuote retrieves the quote by looking up the rfq
-// manager's maps of accepted quotes based on the passed rfq ID. If there's a
-// match, the asset specifier and peer are returned.
-func (s *AuxInvoiceManager) identifierAndPeerFromQuote(
-	rfqID rfqmsg.ID) (asset.Specifier, route.Vertex, error) {
-
-	acceptedBuyQuotes := s.cfg.RfqManager.PeerAcceptedBuyQuotes()
-	acceptedSellQuotes := s.cfg.RfqManager.LocalAcceptedSellQuotes()
-
-	buyQuote, isBuy := acceptedBuyQuotes[rfqID.Scid()]
-	sellQuote, isSell := acceptedSellQuotes[rfqID.Scid()]
-
-	var (
-		specifier asset.Specifier
-		peer      route.Vertex
-	)
-
-	switch {
-	case isBuy:
-		specifier = buyQuote.Request.AssetSpecifier
-		peer = buyQuote.Peer
-
-	case isSell:
-		specifier = sellQuote.Request.AssetSpecifier
-		peer = sellQuote.Peer
-	}
-
-	err := specifier.AssertNotEmpty()
-	if err != nil {
-		return specifier, peer, fmt.Errorf("rfqID does not match any "+
-			"accepted buy or sell quote: %v", err)
-	}
-
-	return specifier, peer, nil
+// invoiceSettlementQuote keeps the pricing identity and rate together so
+// a concurrent RFQ replacement cannot change the price after validation.
+type invoiceSettlementQuote struct {
+	specifier asset.Specifier
+	peer      route.Vertex
+	rate      rfqmath.BigIntFixedPoint
 }
 
-// priceFromQuote retrieves the price from the accepted quote for the given RFQ
-// ID. We allow the quote to either be a buy or a sell quote, since we don't
-// know if this is a direct peer payment or a payment that is routed through the
-// multiple hops. If it's a direct peer payment, then the quote will be a sell
-// quote, since that's what the peer created to find out how many units to send
-// for an invoice denominated in BTC.
-func (s *AuxInvoiceManager) priceFromQuote(rfqID rfqmsg.ID) (
-	*rfqmath.BigIntFixedPoint, error) {
+// settlementQuote selects a single accepted quote for the whole HTLC. Buy
+// quotes cover routed payments; sell quotes cover direct peer payments.
+func (s *AuxInvoiceManager) settlementQuote(
+	rfqID rfqmsg.ID) (invoiceSettlementQuote, error) {
 
-	acceptedBuyQuotes := s.cfg.RfqManager.PeerAcceptedBuyQuotes()
-	acceptedSellQuotes := s.cfg.RfqManager.LocalAcceptedSellQuotes()
-
-	log.Tracef("Currently available quotes: buy %v, sell %v",
-		limitSpewer.Sdump(acceptedBuyQuotes),
-		limitSpewer.Sdump(acceptedSellQuotes))
-
-	buyQuote, isBuy := acceptedBuyQuotes[rfqID.Scid()]
-	sellQuote, isSell := acceptedSellQuotes[rfqID.Scid()]
-
-	switch {
-	// This is a normal invoice payment with multiple hops, so we expect to
-	// find a buy quote.
-	case isBuy:
-		log.Debugf("Found buy quote for ID %x / SCID %d: %#v", rfqID[:],
-			rfqID.Scid(), buyQuote)
-
-		return &buyQuote.AssetRate.Rate, nil
-
-	// This is a direct peer payment, so we expect to find a sell quote.
-	case isSell:
-		log.Debugf("Found sell quote for ID %x / SCID %d: %#v",
-			rfqID[:], rfqID.Scid(), sellQuote)
-
-		return &sellQuote.AssetRate.Rate, nil
-
-	default:
-		return nil, fmt.Errorf("no accepted quote found for RFQ SCID "+
-			"%d", rfqID.Scid())
+	buyQuotes := s.cfg.RfqManager.PeerAcceptedBuyQuotes()
+	if quote, ok := buyQuotes[rfqID.Scid()]; ok {
+		return invoiceSettlementQuote{
+			specifier: quote.Request.AssetSpecifier,
+			peer:      quote.Peer,
+			rate:      quote.AssetRate.Rate,
+		}, nil
 	}
+	sellQuotes := s.cfg.RfqManager.LocalAcceptedSellQuotes()
+	if quote, ok := sellQuotes[rfqID.Scid()]; ok {
+		return invoiceSettlementQuote{
+			specifier: quote.Request.AssetSpecifier,
+			peer:      quote.Peer,
+			rate:      quote.AssetRate.Rate,
+		}, nil
+	}
+	return invoiceSettlementQuote{}, fmt.Errorf(
+		"no accepted quote found for RFQ SCID %d", rfqID.Scid(),
+	)
 }
 
 // RfqPeerFromScid attempts to match the provided scid with a negotiated quote,
@@ -441,9 +412,19 @@ func (s *AuxInvoiceManager) RfqPeerFromScid(scid uint64) (route.Vertex, error) {
 // when generating an asset invoice, and if that's the case we then check that
 // the scid matches an existing quote.
 func IsAssetInvoice(invoice *lnrpc.Invoice, rfqLookup RfqLookup) bool {
-	hints := invoice.RouteHints
+	return len(assetInvoiceHintScids(invoice, rfqLookup)) > 0
+}
 
-	for _, hint := range hints {
+// assetInvoiceHintScids returns the set of SCIDs that appear in the invoice's
+// route hints and can be mapped to one of our accepted RFQ quotes with a
+// matching node ID. These are the SCIDs that identify an invoice as an asset
+// invoice. The payer may use another quote with a compatible asset identity.
+func assetInvoiceHintScids(invoice *lnrpc.Invoice,
+	rfqLookup RfqLookup) map[uint64]struct{} {
+
+	scids := make(map[uint64]struct{})
+
+	for _, hint := range invoice.RouteHints {
 		for _, h := range hint.HopHints {
 			scid := h.ChanId
 			nodeId := h.NodeId
@@ -458,15 +439,91 @@ func IsAssetInvoice(invoice *lnrpc.Invoice, rfqLookup RfqLookup) bool {
 				continue
 			}
 
-			// If we also have a nodeId match, we're safe to assume
-			// this is an asset invoice.
+			// If we also have a nodeId match, this hop hint
+			// corresponds to one of our accepted quotes.
 			if peer.String() == nodeId {
-				return true
+				scids[scid] = struct{}{}
 			}
 		}
 	}
 
-	return false
+	return scids
+}
+
+// assetsMatchInvoiceHints checks every paid asset against the invoice's
+// hinted quotes and returns the highest matching units-per-BTC rate. This
+// caps the credited msat even when the payer references a newer quote.
+func (s *AuxInvoiceManager) assetsMatchInvoiceHints(ctx context.Context,
+	invoice *lnrpc.Invoice, htlc *rfqmsg.Htlc,
+	circuitKey invoices.CircuitKey,
+	peer route.Vertex) (rfqmath.BigIntFixedPoint, error) {
+
+	channel, err := s.fetchChannelAssetData(ctx, circuitKey.ChanID, peer)
+	if err != nil {
+		return rfqmath.BigIntFixedPoint{}, err
+	}
+
+	hintQuotes := s.assetInvoiceHintQuotes(invoice)
+	if len(hintQuotes) == 0 {
+		return rfqmath.BigIntFixedPoint{}, fmt.Errorf("invoice " +
+			"has no route hints that map to accepted quotes")
+	}
+
+	highestRate := rfqmath.NewBigIntFixedPoint(0, 0)
+	for _, balance := range htlc.Balances() {
+		paidAsset := balance.AssetID.Val
+		matched := false
+		for _, hintQuote := range hintQuotes {
+			match, err := s.paidAssetMatchesSpecifier(
+				ctx, hintQuote.specifier, paidAsset, channel,
+			)
+			if err != nil {
+				return rfqmath.BigIntFixedPoint{}, fmt.Errorf(
+					"unable to check paid asset %x "+
+						"against invoice hint: %w",
+					paidAsset[:], err,
+				)
+			}
+			if match {
+				matched = true
+				if hintQuote.rate.Cmp(highestRate) > 0 {
+					highestRate = hintQuote.rate
+				}
+			}
+		}
+
+		if !matched {
+			return rfqmath.BigIntFixedPoint{}, fmt.Errorf(
+				"paid asset %x does not match any of the "+
+					"invoice's hinted quotes", paidAsset[:],
+			)
+		}
+	}
+
+	return highestRate, nil
+}
+
+// assetInvoiceHintQuotes returns accepted buy quote snapshots referenced by
+// the invoice's route hints.
+func (s *AuxInvoiceManager) assetInvoiceHintQuotes(
+	invoice *lnrpc.Invoice) []invoiceSettlementQuote {
+
+	hintScids := assetInvoiceHintScids(invoice, s)
+	buyQuotes := s.cfg.RfqManager.PeerAcceptedBuyQuotes()
+	quotes := make([]invoiceSettlementQuote, 0, len(hintScids))
+	for scid := range hintScids {
+		// Invoice hints originate from our buy requests, never a peer's
+		// sell request that happens to reuse the same short ID.
+		quote, ok := buyQuotes[rfqmsg.SerialisedScid(scid)]
+		if ok {
+			quotes = append(quotes, invoiceSettlementQuote{
+				specifier: quote.Request.AssetSpecifier,
+				rate:      quote.AssetRate.Rate,
+			})
+		}
+	}
+
+	return quotes
 }
 
 // GetBuyQuoteFromRouteHints is a helper method that extracts a buy quote from
@@ -550,7 +607,8 @@ func (s *AuxInvoiceManager) GetAllBuyQuotesFromRouteHints(
 
 // validateAssetHTLC runs a couple of checks on the provided asset HTLC.
 func (s *AuxInvoiceManager) validateAssetHTLC(ctx context.Context,
-	htlc *rfqmsg.Htlc, circuitKey invoices.CircuitKey) error {
+	htlc *rfqmsg.Htlc, circuitKey invoices.CircuitKey,
+	quote invoiceSettlementQuote) error {
 
 	balances := htlc.Balances()
 	hasPositiveBalance := false
@@ -564,46 +622,97 @@ func (s *AuxInvoiceManager) validateAssetHTLC(ctx context.Context,
 		return fmt.Errorf("asset HTLC has no positive asset balance")
 	}
 
-	rfqID := htlc.RfqID.ValOpt().UnsafeFromSome()
-
-	// Retrieve the asset identifier from the RFQ quote.
-	identifier, peer, err := s.identifierAndPeerFromQuote(rfqID)
-	if err != nil {
-		return fmt.Errorf("could not extract assetID from "+
-			"quote: %v", err)
-	}
-
-	// Check for each of the asset balances of the HTLC that the identifier
-	// matches that of the RFQ quote.
-	assetIDs := fn.NewSet[asset.ID]()
-	for _, v := range balances {
-		match, err := s.cfg.RfqManager.AssetMatchesSpecifier(
-			ctx, identifier, v.AssetID.Val,
-		)
-		if err != nil {
-			return err
-		}
-
-		if !match {
-			return fmt.Errorf("asset ID %s does not match %s",
-				v.AssetID.Val.String(), identifier.String())
-		}
-
-		assetIDs.Add(v.AssetID.Val)
-	}
-
-	assetData, err := s.fetchChannelAssetData(ctx, circuitKey.ChanID, peer)
+	assetData, err := s.fetchChannelAssetData(
+		ctx, circuitKey.ChanID, quote.peer,
+	)
 	if err != nil {
 		return fmt.Errorf("unable to fetch channel asset data: %w", err)
 	}
 
-	if !assetData.HasAllAssetIDs(assetIDs) {
-		return fmt.Errorf("channel %d does not have all asset IDs "+
-			"required for HTLC settlement",
-			circuitKey.ChanID)
+	for _, balance := range balances {
+		match, err := s.paidAssetMatchesSpecifier(
+			ctx, quote.specifier, balance.AssetID.Val, assetData,
+		)
+		if err != nil {
+			return err
+		}
+		if !match {
+			return fmt.Errorf("paid asset does not match quote %s",
+				quote.specifier.String())
+		}
 	}
 
 	return nil
+}
+
+// paidAssetMatchesSpecifier binds both invoice and pricing identities to the
+// channel's funding assets. An ID takes precedence over a group, as it does
+// when the oracle prices a quote. A group wire marker is not an asset ID: all
+// funding IDs must satisfy the specifier, since any of them may materialize.
+func (s *AuxInvoiceManager) paidAssetMatchesSpecifier(ctx context.Context,
+	specifier asset.Specifier, paid asset.ID,
+	channel *rfqmsg.JsonAssetChannel) (bool, error) {
+
+	ids := []asset.ID{paid}
+	if channel.GroupKey != "" {
+		keyBytes, err := hex.DecodeString(channel.GroupKey)
+		if err != nil {
+			return false, err
+		}
+		key, err := btcec.ParsePubKey(keyBytes)
+		if err != nil {
+			return false, err
+		}
+		if bytes.Equal(schnorr.SerializePubKey(key), paid[:]) {
+			ids = nil
+			for _, funding := range channel.FundingAssets {
+				raw, err := hex.DecodeString(
+					funding.AssetGenesis.AssetID,
+				)
+				if err != nil {
+					return false, err
+				}
+				if len(raw) != len(paid) {
+					return false, fmt.Errorf(
+						"invalid funding asset ID",
+					)
+				}
+				var id asset.ID
+				copy(id[:], raw)
+				ids = append(ids, id)
+			}
+		}
+	}
+	if len(ids) == 0 {
+		return false, nil
+	}
+	for _, id := range ids {
+		// Check actual IDs directly, without the group-marker
+		// shortcut in HasAllAssetIDs.
+		funded := false
+		for _, funding := range channel.FundingAssets {
+			if funding.AssetGenesis.AssetID == id.String() {
+				funded = true
+				break
+			}
+		}
+		if !funded {
+			return false, nil
+		}
+		if specifier.HasId() {
+			if *specifier.UnwrapIdToPtr() != id {
+				return false, nil
+			}
+			continue
+		}
+		match, err := s.cfg.RfqManager.AssetMatchesSpecifier(
+			ctx, specifier, id,
+		)
+		if err != nil || !match {
+			return match, err
+		}
+	}
+	return true, nil
 }
 
 // fetchChannelAssetData retrieves the asset channel data for the provided
@@ -612,14 +721,6 @@ func (s *AuxInvoiceManager) validateAssetHTLC(ctx context.Context,
 func (s *AuxInvoiceManager) fetchChannelAssetData(ctx context.Context,
 	chanID lnwire.ShortChannelID,
 	peer route.Vertex) (*rfqmsg.JsonAssetChannel, error) {
-
-	// Do we have the information cached? Great, no lookup necessary. We
-	// don't need to worry about cache invalidation because the funding
-	// information remains constant for the lifetime of the channel.
-	cachedAssetData, ok := s.channelFundingCache.Load(chanID.ToUint64())
-	if ok {
-		return &cachedAssetData, nil
-	}
 
 	// We also need to validate that the HTLC is actually the correct asset
 	// and arrived through the correct asset channel.
@@ -655,10 +756,6 @@ func (s *AuxInvoiceManager) fetchChannelAssetData(ctx context.Context,
 		return nil, fmt.Errorf("unable to unmarshal channel asset "+
 			"data: %w", err)
 	}
-
-	// We cache the asset data for the channel so we don't have to look it
-	// up again.
-	s.channelFundingCache.Store(chanID.ToUint64(), assetData)
 
 	return &assetData, nil
 }

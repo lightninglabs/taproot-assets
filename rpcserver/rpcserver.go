@@ -12082,6 +12082,28 @@ func (r *RPCServer) acquirePaymentQuotes(ctx context.Context,
 	}
 }
 
+// newPaymentSellOrderRequest creates a sell order used to acquire one of the
+// quotes that can jointly fund an asset payment.
+func newPaymentSellOrderRequest(rpcSpecifier *rfqrpc.AssetSpecifier,
+	paymentMaxAmt lnwire.MilliSatoshi, expiry time.Time,
+	peerPubKey *route.Vertex,
+	metadata string) *rfqrpc.AddAssetSellOrderRequest {
+
+	return &rfqrpc.AddAssetSellOrderRequest{
+		AssetSpecifier: rpcSpecifier,
+		PaymentMaxAmt:  uint64(paymentMaxAmt),
+		// A payment can combine quotes backed by different asset
+		// channels, so each peer must be allowed to offer a partial
+		// fill. Explicit zero avoids the RPC default of requiring
+		// the full maximum amount from every peer.
+		PaymentMinAmt:       fn.Ptr[uint64](0),
+		Expiry:              uint64(expiry.Unix()),
+		PeerPubKey:          peerPubKey[:],
+		TimeoutSeconds:      uint32(rfq.DefaultTimeout.Seconds()),
+		PriceOracleMetadata: metadata,
+	}
+}
+
 // acquireSellQuote performs an RFQ negotiation with the target peer and quote
 // parameters and returns the quote if the negotiation was successful.
 func (r *RPCServer) acquireSellQuote(ctx context.Context,
@@ -12089,18 +12111,10 @@ func (r *RPCServer) acquireSellQuote(ctx context.Context,
 	expiry time.Time, peerPubKey *route.Vertex,
 	metadata string) (*rfqrpc.PeerAcceptedSellQuote, error) {
 
-	resp, err := r.AddAssetSellOrder(
-		ctx, &rfqrpc.AddAssetSellOrderRequest{
-			AssetSpecifier: rpcSpecifier,
-			PaymentMaxAmt:  uint64(paymentMaxAmt),
-			Expiry:         uint64(expiry.Unix()),
-			PeerPubKey:     peerPubKey[:],
-			TimeoutSeconds: uint32(
-				rfq.DefaultTimeout.Seconds(),
-			),
-			PriceOracleMetadata: metadata,
-		},
+	request := newPaymentSellOrderRequest(
+		rpcSpecifier, paymentMaxAmt, expiry, peerPubKey, metadata,
 	)
+	resp, err := r.AddAssetSellOrder(ctx, request)
 	if err != nil {
 		return nil, fmt.Errorf("error adding sell order: %w", err)
 	}

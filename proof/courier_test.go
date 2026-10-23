@@ -136,16 +136,20 @@ func TestCheckUniverseRpcCourierConnection(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// We use a short timeout here, since we don't want to
-			// wait for the full default timeout of the funding
-			// controller
+			// Allow a real connection time to complete under the
+			// race detector. Only the unreachable-server case
+			// needs a short deadline to keep the test fast.
+			connectTimeout := testTimeout
+			if tt.expectErr != "" {
+				connectTimeout = test.StartupWaitTime
+			}
 			ctxt, cancel := context.WithTimeout(
-				context.Background(), test.StartupWaitTime*2,
+				context.Background(), connectTimeout*2,
 			)
 			defer cancel()
 
 			err := CheckUniverseRpcCourierConnection(
-				ctxt, test.StartupWaitTime, tt.courierAddr,
+				ctxt, connectTimeout, tt.courierAddr,
 			)
 			if tt.expectErr != "" {
 				require.ErrorContains(t, err, tt.expectErr)
@@ -163,12 +167,13 @@ func TestCheckUniverseRpcCourierConnection(t *testing.T) {
 type recordingCourierServer struct {
 	MockUniverseServer
 
-	mu               sync.Mutex
-	calls            []string
-	proofs           [][]byte
-	leaves           map[string][]byte
-	queries          []string
-	missingProofCode codes.Code
+	mu                sync.Mutex
+	calls             []string
+	proofs            [][]byte
+	leaves            map[string][]byte
+	queries           []string
+	missingProofCode  codes.Code
+	groupInsertErrors []error
 }
 
 // rpcUniverseKey returns the mock storage key for a Universe leaf.
@@ -208,6 +213,13 @@ func (s *recordingCourierServer) InsertProof(_ context.Context,
 	}
 
 	key := rpcUniverseKey(assetProof.Key)
+	if strings.HasPrefix(key, "group:") && len(s.groupInsertErrors) > 0 {
+		err := s.groupInsertErrors[0]
+		s.groupInsertErrors = s.groupInsertErrors[1:]
+		if err != nil {
+			return nil, err
+		}
+	}
 	storedProof, ok := s.leaves[key]
 	if !ok {
 		storedProof = bytes.Clone(assetProof.AssetLeaf.Proof)
@@ -623,4 +635,145 @@ func TestFetchProofProvenanceNoPrimaryInput(t *testing.T) {
 		OutPoint:  &outPoint,
 	}, fetchSingleProof)
 	require.ErrorIs(t, err, ErrProofFileInvalid)
+}
+
+// TestUniverseRpcCourierGroupPublishRetry verifies that transient group
+// publication failures delay notification and that exhausted retries fail
+// delivery, while semantic rejections remain compatible with collisions.
+func TestUniverseRpcCourierGroupPublishRetry(t *testing.T) {
+	for _, tc := range []struct {
+		code            codes.Code
+		legacyRateLimit bool
+	}{
+		{code: codes.Unavailable},
+		{code: codes.DeadlineExceeded},
+		{code: codes.ResourceExhausted},
+		{code: codes.Canceled},
+		{code: codes.Unknown, legacyRateLimit: true},
+		{code: codes.Unknown},
+		{code: codes.AlreadyExists},
+		{code: codes.InvalidArgument},
+	} {
+		code := tc.code
+		for _, exhausted := range []bool{false, true} {
+			name := fmt.Sprintf("%s/exhausted=%v", code, exhausted)
+			t.Run(name, func(t *testing.T) {
+				message := "semantic rejection"
+				if tc.legacyRateLimit {
+					message = "rate limiter: rate: " +
+						"Wait(n=1) would exceed " +
+						"context deadline"
+				}
+				insertErr := status.Error(code, message)
+				errors := []error{insertErr}
+				if exhausted {
+					errors = append(errors, insertErr)
+				}
+				server := &recordingCourierServer{
+					groupInsertErrors: errors,
+				}
+				grpcServer := grpc.NewServer(
+					grpc.Creds(insecure.NewCredentials()),
+				)
+				universerpc.RegisterUniverseServer(
+					grpcServer, server,
+				)
+				mboxrpc.RegisterMailboxServer(
+					grpcServer, server,
+				)
+				addr, cleanup, err := test.StartMockGRPCServer(
+					t, grpcServer, true,
+				)
+				require.NoError(t, err)
+				t.Cleanup(cleanup)
+				ctx, cancel := context.WithTimeout(
+					context.Background(), testTimeout,
+				)
+				defer cancel()
+				url := MockCourierURL(
+					t, AuthMailboxUniRpcCourierType, addr,
+				)
+				backoff := time.Millisecond
+				cfg := &UniverseRpcCourierCfg{
+					BackoffCfg: &BackoffCfg{
+						SkipInitDelay:  true,
+						NumTries:       2,
+						InitialBackoff: backoff,
+						MaxBackoff:     backoff,
+					},
+					ServiceRequestTimeout: testTimeout,
+				}
+				courier, err := NewUniverseRpcCourier(
+					ctx, cfg, noopTransferLog{}, nil, url,
+					false,
+				)
+				require.NoError(t, err)
+				t.Cleanup(func() {
+					require.NoError(t, courier.Close())
+				})
+				genesis := asset.RandGenesis(t, asset.Normal)
+				p := RandProof(
+					t, genesis, test.RandPubKey(t),
+					readTestData(t)[0], 0, 1,
+				)
+				p.Asset.GroupKey = &asset.GroupKey{
+					GroupPubKey: *test.RandPubKey(t),
+				}
+				file, err := NewFile(V0, p)
+				require.NoError(t, err)
+				var buf bytes.Buffer
+				require.NoError(t, file.Encode(&buf))
+				txProof := MockTxProof(t)
+				txProof.BlockHeight = 100
+				manifest := &SendManifest{
+					TxProof:    *txProof,
+					Receiver:   *test.RandPubKey(t),
+					CourierURL: *url,
+					Fragment: SendFragment{
+						Version:     SendFragmentV1,
+						BlockHeight: 100,
+					},
+				}
+				err = courier.DeliverProof(ctx,
+					Recipient{AssetID: genesis.ID()},
+					&AnnotatedProof{Blob: buf.Bytes()},
+					manifest,
+				)
+				transient := tc.legacyRateLimit ||
+					(code != codes.AlreadyExists &&
+						code != codes.InvalidArgument &&
+						code != codes.Unknown)
+				server.mu.Lock()
+				defer server.mu.Unlock()
+				groupNs := "group Universe courier namespace"
+				switch {
+				case transient && exhausted:
+					var backoffErr *BackoffExecError
+					require.ErrorAs(t, err, &backoffErr)
+					require.ErrorContains(t, err, groupNs)
+					require.Equal(t, []string{
+						"insert", "insert",
+						"insert", "insert",
+					}, server.calls)
+					require.Len(t, server.leaves, 1)
+				case transient:
+					require.NoError(t, err)
+					require.Equal(t, []string{
+						"insert", "insert",
+						"insert", "insert", "send",
+					}, server.calls)
+					// Both namespaces are populated before
+					// notifying an older receiver that only
+					// uses the group namespace.
+					require.Len(t, server.leaves, 2)
+				default:
+					require.NoError(t, err)
+					require.Equal(t, []string{
+						"insert", "insert", "send",
+					}, server.calls)
+					require.Len(t, server.leaves, 1)
+				}
+			})
+		}
+	}
 }

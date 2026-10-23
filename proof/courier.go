@@ -8,6 +8,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -1484,6 +1485,26 @@ func proofResponseBlob(resp *unirpc.AssetProofResponse) (
 	return assetLeaf.Proof, transitionProof.Asset.ID(), nil
 }
 
+// isRetryableGroupInsertErr reports whether a group Universe insert error
+// should be retried. Older servers return rate limiter errors as Unknown
+// rather than ResourceExhausted.
+func isRetryableGroupInsertErr(err error) bool {
+	s := status.Convert(err)
+
+	switch s.Code() {
+	case codes.Unknown:
+		return strings.HasPrefix(s.Message(), "rate limiter: ")
+
+	case codes.Unavailable, codes.DeadlineExceeded,
+		codes.ResourceExhausted, codes.Canceled:
+
+		return true
+
+	default:
+		return false
+	}
+}
+
 // DeliverProof attempts to delivery a proof file to the receiver.
 func (c *UniverseRpcCourier) DeliverProof(ctx context.Context,
 	recipient Recipient, annotatedProof *AnnotatedProof,
@@ -1683,6 +1704,16 @@ func (c *UniverseRpcCourier) DeliverProof(ctx context.Context,
 			// but a collision must not fail delivery.
 			if groupUniverseKey != nil {
 				groupErr := insertProof(groupUniverseKey)
+				if groupErr != nil &&
+					isRetryableGroupInsertErr(groupErr) {
+
+					return fmt.Errorf(
+						"error inserting proof "+
+							"into group Universe "+
+							"courier namespace: %w",
+						groupErr,
+					)
+				}
 				if groupErr != nil {
 					log.Warnf(
 						"Unable to publish "+

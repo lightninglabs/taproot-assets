@@ -2,14 +2,17 @@ package universe
 
 import (
 	"context"
+	"errors"
 	"math/rand"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/chaincfg/v2"
+	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -604,6 +607,242 @@ func TestUpsertProofLeafLogsOnlyNewLeaf(t *testing.T) {
 	}
 }
 
+type fallbackChainLookup struct {
+	err       error
+	calls     *atomic.Int32
+	proofFile *proof.File
+}
+
+func (l *fallbackChainLookup) TxBlockHeight(_ context.Context,
+	txID chainhash.Hash) (uint32, error) {
+
+	if l.proofFile != nil {
+		for i := l.proofFile.NumProofs(); i > 0; i-- {
+			p, err := l.proofFile.ProofAt(uint32(i - 1))
+			if err == nil && p.AnchorTx.TxHash() == txID &&
+				p.BlockHeight != 0 {
+
+				return p.BlockHeight, nil
+			}
+		}
+	}
+
+	l.calls.Add(1)
+	return 0, l.err
+}
+
+func (l *fallbackChainLookup) MeanBlockTimestamp(context.Context,
+	uint32) (time.Time, error) {
+
+	return time.Time{}, nil
+}
+
+func (l *fallbackChainLookup) CurrentHeight(context.Context) (uint32, error) {
+	return 0, nil
+}
+
+func (l *fallbackChainLookup) GenProofChainLookup(p *proof.Proof) (
+	asset.ChainLookup, error) {
+
+	f, err := proof.NewFile(proof.V0, *p)
+	if err != nil {
+		return nil, err
+	}
+
+	return l.GenFileChainLookup(f), nil
+}
+
+func (l *fallbackChainLookup) GenFileChainLookup(
+	f *proof.File) asset.ChainLookup {
+
+	return &fallbackChainLookup{
+		err:       l.err,
+		calls:     l.calls,
+		proofFile: f,
+	}
+}
+
+// TestBatchPreviousProofContext verifies that an uncommitted predecessor and
+// its height are selected from the correct Universe namespace.
+func TestBatchPreviousProofContext(t *testing.T) {
+	t.Parallel()
+
+	const prevBlockHeight = 950_239
+	amount := uint64(100)
+	prevProof, _ := proof.RandGenesisProofWithKey(
+		t, asset.Normal, &amount, nil, true, nil, nil, nil, nil,
+		asset.V0,
+	)
+	prevProof.BlockHeight = prevBlockHeight
+	prevRawProof, err := prevProof.Bytes()
+	require.NoError(t, err)
+
+	prevScriptKey := asset.NewScriptKey(prevProof.Asset.ScriptKey.PubKey)
+	prevLeafKey := BaseLeafKey{
+		OutPoint:  prevProof.OutPoint(),
+		ScriptKey: &prevScriptKey,
+	}
+	assetID := prevProof.Asset.ID()
+	prevItem := &Item{
+		ID: Identifier{
+			AssetID:   assetID,
+			ProofType: ProofTypeIssuance,
+		},
+		Key: prevLeafKey,
+		Leaf: &Leaf{
+			RawProof: prevRawProof,
+			Asset:    &prevProof.Asset,
+		},
+	}
+
+	// Include the same leaf key in another Universe to ensure batch context
+	// cannot cross asset namespaces.
+	distractorProof, _ := proof.RandGenesisProofWithKey(
+		t, asset.Normal, &amount, nil, true, nil, nil, nil, nil,
+		asset.V0,
+	)
+	distractorRawProof, err := distractorProof.Bytes()
+	require.NoError(t, err)
+	distractorItem := &Item{
+		ID: Identifier{
+			AssetID:   distractorProof.Asset.ID(),
+			ProofType: ProofTypeIssuance,
+		},
+		Key: prevLeafKey,
+		Leaf: &Leaf{
+			RawProof: distractorRawProof,
+			Asset:    &distractorProof.Asset,
+		},
+	}
+
+	newAsset := prevProof.Asset.Copy()
+	newAsset.PrevWitnesses = []asset.Witness{{
+		PrevID: &asset.PrevID{
+			OutPoint: prevProof.OutPoint(),
+			ID:       assetID,
+			ScriptKey: asset.ToSerialized(
+				prevProof.Asset.ScriptKey.PubKey,
+			),
+		},
+	}}
+	transferID := Identifier{
+		AssetID:   assetID,
+		ProofType: ProofTypeTransfer,
+	}
+
+	archive := &Archive{}
+	prevSnapshot, err := archive.getPrevAssetSnapshot(
+		context.Background(), transferID, newAsset,
+		extractBatchDeps([]*Item{prevItem, distractorItem}),
+	)
+	require.NoError(t, err)
+	require.Equal(t, assetID, prevSnapshot.Asset.ID())
+	require.Equal(
+		t, prevProof.AnchorTx.TxHash(),
+		prevSnapshot.OutPoint.Hash,
+	)
+	require.EqualValues(t, prevBlockHeight, prevSnapshot.AnchorBlockHeight)
+}
+
+// TestUpsertProofLeafBatchRelativeLockTime verifies that two uncommitted
+// transfer proofs in one batch can validate a relative lock without a local
+// asset-store height for the first transfer.
+func TestUpsertProofLeafBatchRelativeLockTime(t *testing.T) {
+	t.Parallel()
+
+	const relativeLockTime = 144
+	nextHeight := uint32(1_000)
+	var prevBlockHash chainhash.Hash
+	anchor := func(tx *wire.MsgTx) (*wire.MsgBlock, uint32) {
+		txs := []*wire.MsgTx{tx}
+		merkleTree := blockchain.BuildMerkleTreeStore(
+			[]*btcutil.Tx{btcutil.NewTx(tx)}, false,
+		)
+		merkleRoot := merkleTree[len(merkleTree)-1]
+		header := wire.NewBlockHeader(
+			0, &prevBlockHash, merkleRoot, nextHeight, 0,
+		)
+		block := &wire.MsgBlock{
+			Header:       *header,
+			Transactions: txs,
+		}
+
+		height := nextHeight
+		nextHeight += 200
+		prevBlockHash = header.BlockHash()
+		return block, height
+	}
+
+	genesisProof, issuerPrivKey := proof.RandAnchoredGenesisProof(
+		t, anchor,
+	)
+	proofFile := proof.NewEmptyFile(proof.V0)
+	require.NoError(t, proofFile.AppendProof(genesisProof))
+
+	_, holderPrivKey, _ := proof.AppendRandTransfer(
+		t, proofFile, issuerPrivKey, anchor,
+	)
+	proof.AppendRandTransferWithRelativeLockTime(
+		t, proofFile, holderPrivKey, relativeLockTime, anchor,
+	)
+
+	itemAt := func(index uint32, proofType ProofType) *Item {
+		assetProof, err := proofFile.ProofAt(index)
+		require.NoError(t, err)
+		rawProof, err := assetProof.Bytes()
+		require.NoError(t, err)
+
+		scriptKey := asset.NewScriptKey(
+			assetProof.Asset.ScriptKey.PubKey,
+		)
+		groupKey := &assetProof.Asset.GroupKey.GroupPubKey
+		return &Item{
+			ID: Identifier{
+				GroupKey:  groupKey,
+				ProofType: proofType,
+			},
+			Key: BaseLeafKey{
+				OutPoint:  assetProof.OutPoint(),
+				ScriptKey: &scriptKey,
+			},
+			Leaf: &Leaf{
+				GenesisWithGroup: GenesisWithGroup{
+					Genesis:  assetProof.Asset.Genesis,
+					GroupKey: assetProof.Asset.GroupKey,
+				},
+				RawProof: rawProof,
+				Asset:    &assetProof.Asset,
+				Amt:      assetProof.Asset.Amount,
+			},
+		}
+	}
+
+	items := []*Item{
+		itemAt(0, ProofTypeIssuance),
+		itemAt(1, ProofTypeTransfer),
+		itemAt(2, ProofTypeTransfer),
+	}
+	fallback := &fallbackChainLookup{
+		err:   errors.New("sql: no rows in result set"),
+		calls: &atomic.Int32{},
+	}
+	archive := NewArchive(ArchiveConfig{
+		NewBaseTree: func(Identifier) StorageBackend {
+			return &mockStorageBackend{}
+		},
+		Multiverse:           &mockMultiverse{},
+		UniverseStats:        &mockTelemetry{},
+		HeaderVerifier:       proof.MockHeaderVerifier,
+		MerkleVerifier:       proof.MockMerkleVerifier,
+		GroupVerifier:        proof.MockGroupVerifier,
+		ChainLookupGenerator: fallback,
+	})
+
+	err := archive.UpsertProofLeafBatch(context.Background(), items)
+	require.NoError(t, err)
+	require.Zero(t, fallback.calls.Load())
+}
+
 // TestUpsertProofLeafOutPointMismatch tests that a proof is rejected under a
 // leaf key whose outpoint differs from the anchor outpoint of the proof, on
 // both the single-leaf and batch paths.
@@ -724,4 +963,93 @@ func TestUpsertProofLeafRejectsGroupedInAssetIDUniverse(t *testing.T) {
 		require.ErrorContains(t, err, "must be inserted under its "+
 			"group key")
 	})
+}
+
+// storedPredecessorMultiverse returns the same immutable cached leaf to every
+// caller, as the real multiverse proof cache does.
+type storedPredecessorMultiverse struct {
+	mockMultiverse
+	stored *Proof
+}
+
+func (m *storedPredecessorMultiverse) FetchProofLeaf(_ context.Context,
+	id Identifier, key LeafKey) ([]*Proof, error) {
+
+	if id.ProofType != ProofTypeIssuance ||
+		key.UniverseKey() != m.stored.LeafKey.UniverseKey() {
+
+		return nil, ErrNoUniverseProofFound
+	}
+	return []*Proof{m.stored}, nil
+}
+
+// TestStoredPreviousSnapshotConcurrent ensures shared cache leaves are neither
+// decoded nor mutated when parallel children request their predecessor.
+func TestStoredPreviousSnapshotConcurrent(t *testing.T) {
+	t.Parallel()
+
+	item := mintTestAsset(t, false)
+	stored := &Proof{Leaf: item.Leaf, LeafKey: item.Key}
+	archive := NewArchive(ArchiveConfig{
+		Multiverse: &storedPredecessorMultiverse{stored: stored},
+	})
+	newAsset := item.Leaf.Asset.Copy()
+	newAsset.PrevWitnesses = []asset.Witness{{
+		PrevID: &asset.PrevID{
+			OutPoint: item.Key.LeafOutPoint(),
+			ID:       item.Leaf.Asset.ID(),
+			ScriptKey: asset.ToSerialized(
+				item.Leaf.Asset.ScriptKey.PubKey,
+			),
+		},
+	}}
+	id := item.ID
+	id.ProofType = ProofTypeTransfer
+	workers := make([]int, 32)
+	err := fn.ParSlice(context.Background(), workers,
+		func(ctx context.Context, _ int) error {
+			snapshot, err := archive.getPrevAssetSnapshot(
+				ctx, id, newAsset, nil,
+			)
+			if err != nil {
+				return err
+			}
+			if snapshot.Asset != item.Leaf.Asset ||
+				snapshot.OutPoint != item.Key.LeafOutPoint() ||
+				snapshot.AnchorBlockHeight != 0 {
+
+				return errors.New("unexpected stored snapshot")
+			}
+			return nil
+		},
+	)
+	require.NoError(t, err)
+	require.Nil(t, item.Leaf.decodedProof)
+}
+
+// TestPredecessorChainLookup tests predecessor lookup and fallback delegation.
+func TestPredecessorChainLookup(t *testing.T) {
+	t.Parallel()
+
+	fallback := &fallbackChainLookup{
+		err:   errors.New("missing transaction"),
+		calls: &atomic.Int32{},
+	}
+	lookup := &predecessorChainLookup{
+		ChainLookup: fallback,
+		txID:        chainhash.Hash{1},
+		height:      123,
+	}
+	ctx := context.Background()
+	height, err := lookup.TxBlockHeight(ctx, lookup.txID)
+	require.NoError(t, err)
+	require.EqualValues(t, 123, height)
+	require.Zero(t, fallback.calls.Load())
+	_, err = lookup.TxBlockHeight(ctx, chainhash.Hash{2})
+	require.ErrorIs(t, err, fallback.err)
+	require.EqualValues(t, 1, fallback.calls.Load())
+	_, err = lookup.MeanBlockTimestamp(ctx, 123)
+	require.NoError(t, err)
+	_, err = lookup.CurrentHeight(ctx)
+	require.NoError(t, err)
 }

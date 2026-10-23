@@ -8,6 +8,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/neutrino/cache/lru"
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -330,10 +331,11 @@ func (a *Archive) UpsertProofLeaf(ctx context.Context, id Identifier,
 	//
 	// TODO(roasbeef): add option to skip proof verification?
 
-	// Before we can validate a non-issuance proof we need to fetch the
-	// previous asset snapshot (which is the proof verification result for
-	// the previous/parent proof in the proof file).
-	prevAssetSnapshot, err := a.getPrevAssetSnapshot(ctx, id, newAsset, nil)
+	// Before we can validate a non-issuance proof, we need to fetch the
+	// previous asset snapshot.
+	prevAssetSnapshot, err := a.getPrevAssetSnapshot(
+		ctx, id, newAsset, nil,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to fetch previous asset "+
 			"snapshot: %w", err)
@@ -405,10 +407,21 @@ func (a *Archive) verifyIssuanceProof(ctx context.Context, id Identifier,
 		IgnoreChecker:  a.cfg.IgnoreChecker,
 	}
 
+	// Keep the current proof's lookup semantics, adding only the primary
+	// input's known confirmation height from the uncommitted batch.
 	lookup, err := a.cfg.ChainLookupGenerator.GenProofChainLookup(newProof)
 	if err != nil {
-		return nil, fmt.Errorf("unable to generate chain lookup: %w",
-			err)
+		return nil, fmt.Errorf("unable to generate chain "+
+			"lookup: %w", err)
+	}
+	if prevAssetSnapshot != nil &&
+		prevAssetSnapshot.AnchorBlockHeight != 0 {
+
+		lookup = &predecessorChainLookup{
+			ChainLookup: lookup,
+			txID:        prevAssetSnapshot.OutPoint.Hash,
+			height:      prevAssetSnapshot.AnchorBlockHeight,
+		}
 	}
 
 	assetSnapshot, err := newProof.Verify(
@@ -470,13 +483,41 @@ func (a *Archive) verifyIssuanceProof(ctx context.Context, id Identifier,
 	return assetSnapshot, nil
 }
 
-// extractBatchDeps constructs map from leaf key to asset in a batch. This is
-// useful for when we're validating an asset state transition in a batch, and
-// the input asset it depends on is created in the batch.
-func extractBatchDeps(batch []*Item) map[UniverseKey]*asset.Asset {
-	batchDeps := make(map[UniverseKey]*asset.Asset)
+// predecessorChainLookup supplies the height of an uncommitted primary input.
+// All other chain queries retain the generated lookup's behavior.
+type predecessorChainLookup struct {
+	asset.ChainLookup
+	txID   chainhash.Hash
+	height uint32
+}
+
+// TxBlockHeight returns the predecessor height or delegates to the lookup.
+func (l *predecessorChainLookup) TxBlockHeight(ctx context.Context,
+	txID chainhash.Hash) (uint32, error) {
+
+	if txID == l.txID {
+		return l.height, nil
+	}
+	return l.ChainLookup.TxBlockHeight(ctx, txID)
+}
+
+// batchProofKey identifies a proof leaf for a specific asset.
+type batchProofKey struct {
+	assetID asset.ID
+	leaf    UniverseKey
+}
+
+// extractBatchDeps indexes every proof leaf in a batch by its asset and leaf
+// keys. Retaining the leaf makes both the previous asset and its anchor height
+// available while the batch is still uncommitted.
+func extractBatchDeps(batch []*Item) map[batchProofKey]*Leaf {
+	batchDeps := make(map[batchProofKey]*Leaf, len(batch))
 	for _, item := range batch {
-		batchDeps[item.Key.UniverseKey()] = item.Leaf.Asset
+		key := batchProofKey{
+			assetID: item.Leaf.Asset.ID(),
+			leaf:    item.Key.UniverseKey(),
+		}
+		batchDeps[key] = item.Leaf
 	}
 
 	return batchDeps
@@ -546,13 +587,15 @@ func (a *Archive) UpsertProofLeafBatch(ctx context.Context,
 			ctx, batchItems, func(ctx context.Context,
 				i *Item) error {
 
-				prevAssets, err := a.getPrevAssetSnapshot(
-					ctx, i.ID, i.Leaf.Asset, batchDeps,
-				)
+				prevAsset, err :=
+					a.getPrevAssetSnapshot(
+						ctx, i.ID, i.Leaf.Asset,
+						batchDeps,
+					)
 				if err != nil {
-					return fmt.Errorf("unable to "+
-						"fetch previous asset "+
-						"snapshot: %w", err)
+					return fmt.Errorf(
+						"fetch previous asset: %w", err,
+					)
 				}
 
 				// The decode was memoized when the items were
@@ -565,8 +608,7 @@ func (a *Archive) UpsertProofLeafBatch(ctx context.Context,
 				}
 
 				assetSnapshot, err := a.verifyIssuanceProof(
-					ctx, i.ID, i.Key, assetProof,
-					prevAssets,
+					ctx, i.ID, i.Key, assetProof, prevAsset,
 				)
 				if err != nil {
 					return err
@@ -681,11 +723,11 @@ func NewUniverseKeyFromBytes(b []byte) (UniverseKey, error) {
 	return key, nil
 }
 
-// getPrevAssetSnapshot returns the previous asset snapshot for the passed
-// proof. If the proof is a genesis proof, then nil is returned.
+// getPrevAssetSnapshot returns the previous asset snapshot, including its
+// height when it is in the uncommitted batch. Genesis proofs return nil.
 func (a *Archive) getPrevAssetSnapshot(ctx context.Context,
 	uniID Identifier, newAsset *asset.Asset,
-	batchAssets map[UniverseKey]*asset.Asset) (*proof.AssetSnapshot, error) {
+	batchProofs map[batchProofKey]*Leaf) (*proof.AssetSnapshot, error) {
 
 	// If this is a genesis proof, then there is no previous asset (and
 	// therefore no previous asset snapshot).
@@ -693,7 +735,7 @@ func (a *Archive) getPrevAssetSnapshot(ctx context.Context,
 		return nil, nil
 	}
 
-	// Query for proof associated with the previous asset.
+	// Query for the proof associated with the previous asset.
 	prevID, err := newAsset.PrimaryPrevID()
 	if err != nil {
 		return nil, err
@@ -703,7 +745,7 @@ func (a *Archive) getPrevAssetSnapshot(ctx context.Context,
 		return nil, fmt.Errorf("no previous asset ID found")
 	}
 
-	// Parse script key for previous asset.
+	// Parse the script key for the previous asset.
 	prevScriptKeyPubKey, err := btcec.ParsePubKey(prevID.ScriptKey[:])
 	if err != nil {
 		return nil, fmt.Errorf("unable to parse previous "+
@@ -716,33 +758,43 @@ func (a *Archive) getPrevAssetSnapshot(ctx context.Context,
 		ScriptKey: &prevScriptKey,
 	}
 
-	// First, we'll check if the prev asset that we need is already amongst
-	// the batch we have, if so then we won't have it in our universe tree
-	// yet, so we'll return it directly.
-	if batchAssets != nil {
-		newScriptKey := newAsset.ScriptKey.PubKey.SerializeCompressed()
-
-		inputAsset, ok := batchAssets[prevLeafKey.UniverseKey()]
+	// First, check whether the previous proof is in the uncommitted batch.
+	if batchProofs != nil {
+		batchKey := batchProofKey{
+			assetID: prevID.ID,
+			leaf:    prevLeafKey.UniverseKey(),
+		}
+		inputLeaf, ok := batchProofs[batchKey]
 		if ok {
+
+			// Batch leaves were decoded before parallel validation.
+			inputProof, err := inputLeaf.DecodedProof()
+			if err != nil {
+				return nil, fmt.Errorf("unable to decode "+
+					"previous proof: %w", err)
+			}
+
+			newScriptKey :=
+				newAsset.ScriptKey.PubKey.SerializeCompressed()
 			log.Debugf("script_key=%x spends item in batch, "+
 				"universe_key=%x using batch input",
 				newScriptKey, prevLeafKey.UniverseKey())
 
 			return &proof.AssetSnapshot{
-				Asset:    inputAsset,
-				OutPoint: prevID.OutPoint,
+				Asset:             inputLeaf.Asset,
+				OutPoint:          prevID.OutPoint,
+				AnchorBlockHeight: inputProof.BlockHeight,
 			}, nil
 		}
 	}
 
-	// If we can't find the previous asset in the batch, then we'll query
-	// our local universe.
+	// If the previous proof isn't in the batch, query the local Universe.
 	prevProofs, err := a.cfg.Multiverse.FetchProofLeaf(
 		ctx, uniID, prevLeafKey,
 	)
 
-	// If we've failed in finding the previous proof in the transfer
-	// universe, we will try to find it in the issuance universe.
+	// If the transfer Universe doesn't contain the previous proof, try the
+	// issuance Universe.
 	if uniID.ProofType == ProofTypeTransfer &&
 		errors.Is(err, ErrNoUniverseProofFound) {
 
@@ -757,17 +809,22 @@ func (a *Archive) getPrevAssetSnapshot(ctx context.Context,
 			spew.Sdump(uniID), spew.Sdump(prevLeafKey),
 			newAsset.ScriptKey.PubKey.SerializeCompressed())
 	}
+	if len(prevProofs) == 0 {
+		return nil, fmt.Errorf("no previous proof returned")
+	}
 
-	prevAsset := prevProofs[0].Leaf.Asset
+	prevLeaf := prevProofs[0].Leaf
+	if prevLeaf.Asset.ID() != prevID.ID {
+		return nil, fmt.Errorf("previous asset ID mismatch: "+
+			"expected %v, got %v", prevID.ID, prevLeaf.Asset.ID())
+	}
 
-	// TODO(roasbeef): need more than one snapshot, for inputs
-
-	// Construct minimal asset snapshot for previous asset.
-	// This is a minimal the proof verification result for the
-	// previous (input) asset. We know that it was already verified
-	// as it was present in the multiverse/universe archive.
+	// Construct the minimal previous asset snapshot. The proof was already
+	// verified when it entered the local Universe. Its anchor height is in
+	// the asset store, so the chain lookup can use its database fallback.
+	// Do not decode the stored leaf: it may be shared by the proof cache.
 	return &proof.AssetSnapshot{
-		Asset:    prevAsset,
+		Asset:    prevLeaf.Asset,
 		OutPoint: prevID.OutPoint,
 	}, nil
 }
