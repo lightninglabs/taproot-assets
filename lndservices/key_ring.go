@@ -43,6 +43,23 @@ func (l *LndRpcKeyRing) DeriveNextKey(ctx context.Context,
 	return *keyDesc, nil
 }
 
+// DeriveAndStoreKey derives the key at the given locator and records it in the
+// LND wallet, which advances the key family's derivation index past that key.
+func (l *LndRpcKeyRing) DeriveAndStoreKey(ctx context.Context,
+	keyLoc keychain.KeyLocator) (keychain.KeyDescriptor, error) {
+
+	log.Debugf("Deriving and storing key for fam_family=%v, index=%v",
+		keyLoc.Family, keyLoc.Index)
+
+	keyDesc, err := l.lnd.WalletKit.DeriveAndStoreKey(ctx, &keyLoc)
+	if err != nil {
+		return keychain.KeyDescriptor{}, fmt.Errorf("unable to derive "+
+			"and store key: %w", err)
+	}
+
+	return *keyDesc, nil
+}
+
 // DeriveNextTaprootAssetKey attempts to derive the *next* key within the
 // Taproot Asset key family.
 func (l *LndRpcKeyRing) DeriveNextTaprootAssetKey(

@@ -2,6 +2,8 @@ package backup
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"fmt"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -356,6 +358,73 @@ func TestWalletBackupRoundtripV3(t *testing.T) {
 		require.Empty(t, decoded.Assets[i].StrippedProofFileBlob)
 		require.Empty(t, decoded.Assets[i].RehydrationHintsBlob)
 	}
+}
+
+// TestWalletBackupKeyFamilyMarkers tests that the optional key-family marker
+// extension round trips for every backup mode and that legacy payloads without
+// the extension remain decodable.
+func TestWalletBackupKeyFamilyMarkers(t *testing.T) {
+	t.Parallel()
+
+	versions := []uint32{
+		BackupVersionOriginal,
+		BackupVersionStripped,
+		BackupVersionOptimistic,
+	}
+
+	for _, version := range versions {
+		version := version
+		t.Run(fmt.Sprintf("version_%d", version), func(t *testing.T) {
+			t.Parallel()
+
+			marker := newTestKeyDescriptorBackup(t)
+			original := &WalletBackup{
+				Version: version,
+				KeyFamilyMarkers: []*KeyDescriptorBackup{
+					marker,
+				},
+			}
+			if version >= BackupVersionOptimistic {
+				original.FederationURLs = []string{
+					"universe.example.com:10029",
+				}
+			}
+
+			encoded, err := EncodeWalletBackup(original)
+			require.NoError(t, err)
+
+			decoded, err := DecodeWalletBackup(encoded)
+			require.NoError(t, err)
+			require.Len(t, decoded.KeyFamilyMarkers, 1)
+			require.True(t, marker.PubKey.IsEqual(
+				decoded.KeyFamilyMarkers[0].PubKey,
+			))
+			require.Equal(t, marker.KeyLocator,
+				decoded.KeyFamilyMarkers[0].KeyLocator)
+		})
+	}
+
+	// Simulate a backup produced before the trailing extension was added by
+	// removing the empty marker section and recomputing its checksum.
+	legacy := &WalletBackup{
+		Version: BackupVersionOriginal,
+	}
+	encoded, err := EncodeWalletBackup(legacy)
+	require.NoError(t, err)
+
+	payload := encoded[:len(encoded)-checksumSize]
+	require.True(t, bytes.HasSuffix(
+		payload, append([]byte(keyMarkerMagicBytes), 0),
+	))
+	legacyPayload := payload[:len(payload)-len(keyMarkerMagicBytes)-1]
+	checksum := sha256.Sum256(legacyPayload)
+	legacyEncoded := append(
+		append([]byte{}, legacyPayload...), checksum[:]...,
+	)
+
+	decoded, err := DecodeWalletBackup(legacyEncoded)
+	require.NoError(t, err)
+	require.Empty(t, decoded.KeyFamilyMarkers)
 }
 
 // TestFederationURLEncoding tests edge cases for federation URL encoding.

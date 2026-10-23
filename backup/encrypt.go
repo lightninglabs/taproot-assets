@@ -82,6 +82,14 @@ func (k *keyRingAdapter) DeriveKey(
 	return *desc, nil
 }
 
+// DeriveAndStoreKey is part of the keychain.KeyRing interface. The encrypter
+// never calls it, so it is not supported.
+func (k *keyRingAdapter) DeriveAndStoreKey(
+	keychain.KeyLocator) (keychain.KeyDescriptor, error) {
+
+	return keychain.KeyDescriptor{}, errDeriveNextKeyUnsupported
+}
+
 // A compile time assertion to ensure keyRingAdapter meets the
 // keychain.KeyRing interface.
 var _ keychain.KeyRing = (*keyRingAdapter)(nil)
