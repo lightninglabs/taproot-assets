@@ -218,6 +218,10 @@
 
 ## RPC Additions
 
+- [`PublishAndLogTransfer`](https://github.com/lightninglabs/taproot-assets/pull/2348)
+  returns the recorded transfer when its anchor transaction is submitted again,
+  allowing callers to recover from lost responses and daemon restarts.
+
 * [PR#2266](https://github.com/lightninglabs/taproot-assets/pull/2266)
   adds a `ListAnchorings` RPC (with REST binding) exposing the
   anchoring watcher's registry: each anchoring's site, sensed and
