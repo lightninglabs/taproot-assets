@@ -687,6 +687,7 @@ func main() {
 
 	creds := credentials.NewTLS(&tls.Config{
 		Certificates: []tls.Certificate{tlsCert},
+		MinVersion:   tls.VersionTLS12,
 	})
 	backendService := grpc.NewServer(
 		grpc.Creds(creds),

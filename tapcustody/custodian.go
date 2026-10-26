@@ -22,6 +22,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapnode"
 	"github.com/lightninglabs/taproot-assets/tapreorg"
+	"github.com/lightninglabs/taproot-assets/taptls"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -213,10 +214,9 @@ type Config struct {
 	// mailbox service.
 	MboxBackoffCfg *proof.BackoffCfg
 
-	// MboxInsecure indicates whether the auth mailbox service should be
-	// accessed over an insecure connection (without TLS). This is only used
-	// for testing.
-	MboxInsecure bool
+	// MboxTLS is the TLS policy for connections to the auth mailbox
+	// service.
+	MboxTLS taptls.Policy
 
 	// ProofRetrievalDelay is the time duration the custodian waits having
 	// identified an asset transfer on-chain and before retrieving the
@@ -334,8 +334,7 @@ func NewCustodian(cfg *Config) *Custodian {
 		mboxSubscriptions: mbox.NewMultiSubscription(
 			// nolint:lll
 			mbox.ClientConfig{
-				Insecure:           cfg.MboxInsecure,
-				SkipTlsVerify:      !cfg.MboxInsecure,
+				TLS:                cfg.MboxTLS,
 				Signer:             cfg.Signer,
 				MinBackoff:         mboxBackoffCfg.InitialBackoff,
 				MaxBackoff:         mboxBackoffCfg.MaxBackoff,

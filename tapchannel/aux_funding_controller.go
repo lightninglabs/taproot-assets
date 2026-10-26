@@ -33,6 +33,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapnode"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/tapsend"
+	"github.com/lightninglabs/taproot-assets/taptls"
 	"github.com/lightninglabs/taproot-assets/vm"
 	"github.com/lightningnetwork/lnd/channeldb"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
@@ -304,6 +305,10 @@ type FundingControllerCfg struct {
 	// DefaultCourierAddr is the default address the funding controller uses
 	// to deliver the funding output proofs to the channel peer.
 	DefaultCourierAddr *url.URL
+
+	// UniverseTLS is the TLS policy for connections to the default proof
+	// courier.
+	UniverseTLS taptls.Policy
 
 	// ProofFetcher is used to fetch the complete provenance proof files for
 	// channel funding inputs before an inbound channel is activated.
@@ -3404,7 +3409,7 @@ func (f *FundingController) validateLocalProofCourier(
 	}
 
 	return proof.CheckUniverseRpcCourierConnection(
-		ctx, proofCourierCheckTimeout, courierURL,
+		ctx, proofCourierCheckTimeout, f.cfg.UniverseTLS, courierURL,
 	)
 }
 

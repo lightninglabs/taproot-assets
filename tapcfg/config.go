@@ -30,6 +30,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/rfq"
 	"github.com/lightninglabs/taproot-assets/rpcserver"
 	"github.com/lightninglabs/taproot-assets/tapdb"
+	"github.com/lightninglabs/taproot-assets/taptls"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/cert"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -289,8 +290,8 @@ type RpcConfig struct {
 	RestCORS []string `long:"restcors" description:"Add an ip:port/hostname to allow cross origin access from. To allow all origins, set as \"*\"."`
 
 	LetsEncryptDir    string `long:"letsencryptdir" description:"The directory to store Let's Encrypt certificates within"`
-	LetsEncryptListen string `long:"letsencryptlisten" description:"The IP:port on which lnd will listen for Let's Encrypt challenges. Let's Encrypt will always try to contact on port 80. Often non-root processes are not allowed to bind to ports lower than 1024. This configuration option allows a different port to be used, but must be used in combination with port forwarding from port 80. This configuration can also be used to specify another IP address to listen on, for example an IPv6 address."`
-	LetsEncryptDomain string `long:"letsencryptdomain" description:"Request a Let's Encrypt certificate for this domain. Note that the certificate is only requested and stored when the first rpc connection comes in."`
+	LetsEncryptListen string `long:"letsencryptlisten" description:"The IP:port on which tapd will listen for Let's Encrypt challenges. Let's Encrypt will always try to contact on port 80. Often non-root processes are not allowed to bind to ports lower than 1024. This configuration option allows a different port to be used, but must be used in combination with port forwarding from port 80. This configuration can also be used to specify another IP address to listen on, for example an IPv6 address. If the HTTP challenge on this address fails, tapd tries the TLS-ALPN challenge on port 443 of the same IP address."`
+	LetsEncryptDomain string `long:"letsencryptdomain" description:"Request a Let's Encrypt certificate for this domain. The certificate is obtained or renewed during startup, and startup fails if this fails."`
 	LetsEncryptEmail  string `long:"letsencryptemail" description:"The email address to use for Let's Encrypt account registration."`
 }
 
@@ -378,6 +379,20 @@ type UniverseConfig struct {
 	SupplyIgnoreCacheSize uint64 `long:"supply-ignore-cache-size" description:"The maximum number of entries in the supply ignore checker's negative lookup LRU cache."`
 
 	DisableSupplyVerifierChainWatch bool `long:"disable-supply-verifier-chain-watch" description:"Disable chain outpoint watching in supply verifier. If true, the supply verifier will not start state machines to watch on-chain outputs for spends. This option is intended for universe servers, where supply verification should only occur for commitments submitted by peers, not via on-chain spend detection."`
+
+	TLS UniverseTLSConfig `group:"tls" namespace:"tls"`
+}
+
+// UniverseTLSConfig houses the TLS options for connections to universe
+// servers, proof couriers and auth mailboxes.
+//
+// nolint: lll
+type UniverseTLSConfig struct {
+	Insecure bool `long:"insecure" description:"Disable certificate verification for connections to universe servers, proof couriers and auth mailboxes. Should only be used for testing."`
+
+	InsecureHosts []string `long:"insecurehost" description:"Disable certificate verification for connections to the given host. Can be specified multiple times."`
+
+	Pins map[string]string `long:"pin" key-value-delimiter:"=" description:"Trust only the PEM-encoded certificate at the given path for connections to the given host, in the form host=path. Can be specified multiple times."`
 }
 
 // AddrBookConfig is the config that houses any address Book related config
@@ -779,6 +794,14 @@ func ValidateConfig(cfg Config, cfgLogger btclog.Logger) (*Config, error) {
 			tapdDir, defaultTLSKeyFilename,
 		)
 		cfg.LogDir = filepath.Join(tapdDir, defaultLogDirname)
+
+		// Only the default Let's Encrypt directory moves into the tapd
+		// directory.
+		if cfg.RpcConf.LetsEncryptDir == defaultLetsEncryptDir {
+			cfg.RpcConf.LetsEncryptDir = filepath.Join(
+				tapdDir, defaultLetsEncryptDirname,
+			)
+		}
 	}
 
 	funcName := "ValidateConfig"
@@ -814,6 +837,9 @@ func ValidateConfig(cfg Config, cfgLogger btclog.Logger) (*Config, error) {
 	cfg.RpcConf.TLSKeyPath = CleanAndExpandPath(cfg.RpcConf.TLSKeyPath)
 	cfg.LogDir = CleanAndExpandPath(cfg.LogDir)
 	cfg.RpcConf.MacaroonPath = CleanAndExpandPath(cfg.RpcConf.MacaroonPath)
+	cfg.RpcConf.LetsEncryptDir = CleanAndExpandPath(
+		cfg.RpcConf.LetsEncryptDir,
+	)
 
 	if cfg.HashMailCourier != nil {
 		applyProofBackoffDefaults(cfg.HashMailCourier.BackoffCfg)
@@ -1187,6 +1213,57 @@ func getTLSConfig(cfg *Config,
 	return serverOpts, restDialOpts, restListen, nil
 }
 
+// letsEncryptConfig returns the certmagic config that obtains, renews and
+// serves the Let's Encrypt certificate. The config stores its data in the
+// Let's Encrypt directory. Its first issuer solves the HTTP challenge on the
+// Let's Encrypt listen address, and its second issuer, which certmagic tries
+// if the first fails, solves the TLS-ALPN challenge on port 443 of the listen
+// host. Certificate renewals of its cache use the same config.
+func letsEncryptConfig(rpcCfg *RpcConfig) (*certmagic.Config, error) {
+	host, portStr, err := net.SplitHostPort(rpcCfg.LetsEncryptListen)
+	if err != nil {
+		return nil, err
+	}
+	port, err := strconv.ParseUint(portStr, 10, 16)
+	if err != nil {
+		return nil, err
+	}
+
+	var certCfg *certmagic.Config
+	certCache := certmagic.NewCache(certmagic.CacheOptions{
+		GetConfigForCert: func(certmagic.Certificate) (*certmagic.Config,
+			error) {
+
+			return certCfg, nil
+		},
+	})
+
+	certCfg = certmagic.New(certCache, certmagic.Config{
+		Storage: &certmagic.FileStorage{
+			Path: rpcCfg.LetsEncryptDir,
+		},
+	})
+	template := certmagic.ACMEIssuer{
+		Agreed:      true,
+		Email:       rpcCfg.LetsEncryptEmail,
+		ListenHost:  host,
+		AltHTTPPort: int(port),
+	}
+
+	httpIssuer := template
+	httpIssuer.DisableTLSALPNChallenge = true
+
+	tlsALPNIssuer := template
+	tlsALPNIssuer.DisableHTTPChallenge = true
+
+	certCfg.Issuers = []certmagic.Issuer{
+		certmagic.NewACMEIssuer(certCfg, httpIssuer),
+		certmagic.NewACMEIssuer(certCfg, tlsALPNIssuer),
+	}
+
+	return certCfg, nil
+}
+
 // getCertificateConfig returns a useable TLS config and set of transport
 // credentials given a valid configuration..
 func getCertificateConfig(cfg *Config, cfgLogger btclog.Logger) (*tls.Config,
@@ -1197,44 +1274,16 @@ func getCertificateConfig(cfg *Config, cfgLogger btclog.Logger) (*tls.Config,
 	// generating the local tls cert files if needed.
 	if cfg.RpcConf.LetsEncryptDomain != "" {
 		domainNames := []string{cfg.RpcConf.LetsEncryptDomain}
-		certmagic.DefaultACME.Agreed = true
-		certmagic.DefaultACME.Email = cfg.RpcConf.LetsEncryptEmail
 
-		certCfg := certmagic.NewDefault()
-		host, portStr, err := net.SplitHostPort(
-			cfg.RpcConf.LetsEncryptListen,
-		)
+		cfgLogger.Infof("Setting up Let's Encrypt listener on %s "+
+			"with account %s", cfg.RpcConf.LetsEncryptListen,
+			cfg.RpcConf.LetsEncryptEmail)
+
+		certCfg, err := letsEncryptConfig(cfg.RpcConf)
 		if err != nil {
 			return nil, nil, err
 		}
 
-		cfgLogger.Infof("Setting up Let's Encrypt listener on "+
-			"%s:%s with account %s", host, portStr,
-			cfg.RpcConf.LetsEncryptEmail)
-
-		issuerCfg := certmagic.ACMEIssuer{
-			DisableTLSALPNChallenge: true,
-			ListenHost:              host,
-		}
-
-		if cfg.RpcConf.LetsEncryptListen != "" {
-			host, portStr, err = net.SplitHostPort(
-				cfg.RpcConf.LetsEncryptListen,
-			)
-			if err != nil {
-				return nil, nil, err
-			}
-			port, err := strconv.ParseUint(portStr, 10, 16)
-			if err != nil {
-				return nil, nil, err
-			}
-
-			issuerCfg.ListenHost = host
-			issuerCfg.AltHTTPPort = int(port)
-		}
-
-		issuer := certmagic.NewACMEIssuer(certCfg, issuerCfg)
-		certCfg.Issuers = append(certCfg.Issuers, issuer)
 		err = certCfg.ManageSync(nil, domainNames)
 		if err != nil {
 			return nil, nil, err
@@ -1243,7 +1292,13 @@ func getCertificateConfig(cfg *Config, cfgLogger btclog.Logger) (*tls.Config,
 		tlsCfg := certCfg.TLSConfig()
 		tlsCfg.NextProtos = append(tlsCfg.NextProtos, "h2")
 
-		restCreds := credentials.NewTLS(&tls.Config{})
+		// The REST proxy dials the RPC listener by IP address, with
+		// the domain as the TLS server name. The server name selects
+		// the certificate and is verified against it.
+		restCreds := credentials.NewTLS(&tls.Config{
+			ServerName: cfg.RpcConf.LetsEncryptDomain,
+			MinVersion: tls.VersionTLS12,
+		})
 
 		return tlsCfg, restCreds, nil
 	}
@@ -1360,10 +1415,10 @@ func getCertificateConfig(cfg *Config, cfgLogger btclog.Logger) (*tls.Config,
 	return tlsCfg, restCreds, nil
 }
 
-// getRfqTLSConfig returns a TLS configuration shared by all RFQ gRPC client
+// getRfqTLSPolicy returns the TLS policy shared by all RFQ gRPC client
 // connections (price oracle, portfolio pilot), given a valid RFQ CLI
 // configuration.
-func getRfqTLSConfig(rfqCfg rfq.CliConfig) (*rfq.TLSConfig, error) {
+func getRfqTLSPolicy(rfqCfg rfq.CliConfig) (taptls.Policy, error) {
 	var certBytes []byte
 
 	// Read any specified certificate data.
@@ -1371,19 +1426,67 @@ func getRfqTLSConfig(rfqCfg rfq.CliConfig) (*rfq.TLSConfig, error) {
 		var err error
 		certBytes, err = os.ReadFile(rfqCfg.TLS.CertPath)
 		if err != nil {
-			return nil, fmt.Errorf("unable to read RFQ TLS "+
-				"certificate: %w", err)
+			return taptls.Policy{}, fmt.Errorf("unable to read "+
+				"RFQ TLS certificate: %w", err)
 		}
 	}
 
-	return &rfq.TLSConfig{
-		Disabled:           rfqCfg.TLS.Disable,
-		InsecureSkipVerify: rfqCfg.TLS.Insecure,
-		// Note the subtle flip on the flag, since the user has
-		// configured whether to *not* trust the system CA's.
-		TrustSystemRootCAs: !rfqCfg.TLS.NoSystemCAs,
-		CustomCertificates: certBytes,
-	}, nil
+	switch {
+	case rfqCfg.TLS.Disable:
+		return taptls.New(taptls.Config{Mode: taptls.ModePlaintext})
+
+	case rfqCfg.TLS.Insecure:
+		return taptls.New(taptls.Config{Mode: taptls.ModeSkipVerify})
+	}
+
+	return taptls.New(taptls.Config{
+		NoSystemRoots: rfqCfg.TLS.NoSystemCAs,
+		Roots:         certBytes,
+	})
+}
+
+// getUniverseTLSPolicy returns the TLS policy for connections to universe
+// servers, proof couriers and auth mailboxes, given a universe TLS CLI
+// configuration.
+func getUniverseTLSPolicy(tlsCfg UniverseTLSConfig,
+	cfgLogger btclog.Logger) (taptls.Policy, error) {
+
+	policyCfg := taptls.Config{
+		SkipVerifyHosts: tlsCfg.InsecureHosts,
+	}
+	if tlsCfg.Insecure {
+		policyCfg.Mode = taptls.ModeSkipVerify
+	}
+
+	if len(tlsCfg.Pins) > 0 {
+		policyCfg.Pins = make(map[string][]byte, len(tlsCfg.Pins))
+	}
+	for host, certPath := range tlsCfg.Pins {
+		certBytes, err := os.ReadFile(CleanAndExpandPath(certPath))
+		if err != nil {
+			return taptls.Policy{}, fmt.Errorf("unable to read "+
+				"certificate pinned for host %v: %w", host, err)
+		}
+
+		policyCfg.Pins[host] = certBytes
+	}
+
+	policy, err := taptls.New(policyCfg)
+	if err != nil {
+		return taptls.Policy{}, fmt.Errorf("invalid universe TLS "+
+			"config: %w", err)
+	}
+
+	if tlsCfg.Insecure {
+		cfgLogger.Warnf("Certificate verification disabled for " +
+			"universe servers, proof couriers and auth mailboxes")
+	}
+	for _, host := range tlsCfg.InsecureHosts {
+		cfgLogger.Warnf("Certificate verification disabled for "+
+			"host %v", host)
+	}
+
+	return policy, nil
 }
 
 // getPriceOracleMacaroonOpt reads the price oracle macaroon file

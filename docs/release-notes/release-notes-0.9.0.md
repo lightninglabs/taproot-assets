@@ -168,6 +168,19 @@
   provenance it doesn't already hold only if it allows proof inserts, via
   `--universe.sync-all-assets` or `tapcli universe federation config`.
 
+* [PR#2355](https://github.com/lightninglabs/taproot-assets/pull/2355)
+  fixes Let's Encrypt mode (`--letsencryptdomain`). The REST proxy
+  connects to the RPC server with the Let's Encrypt domain as the TLS
+  server name. Certificates and the ACME account are stored in
+  `--letsencryptdir` (default: `letsencrypt` in the tapd directory),
+  and certificates are obtained and renewed with the HTTP challenge on
+  `--letsencryptlisten` or, if that fails, the TLS-ALPN challenge on
+  port 443 of the same IP address. Data that an earlier release stored in
+  certmagic's default directory (`$XDG_DATA_HOME/certmagic`, or
+  `~/.local/share/certmagic`) is not read; tapd obtains a new
+  certificate on its first start unless the contents of that directory
+  are moved into `--letsencryptdir`.
+
 # New Features
 
 ## Functional Enhancements
@@ -318,6 +331,15 @@
   Nodes configured above 144 will refuse to start; lower the value
   before upgrading.
 
+- [The new `--universe.tls.*`
+  flags](https://github.com/lightninglabs/taproot-assets/pull/2355)
+  configure TLS for connections to universe servers, proof couriers and
+  auth mailboxes. `--universe.tls.pin=host=path` trusts only the
+  certificate at `path` for `host`, `--universe.tls.insecurehost=host`
+  disables certificate verification for `host`, and
+  `--universe.tls.insecure` disables it for all hosts. Each of the first
+  two can be given multiple times.
+
 ## Code Health
 
 ## Breaking Changes
@@ -344,6 +366,19 @@
   with `LegacyConfig` and `NewLegacyWatcher`, the
   `tapconfig.Config.ReOrgWatcher` field, and `tapgarden.MockProofWatcher`
   are gone.
+
+* [Connections to universe servers, proof couriers and auth
+  mailboxes](https://github.com/lightninglabs/taproot-assets/pull/2355)
+  verify the server certificate against the system roots by default.
+  A server with a self-signed certificate requires a
+  `--universe.tls.pin` or `--universe.tls.insecurehost` entry on the
+  connecting node. `NewAddr` logs a warning when the host of the
+  proof courier has a pin or a verification exception on the node. In
+  the exported Go API, `rfq.TLSConfig` is replaced by `taptls.Policy`,
+  which the universe, courier, mailbox, price oracle and portfolio
+  pilot dial functions take as a parameter. `authmailbox.ClientConfig`
+  replaces `Insecure`, `SkipTlsVerify` and `TLSPathServer` with `TLS`,
+  and `tapcustody.Config` replaces `MboxInsecure` with `MboxTLS`.
 
 ## Performance Improvements
 
@@ -406,6 +441,12 @@
   state machine. The group-verifier generators similarly move out of
   `tapgarden` into `tapnode`, alongside the rest of the
   proof-verifier code.
+
+* [The new `taptls`
+  package](https://github.com/lightninglabs/taproot-assets/pull/2355)
+  builds the transport credentials of all outbound gRPC connections to
+  universe servers, proof couriers, auth mailboxes, price oracles and
+  portfolio pilots. The gosec G402 check is enabled.
 
 ## Tooling and Documentation
 
