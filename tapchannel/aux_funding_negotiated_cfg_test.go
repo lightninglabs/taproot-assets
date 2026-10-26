@@ -84,9 +84,9 @@ func TestUseNegotiatedChanCfg(t *testing.T) {
 		})
 	}
 
-	// The feature vector we actually advertise must lead to the fallback,
-	// not a rejection, for peers that don't know the feature yet.
+	// The feature vector we actually advertise must reject peers that don't
+	// signal the feature, instead of falling back to zeroed configs.
 	useCfg, err := useNegotiatedChanCfg(tapfeatures.LocalFeatures(), vec())
-	require.NoError(t, err)
+	require.ErrorIs(t, err, ErrNegotiatedChanCfgRequired)
 	require.False(t, useCfg)
 }
