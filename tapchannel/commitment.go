@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"sort"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
@@ -545,6 +546,59 @@ func GenerateCommitmentAllocations(prevState *cmsg.Commitment,
 	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to compute view: %w", err)
+	}
+
+	// The asset IDs declared on the HTLCs in the view are chosen by
+	// whoever authored the HTLC, but the commitment math is sum-only: it
+	// never checks the declared IDs against the channel's holdings. Reject
+	// any HTLC that declares an asset this channel neither was funded with
+	// nor currently holds, otherwise a routing node could be made to
+	// forward a valuable asset over an outgoing channel while the
+	// incoming channel only ever held a cheap one.
+	//
+	// HTLCs paid against a group-specified quote are exempt from the ID
+	// check: the interceptor writes the serialized group key into the
+	// balance record as a placeholder (the real asset is picked from the
+	// channel's holdings later), and the group was already validated
+	// against the quote's specifier at admission. Only the placeholder of
+	// the channel's own funding group is allowed, so a group of an asset
+	// this channel never held is still rejected.
+	allowedAssets := fn.NewSet[asset.ID](fn.Map(
+		chanAssetState.FundedAssets.Val.Outputs,
+		func(o *cmsg.AssetOutput) asset.ID {
+			return o.AssetID.Val
+		},
+	)...)
+	for _, outputs := range []cmsg.AssetOutputListRecord{
+		prevState.LocalAssets.Val, prevState.RemoteAssets.Val,
+	} {
+		for _, output := range outputs.Outputs {
+			allowedAssets.Add(output.AssetID.Val)
+		}
+	}
+	chanAssetState.GroupKey.ValOpt().WhenSome(
+		func(groupKey *btcec.PublicKey) {
+			allowedAssets.Add(asset.ID(
+				schnorr.SerializePubKey(groupKey),
+			))
+		},
+	)
+	for _, updates := range [][]*DecodedDescriptor{
+		filteredView.OurUpdates, filteredView.TheirUpdates,
+	} {
+		for _, htlc := range updates {
+			for _, balance := range htlc.AssetBalances {
+				assetID := balance.AssetID.Val
+				if !allowedAssets.Contains(assetID) {
+					return nil, nil, fmt.Errorf(
+						"HTLC declares asset ID %x "+
+							"which this channel "+
+							"does not hold",
+						balance.AssetID.Val,
+					)
+				}
+			}
+		}
 	}
 
 	dustLimit := chanState.LocalChanCfg.DustLimit

@@ -270,6 +270,7 @@ func (m *Manager) startSubsystems(ctx context.Context) error {
 	m.orderHandler, err = NewOrderHandler(OrderHandlerCfg{
 		CleanupInterval:   CacheCleanupInterval,
 		HtlcInterceptor:   m.cfg.HtlcInterceptor,
+		ChannelLister:     m.cfg.ChannelLister,
 		HtlcSubscriber:    m.cfg.HtlcSubscriber,
 		AliasManager:      m.cfg.AliasManager,
 		AcceptHtlcEvents:  m.acceptHtlcEvents,
@@ -310,6 +311,7 @@ func (m *Manager) startSubsystems(ctx context.Context) error {
 	m.negotiator, err = NewNegotiator(NegotiatorCfg{
 		PriceOracle:             m.cfg.PriceOracle,
 		PortfolioPilot:          m.cfg.PortfolioPilot,
+		fetchChannel:            m.FetchChannel,
 		OutgoingMessages:        m.outgoingMessages,
 		AcceptPriceDeviationPpm: m.cfg.AcceptPriceDeviationPpm,
 		SkipQuoteAcceptVerify:   m.cfg.SkipQuoteAcceptVerify,

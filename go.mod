@@ -41,7 +41,7 @@ require (
 	github.com/lightningnetwork/lnd/clock v1.1.1
 	github.com/lightningnetwork/lnd/fn/v2 v2.0.9
 	github.com/lightningnetwork/lnd/ticker v1.1.1
-	github.com/lightningnetwork/lnd/tlv v1.4.0
+	github.com/lightningnetwork/lnd/tlv v1.4.1
 	github.com/lightningnetwork/lnd/tor v1.2.0
 	github.com/ory/dockertest/v3 v3.10.0
 	github.com/pmezard/go-difflib v1.0.0

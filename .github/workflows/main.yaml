@@ -428,7 +428,7 @@ jobs:
 
       - name: Initialize environment
         run: |
-          chmod +x itest/itest.test itest/btcd-itest itest/lnd-itest itest/tapd-itest itest/chantools/chantools
+          chmod +x itest/itest.test itest/btcd-itest itest/lnd-itest itest/tapd-itest itest/tapd-integrated-itest itest/chantools/chantools
           mkdir -p ~/.aperture
 
       - name: CPU info
@@ -518,7 +518,7 @@ jobs:
 
       - name: Initialize environment
         run: |
-          chmod +x itest/itest.test itest/btcd-itest itest/lnd-itest itest/tapd-itest itest/chantools/chantools
+          chmod +x itest/itest.test itest/btcd-itest itest/lnd-itest itest/tapd-itest itest/tapd-integrated-itest itest/chantools/chantools
           mkdir -p ~/.aperture
 
       - name: CPU info
@@ -575,7 +575,7 @@ jobs:
 
       - name: Initialize environment
         run: |
-          chmod +x itest/itest.test itest/btcd-itest itest/lnd-itest itest/tapd-itest itest/chantools/chantools
+          chmod +x itest/itest.test itest/btcd-itest itest/lnd-itest itest/tapd-itest itest/tapd-integrated-itest itest/chantools/chantools
           mkdir -p ~/.aperture
 
       - name: CPU info

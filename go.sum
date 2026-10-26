@@ -1087,8 +1087,8 @@ github.com/lightningnetwork/lnd/sqldb v1.0.13 h1:CcG9mrHNW/hIuZnqgosdiNmS7QhjSyf
 github.com/lightningnetwork/lnd/sqldb v1.0.13/go.mod h1:ew3kMfknA0B4djTtrQSAkxvro+8+c++L8LuNaoT7GQA=
 github.com/lightningnetwork/lnd/ticker v1.1.1 h1:J/b6N2hibFtC7JLV77ULQp++QLtCwT6ijJlbdiZFbSM=
 github.com/lightningnetwork/lnd/ticker v1.1.1/go.mod h1:waPTRAAcwtu7Ji3+3k+u/xH5GHovTsCoSVpho0KDvdA=
-github.com/lightningnetwork/lnd/tlv v1.4.0 h1:qNGymEkOZsHbp4h8VjnkRGgLfmh+eJP1JQtz2/mJX2M=
-github.com/lightningnetwork/lnd/tlv v1.4.0/go.mod h1:oL5WIFd3ZoEwh3oH1xzizeUl6pq3DIhx9ljDvRdvI3Q=
+github.com/lightningnetwork/lnd/tlv v1.4.1 h1:cCx8H4mC6TZ2Pc0aNEYxTqdZoRQA7+XNJa95gciKXNU=
+github.com/lightningnetwork/lnd/tlv v1.4.1/go.mod h1:RvxxfVTCctKzKVWJDyQZqSdu3JV7OjaiQGF06hBCZ+s=
 github.com/lightningnetwork/lnd/tor v1.2.0 h1:Xled9KE+rdTPEMDVJE5VrSoMNkJq6EfH3NCF6pLP4h4=
 github.com/lightningnetwork/lnd/tor v1.2.0/go.mod h1:tB6/Hsk5nIm6xkOPaidd4q1at4x4gF6Bpu/t2UQxYgM=
 github.com/ltcsuite/ltcd v0.0.0-20190101042124-f37f8bf35796 h1:sjOGyegMIhvgfq5oaue6Td+hxZuf3tDC8lAPrFldqFw=
