@@ -833,6 +833,25 @@ func TestAssetWitnesses(t *testing.T) {
 	require.Nil(t, possibleSig)
 }
 
+// TestWitnessDeepEqualTxWitness tests that witnesses are compared by the
+// content of their witness stacks.
+func TestWitnessDeepEqualTxWitness(t *testing.T) {
+	t.Parallel()
+
+	equal := func(a, b wire.TxWitness) bool {
+		wa := &Witness{TxWitness: a}
+		wb := &Witness{TxWitness: b}
+
+		return wa.DeepEqual(false, wb)
+	}
+
+	require.True(t, equal(nil, wire.TxWitness{}))
+	require.True(t, equal(wire.TxWitness{nil}, wire.TxWitness{{}}))
+	require.True(t, equal(wire.TxWitness{{1}}, wire.TxWitness{{1}}))
+	require.False(t, equal(wire.TxWitness{{1}}, wire.TxWitness{{2}}))
+	require.False(t, equal(nil, wire.TxWitness{nil}))
+}
+
 // TestUnknownVersion tests that an asset of an unknown version is rejected
 // before being inserted into an MS-SMT.
 func TestUnknownVersion(t *testing.T) {
