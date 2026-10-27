@@ -338,6 +338,12 @@ const (
 	GKRCustomSubtreeRoot GroupKeyRevealTlvType = 7
 )
 
+// knownGroupKeyRevealTypes is the set of all known group key reveal V1 TLV
+// types.
+var knownGroupKeyRevealTypes = fn.NewSet(
+	GKRVersion, GKRInternalKey, GKRTapscriptRoot, GKRCustomSubtreeRoot,
+)
+
 func NewGKRVersionRecord(version *uint8) tlv.Record {
 	return tlv.MakePrimitiveRecord(GKRVersion, version)
 }
@@ -802,8 +808,17 @@ func (g *GroupKeyRevealV1) Decode(r io.Reader, buf *[8]byte, l uint64) error {
 		return err
 	}
 
-	// Decode the reader's contents into the tlv stream.
-	_, err = tlvStream.DecodeWithParsedTypes(r)
+	// Decode the record's l bytes into the tlv stream.
+	err = decodeExact(r, l, func(r io.Reader) error {
+		parsedTypes, err := tlvStream.DecodeWithParsedTypes(r)
+		if err != nil {
+			return err
+		}
+
+		return AssertNoUnknownEvenTypes(
+			parsedTypes, knownGroupKeyRevealTypes,
+		)
+	})
 	if err != nil {
 		return err
 	}
