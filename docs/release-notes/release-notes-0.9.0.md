@@ -168,6 +168,13 @@
   provenance it doesn't already hold only if it allows proof inserts, via
   `--universe.sync-all-assets` or `tapcli universe federation config`.
 
+* [PR#2340](https://github.com/lightninglabs/taproot-assets/pull/2340)
+  makes a V1 group key reveal decode from its own record only, and
+  refuse unknown even types within it. Records that follow the reveal in
+  a proof are no longer consumed by it. Asset witnesses also compare by
+  the content of their witness stacks, so nil and empty stacks and
+  elements compare equal.
+
 # New Features
 
 ## Functional Enhancements
