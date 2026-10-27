@@ -10,6 +10,7 @@ import (
 	"io"
 	"math"
 	"reflect"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -979,7 +980,7 @@ func (w *Witness) DeepEqual(skipTxWitness bool, o *Witness) bool {
 		return true
 	}
 
-	return reflect.DeepEqual(w.TxWitness, o.TxWitness)
+	return slices.EqualFunc(w.TxWitness, o.TxWitness, bytes.Equal)
 }
 
 // ScriptVersion denotes the asset script versioning scheme.
