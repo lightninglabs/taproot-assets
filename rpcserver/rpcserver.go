@@ -6903,6 +6903,11 @@ func (r *RPCServer) AssetRoots(ctx context.Context,
 		limit = universe.RequestPageSize
 	}
 
+	proofType, err := UnmarshalUniProofType(req.ProofType)
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse proof type: %w", err)
+	}
+
 	// First, we'll retrieve the full set of known asset Universe roots.
 	sortDir := unmarshalUniSortDirection(req.Direction)
 	assetRoots, err := r.cfg.UniverseArchive.RootNodes(
@@ -6911,6 +6916,7 @@ func (r *RPCServer) AssetRoots(ctx context.Context,
 			SortDirection:   sortDir,
 			Offset:          req.Offset,
 			Limit:           limit + 1,
+			ProofType:       proofType,
 		},
 	)
 	if err != nil {

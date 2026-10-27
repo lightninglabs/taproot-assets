@@ -220,13 +220,24 @@ func universeRoots(ctx *cli.Context) error {
 	// If neither an asset ID or group key is specified, then we'll query
 	// for all the known universe roots.
 	if universeID == nil {
-		universeRoots, err := client.AssetRoots(
-			ctxc, &unirpc.AssetRootRequest{
-				WithAmountsById: !ctx.Bool(skipAmountsByIdName),
-				Offset:          int32(ctx.Uint64(offsetName)),
-				Limit:           int32(ctx.Uint64(limitName)),
-			},
-		)
+		rootReq := &unirpc.AssetRootRequest{
+			WithAmountsById: !ctx.Bool(skipAmountsByIdName),
+			Offset:          int32(ctx.Uint64(offsetName)),
+			Limit:           int32(ctx.Uint64(limitName)),
+		}
+
+		// Only filter by proof type if the user explicitly set the
+		// flag, so that by default all known roots are returned.
+		if ctx.IsSet(proofTypeName) {
+			rpcProofType, err := parseProofType(ctx)
+			if err != nil {
+				return err
+			}
+
+			rootReq.ProofType = *rpcProofType
+		}
+
+		universeRoots, err := client.AssetRoots(ctxc, rootReq)
 		if err != nil {
 			return err
 		}

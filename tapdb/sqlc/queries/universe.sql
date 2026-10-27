@@ -165,11 +165,13 @@ FROM universe_roots
 JOIN mssmt_roots
     ON universe_roots.namespace_root = mssmt_roots.namespace
 JOIN mssmt_nodes
-    ON mssmt_nodes.hash_key = mssmt_roots.root_hash 
+    ON mssmt_nodes.hash_key = mssmt_roots.root_hash
        AND mssmt_nodes.namespace = mssmt_roots.namespace
 JOIN genesis_assets
     ON genesis_assets.asset_id = universe_roots.asset_id
-ORDER BY 
+WHERE (universe_roots.proof_type = sqlc.narg('proof_type')
+           OR sqlc.narg('proof_type') IS NULL)
+ORDER BY
     CASE WHEN sqlc.narg('sort_direction') = 0 THEN universe_roots.id END ASC,
     CASE WHEN sqlc.narg('sort_direction') = 1 THEN universe_roots.id END DESC
 LIMIT @num_limit OFFSET @num_offset;
