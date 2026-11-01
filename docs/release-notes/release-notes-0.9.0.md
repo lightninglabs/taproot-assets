@@ -21,6 +21,15 @@
 
 # Bug Fixes
 
+- [Taproot Assets daemons now disable MPTCP listeners by
+  default](https://github.com/lightninglabs/taproot-assets/pull/2370), restoring
+  plain TCP as the default transport and mitigating the demonstrated
+  CVE-2026-98432 exploit path on vulnerable Linux kernels. Existing binaries
+  can apply the same mitigation with `GODEBUG=multipathtcp=0` and a restart;
+  upgrading to a patched kernel is still required to fix the underlying
+  vulnerability. Operators can explicitly opt in with
+  `GODEBUG=multipathtcp=1`.
+
 - [Asset hold invoices now preserve the requested final CLTV
   delta](https://github.com/lightninglabs/taproot-assets/pull/2360) instead of
   always using LND's default. A zero value still uses the configured default,
