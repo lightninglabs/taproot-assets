@@ -102,6 +102,7 @@ func (o *OracleHarness) Start(t *testing.T) {
 	// Create the gRPC server with TLS
 	transportCredentials := credentials.NewTLS(&tls.Config{
 		Certificates: []tls.Certificate{tlsCert},
+		MinVersion:   tls.VersionTLS12,
 	})
 	o.grpcServer = grpc.NewServer(grpc.Creds(transportCredentials))
 

@@ -2,6 +2,9 @@ package itest
 
 import (
 	"context"
+	"net"
+	"os"
+	"testing"
 	"time"
 
 	"github.com/btcsuite/btcd/txscript/v2"
@@ -10,9 +13,27 @@ import (
 	"github.com/lightninglabs/taproot-assets/authmailbox"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/taptls"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 )
+
+// pinnedTLSPolicy returns a TLS policy that trusts only the certificate of the
+// given tapd for its RPC host.
+func pinnedTLSPolicy(t *testing.T, tapd *tapdHarness) taptls.Policy {
+	certPEM, err := os.ReadFile(tapd.tlsCertPath)
+	require.NoError(t, err)
+
+	host, _, err := net.SplitHostPort(tapd.rpcHost())
+	require.NoError(t, err)
+
+	policy, err := taptls.New(taptls.Config{
+		Pins: map[string][]byte{host: certPEM},
+	})
+	require.NoError(t, err)
+
+	return policy
+}
 
 // testAuthMailboxStoreAndFetchMessage tests that we can store and fetch auth
 // mailbox messages using the auth mailbox server.
@@ -99,7 +120,7 @@ func testAuthMailboxStoreAndFetchMessage(t *harnessTest) {
 
 	mboxClient := authmailbox.NewClient(&authmailbox.ClientConfig{
 		ServerAddress: t.tapd.rpcHost(),
-		SkipTlsVerify: true,
+		TLS:           pinnedTLSPolicy(t.t, t.tapd),
 		Signer:        lndClient.Signer,
 		MinBackoff:    time.Second,
 		MaxBackoff:    time.Second,

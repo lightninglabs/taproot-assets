@@ -14,6 +14,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
 	mboxrpc "github.com/lightninglabs/taproot-assets/taprpc/authmailboxrpc"
+	"github.com/lightninglabs/taproot-assets/taptls"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -258,12 +259,16 @@ func NewMockServerWithSigner(t *testing.T,
 		MerkleVerifier: proof.DefaultMerkleVerifier,
 		MsgStore:       inMemMsgStore,
 	}
+
+	plaintext, err := taptls.New(taptls.Config{Mode: taptls.ModePlaintext})
+	require.NoError(t, err)
+
 	h := &MockServer{
 		ListenAddr: listenAddr,
 		cfg:        serverCfg,
 		clientCfg: &ClientConfig{
 			ServerAddress:      listenAddr,
-			Insecure:           true,
+			TLS:                plaintext,
 			Signer:             signer,
 			MinBackoff:         testMinBackoff,
 			MaxBackoff:         testMaxBackoff,

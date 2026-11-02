@@ -15,6 +15,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightninglabs/taproot-assets/rpcutils"
 	"github.com/lightninglabs/taproot-assets/taprpc/priceoraclerpc"
+	"github.com/lightninglabs/taproot-assets/taptls"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/stretchr/testify/require"
@@ -141,7 +142,7 @@ func runQuerySalePriceTest(t *testing.T, tc *testCaseQuerySalePrice) {
 
 	// Create a new RPC price oracle client and connect to the mock service.
 	serviceAddr := fmt.Sprintf("rfqrpc://%s", testServiceAddress)
-	insecureTLS := insecureTLS()
+	insecureTLS := insecureTLS(t)
 	client, err := NewRpcPriceOracle(
 		serviceAddr, insecureTLS,
 		fn.None[grpc.DialOption](),
@@ -245,11 +246,12 @@ type testCaseQueryPurchasePrice struct {
 	assetGroupKey *btcec.PublicKey
 }
 
-// insecureTLS returns a TLSConfig with TLS disabled.
-func insecureTLS() *TLSConfig {
-	return &TLSConfig{
-		Disabled: true,
-	}
+// insecureTLS returns a TLS policy with TLS disabled.
+func insecureTLS(t *testing.T) taptls.Policy {
+	policy, err := taptls.New(taptls.Config{Mode: taptls.ModePlaintext})
+	require.NoError(t, err)
+
+	return policy
 }
 
 // runQueryPurchasePriceTest runs the RPC price oracle client QueryBuyPrice
@@ -265,7 +267,7 @@ func runQueryPurchasePriceTest(t *testing.T, tc *testCaseQueryPurchasePrice) {
 	// Create a new RPC price oracle client and connect to the mock service.
 	serviceAddr := fmt.Sprintf("rfqrpc://%s", testServiceAddress)
 	client, err := NewRpcPriceOracle(
-		serviceAddr, insecureTLS(),
+		serviceAddr, insecureTLS(t),
 		fn.None[grpc.DialOption](),
 		fn.None[route.Vertex](),
 	)

@@ -24,6 +24,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// currentBinaryTapdArgs are the tapd args that nodes running the harness's
+// default binary get ahead of their test-specific args.
+var currentBinaryTapdArgs = []string{
+	"--universe.tls.insecure",
+}
+
 // IntegratedNetworkHarness manages a set of IntegratedNodes for integration
 // testing. It coordinates shared infrastructure such as chain backend
 // configuration and node lifecycle.
@@ -104,8 +110,10 @@ func (h *IntegratedNetworkHarness) NewNode(name string,
 		lndArgs = append(lndArgs, "--fee.url="+h.FeeServiceURL)
 	}
 
+	tapdArgs := slices.Concat(currentBinaryTapdArgs, extraTapdArgs)
+
 	n := NewIntegratedNode(
-		h.t, name, h.binary, h.netParams, lndArgs, extraTapdArgs,
+		h.t, name, h.binary, h.netParams, lndArgs, tapdArgs,
 	)
 	n.Start()
 
@@ -150,7 +158,7 @@ func (h *IntegratedNetworkHarness) UpgradeNode(node *IntegratedNode,
 
 	node.Cfg.BinaryPath = h.binary
 	node.Cfg.ExtraTapdArgs = slices.Concat(
-		node.Cfg.ExtraTapdArgs, extraTapdArgs,
+		node.Cfg.ExtraTapdArgs, currentBinaryTapdArgs, extraTapdArgs,
 	)
 	node.Restart()
 }

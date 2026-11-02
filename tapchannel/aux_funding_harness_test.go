@@ -22,6 +22,7 @@ import (
 	cmsg "github.com/lightninglabs/taproot-assets/tapchannelmsg"
 	"github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"github.com/lightninglabs/taproot-assets/tapscript"
+	"github.com/lightninglabs/taproot-assets/taptls"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -557,6 +558,13 @@ func TestFundingProvenanceRetryBudget(t *testing.T) {
 		context.Background(), testTimeout,
 	)
 	t.Cleanup(setupCancel)
+
+	// The mock server uses a self-signed certificate.
+	skipVerify, err := taptls.New(taptls.Config{
+		Mode: taptls.ModeSkipVerify,
+	})
+	require.NoError(t, err)
+
 	courier, err := proof.NewUniverseRpcCourier(
 		setupCtx, &proof.UniverseRpcCourierCfg{
 			BackoffCfg: &proof.BackoffCfg{
@@ -566,8 +574,8 @@ func TestFundingProvenanceRetryBudget(t *testing.T) {
 				NumTries:       2,
 			},
 			ServiceRequestTimeout: testTimeout,
-		}, noopProofTransferLog{}, proof.NewMockProofArchive(),
-		courierAddr, false,
+		}, skipVerify, noopProofTransferLog{},
+		proof.NewMockProofArchive(), courierAddr, false,
 	)
 	require.NoError(t, err)
 	t.Cleanup(func() {

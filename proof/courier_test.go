@@ -16,6 +16,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	mboxrpc "github.com/lightninglabs/taproot-assets/taprpc/authmailboxrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/universerpc"
+	"github.com/lightninglabs/taproot-assets/taptls"
 	"github.com/lightningnetwork/lnd/lntest/port"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -114,9 +115,16 @@ func TestCheckUniverseRpcCourierConnection(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(cleanup)
 
+	// The mock server uses a self-signed certificate.
+	skipVerify, err := taptls.New(taptls.Config{
+		Mode: taptls.ModeSkipVerify,
+	})
+	require.NoError(t, err)
+
 	tests := []struct {
 		name        string
 		courierAddr *url.URL
+		tlsPolicy   taptls.Policy
 		expectErr   string
 	}{
 		{
@@ -124,13 +132,23 @@ func TestCheckUniverseRpcCourierConnection(t *testing.T) {
 			courierAddr: MockCourierURL(
 				t, UniverseRpcCourierType, mockServerAddr,
 			),
+			tlsPolicy: skipVerify,
 		},
 		{
 			name: "valid universe rpc courier, but can't connect",
 			courierAddr: MockCourierURL(
 				t, UniverseRpcCourierType, noConnectAddr,
 			),
+			tlsPolicy: skipVerify,
 			expectErr: "unable to connect to courier service",
+		},
+		{
+			name: "valid universe rpc courier, but untrusted " +
+				"certificate",
+			courierAddr: MockCourierURL(
+				t, UniverseRpcCourierType, mockServerAddr,
+			),
+			expectErr: "certificate",
 		},
 	}
 
@@ -140,7 +158,7 @@ func TestCheckUniverseRpcCourierConnection(t *testing.T) {
 			// race detector. Only the unreachable-server case
 			// needs a short deadline to keep the test fast.
 			connectTimeout := testTimeout
-			if tt.expectErr != "" {
+			if tt.courierAddr.Host == noConnectAddr {
 				connectTimeout = test.StartupWaitTime
 			}
 			ctxt, cancel := context.WithTimeout(
@@ -149,7 +167,8 @@ func TestCheckUniverseRpcCourierConnection(t *testing.T) {
 			defer cancel()
 
 			err := CheckUniverseRpcCourierConnection(
-				ctxt, connectTimeout, tt.courierAddr,
+				ctxt, connectTimeout, tt.tlsPolicy,
+				tt.courierAddr,
 			)
 			if tt.expectErr != "" {
 				require.ErrorContains(t, err, tt.expectErr)
@@ -308,6 +327,12 @@ func TestUniverseRpcCourierDeliverFragmentOnce(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
+	// The mock server uses a self-signed certificate.
+	skipVerify, err := taptls.New(taptls.Config{
+		Mode: taptls.ModeSkipVerify,
+	})
+	require.NoError(t, err)
+
 	courierAddr := MockCourierURL(
 		t, AuthMailboxUniRpcCourierType, serverAddr,
 	)
@@ -318,7 +343,7 @@ func TestUniverseRpcCourierDeliverFragmentOnce(t *testing.T) {
 				NumTries:      1,
 			},
 			ServiceRequestTimeout: testTimeout,
-		}, noopTransferLog{}, nil, courierAddr, false,
+		}, skipVerify, noopTransferLog{}, nil, courierAddr, false,
 	)
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -442,6 +467,12 @@ func TestUniverseRpcCourierGroupedAssetFallback(t *testing.T) {
 	)
 	defer cancel()
 
+	// The mock server uses a self-signed certificate.
+	skipVerify, err := taptls.New(taptls.Config{
+		Mode: taptls.ModeSkipVerify,
+	})
+	require.NoError(t, err)
+
 	courierAddr := MockCourierURL(
 		t, UniverseRpcCourierType, serverAddr,
 	)
@@ -452,7 +483,8 @@ func TestUniverseRpcCourierGroupedAssetFallback(t *testing.T) {
 				NumTries:      1,
 			},
 			ServiceRequestTimeout: testTimeout,
-		}, noopTransferLog{}, NewMockProofArchive(), courierAddr, false,
+		}, skipVerify, noopTransferLog{}, NewMockProofArchive(),
+		courierAddr, false,
 	)
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -703,9 +735,15 @@ func TestUniverseRpcCourierGroupPublishRetry(t *testing.T) {
 					},
 					ServiceRequestTimeout: testTimeout,
 				}
+				// The mock server uses a self-signed
+				// certificate.
+				skipVerify, err := taptls.New(taptls.Config{
+					Mode: taptls.ModeSkipVerify,
+				})
+				require.NoError(t, err)
 				courier, err := NewUniverseRpcCourier(
-					ctx, cfg, noopTransferLog{}, nil, url,
-					false,
+					ctx, cfg, skipVerify,
+					noopTransferLog{}, nil, url, false,
 				)
 				require.NoError(t, err)
 				t.Cleanup(func() {

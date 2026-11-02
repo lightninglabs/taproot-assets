@@ -142,6 +142,7 @@ var testCaseSeconds = map[string]int{
 	"auth mailbox remove message":                           47,
 	"script key type pedersen unique":                       51,
 	"address v2 with simple asset":                          78,
+	"universe tls verification":                             98,
 	"address v2 with group key":                             56,
 	"address v2 with group key multiple round trips":        25,
 	"address v2 self send":                                  48,

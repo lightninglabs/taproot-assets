@@ -10,6 +10,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
+	"github.com/lightninglabs/taproot-assets/taptls"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"golang.org/x/exp/maps"
 	"google.golang.org/grpc/codes"
@@ -23,11 +24,11 @@ type RpcUniverseDiff struct {
 }
 
 // NewRpcUniverseDiff creates a new RpcUniverseDiff instance that dials out to
-// the target remote universe server address.
-func NewRpcUniverseDiff(
+// the target remote universe server address under the given TLS policy.
+func NewRpcUniverseDiff(tlsPolicy taptls.Policy,
 	serverAddr universe.ServerAddr) (universe.DiffEngine, error) {
 
-	conn, err := ConnectUniverse(serverAddr)
+	conn, err := ConnectUniverse(tlsPolicy, serverAddr)
 	if err != nil {
 		return nil, fmt.Errorf("unable to connect to universe RPC "+
 			"server: %w", err)

@@ -80,6 +80,7 @@ func (p *portfolioPilotHarness) start(t *testing.T) {
 
 	transportCredentials := credentials.NewTLS(&tls.Config{
 		Certificates: []tls.Certificate{tlsCert},
+		MinVersion:   tls.VersionTLS12,
 	})
 	p.grpcServer = grpc.NewServer(grpc.Creds(transportCredentials))
 

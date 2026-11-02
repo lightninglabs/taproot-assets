@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/lightninglabs/taproot-assets/taprpc/universerpc"
+	"github.com/lightninglabs/taproot-assets/taptls"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/cert"
 	"github.com/stretchr/testify/require"
@@ -58,7 +59,7 @@ func startTestUniverseServer(t *testing.T) universe.ServerAddr {
 // address returns the same underlying *universeClientConn.
 func TestUniverseConnPoolGetReuses(t *testing.T) {
 	addr := startTestUniverseServer(t)
-	pool := NewUniverseConnPool()
+	pool := NewUniverseConnPool(taptls.Policy{})
 	defer pool.Close()
 
 	c1, err := pool.Get(addr)
@@ -76,7 +77,7 @@ func TestUniverseConnPoolDistinctAddrs(t *testing.T) {
 	a := startTestUniverseServer(t)
 	b := startTestUniverseServer(t)
 
-	pool := NewUniverseConnPool()
+	pool := NewUniverseConnPool(taptls.Policy{})
 	defer pool.Close()
 
 	ca, err := pool.Get(a)
@@ -92,7 +93,7 @@ func TestUniverseConnPoolDistinctAddrs(t *testing.T) {
 // Get for the same address dials a fresh connection.
 func TestUniverseConnPoolEvictRemoves(t *testing.T) {
 	addr := startTestUniverseServer(t)
-	pool := NewUniverseConnPool()
+	pool := NewUniverseConnPool(taptls.Policy{})
 	defer pool.Close()
 
 	c1, err := pool.Get(addr)
@@ -109,7 +110,7 @@ func TestUniverseConnPoolEvictRemoves(t *testing.T) {
 // safe and idempotent.
 func TestUniverseConnPoolDoubleCloseSafe(t *testing.T) {
 	addr := startTestUniverseServer(t)
-	pool := NewUniverseConnPool()
+	pool := NewUniverseConnPool(taptls.Policy{})
 
 	_, err := pool.Get(addr)
 	require.NoError(t, err)
@@ -123,7 +124,7 @@ func TestUniverseConnPoolDoubleCloseSafe(t *testing.T) {
 // internal map.
 func TestUniverseConnPoolGetAfterClose(t *testing.T) {
 	addr := startTestUniverseServer(t)
-	pool := NewUniverseConnPool()
+	pool := NewUniverseConnPool(taptls.Policy{})
 	pool.Close()
 
 	_, err := pool.Get(addr)
@@ -150,7 +151,7 @@ func TestUniverseConnPoolEvictDuringDial(t *testing.T) {
 
 		close(evictRan)
 		<-dialReleased
-		return ConnectUniverse(a)
+		return ConnectUniverse(taptls.Policy{}, a)
 	})
 	defer pool.Close()
 
@@ -187,7 +188,7 @@ func TestUniverseConnPoolEvictDuringDial(t *testing.T) {
 // dropped from the pool and the next Get dials fresh.
 func TestUniverseConnPoolShutdownRedials(t *testing.T) {
 	addr := startTestUniverseServer(t)
-	pool := NewUniverseConnPool()
+	pool := NewUniverseConnPool(taptls.Policy{})
 	defer pool.Close()
 
 	c1, err := pool.Get(addr)

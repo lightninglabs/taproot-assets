@@ -517,6 +517,10 @@ var allTestCases = []*testCase{
 		test: testAddressV2WithSimpleAsset,
 	},
 	{
+		name: "universe tls verification",
+		test: testUniverseTLSVerification,
+	},
+	{
 		name: "address v2 with group key",
 		test: testAddressV2WithGroupKey,
 	},

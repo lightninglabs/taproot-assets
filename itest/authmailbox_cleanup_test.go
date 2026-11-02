@@ -114,7 +114,7 @@ func testAuthMailboxCleanup(t *harnessTest) {
 
 	mboxClient := authmailbox.NewClient(&authmailbox.ClientConfig{
 		ServerAddress: uniService.rpcHost(),
-		SkipTlsVerify: true,
+		TLS:           pinnedTLSPolicy(t.t, uniService),
 		Signer:        lndClient.Signer,
 		MinBackoff:    time.Second,
 		MaxBackoff:    time.Second,
