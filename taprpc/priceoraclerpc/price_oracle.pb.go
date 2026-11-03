@@ -555,9 +555,16 @@ type QueryAssetRatesRequest struct {
 	// identifies the peer on the other side of the transaction. This field
 	// is set by default and can be disabled via the
 	// --experimental.rfq.priceoracledisablenodeid configuration option.
-	NodeId        []byte `protobuf:"bytes,10,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	NodeId []byte `protobuf:"bytes,10,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	// payment_asset_swap_amount is the amount of the payment asset that the
+	// requesting party actually intends to swap, excluding any routing fee
+	// budget. For a pay-invoice flow this is the invoice amount, while
+	// payment_asset_max_amount is the invoice amount plus the fee limit of
+	// the payment. This field is optional. If set to zero, it is considered
+	// unset. This field will only be set by tapd v0.9.0 and later.
+	PaymentAssetSwapAmount uint64 `protobuf:"varint,11,opt,name=payment_asset_swap_amount,json=paymentAssetSwapAmount,proto3" json:"payment_asset_swap_amount,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
 }
 
 func (x *QueryAssetRatesRequest) Reset() {
@@ -658,6 +665,13 @@ func (x *QueryAssetRatesRequest) GetNodeId() []byte {
 		return x.NodeId
 	}
 	return nil
+}
+
+func (x *QueryAssetRatesRequest) GetPaymentAssetSwapAmount() uint64 {
+	if x != nil {
+		return x.PaymentAssetSwapAmount
+	}
+	return 0
 }
 
 // QueryAssetRatesOkResponse is the successful response to a
@@ -867,7 +881,7 @@ const file_priceoraclerpc_price_oracle_proto_rawDesc = "" +
 	"assetIdStr\x12\x1d\n" +
 	"\tgroup_key\x18\x03 \x01(\fH\x00R\bgroupKey\x12$\n" +
 	"\rgroup_key_str\x18\x04 \x01(\tH\x00R\vgroupKeyStrB\x04\n" +
-	"\x02id\"\xb4\x04\n" +
+	"\x02id\"\xef\x04\n" +
 	"\x16QueryAssetRatesRequest\x12J\n" +
 	"\x10transaction_type\x18\x01 \x01(\x0e2\x1f.priceoraclerpc.TransactionTypeR\x0ftransactionType\x12C\n" +
 	"\rsubject_asset\x18\x02 \x01(\v2\x1e.priceoraclerpc.AssetSpecifierR\fsubjectAsset\x127\n" +
@@ -879,7 +893,8 @@ const file_priceoraclerpc_price_oracle_proto_rawDesc = "" +
 	"\x0fcounterparty_id\x18\b \x01(\fR\x0ecounterpartyId\x12\x1a\n" +
 	"\bmetadata\x18\t \x01(\tR\bmetadata\x12\x17\n" +
 	"\anode_id\x18\n" +
-	" \x01(\fR\x06nodeId\"X\n" +
+	" \x01(\fR\x06nodeId\x129\n" +
+	"\x19payment_asset_swap_amount\x18\v \x01(\x04R\x16paymentAssetSwapAmount\"X\n" +
 	"\x19QueryAssetRatesOkResponse\x12;\n" +
 	"\vasset_rates\x18\x01 \x01(\v2\x1a.priceoraclerpc.AssetRatesR\n" +
 	"assetRates\"e\n" +

@@ -150,7 +150,9 @@ func NewNegotiator(cfg NegotiatorCfg) (*Negotiator, error) {
 // hints are disabled, or the query fails.
 func (n *Negotiator) getAssetRateHint(ctx context.Context, order Order,
 	assetAmount fn.Option[uint64],
-	paymentAmt fn.Option[lnwire.MilliSatoshi]) fn.Option[rfqmsg.AssetRate] {
+	paymentAmt fn.Option[lnwire.MilliSatoshi],
+	paymentSwapAmt fn.Option[lnwire.MilliSatoshi],
+) fn.Option[rfqmsg.AssetRate] {
 
 	if !n.cfg.SendPriceHint {
 		return fn.None[rfqmsg.AssetRate]()
@@ -189,14 +191,15 @@ func (n *Negotiator) getAssetRateHint(ctx context.Context, order Order,
 	}
 
 	query := AssetRateQuery{
-		AssetSpecifier: assetSpec,
-		Direction:      direction,
-		Intent:         intent,
-		AssetAmount:    assetAmount,
-		PaymentAmount:  paymentAmt,
-		PeerID:         peerID,
-		OracleMetadata: oracleMetadata,
-		Expiry:         fn.Some(order.GetExpiry()),
+		AssetSpecifier:    assetSpec,
+		Direction:         direction,
+		Intent:            intent,
+		AssetAmount:       assetAmount,
+		PaymentAmount:     paymentAmt,
+		PaymentSwapAmount: paymentSwapAmt,
+		PeerID:            peerID,
+		OracleMetadata:    oracleMetadata,
+		Expiry:            fn.Some(order.GetExpiry()),
 	}
 
 	assetRate, err := n.cfg.PortfolioPilot.QueryAssetRates(ctx, query)
@@ -240,7 +243,7 @@ func (n *Negotiator) HandleOutgoingBuyOrder(ctx context.Context,
 	// We calculate a proposed buy rate for our peer's consideration.
 	assetRateHint := n.getAssetRateHint(
 		ctx, &buyOrder, fn.Some(buyOrder.AssetMaxAmt),
-		fn.None[lnwire.MilliSatoshi](),
+		fn.None[lnwire.MilliSatoshi](), fn.None[lnwire.MilliSatoshi](),
 	)
 
 	// Construct a new buy request to send to the peer.
@@ -519,13 +522,14 @@ func (n *Negotiator) HandleOutgoingSellOrder(ctx context.Context,
 	// We calculate a proposed sell rate for our peer's consideration.
 	assetRateHint := n.getAssetRateHint(
 		ctx, &order, fn.None[uint64](), fn.Some(order.PaymentMaxAmt),
+		order.PaymentSwapAmt,
 	)
 
 	request, err := rfqmsg.NewSellRequest(
 		peer, order.AssetSpecifier, order.PaymentMaxAmt,
 		order.PaymentMinAmt, order.AssetRateLimit,
 		assetRateHint, order.PriceOracleMetadata,
-		order.ExecutionPolicy,
+		order.ExecutionPolicy, order.PaymentSwapAmt,
 	)
 
 	if err != nil {

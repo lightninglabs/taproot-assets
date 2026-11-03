@@ -307,6 +307,18 @@
   attaches to the existing registration. A proof file the watcher
   cannot stake is rejected.
 
+* [PR#2375](https://github.com/lightninglabs/taproot-assets/pull/2375)
+  adds a `payment_asset_swap_amount` field to the price oracle's
+  `QueryAssetRatesRequest`. It carries the amount that is actually
+  intended to be swapped, excluding the routing fee budget that
+  `payment_asset_max_amount` still includes, so an oracle can tell the
+  invoice amount from the fee limit. The amount is set from the new
+  `payment_swap_amt` field of `AddAssetSellOrder` (populated with the
+  invoice amount by `SendPayment`), forwarded to the counterparty in
+  the RFQ sell request and exposed to external portfolio pilots as
+  `payment_swap_amount`. Zero means unset everywhere and the existing
+  fields are unchanged.
+
 ## tapcli Updates
 
 ## Config Changes

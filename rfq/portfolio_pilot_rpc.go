@@ -407,12 +407,15 @@ func rpcMarshalQueryAssetRatesRequest(query AssetRateQuery) (
 
 	rpcSpecifier :=
 		rpcMarshalPortfolioAssetSpecifier(query.AssetSpecifier)
+	paymentAmount := query.PaymentAmount.UnwrapOr(0)
+	paymentSwapAmount := query.PaymentSwapAmount.UnwrapOr(0)
 	return &pilotrpc.QueryAssetRatesRequest{
 		AssetSpecifier:      rpcSpecifier,
 		Direction:           rpcDirection,
 		Intent:              rpcIntent,
 		AssetAmount:         query.AssetAmount.UnwrapOr(0),
-		PaymentAmount:       uint64(query.PaymentAmount.UnwrapOr(0)),
+		PaymentAmount:       uint64(paymentAmount),
+		PaymentSwapAmount:   uint64(paymentSwapAmount),
 		AssetRateHint:       rpcRateHint,
 		PriceOracleMetadata: query.OracleMetadata.UnwrapOr(""),
 		PeerId:              peerID,
@@ -516,6 +519,7 @@ func rpcMarshalSellRequest(
 		PriceOracleMetadata: req.PriceOracleMetadata,
 		PeerId:              peer[:],
 		PaymentMinAmount:    paymentMinAmt,
+		PaymentSwapAmount:   uint64(req.PaymentSwapAmt.UnwrapOr(0)),
 		AssetRateLimit:      rpcRateLimit,
 		ExecutionPolicy: marshalExecutionPolicy(
 			req.ExecutionPolicy,

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/stretchr/testify/require"
@@ -21,11 +22,15 @@ func TestPaymentSellOrderRequestAllowsPartialFill(t *testing.T) {
 		asset.NewSpecifierFromId(asset.ID{0x01}),
 	)
 	peer := route.Vertex{0x02}
+	paymentAmt := lnwire.MilliSatoshi(2_900_000)
 	paymentMax := lnwire.MilliSatoshi(3_000_000)
 
 	request := newPaymentSellOrderRequest(
-		&specifier, paymentMax, time.Now().Add(time.Hour), &peer,
-		"metadata",
+		&specifier, parsedPaymentRequest{
+			paymentAmt:    paymentAmt,
+			paymentMaxAmt: paymentMax,
+			expiry:        time.Now().Add(time.Hour),
+		}, &peer, "metadata",
 	)
 	require.NotNil(t, request.PaymentMinAmt)
 	require.Zero(t, *request.PaymentMinAmt)
@@ -34,4 +39,8 @@ func TestPaymentSellOrderRequestAllowsPartialFill(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, order.PaymentMinAmt.IsNone())
 	require.Equal(t, paymentMax, order.PaymentMaxAmt)
+
+	// The invoice amount is passed on as the swap amount, separate from
+	// the max amount that also includes the fee budget.
+	require.Equal(t, fn.Some(paymentAmt), order.PaymentSwapAmt)
 }

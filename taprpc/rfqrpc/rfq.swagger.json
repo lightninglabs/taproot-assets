@@ -695,6 +695,11 @@
         "execution_policy": {
           "$ref": "#/definitions/rfqrpcExecutionPolicy",
           "description": "The execution policy for this order. IOC (default) accepts any\npartial fill \u003e= min threshold. FOK requires the rate to support\nthe full max amount."
+        },
+        "payment_swap_amt": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The optional msat amount that is actually intended to be swapped,\nexcluding any routing fee budget. If set, must be less than or equal\nto payment_max_amt. This value is forwarded to the price oracle and the\npeer to give context on the real payment size. A value of 0 means\nunset (units: millisats)."
         }
       }
     },

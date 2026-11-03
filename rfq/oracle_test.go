@@ -171,8 +171,9 @@ func runQuerySalePriceTest(t *testing.T, tc *testCaseQuerySalePrice) {
 
 	resp, err := client.QuerySellPrice(
 		ctx, assetSpecifier, fn.Some[uint64](assetMaxAmt),
-		fn.None[lnwire.MilliSatoshi](), fn.Some(assetRateHint),
-		fn.None[route.Vertex](), "", IntentRecvPayment,
+		fn.None[lnwire.MilliSatoshi](), fn.None[lnwire.MilliSatoshi](),
+		fn.Some(assetRateHint), fn.None[route.Vertex](), "",
+		IntentRecvPayment,
 	)
 
 	// If we expect an error, ensure that it is returned.
@@ -287,7 +288,7 @@ func runQueryPurchasePriceTest(t *testing.T, tc *testCaseQueryPurchasePrice) {
 
 	resp, err := client.QueryBuyPrice(
 		ctx, assetSpecifier, fn.Some[uint64](assetMaxAmt),
-		fn.None[lnwire.MilliSatoshi](),
+		fn.None[lnwire.MilliSatoshi](), fn.None[lnwire.MilliSatoshi](),
 		fn.None[rfqmsg.AssetRate](), fn.None[route.Vertex](), "",
 		IntentPayInvoice,
 	)
