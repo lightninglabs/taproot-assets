@@ -1441,7 +1441,8 @@ func EstimateAssetUnits(ctx context.Context, oracle PriceOracle,
 
 	oracleRes, err := oracle.QueryBuyPrice(
 		ctx, specifier, fn.None[uint64](), fn.Some(amtMsat),
-		fn.None[rfqmsg.AssetRate](), counterparty, metadata, intent,
+		fn.None[lnwire.MilliSatoshi](), fn.None[rfqmsg.AssetRate](),
+		counterparty, metadata, intent,
 	)
 	if err != nil {
 		return 0, err

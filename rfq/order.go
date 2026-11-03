@@ -2588,6 +2588,13 @@ type SellOrder struct {
 	// PaymentMinAmt is an optional minimum msat amount for the order.
 	PaymentMinAmt fn.Option[lnwire.MilliSatoshi]
 
+	// PaymentSwapAmt is an optional msat amount that is actually intended
+	// to be swapped, excluding any routing fee budget. For an invoice
+	// payment this is the invoice amount, while PaymentMaxAmt is the
+	// invoice amount plus the fee limit. It is forwarded to the price
+	// oracle and the peer for context and must not exceed PaymentMaxAmt.
+	PaymentSwapAmt fn.Option[lnwire.MilliSatoshi]
+
 	// AssetRateLimit is an optional maximum acceptable rate (asset
 	// units per BTC) for the order.
 	AssetRateLimit fn.Option[rfqmath.BigIntFixedPoint]

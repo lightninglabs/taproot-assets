@@ -45,6 +45,9 @@ type mockPortfolioPilot struct {
 
 	// err is the error returned by the portfolio pilot.
 	err error
+
+	// rateQueries records the asset rate queries received.
+	rateQueries []AssetRateQuery
 }
 
 // ResolveRequest returns the configured response.
@@ -63,8 +66,10 @@ func (s *mockPortfolioPilot) VerifyAcceptQuote(context.Context,
 }
 
 // QueryAssetRates returns mock asset rate information.
-func (s *mockPortfolioPilot) QueryAssetRates(context.Context,
-	AssetRateQuery) (rfqmsg.AssetRate, error) {
+func (s *mockPortfolioPilot) QueryAssetRates(_ context.Context,
+	query AssetRateQuery) (rfqmsg.AssetRate, error) {
+
+	s.rateQueries = append(s.rateQueries, query)
 
 	// Return a default asset rate for testing
 	return rfqmsg.AssetRate{
@@ -90,7 +95,7 @@ func assertIncomingSellAcceptTestCase(
 	mockPriceOracle.On(
 		"QuerySellPrice", mock.Anything, mock.Anything,
 		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
-		mock.Anything, mock.Anything,
+		mock.Anything, mock.Anything, mock.Anything,
 	).Return(
 		&OracleResponse{
 			AssetRate: tc.priceOracleAskPrice,
@@ -277,7 +282,7 @@ func assertIncomingBuyAcceptTestCase(
 	mockPriceOracle.On(
 		"QueryBuyPrice", mock.Anything, mock.Anything,
 		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
-		mock.Anything, mock.Anything,
+		mock.Anything, mock.Anything, mock.Anything,
 	).Return(
 		&OracleResponse{
 			AssetRate: tc.priceOracleBidPrice,
@@ -758,4 +763,89 @@ func TestBackedSellRequestFillRejectsZeroRate(t *testing.T) {
 	)
 	require.ErrorContains(t, err, "asset rate is zero")
 	require.True(t, fill.IsNone())
+}
+
+// TestHandleOutgoingSellOrderSwapAmt asserts that the swap amount of a sell
+// order is forwarded both to the rate hint query and to the outgoing sell
+// request, while the max amount is left untouched.
+func TestHandleOutgoingSellOrderSwapAmt(t *testing.T) {
+	t.Parallel()
+
+	const (
+		paymentMaxAmt  = lnwire.MilliSatoshi(11_000)
+		paymentSwapAmt = lnwire.MilliSatoshi(10_000)
+	)
+
+	testCases := []struct {
+		name    string
+		swapAmt fn.Option[lnwire.MilliSatoshi]
+	}{
+		{
+			name:    "swap amount set",
+			swapAmt: fn.Some(paymentSwapAmt),
+		},
+		{
+			name:    "swap amount unset",
+			swapAmt: fn.None[lnwire.MilliSatoshi](),
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			outgoing := make(chan rfqmsg.OutgoingMsg, 1)
+			errChan := make(chan error, 1)
+			pilot := &mockPortfolioPilot{}
+
+			negotiator, err := NewNegotiator(NegotiatorCfg{
+				PortfolioPilot:   pilot,
+				OutgoingMessages: outgoing,
+				ErrChan:          errChan,
+				SendPriceHint:    true,
+			})
+			require.NoError(t, err)
+
+			order := SellOrder{
+				AssetSpecifier: asset.NewSpecifierFromId(
+					asset.ID{4, 2},
+				),
+				PaymentMaxAmt:  paymentMaxAmt,
+				PaymentSwapAmt: tc.swapAmt,
+				Expiry:         time.Now().Add(time.Hour),
+				Peer:           fn.Some(route.Vertex{1, 2, 3}),
+			}
+
+			_, err = negotiator.HandleOutgoingSellOrder(
+				context.Background(), order,
+			)
+			require.NoError(t, err)
+
+			// The rate hint query must carry both amounts.
+			require.Len(t, pilot.rateQueries, 1)
+			query := pilot.rateQueries[0]
+			require.Equal(
+				t, fn.Some(paymentMaxAmt), query.PaymentAmount,
+			)
+			require.Equal(t, tc.swapAmt, query.PaymentSwapAmount)
+
+			// And so must the sell request sent to the peer.
+			var msg rfqmsg.OutgoingMsg
+			select {
+			case msg = <-outgoing:
+			default:
+				t.Fatalf("expected sell request on outgoing " +
+					"channel")
+			}
+
+			req, ok := msg.(*rfqmsg.SellRequest)
+			require.True(t, ok, "expected sell request")
+			require.Equal(t, paymentMaxAmt, req.PaymentMaxAmt)
+			require.Equal(t, tc.swapAmt, req.PaymentSwapAmt)
+
+			select {
+			case err := <-errChan:
+				t.Fatalf("unexpected error: %v", err)
+			default:
+			}
+		})
+	}
 }

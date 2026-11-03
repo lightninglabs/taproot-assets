@@ -9660,10 +9660,25 @@ func unmarshalAssetSellOrder(
 		return nil, err
 	}
 
+	// Unmarshal the optional swap amount. A value of zero means unset.
+	var paymentSwapAmt fn.Option[lnwire.MilliSatoshi]
+	if req.PaymentSwapAmt > 0 {
+		if req.PaymentSwapAmt > req.PaymentMaxAmt {
+			return nil, fmt.Errorf("payment swap amount (%d) "+
+				"exceeds payment max amount (%d)",
+				req.PaymentSwapAmt, req.PaymentMaxAmt)
+		}
+
+		paymentSwapAmt = fn.Some(
+			lnwire.MilliSatoshi(req.PaymentSwapAmt),
+		)
+	}
+
 	return &rfq.SellOrder{
 		AssetSpecifier:      assetSpecifier,
 		PaymentMaxAmt:       lnwire.MilliSatoshi(req.PaymentMaxAmt),
 		PaymentMinAmt:       paymentMinAmt,
+		PaymentSwapAmt:      paymentSwapAmt,
 		AssetRateLimit:      assetRateLimit,
 		ExecutionPolicy:     execPolicy,
 		Expiry:              expiry,
@@ -10363,17 +10378,17 @@ func (r *RPCServer) SendPayment(req *tchrpc.SendPaymentRequest,
 				"quote: %w", err)
 		}
 
-		// paymentMaxAmt is the maximum amount that the counterparty is
-		// expected to pay. This is the amount that the invoice is
-		// asking for plus the fee limit in milli-satoshis.
-		paymentMaxAmt, _, err := r.parseRequest(pReq)
+		// The parsed request holds the maximum amount the
+		// counterparty is expected to pay. This is the amount that the
+		// invoice is asking for plus the fee limit in milli-satoshis.
+		parsedReq, err := r.parseRequest(pReq)
 		if err != nil {
 			return err
 		}
 
 		// Check if the payment requires overpayment based on the quote.
 		err = checkOverpayment(
-			sellOrder, paymentMaxAmt, req.AllowOverpay,
+			sellOrder, parsedReq.paymentMaxAmt, req.AllowOverpay,
 		)
 		if err != nil {
 			return err
@@ -10437,10 +10452,11 @@ func (r *RPCServer) SendPayment(req *tchrpc.SendPaymentRequest,
 				"use: %w", err)
 		}
 
-		// paymentMaxAmt is the maximum amount that the counterparty is
-		// expected to pay. This is the amount that the invoice is
-		// asking for plus the fee limit in milli-satoshis.
-		paymentMaxAmt, expiry, err := r.parseRequest(pReq)
+		// The parsed request holds the amount the invoice is asking
+		// for, and the maximum amount that the counterparty is expected
+		// to pay, which is the invoice amount plus the fee limit in
+		// milli-satoshis.
+		parsedReq, err := r.parseRequest(pReq)
 		if err != nil {
 			return err
 		}
@@ -10461,7 +10477,7 @@ func (r *RPCServer) SendPayment(req *tchrpc.SendPaymentRequest,
 		// need to initiate the negotiation procedure for this payment.
 		// We'll store here all the quotes we acquired successfully.
 		acquiredQuotes := r.acquirePaymentQuotes(
-			ctx, &rpcSpecifier, paymentMaxAmt, expiry, chanMap,
+			ctx, &rpcSpecifier, parsedReq, chanMap,
 			req.AllowOverpay, payHash, req.PriceOracleMetadata,
 		)
 
@@ -10627,33 +10643,49 @@ func (r *RPCServer) SendPayment(req *tchrpc.SendPaymentRequest,
 	}
 }
 
-// parseRequest parses the payment request and returns the payment maximum
-// amount and the expiry time.
+// parsedPaymentRequest holds the amounts and expiry derived from a payment
+// request.
+type parsedPaymentRequest struct {
+	// paymentAmt is the amount the invoice asks for (or the user supplied
+	// amount for a zero amount invoice), excluding any routing fees.
+	paymentAmt lnwire.MilliSatoshi
+
+	// paymentMaxAmt is the maximum amount that the counterparty is
+	// expected to pay: paymentAmt plus the fee limit of the payment.
+	paymentMaxAmt lnwire.MilliSatoshi
+
+	// expiry is the time at which the invoice expires.
+	expiry time.Time
+}
+
+// parseRequest parses the payment request and returns the payment amount, the
+// payment maximum amount and the expiry time.
 func (r *RPCServer) parseRequest(
-	req *routerrpc.SendPaymentRequest) (lnwire.MilliSatoshi, time.Time,
-	error) {
+	req *routerrpc.SendPaymentRequest) (parsedPaymentRequest, error) {
+
+	var zero parsedPaymentRequest
 
 	invoice, err := zpay32.Decode(req.PaymentRequest, r.cfg.Lnd.ChainParams)
 	if err != nil {
-		return 0, time.Time{}, fmt.Errorf("error decoding payment "+
-			"request: %w", err)
+		return zero, fmt.Errorf("error decoding payment request: %w",
+			err)
 	}
 
-	var paymentMaxAmt lnwire.MilliSatoshi
+	var paymentAmt lnwire.MilliSatoshi
 	if invoice.MilliSat == nil {
 		amt, err := lnrpc.UnmarshallAmt(req.Amt, req.AmtMsat)
 		if err != nil {
-			return 0, time.Time{}, fmt.Errorf("error "+
-				"unmarshalling amount: %w", err)
+			return zero, fmt.Errorf("error unmarshalling "+
+				"amount: %w", err)
 		}
 		if amt == 0 {
-			return 0, time.Time{}, errors.New("amount must be " +
-				"specified when paying a zero amount invoice")
+			return zero, errors.New("amount must be specified " +
+				"when paying a zero amount invoice")
 		}
 
-		paymentMaxAmt = amt
+		paymentAmt = amt
 	} else {
-		paymentMaxAmt = *invoice.MilliSat
+		paymentAmt = *invoice.MilliSat
 	}
 
 	// Calculate the fee limit that should be used for this payment.
@@ -10661,14 +10693,15 @@ func (r *RPCServer) parseRequest(
 		req.FeeLimitSat, req.FeeLimitMsat,
 	)
 	if err != nil {
-		return 0, time.Time{}, fmt.Errorf("error unmarshalling fee "+
-			"limit: %w", err)
+		return zero, fmt.Errorf("error unmarshalling fee limit: %w",
+			err)
 	}
 
-	paymentMaxAmt += feeLimit
-
-	expiry := invoice.Timestamp.Add(invoice.Expiry())
-	return paymentMaxAmt, expiry, nil
+	return parsedPaymentRequest{
+		paymentAmt:    paymentAmt,
+		paymentMaxAmt: paymentAmt + feeLimit,
+		expiry:        invoice.Timestamp.Add(invoice.Expiry()),
+	}, nil
 }
 
 // checkOverpayment checks if paying a certain invoice amount requires
@@ -12025,8 +12058,8 @@ func (r *RPCServer) acquireBuyOrder(ctx context.Context,
 // payment with all available peers. The list of successfully negotiated quotes
 // is returned.
 func (r *RPCServer) acquirePaymentQuotes(ctx context.Context,
-	rpcSpecifier *rfqrpc.AssetSpecifier, paymentMaxAmt lnwire.MilliSatoshi,
-	expiry time.Time, chanMap rfq.PeerChanMap, overpay bool, payHash string,
+	rpcSpecifier *rfqrpc.AssetSpecifier, parsedReq parsedPaymentRequest,
+	chanMap rfq.PeerChanMap, overpay bool, payHash string,
 	metadata string) []*rfqrpc.PeerAcceptedSellQuote {
 
 	var acquiredQuotes []*rfqrpc.PeerAcceptedSellQuote
@@ -12051,15 +12084,17 @@ func (r *RPCServer) acquirePaymentQuotes(ctx context.Context,
 			defer cancel()
 
 			quote, err := r.acquireSellQuote(
-				rpcCtx, rpcSpecifier, paymentMaxAmt,
-				expiry, &peer, metadata,
+				rpcCtx, rpcSpecifier, parsedReq, &peer,
+				metadata,
 			)
 			if err != nil {
 				fn.SendOrDone(collectorCtx, errorCollector, err)
 				return
 			}
 
-			err = checkOverpayment(quote, paymentMaxAmt, overpay)
+			err = checkOverpayment(
+				quote, parsedReq.paymentMaxAmt, overpay,
+			)
 			if err != nil {
 				fn.SendOrDone(collectorCtx, errorCollector, err)
 				return
@@ -12100,19 +12135,22 @@ func (r *RPCServer) acquirePaymentQuotes(ctx context.Context,
 // newPaymentSellOrderRequest creates a sell order used to acquire one of the
 // quotes that can jointly fund an asset payment.
 func newPaymentSellOrderRequest(rpcSpecifier *rfqrpc.AssetSpecifier,
-	paymentMaxAmt lnwire.MilliSatoshi, expiry time.Time,
-	peerPubKey *route.Vertex,
+	parsedReq parsedPaymentRequest, peerPubKey *route.Vertex,
 	metadata string) *rfqrpc.AddAssetSellOrderRequest {
 
 	return &rfqrpc.AddAssetSellOrderRequest{
 		AssetSpecifier: rpcSpecifier,
-		PaymentMaxAmt:  uint64(paymentMaxAmt),
+		PaymentMaxAmt:  uint64(parsedReq.paymentMaxAmt),
 		// A payment can combine quotes backed by different asset
 		// channels, so each peer must be allowed to offer a partial
 		// fill. Explicit zero avoids the RPC default of requiring
 		// the full maximum amount from every peer.
-		PaymentMinAmt:       fn.Ptr[uint64](0),
-		Expiry:              uint64(expiry.Unix()),
+		PaymentMinAmt: fn.Ptr[uint64](0),
+		// The max amount includes the routing fee budget, while the
+		// swap amount is the invoice amount itself. Both are passed on
+		// so the price oracle can tell the two apart.
+		PaymentSwapAmt:      uint64(parsedReq.paymentAmt),
+		Expiry:              uint64(parsedReq.expiry.Unix()),
 		PeerPubKey:          peerPubKey[:],
 		TimeoutSeconds:      uint32(rfq.DefaultTimeout.Seconds()),
 		PriceOracleMetadata: metadata,
@@ -12122,12 +12160,12 @@ func newPaymentSellOrderRequest(rpcSpecifier *rfqrpc.AssetSpecifier,
 // acquireSellQuote performs an RFQ negotiation with the target peer and quote
 // parameters and returns the quote if the negotiation was successful.
 func (r *RPCServer) acquireSellQuote(ctx context.Context,
-	rpcSpecifier *rfqrpc.AssetSpecifier, paymentMaxAmt lnwire.MilliSatoshi,
-	expiry time.Time, peerPubKey *route.Vertex,
+	rpcSpecifier *rfqrpc.AssetSpecifier, parsedReq parsedPaymentRequest,
+	peerPubKey *route.Vertex,
 	metadata string) (*rfqrpc.PeerAcceptedSellQuote, error) {
 
 	request := newPaymentSellOrderRequest(
-		rpcSpecifier, paymentMaxAmt, expiry, peerPubKey, metadata,
+		rpcSpecifier, parsedReq, peerPubKey, metadata,
 	)
 	resp, err := r.AddAssetSellOrder(ctx, request)
 	if err != nil {
@@ -12256,8 +12294,8 @@ func (r *RPCServer) assetInvoiceAmt(ctx context.Context,
 
 	oracleResp, err := oracle.QuerySellPrice(
 		ctx, targetAsset, fn.None[uint64](), fn.Some(invoiceAmt),
-		fn.None[rfqmsg.AssetRate](), fn.None[route.Vertex](), metadata,
-		rfq.IntentPayInvoice,
+		fn.Some(invoiceAmt), fn.None[rfqmsg.AssetRate](),
+		fn.None[route.Vertex](), metadata, rfq.IntentPayInvoice,
 	)
 	if err != nil {
 		return 0, fmt.Errorf("error querying ask price: %w", err)

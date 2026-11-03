@@ -161,7 +161,7 @@ func testRfqAssetBuyHtlcIntercept(t *harnessTest) {
 	oracle.On(
 		"QueryAssetRates", oraclerpc.TransactionType_PURCHASE,
 		buySpecifier, purchaseAssetAmt, btcSpecifier,
-		mock.Anything, mock.Anything,
+		mock.Anything, uint64(0), mock.Anything,
 		oraclerpc.Intent_INTENT_RECV_PAYMENT_HINT,
 		mock.Anything, "buy-order-1", carolPubkey,
 	).Return(mockResult, nil).Once()
@@ -172,7 +172,7 @@ func testRfqAssetBuyHtlcIntercept(t *harnessTest) {
 	oracle.On(
 		"QueryAssetRates", oraclerpc.TransactionType_SALE,
 		buySpecifier, purchaseAssetAmt, btcSpecifier,
-		mock.Anything, mock.Anything,
+		mock.Anything, uint64(0), mock.Anything,
 		oraclerpc.Intent_INTENT_RECV_PAYMENT,
 		mock.Anything, "buy-order-1", bobPubkey,
 	).Return(mockResult, nil).Once()
@@ -182,7 +182,7 @@ func testRfqAssetBuyHtlcIntercept(t *harnessTest) {
 	oracle.On(
 		"QueryAssetRates", oraclerpc.TransactionType_PURCHASE,
 		buySpecifier, purchaseAssetAmt, btcSpecifier,
-		mock.Anything, mock.Anything,
+		mock.Anything, uint64(0), mock.Anything,
 		oraclerpc.Intent_INTENT_RECV_PAYMENT_QUALIFY,
 		mock.Anything, "buy-order-1", carolPubkey,
 	).Return(mockResult, nil).Once()
@@ -385,6 +385,11 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 	askAmt := uint64(42000)
 	sellOrderExpiry := uint64(time.Now().Add(24 * time.Hour).Unix())
 
+	// The swap amount models the invoice amount, while the max amount also
+	// includes a routing fee budget. The oracle is expected to see both on
+	// every call.
+	swapAmt := uint64(40000)
+
 	// We first try to add a sell order without specifying the asset skip
 	// flag. That should result in an error, since we only have a normal
 	// channel and not an asset channel.
@@ -394,9 +399,10 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 				AssetId: mintedAssetIdBytes,
 			},
 		},
-		PaymentMaxAmt: askAmt,
-		PaymentMinAmt: fn.Ptr[uint64](0),
-		Expiry:        sellOrderExpiry,
+		PaymentMaxAmt:  askAmt,
+		PaymentMinAmt:  fn.Ptr[uint64](0),
+		PaymentSwapAmt: swapAmt,
+		Expiry:         sellOrderExpiry,
 
 		// Here we explicitly specify Bob as the destination
 		// peer for the sell order. This will prompt Alice's
@@ -446,7 +452,7 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 	oracle.On(
 		"QueryAssetRates", oraclerpc.TransactionType_SALE,
 		buySpecifier, mock.Anything, btcSpecifier,
-		askAmt, mock.Anything,
+		askAmt, swapAmt, mock.Anything,
 		oraclerpc.Intent_INTENT_PAY_INVOICE_HINT,
 		mock.Anything, "sell-order-1", alicePubkey,
 	).Return(mockResult, nil).Twice()
@@ -457,7 +463,7 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 	oracle.On(
 		"QueryAssetRates", oraclerpc.TransactionType_PURCHASE,
 		buySpecifier, mock.Anything, btcSpecifier,
-		askAmt, mock.Anything,
+		askAmt, swapAmt, mock.Anything,
 		oraclerpc.Intent_INTENT_PAY_INVOICE,
 		mock.Anything, "sell-order-1", bobPubkey,
 	).Return(mockResult, nil).Once()
@@ -467,7 +473,7 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 	oracle.On(
 		"QueryAssetRates", oraclerpc.TransactionType_SALE,
 		buySpecifier, mock.Anything, btcSpecifier,
-		askAmt, mock.Anything,
+		askAmt, swapAmt, mock.Anything,
 		oraclerpc.Intent_INTENT_PAY_INVOICE_QUALIFY,
 		mock.Anything, "sell-order-1", alicePubkey,
 	).Return(mockResult, nil).Once()
@@ -533,21 +539,21 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 	oracle.On(
 		"QueryAssetRates", oraclerpc.TransactionType_SALE,
 		buySpecifier, mock.Anything, btcSpecifier,
-		paymentAskAmt, mock.Anything,
+		paymentAskAmt, swapAmt, mock.Anything,
 		oraclerpc.Intent_INTENT_PAY_INVOICE_HINT,
 		mock.Anything, "sell-order-1", alicePubkey,
 	).Return(mockResult, nil).Once()
 	oracle.On(
 		"QueryAssetRates", oraclerpc.TransactionType_PURCHASE,
 		buySpecifier, mock.Anything, btcSpecifier,
-		paymentAskAmt, mock.Anything,
+		paymentAskAmt, swapAmt, mock.Anything,
 		oraclerpc.Intent_INTENT_PAY_INVOICE,
 		mock.Anything, "sell-order-1", bobPubkey,
 	).Return(mockResult, nil).Once()
 	oracle.On(
 		"QueryAssetRates", oraclerpc.TransactionType_SALE,
 		buySpecifier, mock.Anything, btcSpecifier,
-		paymentAskAmt, mock.Anything,
+		paymentAskAmt, swapAmt, mock.Anything,
 		oraclerpc.Intent_INTENT_PAY_INVOICE_QUALIFY,
 		mock.Anything, "sell-order-1", alicePubkey,
 	).Return(mockResult, nil).Once()

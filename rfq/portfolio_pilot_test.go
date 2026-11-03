@@ -24,7 +24,7 @@ func expectQuerySellPrice(oracle *MockPriceOracle, resp *OracleResponse,
 	oracle.On(
 		"QuerySellPrice", mock.Anything, mock.Anything, mock.Anything,
 		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
-		mock.Anything,
+		mock.Anything, mock.Anything,
 	).Return(resp, err).Once()
 }
 
@@ -36,7 +36,7 @@ func expectQueryBuyPrice(oracle *MockPriceOracle, resp *OracleResponse,
 	oracle.On(
 		"QueryBuyPrice", mock.Anything, mock.Anything, mock.Anything,
 		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
-		mock.Anything,
+		mock.Anything, mock.Anything,
 	).Return(resp, err).Once()
 }
 
@@ -45,6 +45,7 @@ func assertSellPriceCall(t *testing.T, oracle *MockPriceOracle,
 	idx int, expAssetSpec asset.Specifier,
 	expAssetMax fn.Option[uint64],
 	expPaymentMax fn.Option[lnwire.MilliSatoshi],
+	expPaymentSwap fn.Option[lnwire.MilliSatoshi],
 	expRateHint fn.Option[rfqmsg.AssetRate],
 	expCounterparty fn.Option[route.Vertex], expMetadata string,
 	expIntent PriceQueryIntent) {
@@ -65,15 +66,19 @@ func assertSellPriceCall(t *testing.T, oracle *MockPriceOracle,
 		call.Arguments[3].(fn.Option[lnwire.MilliSatoshi]),
 	)
 	require.Equal(
+		t, expPaymentSwap,
+		call.Arguments[4].(fn.Option[lnwire.MilliSatoshi]),
+	)
+	require.Equal(
 		t, expRateHint,
-		call.Arguments[4].(fn.Option[rfqmsg.AssetRate]),
+		call.Arguments[5].(fn.Option[rfqmsg.AssetRate]),
 	)
 	require.Equal(
 		t, expCounterparty,
-		call.Arguments[5].(fn.Option[route.Vertex]),
+		call.Arguments[6].(fn.Option[route.Vertex]),
 	)
-	require.Equal(t, expMetadata, call.Arguments[6].(string))
-	require.Equal(t, expIntent, call.Arguments[7].(PriceQueryIntent))
+	require.Equal(t, expMetadata, call.Arguments[7].(string))
+	require.Equal(t, expIntent, call.Arguments[8].(PriceQueryIntent))
 }
 
 // assertBuyPriceCall verifies the recorded QueryBuyPrice call arguments.
@@ -81,6 +86,7 @@ func assertBuyPriceCall(t *testing.T, oracle *MockPriceOracle,
 	idx int, expAssetSpec asset.Specifier,
 	expAssetMax fn.Option[uint64],
 	expPaymentMax fn.Option[lnwire.MilliSatoshi],
+	expPaymentSwap fn.Option[lnwire.MilliSatoshi],
 	expRateHint fn.Option[rfqmsg.AssetRate],
 	expCounterparty fn.Option[route.Vertex], expMetadata string,
 	expIntent PriceQueryIntent) {
@@ -100,15 +106,19 @@ func assertBuyPriceCall(t *testing.T, oracle *MockPriceOracle,
 		call.Arguments[3].(fn.Option[lnwire.MilliSatoshi]),
 	)
 	require.Equal(
+		t, expPaymentSwap,
+		call.Arguments[4].(fn.Option[lnwire.MilliSatoshi]),
+	)
+	require.Equal(
 		t, expRateHint,
-		call.Arguments[4].(fn.Option[rfqmsg.AssetRate]),
+		call.Arguments[5].(fn.Option[rfqmsg.AssetRate]),
 	)
 	require.Equal(
 		t, expCounterparty,
-		call.Arguments[5].(fn.Option[route.Vertex]),
+		call.Arguments[6].(fn.Option[route.Vertex]),
 	)
-	require.Equal(t, expMetadata, call.Arguments[6].(string))
-	require.Equal(t, expIntent, call.Arguments[7].(PriceQueryIntent))
+	require.Equal(t, expMetadata, call.Arguments[7].(string))
+	require.Equal(t, expIntent, call.Arguments[8].(PriceQueryIntent))
 }
 
 // TestResolveRequest exercises buy and sell request handling across error and
@@ -140,6 +150,10 @@ func TestResolveRequest(t *testing.T) {
 
 		t.Helper()
 
+		// Model a routing fee budget: the amount actually swapped
+		// is below the max payment amount.
+		swapAmt := fn.Some(paymentMax - paymentMax/10)
+
 		req, err := rfqmsg.NewSellRequest(
 			route.Vertex{0x0A, 0x0B, 0x0C},
 			asset.NewSpecifierFromId(asset.ID{assetID}),
@@ -147,8 +161,7 @@ func TestResolveRequest(t *testing.T) {
 			fn.None[lnwire.MilliSatoshi](),
 			fn.None[rfqmath.BigIntFixedPoint](),
 			rateHint, "order-metadata",
-			fn.None[rfqmsg.ExecutionPolicy](),
-			fn.None[lnwire.MilliSatoshi](),
+			fn.None[rfqmsg.ExecutionPolicy](), swapAmt,
 		)
 		require.NoError(t, err)
 		return req
@@ -220,6 +233,7 @@ func TestResolveRequest(t *testing.T) {
 					t, oracle, 0, buyReq.AssetSpecifier,
 					fn.Some(buyReq.AssetMaxAmt),
 					fn.None[lnwire.MilliSatoshi](),
+					fn.None[lnwire.MilliSatoshi](),
 					buyReq.AssetRateHint,
 					fn.Some(buyReq.Peer),
 					buyReq.PriceOracleMetadata,
@@ -280,6 +294,7 @@ func TestResolveRequest(t *testing.T) {
 					t, oracle, 0, buyReq.AssetSpecifier,
 					fn.Some(buyReq.AssetMaxAmt),
 					fn.None[lnwire.MilliSatoshi](),
+					fn.None[lnwire.MilliSatoshi](),
 					buyReq.AssetRateHint,
 					fn.Some(buyReq.Peer),
 					buyReq.PriceOracleMetadata,
@@ -321,6 +336,7 @@ func TestResolveRequest(t *testing.T) {
 					t, oracle, 0, buyReq.AssetSpecifier,
 					fn.Some(buyReq.AssetMaxAmt),
 					fn.None[lnwire.MilliSatoshi](),
+					fn.None[lnwire.MilliSatoshi](),
 					buyReq.AssetRateHint,
 					fn.None[route.Vertex](),
 					buyReq.PriceOracleMetadata,
@@ -353,6 +369,7 @@ func TestResolveRequest(t *testing.T) {
 					t, oracle, 0, sellReq.AssetSpecifier,
 					fn.None[uint64](),
 					fn.Some(sellReq.PaymentMaxAmt),
+					sellReq.PaymentSwapAmt,
 					fn.None[rfqmsg.AssetRate](),
 					fn.Some(sellReq.Peer),
 					sellReq.PriceOracleMetadata,
@@ -414,6 +431,7 @@ func TestResolveRequest(t *testing.T) {
 					t, oracle, 0, sellReq.AssetSpecifier,
 					fn.None[uint64](),
 					fn.Some(sellReq.PaymentMaxAmt),
+					sellReq.PaymentSwapAmt,
 					fn.None[rfqmsg.AssetRate](),
 					fn.Some(sellReq.Peer),
 					sellReq.PriceOracleMetadata,
@@ -455,6 +473,7 @@ func TestResolveRequest(t *testing.T) {
 					t, oracle, 0, sellReq.AssetSpecifier,
 					fn.None[uint64](),
 					fn.Some(sellReq.PaymentMaxAmt),
+					sellReq.PaymentSwapAmt,
 					fn.None[rfqmsg.AssetRate](),
 					fn.None[route.Vertex](),
 					sellReq.PriceOracleMetadata,

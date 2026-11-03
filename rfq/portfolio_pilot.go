@@ -77,6 +77,10 @@ type AssetRateQuery struct {
 	// PaymentAmount is an optional constraint on the payment amount.
 	PaymentAmount fn.Option[lnwire.MilliSatoshi]
 
+	// PaymentSwapAmount is the optional payment amount that is actually
+	// intended to be swapped, excluding any routing fee budget.
+	PaymentSwapAmount fn.Option[lnwire.MilliSatoshi]
+
 	// PeerID is an optional peer identifier for peer-specific pricing.
 	PeerID fn.Option[route.Vertex]
 
@@ -260,6 +264,7 @@ func (p *InternalPortfolioPilot) ResolveRequest(ctx context.Context,
 		var err error
 		resp, err = p.cfg.PriceOracle.QuerySellPrice(
 			ctx, req.AssetSpecifier, fn.Some(req.AssetMaxAmt),
+			fn.None[lnwire.MilliSatoshi](),
 			fn.None[lnwire.MilliSatoshi](), req.AssetRateHint,
 			peerID, req.PriceOracleMetadata, IntentRecvPayment,
 		)
@@ -271,8 +276,9 @@ func (p *InternalPortfolioPilot) ResolveRequest(ctx context.Context,
 		var err error
 		resp, err = p.cfg.PriceOracle.QueryBuyPrice(
 			ctx, req.AssetSpecifier, fn.None[uint64](),
-			fn.Some(req.PaymentMaxAmt), req.AssetRateHint,
-			peerID, req.PriceOracleMetadata, IntentPayInvoice,
+			fn.Some(req.PaymentMaxAmt), req.PaymentSwapAmt,
+			req.AssetRateHint, peerID, req.PriceOracleMetadata,
+			IntentPayInvoice,
 		)
 		if err != nil {
 			return zero, fmt.Errorf("query buy price: %w", err)
@@ -340,6 +346,7 @@ func (p *InternalPortfolioPilot) VerifyAcceptQuote(ctx context.Context,
 	case *rfqmsg.BuyRequest:
 		resp, err = p.cfg.PriceOracle.QueryBuyPrice(
 			ctx, r.AssetSpecifier, fn.Some(r.AssetMaxAmt),
+			fn.None[lnwire.MilliSatoshi](),
 			fn.None[lnwire.MilliSatoshi](), fn.Some(counterRate),
 			peerID, r.PriceOracleMetadata, IntentRecvPaymentQualify,
 		)
@@ -352,8 +359,9 @@ func (p *InternalPortfolioPilot) VerifyAcceptQuote(ctx context.Context,
 	case *rfqmsg.SellRequest:
 		resp, err = p.cfg.PriceOracle.QuerySellPrice(
 			ctx, r.AssetSpecifier, fn.None[uint64](),
-			fn.Some(r.PaymentMaxAmt), fn.Some(counterRate),
-			peerID, r.PriceOracleMetadata, IntentPayInvoiceQualify,
+			fn.Some(r.PaymentMaxAmt), r.PaymentSwapAmt,
+			fn.Some(counterRate), peerID, r.PriceOracleMetadata,
+			IntentPayInvoiceQualify,
 		)
 		if err != nil {
 			return PriceOracleQueryErrQuoteRespStatus, fmt.Errorf(
@@ -440,8 +448,8 @@ func (p *InternalPortfolioPilot) QueryAssetRates(ctx context.Context,
 	case AssetTransferBuy:
 		resp, err = p.cfg.PriceOracle.QueryBuyPrice(
 			ctx, query.AssetSpecifier, query.AssetAmount,
-			query.PaymentAmount, query.RateHint,
-			peerID, metadata, query.Intent,
+			query.PaymentAmount, query.PaymentSwapAmount,
+			query.RateHint, peerID, metadata, query.Intent,
 		)
 		if err != nil {
 			return zero, fmt.Errorf("query buy price for buy: %w",
@@ -451,8 +459,8 @@ func (p *InternalPortfolioPilot) QueryAssetRates(ctx context.Context,
 	case AssetTransferSell:
 		resp, err = p.cfg.PriceOracle.QuerySellPrice(
 			ctx, query.AssetSpecifier, query.AssetAmount,
-			query.PaymentAmount, query.RateHint,
-			peerID, metadata, query.Intent,
+			query.PaymentAmount, query.PaymentSwapAmount,
+			query.RateHint, peerID, metadata, query.Intent,
 		)
 		if err != nil {
 			return zero, fmt.Errorf("query sell price for sell: %w",

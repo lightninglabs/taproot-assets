@@ -216,9 +216,9 @@ func (o *OracleHarness) QueryAssetRates(_ context.Context,
 		args := o.Called(
 			req.TransactionType, req.SubjectAsset,
 			req.SubjectAssetMaxAmount, req.PaymentAsset,
-			req.PaymentAssetMaxAmount, req.AssetRatesHint,
-			req.Intent, req.CounterpartyId, req.Metadata,
-			req.NodeId,
+			req.PaymentAssetMaxAmount, req.PaymentAssetSwapAmount,
+			req.AssetRatesHint, req.Intent, req.CounterpartyId,
+			req.Metadata, req.NodeId,
 		)
 		resp, _ := args.Get(0).(*oraclerpc.QueryAssetRatesResponse)
 		return resp, args.Error(1)
