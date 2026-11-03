@@ -525,7 +525,7 @@ func (n *Negotiator) HandleOutgoingSellOrder(ctx context.Context,
 		peer, order.AssetSpecifier, order.PaymentMaxAmt,
 		order.PaymentMinAmt, order.AssetRateLimit,
 		assetRateHint, order.PriceOracleMetadata,
-		order.ExecutionPolicy,
+		order.ExecutionPolicy, fn.None[lnwire.MilliSatoshi](),
 	)
 
 	if err != nil {

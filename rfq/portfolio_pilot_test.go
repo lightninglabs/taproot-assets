@@ -148,6 +148,7 @@ func TestResolveRequest(t *testing.T) {
 			fn.None[rfqmath.BigIntFixedPoint](),
 			rateHint, "order-metadata",
 			fn.None[rfqmsg.ExecutionPolicy](),
+			fn.None[lnwire.MilliSatoshi](),
 		)
 		require.NoError(t, err)
 		return req
@@ -640,6 +641,7 @@ func TestResolveRequest(t *testing.T) {
 					fn.None[rfqmsg.AssetRate](),
 					"metadata",
 					fn.None[rfqmsg.ExecutionPolicy](),
+					fn.None[lnwire.MilliSatoshi](),
 				)
 				require.NoError(t, err)
 				return req
@@ -686,6 +688,7 @@ func TestResolveRequest(t *testing.T) {
 					fn.None[rfqmsg.AssetRate](),
 					"metadata",
 					fn.None[rfqmsg.ExecutionPolicy](),
+					fn.None[lnwire.MilliSatoshi](),
 				)
 				require.NoError(t, err)
 				return req
@@ -740,6 +743,7 @@ func TestResolveRequest(t *testing.T) {
 					fn.Some(
 						rfqmsg.ExecutionPolicyFOK,
 					),
+					fn.None[lnwire.MilliSatoshi](),
 				)
 				require.NoError(t, err)
 				return req
@@ -1061,6 +1065,7 @@ func TestVerifyAcceptQuote(t *testing.T) {
 					fn.None[rfqmsg.AssetRate](),
 					"metadata",
 					fn.None[rfqmsg.ExecutionPolicy](),
+					fn.None[lnwire.MilliSatoshi](),
 				)
 				require.NoError(t, err)
 
@@ -1093,6 +1098,7 @@ func TestVerifyAcceptQuote(t *testing.T) {
 					fn.None[rfqmsg.AssetRate](),
 					"metadata",
 					fn.None[rfqmsg.ExecutionPolicy](),
+					fn.None[lnwire.MilliSatoshi](),
 				)
 				require.NoError(t, err)
 
@@ -1122,6 +1128,7 @@ func TestVerifyAcceptQuote(t *testing.T) {
 					fn.None[rfqmsg.AssetRate](),
 					"metadata",
 					fn.None[rfqmsg.ExecutionPolicy](),
+					fn.None[lnwire.MilliSatoshi](),
 				)
 				require.NoError(t, err)
 
@@ -1151,6 +1158,7 @@ func TestVerifyAcceptQuote(t *testing.T) {
 					fn.None[rfqmsg.AssetRate](),
 					"metadata",
 					fn.None[rfqmsg.ExecutionPolicy](),
+					fn.None[lnwire.MilliSatoshi](),
 				)
 				require.NoError(t, err)
 
@@ -1292,6 +1300,7 @@ func TestVerifyAcceptQuote(t *testing.T) {
 					fn.None[rfqmsg.AssetRate](),
 					"metadata",
 					fn.None[rfqmsg.ExecutionPolicy](),
+					fn.None[lnwire.MilliSatoshi](),
 				)
 				require.NoError(t, err)
 
@@ -1325,6 +1334,7 @@ func TestVerifyAcceptQuote(t *testing.T) {
 					fn.None[rfqmsg.AssetRate](),
 					"metadata",
 					fn.None[rfqmsg.ExecutionPolicy](),
+					fn.None[lnwire.MilliSatoshi](),
 				)
 				require.NoError(t, err)
 
@@ -1515,6 +1525,7 @@ func TestVerifyAcceptQuote(t *testing.T) {
 					fn.Some(
 						rfqmsg.ExecutionPolicyFOK,
 					),
+					fn.None[lnwire.MilliSatoshi](),
 				)
 				require.NoError(t, err)
 
@@ -1554,6 +1565,7 @@ func TestVerifyAcceptQuote(t *testing.T) {
 					fn.Some(
 						rfqmsg.ExecutionPolicyFOK,
 					),
+					fn.None[lnwire.MilliSatoshi](),
 				)
 				require.NoError(t, err)
 
@@ -1688,6 +1700,7 @@ func TestVerifyAcceptQuote(t *testing.T) {
 					fn.None[rfqmsg.AssetRate](),
 					"metadata",
 					fn.None[rfqmsg.ExecutionPolicy](),
+					fn.None[lnwire.MilliSatoshi](),
 				)
 				require.NoError(t, err)
 
@@ -1720,6 +1733,7 @@ func TestVerifyAcceptQuote(t *testing.T) {
 					fn.Some(
 						rfqmsg.ExecutionPolicyFOK,
 					),
+					fn.None[lnwire.MilliSatoshi](),
 				)
 				require.NoError(t, err)
 
@@ -1780,6 +1794,7 @@ func TestVerifyAcceptQuote(t *testing.T) {
 					fn.None[rfqmsg.AssetRate](),
 					"metadata",
 					fn.None[rfqmsg.ExecutionPolicy](),
+					fn.None[lnwire.MilliSatoshi](),
 				)
 				require.NoError(t, err)
 
