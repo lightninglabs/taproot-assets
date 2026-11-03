@@ -205,6 +205,9 @@ const (
 // ActiveAssetsStore is a sub-set of the main sqlc.Querier interface that
 // contains methods related to querying the set of confirmed assets.
 type ActiveAssetsStore interface {
+	// SetAssetSpentByID marks a newly materialized burn or tombstone spent.
+	SetAssetSpentByID(ctx context.Context, assetID int64) error
+
 	// UpsertAssetStore houses the methods related to inserting/updating
 	// assets.
 	UpsertAssetStore
@@ -520,14 +523,29 @@ type AssetStore struct {
 	txHeights *lru.Cache[chainhash.Hash, cacheableBlockHeight]
 
 	dbType sqlc.BackendType
+
+	// proofFiles holds proofs for outputs not owned by this wallet.
+	proofFiles *proof.FileArchiver
+}
+
+// AssetStoreOption configures an asset store.
+type AssetStoreOption func(*AssetStore)
+
+// WithProofFiles supplies the file archive for external transfer inputs. It
+// must not open database transactions while confirmation holds one.
+func WithProofFiles(archive *proof.FileArchiver) AssetStoreOption {
+	return func(store *AssetStore) {
+		store.proofFiles = archive
+	}
 }
 
 // NewAssetStore creates a new AssetStore from the specified BatchedAssetStore
 // interface.
 func NewAssetStore(db BatchedAssetStore, metaDB BatchedMetaStore,
-	clock clock.Clock, dbType sqlc.BackendType) *AssetStore {
+	clock clock.Clock, dbType sqlc.BackendType,
+	opts ...AssetStoreOption) *AssetStore {
 
-	return &AssetStore{
+	store := &AssetStore{
 		db:               db,
 		metaDb:           metaDB,
 		eventDistributor: fn.NewEventDistributor[proof.Blob](),
@@ -537,6 +555,11 @@ func NewAssetStore(db BatchedAssetStore, metaDB BatchedMetaStore,
 		),
 		dbType: dbType,
 	}
+	for _, opt := range opts {
+		opt(store)
+	}
+
+	return store
 }
 
 // ManagedUTXO holds information about a given UTXO we manage.
