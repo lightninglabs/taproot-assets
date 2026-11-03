@@ -406,12 +406,21 @@ func TestProvenanceSources(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, sources, 2)
 
-	// The first server holds none of the chain, and its source says so.
-	_, err = sources[0].FetchProof(ctx, burnLoc)
+	// Provenance returns its sources in no fixed order.
+	serverSources := make(map[string]proof.Exporter, len(sources))
+	for _, source := range sources {
+		serverSource, ok := source.(*serverProvenance)
+		require.True(t, ok)
+		serverSources[serverSource.serverAddr.HostStr()] = source
+	}
+	require.Len(t, serverSources, 2)
+
+	// Server A holds none of the chain, and its source says so.
+	_, err = serverSources[addrA.HostStr()].FetchProof(ctx, burnLoc)
 	require.ErrorIs(t, err, proof.ErrProofNotFound)
 	require.ErrorContains(t, err, addrA.HostStr())
 
-	blob, err := sources[1].FetchProof(ctx, burnLoc)
+	blob, err := serverSources[addrB.HostStr()].FetchProof(ctx, burnLoc)
 	require.NoError(t, err)
 
 	file, err := blob.AsFile()
