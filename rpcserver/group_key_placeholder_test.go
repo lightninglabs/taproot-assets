@@ -41,6 +41,17 @@ func newGroupedAssetBook(t *testing.T) (*address.Book, *asset.GroupKey,
 	*federationSyncSpy) {
 
 	t.Helper()
+
+	book, _, groupKey, syncer := newGroupedAssetBookWithStore(t)
+	return book, groupKey, syncer
+}
+
+// newGroupedAssetBookWithStore is newGroupedAssetBook that also returns the
+// backing store, for tests that need to insert further assets.
+func newGroupedAssetBookWithStore(t *testing.T) (*address.Book,
+	*tapdb.TapAddressBook, *asset.GroupKey, *federationSyncSpy) {
+
+	t.Helper()
 	ctx := context.Background()
 
 	db := tapdb.NewTestDB(t)
@@ -71,7 +82,7 @@ func newGroupedAssetBook(t *testing.T) (*address.Book, *asset.GroupKey,
 		Syncer: syncer,
 	})
 
-	return book, groupKey, syncer
+	return book, addrStore, groupKey, syncer
 }
 
 // requirePlaceholderResolved checks that an amount decoded from a group-key
@@ -177,7 +188,7 @@ func TestGroupKeyPlaceholderResolvesLocally(t *testing.T) {
 		)
 	})
 
-	t.Run("unknown tranche id still bootstraps", func(t *testing.T) {
+	t.Run("unknown tranche id is not bootstrapped", func(t *testing.T) {
 		book, _, syncer := newGroupedAssetBook(t)
 
 		var unknownID asset.ID
@@ -199,8 +210,34 @@ func TestGroupKeyPlaceholderResolvesLocally(t *testing.T) {
 		require.Len(t, out.AssetAmounts, 1)
 		require.Empty(t, out.AssetAmounts[0].GroupKey)
 
-		// A genuinely unknown asset is still looked up by ID.
-		require.Len(t, syncer.lookups, 1)
-		require.True(t, syncer.lookups[0].HasId())
+		// Enrichment is best effort: an asset this node has never seen
+		// is returned without a group key and is not fetched from the
+		// federation.
+		require.Empty(t, syncer.lookups)
+	})
+
+	t.Run("ungrouped tranche has no group key", func(t *testing.T) {
+		book, addrStore, _, syncer := newGroupedAssetBookWithStore(t)
+
+		gen := asset.RandGenesis(t, asset.Normal)
+		require.NoError(t, addrStore.InsertAssetGen(ctx, &gen, nil))
+		id := gen.ID()
+
+		jsonHtlc, err := json.Marshal(&rfqmsg.JsonHtlc{
+			Balances: []*rfqmsg.JsonAssetTranche{{
+				AssetID: hex.EncodeToString(id[:]),
+				Amount:  9,
+			}},
+		})
+		require.NoError(t, err)
+
+		out, _, err := marshalAssetPayment(
+			paymentWithRouteData(jsonHtlc),
+			newAssetGroupLookup(ctx, book),
+		)
+		require.NoError(t, err)
+		require.Len(t, out.AssetAmounts, 1)
+		require.Empty(t, out.AssetAmounts[0].GroupKey)
+		require.Empty(t, syncer.lookups)
 	})
 }

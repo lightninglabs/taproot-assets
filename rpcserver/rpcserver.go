@@ -11730,11 +11730,13 @@ func newAssetGroupLookup(ctx context.Context,
 	}
 }
 
-// groupKey returns the compressed tweaked group key that the given asset
-// tranche belongs to, or nil if the tranche has no group, the asset isn't
-// known to this tapd, or no address book is configured. Errors are logged
-// and swallowed: a list RPC should never fail because of opportunistic
-// metadata enrichment.
+// groupKey returns the compressed tweaked group key that the given asset ID
+// belongs to, or nil if the asset has no group, the asset isn't known to this
+// tapd, or no address book is configured. The ID is either a tranche ID or
+// the group key x-coordinate placeholder that group-key HTLCs carry. Only the
+// local store is consulted: an unknown asset must never cause a list RPC to
+// block on a federation sync. Errors are logged and swallowed: a list RPC
+// should never fail because of opportunistic metadata enrichment.
 func (l *assetGroupLookup) groupKey(id asset.ID) []byte {
 	if gk, ok := l.cache[id]; ok {
 		return gk
@@ -11745,41 +11747,18 @@ func (l *assetGroupLookup) groupKey(id asset.ID) []byte {
 		return nil
 	}
 
-	// An HTLC paid against a group key carries the x-coordinate of that
-	// key as its asset ID, as a placeholder for any tranche of the group.
-	// No tranche has that ID, so it must be resolved as a group key first.
-	// Otherwise the lookup below treats it as an asset this node has never
-	// seen and bootstraps it from the federation, on every call, for an
-	// asset that does not exist.
-	group, err := l.addrBook.QueryAssetGroupByGroupKeyX(l.ctx, id)
-	switch {
-	case err == nil:
-		gk := group.GroupKey.GroupPubKey.SerializeCompressed()
-		l.cache[id] = gk
-
-		return gk
-
-	case !errors.Is(err, address.ErrAssetGroupUnknown):
-		rpcsLog.Debugf("list rpc: unable to query asset group by "+
-			"key x-coordinate %x: %v", id[:], err)
-		l.cache[id] = nil
-
-		return nil
-	}
-
-	info, err := l.addrBook.QueryAssetInfo(
-		l.ctx, asset.NewSpecifierFromId(id),
-	)
+	group, err := l.addrBook.QueryLocalAssetGroup(l.ctx, id)
 	if err != nil {
-		rpcsLog.Debugf("list rpc: unable to query asset info for "+
+		rpcsLog.Debugf("list rpc: unable to resolve asset group for "+
 			"asset_id %x: %v", id[:], err)
 		l.cache[id] = nil
+
 		return nil
 	}
 
 	var gk []byte
-	if info.GroupKey != nil {
-		gk = info.GroupKey.GroupPubKey.SerializeCompressed()
+	if group.GroupKey != nil {
+		gk = group.GroupKey.GroupPubKey.SerializeCompressed()
 	}
 	l.cache[id] = gk
 

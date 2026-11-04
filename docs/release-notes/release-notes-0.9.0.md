@@ -30,6 +30,16 @@
   vulnerability. Operators can explicitly opt in with
   `GODEBUG=multipathtcp=1`.
 
+- [The asset-aware `ListInvoices`, `ListPayments` and the matching subscription
+  RPCs no longer trigger a universe federation sync on every
+  call](https://github.com/lightninglabs/taproot-assets/pull/2379) for grouped
+  assets. The group key placeholder carried by group-key HTLCs was treated as
+  an unknown tranche ID and bootstrapped from the federation, which blocked
+  the RPC on the slowest federation server and returned an empty `group_key`.
+  The placeholder is now resolved from the local database, and the group key
+  enrichment of these RPCs never reaches the network anymore: an asset this
+  node has never seen is returned without a group key.
+
 - [Asset hold invoices now preserve the requested final CLTV
   delta](https://github.com/lightninglabs/taproot-assets/pull/2360) instead of
   always using LND's default. A zero value still uses the configured default,

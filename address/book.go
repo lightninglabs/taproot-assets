@@ -338,6 +338,28 @@ func (b *Book) QueryAssetGroupByGroupKeyX(ctx context.Context,
 	return nil, ErrAssetGroupUnknown
 }
 
+// QueryLocalAssetGroup resolves the asset group that an asset ID carried by
+// an HTLC refers to, consulting only the local store. The ID is either the ID
+// of a tranche known to this node, or the x-coordinate of a group key, which
+// group-key HTLCs carry as a placeholder for any tranche of that group. An ID
+// that matches neither yields ErrAssetGroupUnknown and nothing is fetched from
+// the federation, so this is safe to call from paths that must not block on
+// network access.
+func (b *Book) QueryLocalAssetGroup(ctx context.Context,
+	id asset.ID) (*asset.AssetGroup, error) {
+
+	group, err := b.cfg.Store.QueryAssetGroupByID(ctx, id)
+	switch {
+	case err == nil:
+		return group, nil
+
+	case !errors.Is(err, ErrAssetGroupUnknown):
+		return nil, err
+	}
+
+	return b.QueryAssetGroupByGroupKeyX(ctx, id)
+}
+
 // queryAssetInfoByID attempts to locate asset genesis information by querying
 // geneses by ID already known to this node. If asset issuance was not
 // previously verified, we then query universes in our federation for issuance
