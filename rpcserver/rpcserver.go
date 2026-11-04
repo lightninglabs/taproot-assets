@@ -11745,6 +11745,28 @@ func (l *assetGroupLookup) groupKey(id asset.ID) []byte {
 		return nil
 	}
 
+	// An HTLC paid against a group key carries the x-coordinate of that
+	// key as its asset ID, as a placeholder for any tranche of the group.
+	// No tranche has that ID, so it must be resolved as a group key first.
+	// Otherwise the lookup below treats it as an asset this node has never
+	// seen and bootstraps it from the federation, on every call, for an
+	// asset that does not exist.
+	group, err := l.addrBook.QueryAssetGroupByGroupKeyX(l.ctx, id)
+	switch {
+	case err == nil:
+		gk := group.GroupKey.GroupPubKey.SerializeCompressed()
+		l.cache[id] = gk
+
+		return gk
+
+	case !errors.Is(err, address.ErrAssetGroupUnknown):
+		rpcsLog.Debugf("list rpc: unable to query asset group by "+
+			"key x-coordinate %x: %v", id[:], err)
+		l.cache[id] = nil
+
+		return nil
+	}
+
 	info, err := l.addrBook.QueryAssetInfo(
 		l.ctx, asset.NewSpecifierFromId(id),
 	)
