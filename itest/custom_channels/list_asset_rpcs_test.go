@@ -10,6 +10,7 @@ import (
 	"io"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/lightninglabs/taproot-assets/itest"
@@ -531,6 +532,115 @@ func testCustomChannelsListInvoicesAndPayments(_ context.Context,
 	)
 	require.NoError(t.t, err)
 	require.Empty(t.t, bobPayments.Payments)
+
+	// -----------------------------------------------------------------
+	// Group key invoice and payment: the HTLC custom records of a
+	// payment made against a group key carry the x-coordinate of the
+	// group key as a placeholder asset ID instead of a tranche ID. The
+	// list RPCs must still resolve the group key from that placeholder,
+	// and must do so from the local database without consulting the
+	// universe federation.
+	// -----------------------------------------------------------------
+	groupKeyX := expectedGroupKey[1:]
+
+	const groupInvoiceAmount = 1_200
+	groupInvoiceResp := createAssetInvoice(
+		t.t, alice, bob, groupInvoiceAmount, nil,
+		withInvGroupKey(expectedGroupKey),
+	)
+	groupInvoiceAddUpdate := waitForAssetInvoiceUpdate(
+		t.t, bobInvoiceStream, groupInvoiceResp.RHash, bobBTCInvoice.RHash,
+	)
+	require.Equal(
+		t.t, lnrpc.Invoice_OPEN, groupInvoiceAddUpdate.Invoice.State,
+	)
+	require.Empty(t.t, groupInvoiceAddUpdate.AssetAmounts)
+
+	groupSentUnits, _ := payInvoiceWithAssets(
+		t.t, alice, bob, groupInvoiceResp.PaymentRequest, nil,
+		withGroupKey(expectedGroupKey),
+	)
+	require.NotZero(t.t, groupSentUnits)
+	t.Logf("Paid group key asset invoice: %d units sent", groupSentUnits)
+
+	waitForAssetChannelHtlcSettlement(t.t, alice, assetChanPoint)
+
+	groupInvoiceUpdate := waitForAssetInvoiceUpdate(
+		t.t, bobInvoiceStream, groupInvoiceResp.RHash, bobBTCInvoice.RHash,
+	)
+	require.Equal(t.t, lnrpc.Invoice_SETTLED, groupInvoiceUpdate.Invoice.State)
+	require.Len(t.t, groupInvoiceUpdate.AssetAmounts, 1)
+	require.Equal(t.t, groupKeyX, groupInvoiceUpdate.AssetAmounts[0].AssetId)
+	require.Equal(
+		t.t, groupSentUnits, groupInvoiceUpdate.AssetAmounts[0].Amount,
+	)
+	require.Equal(
+		t.t, expectedGroupKey, groupInvoiceUpdate.AssetAmounts[0].GroupKey,
+	)
+
+	groupPaymentUpdate := waitForAssetPaymentUpdate(
+		t.t, alicePaymentStream,
+		hex.EncodeToString(groupInvoiceResp.RHash), btcPaymentHashHex,
+	)
+	require.Equal(
+		t.t, lnrpc.Payment_SUCCEEDED, groupPaymentUpdate.Payment.Status,
+	)
+	require.Len(t.t, groupPaymentUpdate.AssetAmounts, 1)
+	require.Equal(t.t, groupKeyX, groupPaymentUpdate.AssetAmounts[0].AssetId)
+	require.Equal(
+		t.t, groupSentUnits, groupPaymentUpdate.AssetAmounts[0].Amount,
+	)
+	require.Equal(
+		t.t, expectedGroupKey, groupPaymentUpdate.AssetAmounts[0].GroupKey,
+	)
+
+	// The resolution must not depend on the federation: a lookup that
+	// falls through to a universe sync would either block the call or
+	// return an empty group key. A tight deadline makes a sync attempt
+	// fail the call outright.
+	listCtx, cancelList := context.WithTimeout(ctx, 5*time.Second)
+	defer cancelList()
+
+	bobInvoices, err = asTapd(bob).ListInvoices(
+		listCtx, &tchrpc.ListInvoicesRequest{
+			Request: &lnrpc.ListInvoiceRequest{
+				NumMaxInvoices: 100,
+			},
+		},
+	)
+	require.NoError(t.t, err)
+	require.Len(t.t, bobInvoices.Invoices, 4)
+
+	groupInv := findAssetInvoice(t.t, bobInvoices, groupInvoiceResp.RHash)
+	require.Equal(t.t, lnrpc.Invoice_SETTLED, groupInv.Invoice.State)
+	require.Len(t.t, groupInv.AssetAmounts, 1)
+	require.Equal(t.t, groupKeyX, groupInv.AssetAmounts[0].AssetId)
+	require.Equal(t.t, groupSentUnits, groupInv.AssetAmounts[0].Amount)
+	require.Equal(
+		t.t, expectedGroupKey, groupInv.AssetAmounts[0].GroupKey,
+	)
+
+	alicePayments, err = asTapd(alice).ListPayments(
+		listCtx, &tchrpc.ListPaymentsRequest{
+			Request: &lnrpc.ListPaymentsRequest{
+				IncludeIncomplete: true,
+				MaxPayments:       100,
+			},
+		},
+	)
+	require.NoError(t.t, err)
+	require.Len(t.t, alicePayments.Payments, 4)
+
+	groupPay := findAssetPayment(
+		t.t, alicePayments, hex.EncodeToString(groupInvoiceResp.RHash),
+	)
+	require.Equal(t.t, lnrpc.Payment_SUCCEEDED, groupPay.Payment.Status)
+	require.Len(t.t, groupPay.AssetAmounts, 1)
+	require.Equal(t.t, groupKeyX, groupPay.AssetAmounts[0].AssetId)
+	require.Equal(t.t, groupSentUnits, groupPay.AssetAmounts[0].Amount)
+	require.Equal(
+		t.t, expectedGroupKey, groupPay.AssetAmounts[0].GroupKey,
+	)
 }
 
 type assetInvoiceStream interface {
