@@ -3410,8 +3410,17 @@ func (r *RPCServer) validateInputAssets(ctx context.Context,
 	// The witness of a split only signs the split commitment root, so we
 	// make sure each split root asset is the one its split tree commits
 	// to. Otherwise a split root could be changed after signing, for
-	// example to point to another script key at the same amount.
-	if err := tapsend.ValidateSplitRootLocators(vPackets); err != nil {
+	// example to point to another script key at the same amount. The
+	// anchor transaction can't confirm before the next block, so its split
+	// trees must have the branch versions allowed there.
+	tip, err := r.cfg.ChainBridge.CurrentHeight(ctx)
+	if err != nil {
+		return fmt.Errorf("unable to fetch chain tip: %w", err)
+	}
+	err = tapsend.ValidateSplitRootLocators(
+		proof.SplitTreeVersionsAt(tip+1), vPackets,
+	)
+	if err != nil {
 		return fmt.Errorf("error validating split roots: %w", err)
 	}
 

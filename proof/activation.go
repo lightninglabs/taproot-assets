@@ -120,7 +120,16 @@ func (v VerifierCtx) activationHeight() lfn.Option[uint32] {
 func activationRequired(ctx context.Context, p *Proof, vCtx VerifierCtx,
 	skipChainVerification bool) (bool, error) {
 
-	height := vCtx.activationHeight()
+	return heightReached(
+		ctx, p, vCtx, vCtx.activationHeight(), skipChainVerification,
+	)
+}
+
+// heightReached reports whether a proof is subject to a rule that applies from
+// the given height, on the terms activationRequired describes.
+func heightReached(ctx context.Context, p *Proof, vCtx VerifierCtx,
+	height lfn.Option[uint32], skipChainVerification bool) (bool, error) {
+
 	if height.IsNone() {
 		return false, nil
 	}

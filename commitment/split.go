@@ -143,6 +143,19 @@ func NewSplitCommitment(ctx context.Context, inputs []SplitCommitmentInput,
 	rootLocator *SplitLocator,
 	externalLocators ...*SplitLocator) (*SplitCommitment, error) {
 
+	return NewVersionedSplitCommitment(
+		ctx, mssmt.BranchV0, inputs, rootLocator, externalLocators...,
+	)
+}
+
+// NewVersionedSplitCommitment computes a new SplitCommitment as
+// NewSplitCommitment does, with a split commitment tree of branches of the
+// given version.
+func NewVersionedSplitCommitment(ctx context.Context,
+	version mssmt.BranchVersion, inputs []SplitCommitmentInput,
+	rootLocator *SplitLocator,
+	externalLocators ...*SplitLocator) (*SplitCommitment, error) {
+
 	// Calculate sum total input amounts.
 	totalInputAmount := uint64(0)
 	for idx := range inputs {
@@ -190,7 +203,9 @@ func NewSplitCommitment(ctx context.Context, inputs []SplitCommitmentInput,
 	// the total input amount.
 	locators := append(externalLocators, rootLocator)
 	splitAssets := make(SplitSet, len(locators))
-	splitTree := mssmt.NewCompactedTree(mssmt.NewDefaultStore())
+	splitTree := mssmt.NewCompactedTree(
+		mssmt.NewDefaultStore(), mssmt.WithBranchVersion(version),
+	)
 	remainingAmount := totalInputAmount
 	rootIdx := len(locators) - 1
 	addAssetSplit := func(locator *SplitLocator) error {

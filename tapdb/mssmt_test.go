@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"testing"
 
+	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/stretchr/testify/require"
@@ -792,4 +793,117 @@ func TestTreeEmptySubtreeRow(t *testing.T) {
 	wantRoot, err := reference.Root(ctx)
 	require.NoError(t, err)
 	require.True(t, mssmt.IsEqualNode(wantRoot, root))
+}
+
+// assertEqualTrees asserts that the given trees have equal roots, and equal
+// proofs for the given keys that verify for BranchV1.
+func assertEqualTrees(t *testing.T, dbTree, memTree mssmt.Tree,
+	keys [][32]byte) {
+
+	t.Helper()
+
+	ctx := context.Background()
+
+	dbRoot, err := dbTree.Root(ctx)
+	require.NoError(t, err)
+	memRoot, err := memTree.Root(ctx)
+	require.NoError(t, err)
+	require.True(t, mssmt.IsEqualNode(dbRoot, memRoot))
+
+	for _, key := range keys {
+		dbProof, err := dbTree.MerkleProof(ctx, key)
+		require.NoError(t, err)
+		memProof, err := memTree.MerkleProof(ctx, key)
+		require.NoError(t, err)
+
+		for i := range memProof.Nodes {
+			require.True(t, mssmt.IsEqualNode(
+				memProof.Nodes[i], dbProof.Nodes[i],
+			))
+		}
+
+		leaf, err := dbTree.Get(ctx, key)
+		require.NoError(t, err)
+		require.True(t, mssmt.VerifyVersionedMerkleProof(
+			mssmt.BranchV1, key, leaf, dbProof, dbRoot,
+		))
+	}
+}
+
+// testTreeBranchV1 tests that a BranchV1 tree backed by the database has the
+// roots and proofs of the same tree backed by the default store, across
+// single inserts, batch inserts and deletes.
+func testTreeBranchV1(t *testing.T, namespace string,
+	newTree func(mssmt.TreeStore) mssmt.Tree) {
+
+	ctx := context.Background()
+	store, _ := newTaprootAssetTreeStore(t, namespace)
+	trees := []mssmt.Tree{newTree(store), newTree(mssmt.NewDefaultStore())}
+
+	randLeaf := func(i int) *mssmt.LeafNode {
+		return mssmt.NewLeafNode(test.RandBytes(8), uint64(i+1))
+	}
+
+	var keys [][32]byte
+	for i := 0; i < 20; i++ {
+		key := test.RandHash()
+		leaf := randLeaf(i)
+		keys = append(keys, key)
+
+		for _, tree := range trees {
+			_, err := tree.Insert(ctx, key, leaf)
+			require.NoError(t, err)
+		}
+		assertEqualTrees(t, trees[0], trees[1], keys)
+	}
+
+	batch := make(map[[32]byte]*mssmt.LeafNode)
+	for i := 0; i < 20; i++ {
+		key := test.RandHash()
+		batch[key] = randLeaf(i)
+		keys = append(keys, key)
+	}
+	for _, tree := range trees {
+		_, err := tree.InsertMany(ctx, batch)
+		require.NoError(t, err)
+	}
+	assertEqualTrees(t, trees[0], trees[1], keys)
+
+	for i, key := range keys {
+		for _, tree := range trees {
+			_, err := tree.Delete(ctx, key)
+			require.NoError(t, err)
+		}
+		assertEqualTrees(t, trees[0], trees[1], keys[i+1:])
+	}
+
+	root, err := trees[0].Root(ctx)
+	require.NoError(t, err)
+	require.True(t, mssmt.IsEqualNode(mssmt.EmptyTree[0], root))
+}
+
+// TestTreeBranchV1 tests BranchV1 full and compacted trees backed by the
+// database.
+func TestTreeBranchV1(t *testing.T) {
+	t.Parallel()
+
+	v1 := mssmt.WithBranchVersion(mssmt.BranchV1)
+
+	t.Run("full", func(t *testing.T) {
+		t.Parallel()
+
+		testTreeBranchV1(t, "full", func(s mssmt.TreeStore) mssmt.Tree {
+			return mssmt.NewFullTree(s, v1)
+		})
+	})
+
+	t.Run("compacted", func(t *testing.T) {
+		t.Parallel()
+
+		testTreeBranchV1(
+			t, "compacted", func(s mssmt.TreeStore) mssmt.Tree {
+				return mssmt.NewCompactedTree(s, v1)
+			},
+		)
+	})
 }

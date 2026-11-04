@@ -10,11 +10,13 @@ import (
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/rfq"
 	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	cmsg "github.com/lightninglabs/taproot-assets/tapchannelmsg"
 	"github.com/lightninglabs/taproot-assets/tapfeatures"
+	"github.com/lightninglabs/taproot-assets/tapgarden"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnutils"
@@ -32,6 +34,9 @@ type TrafficShaperConfig struct {
 	RfqManager *rfq.Manager
 
 	AuxChanNegotiator *tapfeatures.AuxChannelNegotiator
+
+	// ChainBridge is used to fetch the height of the main chain.
+	ChainBridge tapgarden.ChainBridge
 
 	// NoOpHTLCs is a boolean indicating whether the daemon configuration
 	// wants us to produce NoOp HTLCs.
@@ -165,6 +170,19 @@ func (s *AuxTrafficShaper) PaymentBandwidth(fundingBlob, htlcBlob,
 		return 0, fmt.Errorf("error decoding HTLC blob: %w", err)
 	}
 
+	// From the split tree activation height on, a channel whose next
+	// commitment has BranchV0 split commitment trees takes no asset HTLCs.
+	v0Next, err := s.nextCommitSplitTreeV0(peer)
+	if err != nil {
+		return 0, err
+	}
+	if v0Next {
+		log.Debugf("Next commitment with peer %x has BranchV0 split "+
+			"trees past the split tree activation height, "+
+			"returning 0 bandwidth", peer[:])
+		return 0, nil
+	}
+
 	// Before we do any further checks, we actually need to make sure that
 	// the HTLC is compatible with this channel. Because of `lnd`'s
 	// non-strict forwarding, if there are multiple asset channels, the
@@ -240,6 +258,34 @@ func (s *AuxTrafficShaper) PaymentBandwidth(fundingBlob, htlcBlob,
 		htlc, computedLocal, linkBandwidth, minHtlcAmt, fundingChan,
 		peer,
 	)
+}
+
+// nextCommitSplitTreeV0 returns true if the next commitment of a channel with
+// the given peer has BranchV0 split commitment trees, as the peer doesn't
+// signal the split-tree-v1 feature, and the block after the chain tip is at or
+// past the split tree activation height.
+func (s *AuxTrafficShaper) nextCommitSplitTreeV0(
+	peer route.Vertex) (bool, error) {
+
+	activation := proof.DefaultSplitTreeActivationHeight()
+	if activation.IsNone() {
+		return false, nil
+	}
+
+	peerFeatures := s.cfg.AuxChanNegotiator.GetPeerFeatures(peer)
+	if peerFeatures.HasFeature(tapfeatures.SplitTreeV1Optional) {
+		return false, nil
+	}
+
+	ctx, cancel := auxOpCtx()
+	defer cancel()
+
+	tip, err := s.cfg.ChainBridge.CurrentHeight(ctx)
+	if err != nil {
+		return false, fmt.Errorf("unable to fetch chain tip: %w", err)
+	}
+
+	return tip+1 >= activation.UnwrapOr(0), nil
 }
 
 // paymentBandwidthAssetUnits includes the asset unit related checks between the

@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/itest"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/taprpc"
@@ -167,13 +169,16 @@ func runWithCompatHarness(t *testing.T, scenario func(context.Context,
 
 // runBackwardsCompatLifecycle exercises the core lifecycle of an asset channel
 // between a node running a pinned historical binary (Charlie) and a node
-// running the current build (Dave). To cover both on-chain close paths
-// cross-version, it runs two cycles on the same node pair: the first funds a
-// channel, sends asset payments in both directions and cooperatively closes;
-// the second funds a fresh channel, sends payments and force closes, then
-// drives the resulting sweeps. Its purpose is to detect cross-version
-// regressions in the channel protocol, so it is deliberately a single lean
-// scenario rather than a re-run of the full custom channel test matrix.
+// running the current build. The current build opens no asset channel with a
+// peer that lacks the split-tree-v1 feature, so each channel is opened while
+// both peers run the historical binary, and the peer is then upgraded. To
+// cover both on-chain close paths cross-version, it runs two cycles: the
+// first funds a channel with Dave, sends asset payments in both directions and
+// cooperatively closes; the second funds a channel with Erin, sends payments
+// and force closes, then drives the resulting sweeps. Its purpose is to detect
+// cross-version regressions in the channel protocol, so it is deliberately a
+// single lean scenario rather than a re-run of the full custom channel test
+// matrix.
 func runBackwardsCompatLifecycle(ctx context.Context,
 	net *itest.IntegratedNetworkHarness, t *ccHarnessTest,
 	oldBinary, version string) {
@@ -193,32 +198,44 @@ func runBackwardsCompatLifecycle(ctx context.Context,
 		"--rpclisten=127.0.0.1:%d", charliePort,
 	))
 
-	// Charlie runs the pinned historical binary; Dave runs the current
-	// build provided by the harness.
+	// Charlie runs the pinned historical binary throughout; Dave starts on
+	// it, and is upgraded to the current build once his channel is open.
 	charlie := net.NewNodeWithBinary(
 		"Charlie", oldBinary, charlieLndArgs, tapdArgs,
 	)
-	dave := net.NewNode("Dave", lndArgs, tapdArgs)
+	dave := net.NewNodeWithBinary("Dave", oldBinary, lndArgs, tapdArgs)
 
 	nodes := []*itest.IntegratedNode{charlie, dave}
 	connectAllNodes(t.t, net, nodes)
 	fundAllNodes(t.t, net, nodes)
 
 	// Sanity check: Charlie really is running the pinned historical
-	// version, and Dave is running a different (current) build.
+	// version.
 	charlieInfo, err := asTapd(charlie).GetInfo(
 		ctx, &taprpc.GetInfoRequest{},
 	)
-	require.NoError(t.t, err)
-	daveInfo, err := asTapd(dave).GetInfo(ctx, &taprpc.GetInfoRequest{})
 	require.NoError(t.t, err)
 	require.Contains(
 		t.t, charlieInfo.Version, strings.TrimPrefix(version, "v"),
 		"Charlie should report the pinned %s version", version,
 	)
-	require.NotEqual(t.t, charlieInfo.Version, daveInfo.Version)
-	t.Logf("Charlie (old) version=%s, Dave (current) version=%s",
-		charlieInfo.Version, daveInfo.Version)
+
+	// upgrade upgrades the given peer of Charlie to the current build,
+	// reconnects it and checks that it runs another version than Charlie
+	// and still has the given channel.
+	upgrade := func(peer *itest.IntegratedNode, chanPoint *wire.OutPoint) {
+		net.UpgradeNode(peer)
+		net.EnsureConnected(t.t, charlie, peer)
+		require.NoError(t.t, net.AssertChannelExists(peer, chanPoint))
+
+		info, err := asTapd(peer).GetInfo(
+			ctx, &taprpc.GetInfoRequest{},
+		)
+		require.NoError(t.t, err)
+		require.NotEqual(t.t, charlieInfo.Version, info.Version)
+		t.Logf("Charlie (old) version=%s, %s (current) version=%s",
+			charlieInfo.Version, peer.Cfg.Name, info.Version)
+	}
 
 	// Charlie mints the channel asset and Dave syncs to him as universe.
 	mintedAssets := itest.MintAssetsConfirmBatch(
@@ -266,6 +283,8 @@ func runBackwardsCompatLifecycle(ctx context.Context,
 	assertAssetChan(
 		t.t, charlie, dave, fundingAmount, []*taprpc.Asset{cents},
 	)
+
+	upgrade(dave, compatChanOutpoint(t, assetFundResp))
 
 	logBalance(t.t, nodes, assetID, "after funding")
 
@@ -324,14 +343,20 @@ func runBackwardsCompatLifecycle(ctx context.Context,
 	// ----------------------------------------------------------------
 	// Cycle 2: fund -> payments -> force close -> sweeps.
 	// ----------------------------------------------------------------
-	net.EnsureConnected(t.t, charlie, dave)
 
-	t.Logf("Opening asset channel Charlie -> Dave (force close cycle)...")
+	// Erin starts on the pinned historical binary, like Dave did.
+	erin := net.NewNodeWithBinary("Erin", oldBinary, lndArgs, tapdArgs)
+	connectAllNodes(t.t, net, []*itest.IntegratedNode{charlie, erin})
+	fundAllNodes(t.t, net, []*itest.IntegratedNode{erin})
+	syncUniverses(t.t, charlie, erin)
+	nodes = []*itest.IntegratedNode{charlie, dave, erin}
+
+	t.Logf("Opening asset channel Charlie -> Erin (force close cycle)...")
 	forceFundResp, err := asTapd(charlie).FundChannel(
 		ctx, &tchrpc.FundChannelRequest{
 			AssetAmount:        fundingAmount,
 			AssetId:            assetID,
-			PeerPubkey:         dave.PubKey[:],
+			PeerPubkey:         erin.PubKey[:],
 			FeeRateSatPerVbyte: 5,
 		},
 	)
@@ -340,17 +365,16 @@ func runBackwardsCompatLifecycle(ctx context.Context,
 
 	mineBlocks(t, net, 6, 1)
 
-	// Dave already synced the asset genesis from Charlie in cycle 1, and
-	// the new channel's funding proof is delivered via the proof courier
-	// during funding, so no additional universe sync is needed here.
-	require.NoError(t.t, net.AssertNodeKnown(charlie, dave))
-	require.NoError(t.t, net.AssertNodeKnown(dave, charlie))
+	require.NoError(t.t, net.AssertNodeKnown(charlie, erin))
+	require.NoError(t.t, net.AssertNodeKnown(erin, charlie))
 	assertAssetChan(
-		t.t, charlie, dave, fundingAmount, []*taprpc.Asset{cents},
+		t.t, charlie, erin, fundingAmount, []*taprpc.Asset{cents},
 	)
 
-	// Push a handful of asset keysends to Dave, carrying enough sats each
-	// time that Dave's commitment output stays above dust and is therefore
+	upgrade(erin, compatChanOutpoint(t, forceFundResp))
+
+	// Push a handful of asset keysends to Erin, carrying enough sats each
+	// time that Erin's commitment output stays above dust and is therefore
 	// worth sweeping after the force close.
 	const (
 		forceNumPayments = 5
@@ -359,14 +383,14 @@ func runBackwardsCompatLifecycle(ctx context.Context,
 	)
 	for range forceNumPayments {
 		sendAssetKeySendPayment(
-			t.t, charlie, dave, forceKeySend, assetID,
+			t.t, charlie, erin, forceKeySend, assetID,
 			fn.Some(forceBtcAmt),
 		)
 	}
 	logBalance(t.t, nodes, assetID, "after force-close-cycle payments")
 
 	// Force close from Charlie and confirm the commitment transaction.
-	t.Logf("Force closing Charlie -> Dave channel...")
+	t.Logf("Force closing Charlie -> Erin channel...")
 	forceChanPoint := &lnrpc.ChannelPoint{
 		OutputIndex: uint32(forceFundResp.OutputIndex),
 		FundingTxid: &lnrpc.ChannelPoint_FundingTxidStr{
@@ -381,14 +405,14 @@ func runBackwardsCompatLifecycle(ctx context.Context,
 	mineBlocks(t, net, 1, 1)
 
 	// Both nodes should record the force close transfer.
-	findForceCloseTransfer(t.t, charlie, dave, forceCloseTxid)
+	findForceCloseTransfer(t.t, charlie, erin, forceCloseTxid)
 
-	// Dave sweeps his (non-delayed) commitment output first.
+	// Erin sweeps her (non-delayed) commitment output first.
 	_, err = waitForNTxsInMempool(net.Miner, 1, ccShortTimeout)
 	require.NoError(t.t, err)
-	daveSweepBlocks := mineBlocks(t, net, 1, 1)
-	daveSweepTxHash := daveSweepBlocks[0].Transactions[1].TxHash()
-	locateAssetTransfers(t.t, dave, daveSweepTxHash)
+	erinSweepBlocks := mineBlocks(t, net, 1, 1)
+	erinSweepTxHash := erinSweepBlocks[0].Transactions[1].TxHash()
+	locateAssetTransfers(t.t, erin, erinSweepTxHash)
 
 	// Charlie's to-local output is CSV-delayed; mine the delay, then
 	// confirm his sweep.
@@ -398,13 +422,24 @@ func runBackwardsCompatLifecycle(ctx context.Context,
 	mineBlocks(t, net, 1, 0)
 
 	// Final on-chain asset balances across both cycles. Dave keeps his coop
-	// cycle share plus everything Charlie pushed to him this cycle; Charlie
-	// holds the rest of the minted supply.
-	const forceDaveGain = forceNumPayments * forceKeySend
-	daveFinal := uint64(coopDaveChan + forceDaveGain)
-	assertBalance(t.t, dave, daveFinal, itest.WithAssetID(assetID))
+	// cycle share, Erin keeps everything Charlie pushed to her this cycle,
+	// and Charlie holds the rest of the minted supply.
+	const erinFinal = forceNumPayments * forceKeySend
+	assertBalance(t.t, dave, coopDaveChan, itest.WithAssetID(assetID))
+	assertBalance(t.t, erin, erinFinal, itest.WithAssetID(assetID))
 	assertBalance(
-		t.t, charlie, ccItestAsset.Amount-daveFinal,
+		t.t, charlie, ccItestAsset.Amount-coopDaveChan-erinFinal,
 		itest.WithAssetID(assetID),
 	)
+}
+
+// compatChanOutpoint returns the funding outpoint of the channel that the
+// given funding response opened.
+func compatChanOutpoint(t *ccHarnessTest,
+	resp *tchrpc.FundChannelResponse) *wire.OutPoint {
+
+	txid, err := chainhash.NewHashFromStr(resp.Txid)
+	require.NoError(t.t, err)
+
+	return &wire.OutPoint{Hash: *txid, Index: uint32(resp.OutputIndex)}
 }

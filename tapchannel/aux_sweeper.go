@@ -2137,7 +2137,10 @@ func (a *AuxSweeper) importCommitTx(req lnwallet.ResolutionReq,
 	// We can now add the witness for the OP_TRUE spend of the commitment
 	// output to the vPackets.
 	vPackets := maps.Values(vPktsByAssetID)
-	if err := signCommitVirtualPackets(ctxb, vPackets); err != nil {
+	err = signCommitVirtualPackets(
+		ctxb, stxoFeatures.SplitTreeVersion(), vPackets,
+	)
+	if err != nil {
 		return fmt.Errorf("error signing commit virtual "+
 			"packets: %w", err)
 	}

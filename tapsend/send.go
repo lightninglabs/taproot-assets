@@ -25,6 +25,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
@@ -328,9 +329,19 @@ func ValidateCommitmentKeysUnique(packets []*tappsbt.VPacket) error {
 // PrepareOutputAssets prepares the assets of the given outputs depending on
 // the amounts set on the transaction. If a split is necessary (non-interactive
 // or partial amount send) it computes a split commitment with the given inputs
-// and spend information. The inputs MUST be checked as valid beforehand and the
-// change output is expected to be declared as such (and be at index 0).
+// and spend information, with a split commitment tree of BranchV1 branches.
+// The inputs MUST be checked as valid beforehand and the change output is
+// expected to be declared as such (and be at index 0).
 func PrepareOutputAssets(ctx context.Context, vPkt *tappsbt.VPacket) error {
+	return PrepareVersionedOutputAssets(ctx, mssmt.BranchV1, vPkt)
+}
+
+// PrepareVersionedOutputAssets prepares the assets of the given outputs as
+// PrepareOutputAssets does, with a split commitment tree, if any, of branches
+// of the given version.
+func PrepareVersionedOutputAssets(ctx context.Context,
+	version mssmt.BranchVersion, vPkt *tappsbt.VPacket) error {
+
 	inputs := vPkt.Inputs
 	outputs := vPkt.Outputs
 
@@ -597,8 +608,9 @@ func PrepareOutputAssets(ctx context.Context, vPkt *tappsbt.VPacket) error {
 		return ErrNoRootLocator
 	}
 
-	splitCommitment, err := commitment.NewSplitCommitment(
-		ctx, splitCommitmentInputs, rootLocator, splitLocators...,
+	splitCommitment, err := commitment.NewVersionedSplitCommitment(
+		ctx, version, splitCommitmentInputs, rootLocator,
+		splitLocators...,
 	)
 	if err != nil {
 		return err

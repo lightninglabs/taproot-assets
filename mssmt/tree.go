@@ -25,6 +25,10 @@ var (
 	// to rely on the root sum alone.
 	EmptyTreeRootHash NodeHash
 
+	// emptyTreeHeights maps the hash of each node of the empty tree below
+	// the root to its height.
+	emptyTreeHeights map[NodeHash]int
+
 	// ErrIntegerOverflow is an error returned when the result of an
 	// arithmetic operation on two integer values exceeds the maximum value
 	// that can be stored in the data type.
@@ -54,6 +58,41 @@ func init() {
 	}
 
 	EmptyTreeRootHash = EmptyTree[0].NodeHash()
+
+	emptyTreeHeights = make(map[NodeHash]int, MaxTreeLevels)
+	for i := 1; i <= MaxTreeLevels; i++ {
+		emptyTreeHeights[EmptyTree[i].NodeHash()] = i
+	}
+}
+
+// treeOptions holds the options of a new tree.
+type treeOptions struct {
+	// branchVersion is the version of the branches of the tree.
+	branchVersion BranchVersion
+}
+
+// TreeOption is an option of a new tree.
+type TreeOption func(*treeOptions)
+
+// WithBranchVersion sets the version of the branches of a new tree. The
+// default is BranchV0.
+func WithBranchVersion(version BranchVersion) TreeOption {
+	return func(o *treeOptions) {
+		o.branchVersion = version
+	}
+}
+
+// newTreeOptions returns the options of a new tree with the given options
+// applied.
+func newTreeOptions(opts ...TreeOption) *treeOptions {
+	options := &treeOptions{
+		branchVersion: BranchV0,
+	}
+	for _, opt := range opts {
+		opt(options)
+	}
+
+	return options
 }
 
 // FullTree represents a Merkle-Sum Sparse Merkle Tree (MS-SMT). A MS-SMT is an
@@ -63,6 +102,9 @@ func init() {
 // proofs of invalid merkle sum commitments.
 type FullTree struct {
 	store TreeStore
+
+	// version is the version of the branches of the tree.
+	version BranchVersion
 }
 
 var _ Tree = (*FullTree)(nil)
@@ -70,9 +112,12 @@ var _ Tree = (*FullTree)(nil)
 // NewFullTree initializes an empty MS-SMT backed by `store`. As a result,
 // `store` will only maintain non-empty relevant nodes, i.e., stale parents are
 // deleted and empty nodes are never stored.
-func NewFullTree(store TreeStore) *FullTree {
+func NewFullTree(store TreeStore, opts ...TreeOption) *FullTree {
+	options := newTreeOptions(opts...)
+
 	return &FullTree{
-		store: store,
+		store:   store,
+		version: options.branchVersion,
 	}
 }
 
@@ -144,9 +189,10 @@ func (t *FullTree) walkDown(tx TreeStoreViewTx, key *[hashSize]byte,
 }
 
 // walkUp walks up from the `start` leaf node up to the root with the help of
-// `siblings`. The root branch node computed is returned.
-func walkUp(key *[hashSize]byte, start Node, siblings []Node,
-	iter iterFunc) (*BranchNode, error) {
+// `siblings`, creating branches of the given version. The root branch node
+// computed is returned.
+func walkUp(version BranchVersion, key *[hashSize]byte, start Node,
+	siblings []Node, iter iterFunc) (*BranchNode, error) {
 
 	var current = start
 	for i := lastBitIndex; i >= 0; i-- {
@@ -160,9 +206,9 @@ func walkUp(key *[hashSize]byte, start Node, siblings []Node,
 
 		var parent Node
 		if bitIndex(uint8(i), key) == 0 {
-			parent = NewBranch(current, sibling)
+			parent = newBranch(version, current, sibling)
 		} else {
-			parent = NewBranch(sibling, current)
+			parent = newBranch(version, sibling, current)
 		}
 		if iter != nil {
 			err := iter(i, current, sibling, parent)
@@ -211,7 +257,8 @@ func (t *FullTree) insert(tx TreeStoreUpdateTx, key *[hashSize]byte,
 	// back up to the root, queuing storage writes for any stale and new
 	// intermediate branch nodes.
 	root, err = walkUp(
-		key, leaf, siblings, func(i int, _, _, parent Node) error {
+		t.version, key, leaf, siblings,
+		func(i int, _, _, parent Node) error {
 			// Replace the old parent with the new one. Our store
 			// should never track empty branches.
 			prevParent := prevParents[MaxTreeLevels-1-i]
@@ -702,7 +749,7 @@ func (t *FullTree) batchInsert(tx TreeStoreUpdateTx, items []batchItem,
 		}
 	}
 
-	newParent, err := newCheckedBranch(newLeft, newRight)
+	newParent, err := newCheckedBranch(t.version, newLeft, newRight)
 	if err != nil {
 		return nil, 0, fmt.Errorf("full tree batch insert sum "+
 			"error at depth %d: %w", depth, err)
@@ -732,9 +779,17 @@ func (t *FullTree) batchInsert(tx TreeStoreUpdateTx, items []batchItem,
 }
 
 // VerifyMerkleProof determines whether a merkle proof for the leaf found at the
-// given key is valid.
+// given key is valid for a tree of BranchV0 branches.
 func VerifyMerkleProof(key [hashSize]byte, leaf *LeafNode, proof *Proof,
 	root Node) bool {
+
+	return VerifyVersionedMerkleProof(BranchV0, key, leaf, proof, root)
+}
+
+// VerifyVersionedMerkleProof determines whether a merkle proof for the leaf
+// found at the given key is valid for a tree of branches of the given version.
+func VerifyVersionedMerkleProof(version BranchVersion, key [hashSize]byte,
+	leaf *LeafNode, proof *Proof, root Node) bool {
 
 	if leaf == nil || proof == nil || root == nil {
 		return false
@@ -743,7 +798,7 @@ func VerifyMerkleProof(key [hashSize]byte, leaf *LeafNode, proof *Proof,
 		return false
 	}
 
-	h, s, validSum := proof.rootSum(&key, leaf)
+	h, s, validSum := proof.rootSum(version, &key, leaf)
 	if !validSum {
 		return false
 	}

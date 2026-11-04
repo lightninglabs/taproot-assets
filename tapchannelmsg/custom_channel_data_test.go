@@ -30,25 +30,35 @@ var (
 // local commitment carries spender leaves.
 func TestReadChannelCustomData(t *testing.T) {
 	tests := []struct {
-		name    string
-		stxo    bool
-		spender bool
+		name        string
+		stxo        bool
+		spender     bool
+		splitTreeV1 bool
 	}{
 		{name: "no stxo"},
 		{name: "stxo", stxo: true},
 		{name: "spender", stxo: true, spender: true},
+		{
+			name: "split tree v1", stxo: true, spender: true,
+			splitTreeV1: true,
+		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			testReadChannelCustomData(t, tc.stxo, tc.spender)
+			testReadChannelCustomData(
+				t, tc.stxo, tc.spender, tc.splitTreeV1,
+			)
 		})
 	}
 }
 
 // testReadChannelCustomData tests the JSON format of the custom data of a
-// channel whose local commitment has the given STXO features.
-func testReadChannelCustomData(t *testing.T, stxo, spender bool) {
+// channel whose local commitment has the given STXO features and split tree
+// version.
+func testReadChannelCustomData(t *testing.T, stxo, spender,
+	splitTreeV1 bool) {
+
 	proof1 := randProof(t)
 	proof2 := randProof(t)
 	proof3 := randProof(t)
@@ -72,7 +82,7 @@ func testReadChannelCustomData(t *testing.T, stxo, spender bool) {
 		}, map[input.HtlcIndex][]*AssetOutput{
 			2: {output4},
 		}, lnwallet.CommitAuxLeaves{},
-		stxo, spender,
+		stxo, spender, splitTreeV1,
 	)
 
 	fundingBlob := fundingState.Bytes()
@@ -151,7 +161,8 @@ func testReadChannelCustomData(t *testing.T, stxo, spender bool) {
   "remote_balance": 2000,
   "outgoing_htlc_balance": 3000,
   "incoming_htlc_balance": 4000,
-  "spender_leaves": ` + strconv.FormatBool(spender) + `
+  "spender_leaves": ` + strconv.FormatBool(spender) + `,
+  "split_tree_v1": ` + strconv.FormatBool(splitTreeV1) + `
 }`
 	require.Equal(t, expected, formattedJSON.String())
 }
@@ -181,19 +192,19 @@ func TestReadBalanceCustomData(t *testing.T) {
 
 	openChannel1 := NewCommitment(
 		[]*AssetOutput{output1}, []*AssetOutput{output2}, nil, nil,
-		lnwallet.CommitAuxLeaves{}, false, false,
+		lnwallet.CommitAuxLeaves{}, false, false, false,
 	)
 	openChannel2 := NewCommitment(
 		[]*AssetOutput{output2}, []*AssetOutput{output3}, nil, nil,
-		lnwallet.CommitAuxLeaves{}, false, false,
+		lnwallet.CommitAuxLeaves{}, false, false, false,
 	)
 	pendingChannel1 := NewCommitment(
 		[]*AssetOutput{output3}, nil, nil, nil,
-		lnwallet.CommitAuxLeaves{}, false, false,
+		lnwallet.CommitAuxLeaves{}, false, false, false,
 	)
 	pendingChannel2 := NewCommitment(
 		nil, []*AssetOutput{output1}, nil, nil,
-		lnwallet.CommitAuxLeaves{}, false, false,
+		lnwallet.CommitAuxLeaves{}, false, false, false,
 	)
 
 	var customChannelData bytes.Buffer

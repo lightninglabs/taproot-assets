@@ -53,6 +53,10 @@ type JsonAssetChannel struct {
 	// SpenderLeaves is set if the local commitment commits to the spender
 	// leaves of the inputs it spends, next to their STXOs.
 	SpenderLeaves bool `json:"spender_leaves"`
+
+	// SplitTreeV1 is set if the split commitment trees of the local
+	// commitment have BranchV1 branches.
+	SplitTreeV1 bool `json:"split_tree_v1"`
 }
 
 // HasAllAssetIDs checks if the OpenChannel contains all asset IDs in the

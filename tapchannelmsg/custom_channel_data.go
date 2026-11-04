@@ -85,6 +85,7 @@ func (c *ChannelCustomData) AsJson() ([]byte, error) {
 		IncomingHtlcBalance: c.LocalCommit.IncomingHtlcAssets.Val.Sum(),
 		SpenderLeaves: c.LocalCommit.STXO.Val &&
 			c.LocalCommit.Spender.Val,
+		SplitTreeV1: c.LocalCommit.SplitTreeV1.Val,
 	}
 
 	c.OpenChan.GroupKey.ValOpt().WhenSome(func(key *btcec.PublicKey) {

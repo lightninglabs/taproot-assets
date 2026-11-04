@@ -234,8 +234,11 @@ func rootLocatorProof(splitRootOut *tappsbt.VOutput) (*mssmt.Proof, error) {
 // root locator leaf. A witness over a split only signs the split commitment
 // root, so the root asset's amount, script key and anchor output index are
 // bound to the signature through that leaf alone. The inclusion proof is taken
-// from the output's root locator split asset.
-func ValidateSplitRootLocators(vPackets []*tappsbt.VPacket) error {
+// from the output's root locator split asset, and must resolve for a split
+// commitment tree of one of the given branch versions.
+func ValidateSplitRootLocators(versions []mssmt.BranchVersion,
+	vPackets []*tappsbt.VPacket) error {
+
 	for pktIdx, vPkt := range vPackets {
 		for outIdx, vOut := range vPkt.Outputs {
 			if vOut.Asset == nil ||
@@ -255,7 +258,7 @@ func ValidateSplitRootLocators(vPackets []*tappsbt.VPacket) error {
 				vOut.AnchorOutputIndex,
 			)
 			err = vm.VerifySplitCommitmentProof(
-				vOut.Asset, locatorAsset,
+				versions, vOut.Asset, locatorAsset,
 			)
 			if err != nil {
 				return fmt.Errorf("invalid root locator for "+

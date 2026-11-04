@@ -81,28 +81,38 @@ func NewProofFromCompressedBytes(compressedProofBytes []byte) (Proof, error) {
 	return *p, nil
 }
 
-// Root returns the root node obtained by walking up the tree. It returns
-// ErrInvalidProofLength if the proof does not have exactly MaxTreeLevels
-// sibling nodes.
+// Root returns the root node obtained by walking up a tree of BranchV0
+// branches. It returns ErrInvalidProofLength if the proof does not have
+// exactly MaxTreeLevels sibling nodes.
 func (p Proof) Root(key [32]byte, leaf Node) (*BranchNode, error) {
+	return p.VersionedRoot(BranchV0, key, leaf)
+}
+
+// VersionedRoot returns the root node obtained by walking up a tree of
+// branches of the given version. It returns ErrInvalidProofLength if the
+// proof does not have exactly MaxTreeLevels sibling nodes.
+func (p Proof) VersionedRoot(version BranchVersion, key [32]byte,
+	leaf Node) (*BranchNode, error) {
+
 	if len(p.Nodes) != MaxTreeLevels {
 		return nil, fmt.Errorf("%w, num_nodes=%v, num_expected=%v",
 			ErrInvalidProofLength, len(p.Nodes), MaxTreeLevels)
 	}
 
-	return walkUp(&key, leaf, p.Nodes, nil)
+	return walkUp(version, &key, leaf, p.Nodes, nil)
 }
 
-// rootSum walks up from the given leaf to the root and returns the
-// (hash, sum) pair of the resulting root branch, computed directly from
-// sibling hashes and sums without materialising any BranchNode. If the proof
-// branch sum overflows uint64, the returned boolean is false.
+// rootSum walks up from the given leaf to the root of a tree of branches of
+// the given version and returns the (hash, sum) pair of the resulting root
+// branch, computed directly from sibling hashes and sums without
+// materialising any BranchNode. If the proof branch sum overflows uint64, or
+// the version is unknown, the returned boolean is false.
 //
 // The hot loop is allocation-free: the per-level branch encoding is laid
-// out in a single stack-resident 72-byte buffer, and sha256.Sum256
-// returns the digest by value.
-func (p *Proof) rootSum(key *[hashSize]byte, leaf Node) (NodeHash, uint64,
-	bool) {
+// out in a single stack-resident buffer, and sha256.Sum256 returns the
+// digest by value.
+func (p *Proof) rootSum(version BranchVersion, key *[hashSize]byte,
+	leaf Node) (NodeHash, uint64, bool) {
 
 	h, s := leaf.NodeHash(), leaf.NodeSum()
 	var buf [hashSize*2 + 8]byte
@@ -126,10 +136,19 @@ func (p *Proof) rootSum(key *[hashSize]byte, leaf Node) (NodeHash, uint64,
 			return NodeHash{}, 0, false
 		}
 
-		copy(buf[:hashSize], lh[:])
-		copy(buf[hashSize:hashSize*2], rh[:])
-		binary.BigEndian.PutUint64(buf[hashSize*2:], s)
-		h = sha256.Sum256(buf[:])
+		switch version {
+		case BranchV0:
+			copy(buf[:hashSize], lh[:])
+			copy(buf[hashSize:hashSize*2], rh[:])
+			binary.BigEndian.PutUint64(buf[hashSize*2:], s)
+			h = sha256.Sum256(buf[:])
+
+		case BranchV1:
+			h = branchHashV1(lh, ls, rh, rs)
+
+		default:
+			return NodeHash{}, 0, false
+		}
 	}
 	return h, s, true
 }

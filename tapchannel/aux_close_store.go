@@ -48,8 +48,9 @@ type persistedCloseInfo struct {
 	// closeFee is the BTC fee paid for the cooperative close transaction.
 	closeFee int64
 
-	// stxoFeatures records which STXO related leaves were enabled for
-	// the channel at AuxCloseOutputs time. The negotiator's feature map
+	// stxoFeatures records which STXO related leaves, and which split
+	// tree version, were enabled for the channel at AuxCloseOutputs
+	// time. The negotiator's feature map
 	// is in-memory only and would default to "no STXO" after a restart,
 	// causing the recovery path to compute different commitments and
 	// proofs. We persist this explicitly so the post-restart pipeline
@@ -172,10 +173,11 @@ const (
 
 // File format (all integers big-endian):
 //
-//	uint8   format version (currently 3)
+//	uint8   format version (currently 4)
 //	int64   closeFee
 //	uint8   supportSTXO (0 or 1)
 //	uint8   supportSpender (0 or 1, version 3 and up)
+//	uint8   splitTreeV1 (0 or 1, version 4 and up)
 //	uint32  numVPackets         (post-mutation)
 //	  per vPacket:
 //	    uint32 length
@@ -186,7 +188,11 @@ const (
 //	  per noAssetAlloc:
 //	    uint32 outputIndex
 //	    [33]byte compressed internalKey
-const closeInfoFormatVersion uint8 = 3
+const closeInfoFormatVersion uint8 = 4
+
+// closeInfoFormatVersionSpender is the last format version that records the
+// STXO and spender flags, without the split tree flag.
+const closeInfoFormatVersionSpender uint8 = 3
 
 // closeInfoFormatVersionSTXO is the last format version that records the
 // STXO flag alone, without the spender flag.
@@ -257,17 +263,24 @@ func encodeCloseInfo(w io.Writer, info *persistedCloseInfo) error {
 	if err := binary.Write(w, binary.BigEndian, info.closeFee); err != nil {
 		return err
 	}
-	var stxoByte, spenderByte uint8
+	var stxoByte, spenderByte, splitTreeByte uint8
 	if info.stxoFeatures.STXO {
 		stxoByte = 1
 	}
 	if info.stxoFeatures.Spender {
 		spenderByte = 1
 	}
+	if info.stxoFeatures.SplitTreeV1 {
+		splitTreeByte = 1
+	}
 	if err := binary.Write(w, binary.BigEndian, stxoByte); err != nil {
 		return err
 	}
 	if err := binary.Write(w, binary.BigEndian, spenderByte); err != nil {
+		return err
+	}
+	err = binary.Write(w, binary.BigEndian, splitTreeByte)
+	if err != nil {
 		return err
 	}
 	if err := writeVPacketList(w, info.vPackets); err != nil {
@@ -307,6 +320,7 @@ func decodeCloseInfo(r io.Reader) (*persistedCloseInfo, error) {
 		return nil, err
 	}
 	if version != closeInfoFormatVersion &&
+		version != closeInfoFormatVersionSpender &&
 		version != closeInfoFormatVersionSTXO {
 
 		return nil, fmt.Errorf(
@@ -329,13 +343,24 @@ func decodeCloseInfo(r io.Reader) (*persistedCloseInfo, error) {
 
 	// The spender flag was recorded from version 3 on. Any earlier close
 	// predates the spender leaves.
-	if version >= closeInfoFormatVersion {
+	if version >= closeInfoFormatVersionSpender {
 		var spenderByte uint8
 		err := binary.Read(r, binary.BigEndian, &spenderByte)
 		if err != nil {
 			return nil, err
 		}
 		info.stxoFeatures.Spender = spenderByte != 0
+	}
+
+	// The split tree flag was recorded from version 4 on. Any earlier
+	// close has BranchV0 split trees.
+	if version >= closeInfoFormatVersion {
+		var splitTreeByte uint8
+		err := binary.Read(r, binary.BigEndian, &splitTreeByte)
+		if err != nil {
+			return nil, err
+		}
+		info.stxoFeatures.SplitTreeV1 = splitTreeByte != 0
 	}
 
 	pkts, err := readVPacketList(r)

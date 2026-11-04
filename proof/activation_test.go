@@ -17,8 +17,13 @@ type tipChainLookup struct {
 	tip uint32
 }
 
-// CurrentHeight returns the fixed chain tip.
-func (t *tipChainLookup) CurrentHeight(context.Context) (uint32, error) {
+// CurrentHeight returns the fixed chain tip, or the context's error once the
+// context is done.
+func (t *tipChainLookup) CurrentHeight(ctx context.Context) (uint32, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+
 	return t.tip, nil
 }
 

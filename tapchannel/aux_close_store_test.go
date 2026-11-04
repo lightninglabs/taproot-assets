@@ -66,6 +66,8 @@ func TestSQLAuxCloseStoreRoundTrip(t *testing.T) {
 		{},
 		{STXO: true},
 		{STXO: true, Spender: true},
+		{SplitTreeV1: true},
+		{STXO: true, Spender: true, SplitTreeV1: true},
 	}
 	for _, stxoFeatures := range allFeatures {
 		stxoFeatures := stxoFeatures

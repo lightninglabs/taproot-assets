@@ -118,6 +118,7 @@ func FetchLeavesFromCommit(chainParams *address.ChainParams,
 
 	stxoFeatures := CommitmentSTXOFeatures(commitment)
 	warnMissingSpenderLeaves(chanState.FundingOutpoint, stxoFeatures)
+	warnSplitTreeV0(chanState.FundingOutpoint, stxoFeatures)
 
 	incomingHtlcs := commitment.IncomingHtlcAssets.Val.HtlcOutputs
 	incomingHtlcLeaves := commitment.AuxLeaves.Val.IncomingHtlcLeaves.

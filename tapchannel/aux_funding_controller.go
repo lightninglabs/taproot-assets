@@ -24,6 +24,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/rfq"
 	cmsg "github.com/lightninglabs/taproot-assets/tapchannelmsg"
@@ -669,6 +670,20 @@ func (p *pendingAssetFunding) addInputProofChunk(
 	return lfn.Ok(lfn.Some(*finalProof))
 }
 
+// ErrSplitTreeV1Required is returned when the peer of a new asset channel
+// doesn't signal that the split commitment trees of the channel's transactions
+// have BranchV1 branches.
+var ErrSplitTreeV1Required = errors.New("peer does not support BranchV1 " +
+	"split commitment trees")
+
+// supportsSplitTreeV1 returns true if the given peer signals the split-tree-v1
+// feature.
+func (f *FundingController) supportsSplitTreeV1(peer route.Vertex) bool {
+	features := f.cfg.AuxChanNegotiator.GetPeerFeatures(peer)
+
+	return features.HasFeature(tapfeatures.SplitTreeV1Optional)
+}
+
 // newCommitBlobAndLeaves creates a new commitment blob that'll be stored in
 // the channel state for the specified party.
 func newCommitBlobAndLeaves(pendingFunding *pendingAssetFunding,
@@ -740,6 +755,7 @@ func newCommitBlobAndLeaves(pendingFunding *pendingAssetFunding,
 	fakePrevState := cmsg.NewCommitment(
 		localAssets, remoteAssets, nil, nil, lnwallet.CommitAuxLeaves{},
 		stxoFeatures.STXO, stxoFeatures.Spender,
+		stxoFeatures.SplitTreeV1,
 	)
 
 	// Just like above, we don't have a real HTLC view here, so we'll pass
@@ -1101,7 +1117,10 @@ func (f *FundingController) fundVirtualPacket(ctx context.Context,
 		// afterward.
 		fundingOut.ScriptKey = fundingScriptKey
 
-		if err := tapsend.PrepareOutputAssets(ctx, vPkt); err != nil {
+		err = tapsend.PrepareVersionedOutputAssets(
+			ctx, mssmt.BranchV1, vPkt,
+		)
+		if err != nil {
 			return nil, fmt.Errorf("unable to prepare output "+
 				"assets after funding key update: %w", err)
 		}
@@ -1993,6 +2012,14 @@ func (f *FundingController) processFundingReq(fundingFlows fundingFlowIndex,
 			fundReq.PeerPub.SerializeCompressed())
 	}
 
+	// The peer of a new asset channel must support BranchV1 split
+	// commitment trees.
+	peer := route.Vertex(fundReq.PeerPub.SerializeCompressed())
+	if !f.supportsSplitTreeV1(peer) {
+		return fmt.Errorf("%w: peer %x", ErrSplitTreeV1Required,
+			peer[:])
+	}
+
 	// We need to make sure we're ready to receive the channel funds once
 	// the channel is (force) closed.
 	if err := f.validateLocalProofCourier(fundReq.ctx); err != nil {
@@ -2592,6 +2619,16 @@ func (f *FundingController) channelAcceptor(_ context.Context,
 	if *req.CommitmentType != lnwallet.CommitmentTypeSimpleTaprootOverlay {
 		return &lndclient.AcceptorResponse{
 			Accept: true,
+		}, nil
+	}
+
+	// Reject custom channels with peers that don't support BranchV1 split
+	// commitment trees.
+	if !f.supportsSplitTreeV1(req.NodePubkey) {
+		return &lndclient.AcceptorResponse{
+			Accept: false,
+			Error: fmt.Sprintf("%v: peer %x",
+				ErrSplitTreeV1Required, req.NodePubkey[:]),
 		}, nil
 	}
 

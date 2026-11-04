@@ -474,13 +474,19 @@ type Commitment struct {
 	// Spender is a flag indicating whether this commitment also commits
 	// to the spender leaves of the inputs, next to their STXOs.
 	Spender tlv.RecordT[tlv.TlvType7, bool]
+
+	// SplitTreeV1 is a flag indicating whether the split commitment trees
+	// of this commitment have BranchV1 branches. If it isn't set, they
+	// have BranchV0 branches.
+	SplitTreeV1 tlv.RecordT[tlv.TlvType9, bool]
 }
 
 // NewCommitment creates a new Commitment record with the given local and remote
 // assets, and incoming and outgoing HTLCs.
 func NewCommitment(localAssets, remoteAssets []*AssetOutput, outgoingHtlcs,
 	incomingHtlcs map[input.HtlcIndex][]*AssetOutput,
-	auxLeaves lnwallet.CommitAuxLeaves, stxo, spender bool) *Commitment {
+	auxLeaves lnwallet.CommitAuxLeaves, stxo, spender,
+	splitTreeV1 bool) *Commitment {
 
 	return &Commitment{
 		LocalAssets: tlv.NewRecordT[tlv.TlvType0](
@@ -508,6 +514,9 @@ func NewCommitment(localAssets, remoteAssets []*AssetOutput, outgoingHtlcs,
 		),
 		STXO:    tlv.NewPrimitiveRecord[tlv.TlvType5](stxo),
 		Spender: tlv.NewPrimitiveRecord[tlv.TlvType7](spender),
+		SplitTreeV1: tlv.NewPrimitiveRecord[tlv.TlvType9](
+			splitTreeV1,
+		),
 	}
 }
 
@@ -521,6 +530,7 @@ func (c *Commitment) records() []tlv.Record {
 		c.AuxLeaves.Record(),
 		c.STXO.Record(),
 		c.Spender.Record(),
+		c.SplitTreeV1.Record(),
 	}
 }
 

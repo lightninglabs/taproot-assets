@@ -31,7 +31,7 @@ func TestIssue115ForeignAssetIdRejected(t *testing.T) {
 	// peer holds all assets and pays from their balance.
 	prevState := tapchannelmsg.NewCommitment(
 		nil, []*tapchannelmsg.AssetOutput{channel.assetOutput}, nil,
-		nil, lnwallet.CommitAuxLeaves{}, false, false,
+		nil, lnwallet.CommitAuxLeaves{}, false, false, false,
 	)
 	chanAssetState := tapchannelmsg.NewOpenChannel(
 		[]*tapchannelmsg.AssetOutput{channel.assetOutput}, 0, nil,

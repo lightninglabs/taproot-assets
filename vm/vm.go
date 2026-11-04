@@ -54,6 +54,10 @@ type Engine struct {
 	// chainLookup is an interface that can be used to look up certain
 	// information on chain.
 	chainLookup asset.ChainLookup
+
+	// splitTreeVersions are the branch versions that the split commitment
+	// tree of newAsset may have.
+	splitTreeVersions []mssmt.BranchVersion
 }
 
 // newEngineOptions is a struct that is used to customize how a new engine is to
@@ -62,6 +66,7 @@ type newEngineOptions struct {
 	skipTimeLockValidation bool
 	blockHeight            fn.Option[uint32]
 	chainLookup            asset.ChainLookup
+	splitTreeVersions      []mssmt.BranchVersion
 }
 
 // NewEngineOpt is used to modify how a new engine is to be created.
@@ -71,6 +76,7 @@ type NewEngineOpt func(*newEngineOptions)
 func defaultNewEngineOptions() *newEngineOptions {
 	return &newEngineOptions{
 		skipTimeLockValidation: false,
+		splitTreeVersions:      SplitTreeVersions(false),
 	}
 }
 
@@ -98,6 +104,15 @@ func WithSkipTimeLockValidation() NewEngineOpt {
 	}
 }
 
+// WithSplitTreeVersions can be used to create an engine that accepts split
+// commitment trees of the given branch versions only. By default, an engine
+// accepts every version that SplitTreeVersions(false) returns.
+func WithSplitTreeVersions(versions []mssmt.BranchVersion) NewEngineOpt {
+	return func(o *newEngineOptions) {
+		o.splitTreeVersions = versions
+	}
+}
+
 // New returns a new virtual machine capable of executing and verifying Taproot
 // Asset state transitions.
 //
@@ -121,6 +136,7 @@ func New(newAsset *asset.Asset, splitAssets []*commitment.SplitAsset,
 		skipTimeLockValidation: options.skipTimeLockValidation,
 		blockHeight:            options.blockHeight,
 		chainLookup:            options.chainLookup,
+		splitTreeVersions:      options.splitTreeVersions,
 	}, nil
 }
 
@@ -299,14 +315,28 @@ func (vm *Engine) validateSplit(splitAsset *commitment.SplitAsset) error {
 
 	// Finally, verify that the split commitment proof for the split asset
 	// resolves to the split commitment root found within the change asset.
-	return VerifySplitCommitmentProof(vm.newAsset, splitAsset)
+	return VerifySplitCommitmentProof(
+		vm.splitTreeVersions, vm.newAsset, splitAsset,
+	)
+}
+
+// SplitTreeVersions returns the branch versions that a split commitment tree
+// may have: BranchV1 only if v1Required is set, otherwise BranchV0 or
+// BranchV1.
+func SplitTreeVersions(v1Required bool) []mssmt.BranchVersion {
+	if v1Required {
+		return []mssmt.BranchVersion{mssmt.BranchV1}
+	}
+
+	return []mssmt.BranchVersion{mssmt.BranchV0, mssmt.BranchV1}
 }
 
 // VerifySplitCommitmentProof verifies that the split commitment proof carried
 // in the witness of the given split asset resolves to the split commitment
-// root of the given root asset.
-func VerifySplitCommitmentProof(rootAsset *asset.Asset,
-	splitAsset *commitment.SplitAsset) error {
+// root of the given root asset, for a split commitment tree of any of the
+// given branch versions.
+func VerifySplitCommitmentProof(versions []mssmt.BranchVersion,
+	rootAsset *asset.Asset, splitAsset *commitment.SplitAsset) error {
 
 	if rootAsset.SplitCommitmentRoot == nil {
 		return newErrKind(ErrNoSplitCommitment)
@@ -342,15 +372,18 @@ func VerifySplitCommitmentProof(rootAsset *asset.Asset,
 	}
 
 	splitWitness := splitAsset.PrevWitnesses[0]
-	if !mssmt.VerifyMerkleProof(
-		locator.Hash(), splitLeaf, &splitWitness.SplitCommitment.Proof,
-		rootAsset.SplitCommitmentRoot,
-	) {
+	for _, version := range versions {
+		if mssmt.VerifyVersionedMerkleProof(
+			version, locator.Hash(), splitLeaf,
+			&splitWitness.SplitCommitment.Proof,
+			rootAsset.SplitCommitmentRoot,
+		) {
 
-		return newErrKind(ErrInvalidSplitCommitmentProof)
+			return nil
+		}
 	}
 
-	return nil
+	return newErrKind(ErrInvalidSplitCommitmentProof)
 }
 
 // validateWitnessV0 attempts to validate a new asset's witness based on the

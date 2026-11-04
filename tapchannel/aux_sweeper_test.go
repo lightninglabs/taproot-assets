@@ -674,6 +674,7 @@ func TestResolveContractNoAssetOutputs(t *testing.T) {
 			commit := cmsg.NewCommitment(
 				localAssets, remoteAssets, nil, nil,
 				lnwallet.CommitAuxLeaves{}, false, false,
+				false,
 			)
 			fundingProof := channel.fundingProof
 			funding := cmsg.NewOpenChannel(

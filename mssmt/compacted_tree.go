@@ -15,14 +15,20 @@ import (
 // for large trees.
 type CompactedTree struct {
 	store TreeStore
+
+	// version is the version of the branches of the tree.
+	version BranchVersion
 }
 
 var _ Tree = (*CompactedTree)(nil)
 
 // NewCompactedTree initializes an empty MS-SMT backed by `store`.
-func NewCompactedTree(store TreeStore) *CompactedTree {
+func NewCompactedTree(store TreeStore, opts ...TreeOption) *CompactedTree {
+	options := newTreeOptions(opts...)
+
 	return &CompactedTree{
-		store: store,
+		store:   store,
+		version: options.branchVersion,
 	}
 }
 
@@ -39,6 +45,32 @@ func (t *CompactedTree) Root(ctx context.Context) (*BranchNode, error) {
 	}
 
 	return root.(*BranchNode), nil
+}
+
+// getChildren returns the left and right child of the node keyed by the given
+// NodeHash at the given height. A compacted leaf of another branch version
+// returned by the store is formed anew with the branch version of the tree.
+func (t *CompactedTree) getChildren(tx TreeStoreViewTx, height int,
+	key NodeHash) (Node, Node, error) {
+
+	left, right, err := tx.GetChildren(height, key)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	childHeight := height + 1
+	withVersion := func(node Node) Node {
+		leaf, ok := node.(*CompactedLeafNode)
+		if !ok || leaf.version == t.version {
+			return node
+		}
+
+		return newCompactedLeafNode(
+			t.version, childHeight, &leaf.key, leaf.LeafNode,
+		)
+	}
+
+	return withVersion(left), withVersion(right), nil
 }
 
 // stepOrder orders the passed branches according to our path given the key and
@@ -62,7 +94,7 @@ func (t *CompactedTree) walkDown(tx TreeStoreViewTx, key *[hashSize]byte,
 	}
 
 	for i := 0; i <= lastBitIndex; i++ {
-		left, right, err := tx.GetChildren(i, current.NodeHash())
+		left, right, err := t.getChildren(tx, i, current.NodeHash())
 		if err != nil {
 			return nil, err
 		}
@@ -139,13 +171,17 @@ func (t *CompactedTree) merge(height int, key1 [32]byte, leaf1 *LeafNode,
 
 	// Now we create two compacted leaves and queue them as children
 	// of a newly created branch.
-	node1 := NewCompactedLeafNode(commonPrefixLen+1, &key1, leaf1)
-	node2 := NewCompactedLeafNode(commonPrefixLen+1, &key2, leaf2)
+	node1 := newCompactedLeafNode(
+		t.version, commonPrefixLen+1, &key1, leaf1,
+	)
+	node2 := newCompactedLeafNode(
+		t.version, commonPrefixLen+1, &key2, leaf2,
+	)
 	insertCompactedLeaf(muts, node1)
 	insertCompactedLeaf(muts, node2)
 
 	left, right := stepOrder(commonPrefixLen, &key1, node1, node2)
-	parent, err := newCheckedBranch(left, right)
+	parent, err := newCheckedBranch(t.version, left, right)
 	if err != nil {
 		return nil, fmt.Errorf("compact tree merge sum error "+
 			"at height %d: %w", commonPrefixLen, err)
@@ -156,7 +192,7 @@ func (t *CompactedTree) merge(height int, key1 [32]byte, leaf1 *LeafNode,
 	// along the way. Optionally we could compact these branches too.
 	for i := commonPrefixLen - 1; i >= height; i-- {
 		left, right := stepOrder(i, &key1, parent, EmptyTree[i+1])
-		parent, err = newCheckedBranch(left, right)
+		parent, err = newCheckedBranch(t.version, left, right)
 		if err != nil {
 			return nil, fmt.Errorf("compact tree merge sum error "+
 				"at height %d: %w", i, err)
@@ -179,7 +215,7 @@ func (t *CompactedTree) insert(tx TreeStoreUpdateTx, key *[hashSize]byte,
 	height int, root *BranchNode, leaf *LeafNode,
 	muts *[]mutation) (branch *BranchNode, priorSum uint64, err error) {
 
-	left, right, err := tx.GetChildren(height, root.NodeHash())
+	left, right, err := t.getChildren(tx, height, root.NodeHash())
 	if err != nil {
 		return nil, 0, err
 	}
@@ -203,8 +239,8 @@ func (t *CompactedTree) insert(tx TreeStoreUpdateTx, key *[hashSize]byte,
 			// empty leaf leaves the subtree empty.
 			newNode = node
 			if !leaf.IsEmpty() {
-				newLeaf := NewCompactedLeafNode(
-					nextHeight, key, leaf,
+				newLeaf := newCompactedLeafNode(
+					t.version, nextHeight, key, leaf,
 				)
 				insertCompactedLeaf(muts, newLeaf)
 				newNode = newLeaf
@@ -240,8 +276,8 @@ func (t *CompactedTree) insert(tx TreeStoreUpdateTx, key *[hashSize]byte,
 			if leaf.IsEmpty() {
 				newNode = EmptyTree[nextHeight]
 			} else {
-				newLeaf := NewCompactedLeafNode(
-					nextHeight, key, leaf,
+				newLeaf := newCompactedLeafNode(
+					t.version, nextHeight, key, leaf,
 				)
 				insertCompactedLeaf(muts, newLeaf)
 				newNode = newLeaf
@@ -267,9 +303,9 @@ func (t *CompactedTree) insert(tx TreeStoreUpdateTx, key *[hashSize]byte,
 	}
 
 	if isLeft {
-		branch, err = newCheckedBranch(newNode, sibling)
+		branch, err = newCheckedBranch(t.version, newNode, sibling)
 	} else {
-		branch, err = newCheckedBranch(sibling, newNode)
+		branch, err = newCheckedBranch(t.version, sibling, newNode)
 	}
 	if err != nil {
 		return nil, 0, fmt.Errorf("compact tree insert sum error "+
@@ -769,7 +805,7 @@ func (t *CompactedTree) batchInsert(tx TreeStoreUpdateTx,
 
 	// Non-empty branch: fetch children once, partition items by the
 	// next bit, recurse into each non-empty side.
-	left, right, err := tx.GetChildren(depth, branch.NodeHash())
+	left, right, err := t.getChildren(tx, depth, branch.NodeHash())
 	if err != nil {
 		return nil, 0, err
 	}
@@ -795,7 +831,7 @@ func (t *CompactedTree) batchInsert(tx TreeStoreUpdateTx,
 		}
 	}
 
-	newParent, err := newCheckedBranch(newLeft, newRight)
+	newParent, err := newCheckedBranch(t.version, newLeft, newRight)
 	if err != nil {
 		return nil, 0, fmt.Errorf("compact tree batch insert sum "+
 			"error at depth %d: %w", depth, err)
@@ -852,7 +888,9 @@ func (t *CompactedTree) buildSubtree(items []batchItem, depth int,
 
 	if len(items) == 1 {
 		item := items[0]
-		clNode := NewCompactedLeafNode(depth, &item.key, item.leaf)
+		clNode := newCompactedLeafNode(
+			t.version, depth, &item.key, item.leaf,
+		)
 		insertCompactedLeaf(muts, clNode)
 		return clNode, nil
 	}
@@ -868,7 +906,7 @@ func (t *CompactedTree) buildSubtree(items []batchItem, depth int,
 		return nil, err
 	}
 
-	newParent, err := newCheckedBranch(newLeft, newRight)
+	newParent, err := newCheckedBranch(t.version, newLeft, newRight)
 	if err != nil {
 		return nil, fmt.Errorf("compact subtree sum error at "+
 			"depth %d: %w", depth, err)

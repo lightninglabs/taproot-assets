@@ -14,6 +14,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapchannelmsg"
 	"github.com/lightninglabs/taproot-assets/tapfeatures"
@@ -224,7 +225,9 @@ func createCloseAlloc(isLocal, isInitiator bool, outputSum uint64,
 
 // signCommitVirtualPackets signs the commit virtual packets with the funding
 // witness, which is just the script and control block for the OP_TRUE spend.
+// Their split commitment trees have branches of the given version.
 func signCommitVirtualPackets(ctx context.Context,
+	splitTreeVersion mssmt.BranchVersion,
 	vPackets []*tappsbt.VPacket) error {
 
 	useUniqueScriptKey := len(vPackets) > 1
@@ -244,7 +247,9 @@ func signCommitVirtualPackets(ctx context.Context,
 				err)
 		}
 
-		err = tapsend.PrepareOutputAssets(ctx, vPackets[idx])
+		err = tapsend.PrepareVersionedOutputAssets(
+			ctx, splitTreeVersion, vPackets[idx],
+		)
 		if err != nil {
 			return fmt.Errorf("unable to prepare output "+
 				"assets: %w", err)
@@ -578,18 +583,21 @@ func (a *AuxChanCloser) AuxCloseOutputs(
 		pristineVPackets[i] = p.Copy()
 	}
 
-	// We can now add the witness for the OP_TRUE spend of the commitment
-	// output to the vPackets.
-	if err := signCommitVirtualPackets(ctxb, vPackets); err != nil {
-		return none, fmt.Errorf("error signing commit virtual "+
-			"packets: %w", err)
-	}
-
 	features := a.cfg.AuxChanNegotiator.GetChannelFeatures(
 		lnwire.NewChanIDFromOutPoint(desc.ChanPoint),
 	)
 	stxoFeatures := NewSTXOFeatures(features)
 	opts := stxoFeatures.CommitOpts()
+
+	// We can now add the witness for the OP_TRUE spend of the commitment
+	// output to the vPackets.
+	err = signCommitVirtualPackets(
+		ctxb, stxoFeatures.SplitTreeVersion(), vPackets,
+	)
+	if err != nil {
+		return none, fmt.Errorf("error signing commit virtual "+
+			"packets: %w", err)
+	}
 
 	// With the outputs prepared, we can now create the set of output
 	// commitments, then with the output index locations known, we can set
@@ -861,7 +869,8 @@ func (a *AuxChanCloser) recoverCloseInfo(
 	// are already in the post-mutation state and another pass through
 	// CreateOutputCommitments would double-append STXO leaves.
 	if err := signCommitVirtualPackets(
-		ctx, saved.pristineVPackets,
+		ctx, saved.stxoFeatures.SplitTreeVersion(),
+		saved.pristineVPackets,
 	); err != nil {
 		return nil, fmt.Errorf("sign commit virtual packets: %w", err)
 	}

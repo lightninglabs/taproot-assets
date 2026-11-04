@@ -10,19 +10,40 @@ import (
 
 // treeCtor names a Tree constructor for the parametric property tests.
 type treeCtor struct {
-	name string
-	make func() Tree
+	name    string
+	version BranchVersion
+	make    func() Tree
 }
 
 var batchTreeCtors = []treeCtor{
 	{
-		name: "FullTree",
-		make: func() Tree { return NewFullTree(NewDefaultStore()) },
+		name:    "FullTree",
+		version: BranchV0,
+		make:    func() Tree { return NewFullTree(NewDefaultStore()) },
 	},
 	{
-		name: "CompactedTree",
+		name:    "CompactedTree",
+		version: BranchV0,
 		make: func() Tree {
 			return NewCompactedTree(NewDefaultStore())
+		},
+	},
+	{
+		name:    "FullTreeV1",
+		version: BranchV1,
+		make: func() Tree {
+			return NewFullTree(
+				NewDefaultStore(), WithBranchVersion(BranchV1),
+			)
+		},
+	},
+	{
+		name:    "CompactedTreeV1",
+		version: BranchV1,
+		make: func() Tree {
+			return NewCompactedTree(
+				NewDefaultStore(), WithBranchVersion(BranchV1),
+			)
 		},
 	},
 }
@@ -156,8 +177,9 @@ func TestInsertManyRoundTrip(t *testing.T) {
 					require.NoError(t, err)
 					require.True(
 						t,
-						VerifyMerkleProof(
-							k, got, proof, root,
+						VerifyVersionedMerkleProof(
+							ctor.version, k, got,
+							proof, root,
 						),
 						"MerkleProof failed to verify "+
 							"after InsertMany",

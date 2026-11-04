@@ -1163,15 +1163,20 @@ func TestValidateSplitRootLocators(t *testing.T) {
 	t.Parallel()
 
 	// signedSplit returns a signed packet that splits asset 2 between the
-	// sender's change, which is the split root at output 0, and a receiver.
-	signedSplit := func(t *testing.T) *tappsbt.VPacket {
+	// sender's change, which is the split root at output 0, and a receiver,
+	// with a split tree of the given branch version.
+	signedSplit := func(t *testing.T,
+		version mssmt.BranchVersion) *tappsbt.VPacket {
+
 		state := initSpendScenario(t)
 
 		pkt := createPacket(
 			t, state.address1, state.asset2PrevID, state,
 			state.asset2InputAssets, false,
 		)
-		err := tapsend.PrepareOutputAssets(context.Background(), pkt)
+		err := tapsend.PrepareVersionedOutputAssets(
+			context.Background(), version, pkt,
+		)
 		require.NoError(t, err)
 
 		err = tapsend.SignVirtualTransaction(
@@ -1183,6 +1188,7 @@ func TestValidateSplitRootLocators(t *testing.T) {
 	}
 
 	invalidProof := vm.Error{Kind: vm.ErrInvalidSplitCommitmentProof}
+	allVersions := vm.SplitTreeVersions(false)
 
 	testCases := []struct {
 		name        string
@@ -1223,12 +1229,47 @@ func TestValidateSplitRootLocators(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			pkt := signedSplit(t)
+			pkt := signedSplit(t, mssmt.BranchV0)
 			require.True(t, pkt.Outputs[0].Type.IsSplitRoot())
 
 			tc.modify(t, pkt.Outputs[0])
 
 			err := tapsend.ValidateSplitRootLocators(
+				allVersions, []*tappsbt.VPacket{pkt},
+			)
+			require.ErrorIs(t, err, tc.expectedErr)
+		})
+	}
+
+	// A split tree is accepted only if its branch version is one of the
+	// given versions.
+	versionCases := []struct {
+		name        string
+		version     mssmt.BranchVersion
+		v1Required  bool
+		expectedErr error
+	}{{
+		name:    "V0 split tree, any version",
+		version: mssmt.BranchV0,
+	}, {
+		name:        "V0 split tree, V1 required",
+		version:     mssmt.BranchV0,
+		v1Required:  true,
+		expectedErr: invalidProof,
+	}, {
+		name:    "V1 split tree, any version",
+		version: mssmt.BranchV1,
+	}, {
+		name:       "V1 split tree, V1 required",
+		version:    mssmt.BranchV1,
+		v1Required: true,
+	}}
+	for _, tc := range versionCases {
+		t.Run(tc.name, func(t *testing.T) {
+			pkt := signedSplit(t, tc.version)
+
+			err := tapsend.ValidateSplitRootLocators(
+				vm.SplitTreeVersions(tc.v1Required),
 				[]*tappsbt.VPacket{pkt},
 			)
 			require.ErrorIs(t, err, tc.expectedErr)
@@ -1238,11 +1279,11 @@ func TestValidateSplitRootLocators(t *testing.T) {
 	// Without the root locator split asset the split root can't be
 	// checked, so it is rejected.
 	t.Run("locator copy missing", func(t *testing.T) {
-		pkt := signedSplit(t)
+		pkt := signedSplit(t, mssmt.BranchV0)
 		pkt.Outputs[0].SplitAsset = nil
 
 		err := tapsend.ValidateSplitRootLocators(
-			[]*tappsbt.VPacket{pkt},
+			allVersions, []*tappsbt.VPacket{pkt},
 		)
 		require.ErrorContains(t, err, "no split asset")
 	})

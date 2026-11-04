@@ -34,7 +34,7 @@ func TestIssue121CarrierDustEvaluation(t *testing.T) {
 
 	prevState := tapchannelmsg.NewCommitment(
 		nil, []*tapchannelmsg.AssetOutput{channel.assetOutput}, nil,
-		nil, lnwallet.CommitAuxLeaves{}, false, false,
+		nil, lnwallet.CommitAuxLeaves{}, false, false, false,
 	)
 	chanAssetState := tapchannelmsg.NewOpenChannel(
 		[]*tapchannelmsg.AssetOutput{channel.assetOutput}, 0, nil,

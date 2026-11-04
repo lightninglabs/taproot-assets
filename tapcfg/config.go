@@ -393,6 +393,8 @@ type Config struct {
 
 	ProofActivationHeight uint32 `long:"proofactivationheight" hidden:"true" description:"Override the block height from which transition proofs must satisfy the activation rules. Not available on mainnet."`
 
+	SplitTreeActivationHeight uint32 `long:"splittreeactivationheight" hidden:"true" description:"Override the block height from which split commitment trees must have BranchV1 branches. Not available on mainnet."`
+
 	// The following options are used to configure the proof courier.
 	DefaultProofCourierAddr string                       `long:"proofcourieraddr" description:"Default proof courier service address."`
 	HashMailCourier         *proof.HashMailCourierCfg    `group:"hashmailcourier" namespace:"hashmailcourier"`
@@ -823,6 +825,13 @@ func ValidateConfig(cfg Config, cfgLogger btclog.Logger) (*Config, error) {
 
 		return nil, mkErr("proofactivationheight can't be set on " +
 			"mainnet")
+	}
+
+	if cfg.SplitTreeActivationHeight != 0 &&
+		cfg.ActiveNetParams.Name == chaincfg.MainNetParams.Name {
+
+		return nil, mkErr("splittreeactivationheight can't be set " +
+			"on mainnet")
 	}
 
 	// Validate profile port or host:port.

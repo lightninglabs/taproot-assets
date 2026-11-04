@@ -19,6 +19,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
@@ -383,7 +384,10 @@ func prepareV2Outputs(ctx context.Context,
 
 		// We need to re-create the output assets because we potentially
 		// changed the script keys.
-		if err := tapsend.PrepareOutputAssets(ctx, vPkt); err != nil {
+		err = tapsend.PrepareVersionedOutputAssets(
+			ctx, mssmt.BranchV1, vPkt,
+		)
+		if err != nil {
 			log.Errorf("Error preparing output assets: %v, "+
 				"packets: %v", err, limitSpewer.Sdump(vPkt))
 			return nil, fmt.Errorf("unable to prepare outputs: %w",
@@ -716,7 +720,10 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 	}
 
 	for _, vPkt := range pkt.VPackets {
-		if err := tapsend.PrepareOutputAssets(ctx, vPkt); err != nil {
+		err := tapsend.PrepareVersionedOutputAssets(
+			ctx, mssmt.BranchV1, vPkt,
+		)
+		if err != nil {
 			log.Errorf("Error preparing output assets: %v, "+
 				"packets: %v", err, limitSpewer.Sdump(vPkt))
 
@@ -861,7 +868,10 @@ func (f *AssetWallet) FundBurn(ctx context.Context,
 			out.AssetVersion = pktMaxVersion
 		}
 
-		if err := tapsend.PrepareOutputAssets(ctx, pkt); err != nil {
+		err := tapsend.PrepareVersionedOutputAssets(
+			ctx, mssmt.BranchV1, pkt,
+		)
+		if err != nil {
 			return nil, fmt.Errorf("unable to prepare burn "+
 				"outputs: %w", err)
 		}

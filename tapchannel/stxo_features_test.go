@@ -8,6 +8,7 @@ import (
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
 	cmsg "github.com/lightninglabs/taproot-assets/tapchannelmsg"
 	"github.com/lightninglabs/taproot-assets/tapfeatures"
@@ -20,7 +21,8 @@ import (
 )
 
 // TestNewSTXOFeatures tests that the STXO features of a peer follow from its
-// feature bits, and that the spender leaves presuppose the STXOs.
+// feature bits, that the spender leaves presuppose the STXOs, and that the
+// split tree version follows from the split-tree-v1 bits alone.
 func TestNewSTXOFeatures(t *testing.T) {
 	t.Parallel()
 
@@ -55,6 +57,24 @@ func TestNewSTXOFeatures(t *testing.T) {
 			tapfeatures.STXOSpenderRequired,
 		},
 		want: STXOFeatures{STXO: true, Spender: true},
+	}, {
+		name: "split tree v1",
+		bits: []lnwire.FeatureBit{tapfeatures.SplitTreeV1Optional},
+		want: STXOFeatures{SplitTreeV1: true},
+	}, {
+		name: "split tree v1 required",
+		bits: []lnwire.FeatureBit{tapfeatures.SplitTreeV1Required},
+		want: STXOFeatures{SplitTreeV1: true},
+	}, {
+		name: "stxo, spender and split tree v1",
+		bits: []lnwire.FeatureBit{
+			tapfeatures.STXOOptional,
+			tapfeatures.STXOSpenderOptional,
+			tapfeatures.SplitTreeV1Optional,
+		},
+		want: STXOFeatures{
+			STXO: true, Spender: true, SplitTreeV1: true,
+		},
 	}}
 
 	// The required and optional bits of a feature are only taken for one
@@ -65,6 +85,8 @@ func TestNewSTXOFeatures(t *testing.T) {
 		tapfeatures.STXOOptional:        "stxo-proofs",
 		tapfeatures.STXOSpenderRequired: "stxo-spender",
 		tapfeatures.STXOSpenderOptional: "stxo-spender",
+		tapfeatures.SplitTreeV1Required: "split-tree-v1",
+		tapfeatures.SplitTreeV1Optional: "split-tree-v1",
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -79,7 +101,7 @@ func TestNewSTXOFeatures(t *testing.T) {
 
 // TestCommitmentSTXOFeatures tests that the STXO features of a commitment are
 // carried across its encoding, and that a commitment that predates the
-// spender flag decodes without it.
+// spender or split tree flag decodes without it.
 func TestCommitmentSTXOFeatures(t *testing.T) {
 	t.Parallel()
 
@@ -87,11 +109,14 @@ func TestCommitmentSTXOFeatures(t *testing.T) {
 		{},
 		{STXO: true},
 		{STXO: true, Spender: true},
+		{SplitTreeV1: true},
+		{STXO: true, Spender: true, SplitTreeV1: true},
 	}
 	for _, stxoFeatures := range allFeatures {
 		commitment := cmsg.NewCommitment(
 			nil, nil, nil, nil, lnwallet.CommitAuxLeaves{},
 			stxoFeatures.STXO, stxoFeatures.Spender,
+			stxoFeatures.SplitTreeV1,
 		)
 		require.Equal(
 			t, stxoFeatures, CommitmentSTXOFeatures(commitment),
@@ -106,6 +131,7 @@ func TestCommitmentSTXOFeatures(t *testing.T) {
 	// carries no alt leaves at all.
 	commitment := cmsg.NewCommitment(
 		nil, nil, nil, nil, lnwallet.CommitAuxLeaves{}, false, true,
+		false,
 	)
 	require.Equal(t, STXOFeatures{}, CommitmentSTXOFeatures(commitment))
 
@@ -113,14 +139,20 @@ func TestCommitmentSTXOFeatures(t *testing.T) {
 	// STXO flag alone.
 	legacy := cmsg.NewCommitment(
 		nil, nil, nil, nil, lnwallet.CommitAuxLeaves{}, true, true,
+		true,
 	)
 	var encoded bytes.Buffer
 	require.NoError(t, legacy.Encode(&encoded))
 
-	// The spender flag is the last record of the commitment: type 7,
-	// length 1, value 1.
+	// The spender and split tree flags are the last records of the
+	// commitment: type 7, length 1, value 1, then type 9, length 1, value
+	// 1.
+	withoutSplitTree, splitTreeRecord := bytes.CutSuffix(
+		encoded.Bytes(), []byte{0x09, 0x01, 0x01},
+	)
+	require.True(t, splitTreeRecord)
 	withoutSpender, spenderRecord := bytes.CutSuffix(
-		encoded.Bytes(), []byte{0x07, 0x01, 0x01},
+		withoutSplitTree, []byte{0x07, 0x01, 0x01},
 	)
 	require.True(t, spenderRecord)
 
@@ -128,6 +160,27 @@ func TestCommitmentSTXOFeatures(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(
 		t, STXOFeatures{STXO: true}, CommitmentSTXOFeatures(decoded),
+	)
+
+	// A commitment encoded before the split tree flag existed has BranchV0
+	// split trees.
+	decoded, err = cmsg.DecodeCommitment(withoutSplitTree)
+	require.NoError(t, err)
+	require.Equal(
+		t, STXOFeatures{STXO: true, Spender: true},
+		CommitmentSTXOFeatures(decoded),
+	)
+}
+
+// TestSplitTreeVersion tests the branch version of the split commitment trees
+// of a set of features.
+func TestSplitTreeVersion(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, mssmt.BranchV0, STXOFeatures{}.SplitTreeVersion())
+	require.Equal(
+		t, mssmt.BranchV1,
+		STXOFeatures{SplitTreeV1: true}.SplitTreeVersion(),
 	)
 }
 
@@ -165,6 +218,31 @@ func TestDecodeCloseInfoSTXOVersion(t *testing.T) {
 			t, STXOFeatures{STXO: supportSTXO}, info.stxoFeatures,
 		)
 	}
+}
+
+// TestDecodeCloseInfoSpenderVersion tests that the close info of a channel
+// that was closed before the split tree flag was recorded decodes with
+// BranchV0 split trees.
+func TestDecodeCloseInfoSpenderVersion(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	require.NoError(t, binary.Write(
+		&buf, binary.BigEndian, closeInfoFormatVersionSpender,
+	))
+	require.NoError(t, binary.Write(&buf, binary.BigEndian, int64(12345)))
+	require.NoError(t, binary.Write(&buf, binary.BigEndian, uint8(1)))
+	require.NoError(t, binary.Write(&buf, binary.BigEndian, uint8(1)))
+	require.NoError(t, writeVPacketList(&buf, nil))
+	require.NoError(t, writeVPacketList(&buf, nil))
+	require.NoError(t, binary.Write(&buf, binary.BigEndian, uint32(0)))
+
+	info, err := decodeCloseInfo(&buf)
+	require.NoError(t, err)
+	require.Equal(t, int64(12345), info.closeFee)
+	require.Equal(
+		t, STXOFeatures{STXO: true, Spender: true}, info.stxoFeatures,
+	)
 }
 
 // TestFundingCommitmentSTXOFeatures tests that a funding commitment carries

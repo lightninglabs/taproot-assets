@@ -23,6 +23,45 @@ var (
 	ZeroNodeHash = NodeHash{}
 )
 
+// BranchVersion is the version of the commitment a branch makes to its
+// children.
+type BranchVersion uint8
+
+const (
+	// BranchV0 commits a branch to the hashes of its children and the sum
+	// of their sums.
+	BranchV0 BranchVersion = 0
+
+	// BranchV1 commits a branch to the hash and the sum of each of its
+	// children. A branch whose children are both the empty subtree of one
+	// height is the empty subtree of the height above, and has the same
+	// hash as in BranchV0.
+	BranchV1 BranchVersion = 1
+)
+
+// branchHashV1 returns the hash of a BranchV1 branch with children of the
+// given hashes and sums. If both children are the empty subtree of one height,
+// the hash is that of the empty subtree of the height above. Otherwise the
+// hash input is exactly 80 bytes (left hash || left sum || right hash || right
+// sum), laid out in a stack-resident buffer.
+func branchHashV1(leftHash NodeHash, leftSum uint64, rightHash NodeHash,
+	rightSum uint64) NodeHash {
+
+	if leftHash == rightHash && leftSum == 0 && rightSum == 0 {
+		if height, ok := emptyTreeHeights[leftHash]; ok {
+			return EmptyTree[height-1].NodeHash()
+		}
+	}
+
+	var buf [hashSize*2 + 16]byte
+	copy(buf[:hashSize], leftHash[:])
+	binary.BigEndian.PutUint64(buf[hashSize:hashSize+8], leftSum)
+	copy(buf[hashSize+8:hashSize*2+8], rightHash[:])
+	binary.BigEndian.PutUint64(buf[hashSize*2+8:], rightSum)
+
+	return sha256.Sum256(buf[:])
+}
+
 // NodeHash represents the key of a MS-SMT node.
 type NodeHash [hashSize]byte
 
@@ -144,19 +183,30 @@ type CompactedLeafNode struct {
 	// compactedNodeHash holds the topmost (omitted) node's node hash in the
 	// subtree.
 	compactedNodeHash NodeHash
+
+	// version is the version of the omitted branches in the subtree.
+	version BranchVersion
 }
 
 // NewCompactedLeafNode creates a new compacted leaf at the passed height with
-// the passed leaf key.
+// the passed leaf key, with BranchV0 branches.
 func NewCompactedLeafNode(height int, key *[32]byte,
+	leaf *LeafNode) *CompactedLeafNode {
+
+	return newCompactedLeafNode(BranchV0, height, key, leaf)
+}
+
+// newCompactedLeafNode creates a new compacted leaf at the passed height with
+// the passed leaf key, with branches of the given version.
+func newCompactedLeafNode(version BranchVersion, height int, key *[32]byte,
 	leaf *LeafNode) *CompactedLeafNode {
 
 	var current Node = leaf
 	for i := lastBitIndex; i >= height; i-- {
 		if bitIndex(uint8(i), key) == 0 {
-			current = NewBranch(current, EmptyTree[i+1])
+			current = newBranch(version, current, EmptyTree[i+1])
 		} else {
-			current = NewBranch(EmptyTree[i+1], current)
+			current = newBranch(version, EmptyTree[i+1], current)
 		}
 	}
 	nodeHash := current.NodeHash()
@@ -165,6 +215,7 @@ func NewCompactedLeafNode(height int, key *[32]byte,
 		LeafNode:          leaf,
 		key:               *key,
 		compactedNodeHash: nodeHash,
+		version:           version,
 	}
 
 	return node
@@ -194,7 +245,7 @@ func (c *CompactedLeafNode) Extract(height int) Node {
 			left, right = EmptyTree[j], current
 		}
 
-		current = NewBranch(left, right)
+		current = newBranch(c.version, left, right)
 	}
 
 	return current
@@ -206,6 +257,7 @@ func (c *CompactedLeafNode) Copy() Node {
 		LeafNode:          c.LeafNode.Copy().(*LeafNode),
 		key:               c.key,
 		compactedNodeHash: c.compactedNodeHash,
+		version:           c.version,
 	}
 }
 
@@ -220,6 +272,10 @@ type BranchNode struct {
 	sum        uint64
 	nodeHashOk bool
 	sumOk      bool
+
+	// version is the version of the commitment the branch makes to its
+	// children.
+	version BranchVersion
 
 	Left  Node
 	Right Node
@@ -237,35 +293,48 @@ func NewComputedBranch(nodeHash NodeHash, sum uint64) *BranchNode {
 	}
 }
 
-// NewBranch constructs a new branch backed by its left and right children.
+// NewBranch constructs a new BranchV0 branch backed by its left and right
+// children.
 func NewBranch(left, right Node) *BranchNode {
+	return newBranch(BranchV0, left, right)
+}
+
+// newBranch constructs a new branch of the given version backed by its left
+// and right children.
+func newBranch(version BranchVersion, left, right Node) *BranchNode {
 	return &BranchNode{
-		Left:  left,
-		Right: right,
+		version: version,
+		Left:    left,
+		Right:   right,
 	}
 }
 
-// newCheckedBranch constructs a branch after verifying its child sum.
-func newCheckedBranch(left, right Node) (*BranchNode, error) {
+// newCheckedBranch constructs a branch of the given version after verifying
+// its child sum.
+func newCheckedBranch(version BranchVersion, left, right Node) (*BranchNode,
+	error) {
+
 	sum, err := arith.Add(left.NodeSum(), right.NodeSum()).Unpack()
 	if err != nil {
 		return nil, err
 	}
 
 	return &BranchNode{
-		Left:  left,
-		Right: right,
-		sum:   sum,
-		sumOk: true,
+		version: version,
+		Left:    left,
+		Right:   right,
+		sum:     sum,
+		sumOk:   true,
 	}, nil
 }
 
 // NodeHash returns the unique identifier for a MS-SMT node. It represents the
 // hash of the branch committing to its internal data.
 //
-// The hash input is always exactly 72 bytes (left hash || right hash || sum)
-// so we lay it out in a stack-resident buffer and call sha256.Sum256 to
-// avoid the per-call allocator/digest churn of sha256.New + Sum(nil).
+// The BranchV0 hash input is always exactly 72 bytes (left hash || right
+// hash || sum) so we lay it out in a stack-resident buffer and call
+// sha256.Sum256 to avoid the per-call allocator/digest churn of sha256.New +
+// Sum(nil).
 func (n *BranchNode) NodeHash() NodeHash {
 	if n.nodeHashOk {
 		return n.nodeHash
@@ -275,12 +344,24 @@ func (n *BranchNode) NodeHash() NodeHash {
 	right := n.Right.NodeHash()
 	sum := n.NodeSum()
 
-	var buf [hashSize*2 + 8]byte
-	copy(buf[:hashSize], left[:])
-	copy(buf[hashSize:hashSize*2], right[:])
-	binary.BigEndian.PutUint64(buf[hashSize*2:], sum)
+	switch n.version {
+	case BranchV0:
+		var buf [hashSize*2 + 8]byte
+		copy(buf[:hashSize], left[:])
+		copy(buf[hashSize:hashSize*2], right[:])
+		binary.BigEndian.PutUint64(buf[hashSize*2:], sum)
 
-	n.nodeHash = sha256.Sum256(buf[:])
+		n.nodeHash = sha256.Sum256(buf[:])
+
+	case BranchV1:
+		n.nodeHash = branchHashV1(
+			left, n.Left.NodeSum(), right, n.Right.NodeSum(),
+		)
+
+	default:
+		panic(fmt.Sprintf("unknown branch version %d", n.version))
+	}
+
 	n.nodeHashOk = true
 	return n.nodeHash
 }
@@ -320,6 +401,7 @@ func (n *BranchNode) Copy() Node {
 		nodeHashOk: n.nodeHashOk,
 		sum:        n.sum,
 		sumOk:      n.sumOk,
+		version:    n.version,
 		Left:       leftCopy,
 		Right:      rightCopy,
 	}

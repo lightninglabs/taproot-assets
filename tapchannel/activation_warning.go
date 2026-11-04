@@ -11,6 +11,10 @@ import (
 // warnMissingSpenderLeaves, so each is warned about only once.
 var spenderLeafWarnings sync.Map
 
+// splitTreeWarnings records the channels warned about by warnSplitTreeV0, so
+// each is warned about only once.
+var splitTreeWarnings sync.Map
+
 // warnMissingSpenderLeaves warns, once per channel, that a commitment of an
 // asset channel carries no spender leaves while a proof activation height is
 // set. Transition proofs anchored from that height on must carry spender
@@ -41,6 +45,37 @@ func warnMissingSpenderLeaves(chanPoint wire.OutPoint,
 		"Update the channel with a peer that supports the "+
 		"stxo-spender feature, or close it, before block %d.",
 		chanPoint, height, height)
+
+	return true
+}
+
+// warnSplitTreeV0 warns, once per channel, that a commitment of an asset
+// channel has BranchV0 split commitment trees while a split tree activation
+// height is set. Split commitment trees anchored from that height on must have
+// BranchV1 branches. It returns true if it warned.
+func warnSplitTreeV0(chanPoint wire.OutPoint, features STXOFeatures) bool {
+	if features.SplitTreeV1 {
+		return false
+	}
+
+	activation := proof.DefaultSplitTreeActivationHeight()
+	if activation.IsNone() {
+		return false
+	}
+	height := activation.UnwrapOr(0)
+
+	_, warned := splitTreeWarnings.LoadOrStore(chanPoint, struct{}{})
+	if warned {
+		return false
+	}
+
+	log.Warnf("Asset channel %v: its commitment has BranchV0 split "+
+		"trees. Split trees anchored from block %d on must have "+
+		"BranchV1 branches, so the asset outputs of this commitment "+
+		"can't be proven if it confirms from then on. Update the "+
+		"channel with a peer that supports the split-tree-v1 "+
+		"feature, or close it, before block %d.", chanPoint, height,
+		height)
 
 	return true
 }

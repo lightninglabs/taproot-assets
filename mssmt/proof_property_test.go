@@ -63,7 +63,7 @@ func TestRootSumEquivalence(t *testing.T) {
 
 		oldRoot, err := proof.Root(*key, leaf)
 		require.NoError(t, err)
-		newHash, newSum, validSum := proof.rootSum(key, leaf)
+		newHash, newSum, validSum := proof.rootSum(BranchV0, key, leaf)
 		require.True(t, validSum)
 
 		require.Equal(
@@ -154,7 +154,7 @@ func TestVerifyMerkleProofAdversarial(t *testing.T) {
 
 		// Derive the "honest" root from this proof so we can mutate
 		// against it.
-		hash, sum, validSum := proof.rootSum(&key, leaf)
+		hash, sum, validSum := proof.rootSum(BranchV0, &key, leaf)
 		require.True(t, validSum)
 		root := NewComputedBranch(hash, sum)
 
@@ -252,7 +252,7 @@ func TestVerifyMerkleProofMalformedInputs(t *testing.T) {
 	for i := range proof.Nodes {
 		proof.Nodes[i] = EmptyTree[MaxTreeLevels-i]
 	}
-	hash, sum, validSum := proof.rootSum(&key, leaf)
+	hash, sum, validSum := proof.rootSum(BranchV0, &key, leaf)
 	require.True(t, validSum)
 	root := NewComputedBranch(hash, sum)
 

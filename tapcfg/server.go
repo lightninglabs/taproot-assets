@@ -63,6 +63,14 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		cfgLogger.Infof("Transition proof activation height: %d", h)
 	})
 
+	// Likewise, every proof verifier of this daemon applies the split tree
+	// activation height of its network.
+	splitTreeHeight := splitTreeActivationHeight(cfg)
+	proof.SetDefaultSplitTreeActivationHeight(splitTreeHeight)
+	splitTreeHeight.WhenSome(func(h uint32) {
+		cfgLogger.Infof("Split tree activation height: %d", h)
+	})
+
 	// If we're using sqlite, we need to ensure that the temp directory is
 	// writable otherwise we might encounter an error at an unexpected
 	// time.
@@ -751,6 +759,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			RfqManager:        rfqManager,
 			NoopHTLCs:         cfg.Channel.NoopHTLCs,
 			AuxChanNegotiator: auxChanNegotiator,
+			ChainBridge:       chainBridge,
 		},
 	)
 	auxInvoiceManager := tapchannel.NewAuxInvoiceManager(
@@ -1066,17 +1075,41 @@ func proofActivationHeight(cfg *Config) lfn.Option[uint32] {
 		return lfn.Some(cfg.ProofActivationHeight)
 	}
 
-	if cfg.ChainConf.Network == "signet" &&
-		cfg.ChainConf.SigNetChallenge != "" {
-
-		challenge, err := hex.DecodeString(
-			cfg.ChainConf.SigNetChallenge,
-		)
-		defaultChallenge := chaincfg.DefaultSignetChallenge
-		if err != nil || !bytes.Equal(challenge, defaultChallenge) {
-			return lfn.None[uint32]()
-		}
+	if isCustomSigNet(cfg) {
+		return lfn.None[uint32]()
 	}
 
 	return proof.NetworkActivationHeight(cfg.ActiveNetParams.Name)
+}
+
+// isCustomSigNet returns true if the configured network is a signet with a
+// challenge other than that of the default signet.
+func isCustomSigNet(cfg *Config) bool {
+	if cfg.ChainConf.Network != "signet" ||
+		cfg.ChainConf.SigNetChallenge == "" {
+
+		return false
+	}
+
+	challenge, err := hex.DecodeString(cfg.ChainConf.SigNetChallenge)
+	defaultChallenge := chaincfg.DefaultSignetChallenge
+
+	return err != nil || !bytes.Equal(challenge, defaultChallenge)
+}
+
+// splitTreeActivationHeight returns the split tree activation height that the
+// daemon applies: the configured override, or else the height of its network.
+// A custom signet has none.
+func splitTreeActivationHeight(cfg *Config) lfn.Option[uint32] {
+	if cfg.SplitTreeActivationHeight != 0 {
+		return lfn.Some(cfg.SplitTreeActivationHeight)
+	}
+
+	if isCustomSigNet(cfg) {
+		return lfn.None[uint32]()
+	}
+
+	return proof.NetworkSplitTreeActivationHeight(
+		cfg.ActiveNetParams.Name,
+	)
 }

@@ -26,6 +26,16 @@ const (
 	// STXOSpenderOptional is a feature bit that declares the spender
 	// leaves, committed to next to the STXOs, as an optional feature.
 	STXOSpenderOptional lnwire.FeatureBit = 5
+
+	// SplitTreeV1Required is a feature bit that declares as required that
+	// the split commitment trees of an asset channel's transactions have
+	// BranchV1 branches.
+	SplitTreeV1Required lnwire.FeatureBit = 10
+
+	// SplitTreeV1Optional is a feature bit that declares as optional that
+	// the split commitment trees of an asset channel's transactions have
+	// BranchV1 branches.
+	SplitTreeV1Optional lnwire.FeatureBit = 11
 )
 
 // featureNames keeps track of the string description of known features.
@@ -36,6 +46,9 @@ var featureNames = map[lnwire.FeatureBit]string{
 	STXOOptional:        "stxo-proofs",
 	STXOSpenderRequired: "stxo-spender",
 	STXOSpenderOptional: "stxo-spender",
+
+	SplitTreeV1Required: "split-tree-v1",
+	SplitTreeV1Optional: "split-tree-v1",
 }
 
 // ourFeatures returns a slice containing all of the locally supported features.
@@ -46,6 +59,7 @@ func ourFeatures() []lnwire.FeatureBit {
 		NoOpHTLCsOptional,
 		STXOOptional,
 		STXOSpenderOptional,
+		SplitTreeV1Optional,
 	}
 }
 

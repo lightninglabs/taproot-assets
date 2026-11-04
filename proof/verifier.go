@@ -81,6 +81,14 @@ type VerifierCtx struct {
 	//
 	// If unset, the default set by SetDefaultActivationHeight applies.
 	ActivationHeight lfn.Option[uint32]
+
+	// SplitTreeActivationHeight is the block height from which split
+	// commitment trees must have BranchV1 branches, on the same terms as
+	// ActivationHeight.
+	//
+	// If unset, the default set by SetDefaultSplitTreeActivationHeight
+	// applies.
+	SplitTreeActivationHeight lfn.Option[uint32]
 }
 
 // Verifier abstracts away from the task of verifying a proof file blob.
@@ -1030,7 +1038,8 @@ func assertVersionConsistency(
 // state transition represents an asset split.
 func (p *Proof) verifyAssetStateTransition(ctx context.Context,
 	prev *AssetSnapshot, chainLookup asset.ChainLookup,
-	vCtx VerifierCtx, skipTimeLockValidation bool) (bool, error) {
+	vCtx VerifierCtx, skipTimeLockValidation,
+	skipChainVerification bool) (bool, error) {
 
 	// Determine whether we have an asset split based on the resulting
 	// asset's witness. If so, extract the root asset from the split asset.
@@ -1064,7 +1073,7 @@ func (p *Proof) verifyAssetStateTransition(ctx context.Context,
 	// available CPUs. We'll also pass in a context, which'll enable us to
 	// bail out as soon as any of the active goroutines encounters an
 	// error.
-	errGroup, ctx := errgroup.WithContext(ctx)
+	errGroup, gCtx := errgroup.WithContext(ctx)
 	errGroup.SetLimit(runtime.GOMAXPROCS(0))
 
 	var assetsMtx sync.Mutex
@@ -1072,7 +1081,7 @@ func (p *Proof) verifyAssetStateTransition(ctx context.Context,
 		inputProof := inputProof
 
 		errGroup.Go(func() error {
-			result, err := inputProof.Verify(ctx, vCtx)
+			result, err := inputProof.Verify(gCtx, vCtx)
 			if err != nil {
 				return err
 			}
@@ -1118,9 +1127,17 @@ func (p *Proof) verifyAssetStateTransition(ctx context.Context,
 		}
 	}
 
+	splitTreeVersions, err := p.splitTreeVersions(
+		ctx, vCtx, skipChainVerification,
+	)
+	if err != nil {
+		return false, err
+	}
+
 	verifyOpts := []vm.NewEngineOpt{
 		vm.WithChainLookup(chainLookup),
 		vm.WithBlockHeight(p.BlockHeight),
+		vm.WithSplitTreeVersions(splitTreeVersions),
 	}
 	if skipTimeLockValidation {
 		verifyOpts = append(verifyOpts, vm.WithSkipTimeLockValidation())
@@ -1543,6 +1560,7 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 		splitAsset, err = p.verifyAssetStateTransition(
 			ctx, prev, chainLookup, vCtx,
 			verificationParams.SkipTimeLockValidation,
+			verificationParams.SkipChainVerification,
 		)
 	}
 	if err != nil {

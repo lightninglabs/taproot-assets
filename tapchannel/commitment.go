@@ -659,7 +659,10 @@ func GenerateCommitmentAllocations(prevState *cmsg.Commitment,
 	// We can now add the witness for the OP_TRUE spend of the commitment
 	// output to the vPackets.
 	ctxb := context.Background()
-	if err := signCommitVirtualPackets(ctxb, vPackets); err != nil {
+	err = signCommitVirtualPackets(
+		ctxb, stxoFeatures.SplitTreeVersion(), vPackets,
+	)
+	if err != nil {
 		return nil, nil, fmt.Errorf("error signing commit virtual "+
 			"packets: %w", err)
 	}
@@ -1350,6 +1353,7 @@ func ToCommitment(allocations []*tapsend.Allocation,
 	return cmsg.NewCommitment(
 		localAssets, remoteAssets, outgoingHtlcs, incomingHtlcs,
 		auxLeaves, stxoFeatures.STXO, stxoFeatures.Spender,
+		stxoFeatures.SplitTreeV1,
 	), nil
 }
 
