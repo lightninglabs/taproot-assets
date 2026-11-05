@@ -930,6 +930,7 @@ ORDER BY asset_proofs.proof_id;
 SELECT proof_id, asset_id, proof_file
 FROM asset_proofs
 WHERE provenance_indexed = FALSE
+  AND proof_id > @after_proof_id
 ORDER BY proof_id
 LIMIT @row_limit;
 

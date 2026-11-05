@@ -2491,9 +2491,15 @@ const FetchUnindexedAssetProofs = `-- name: FetchUnindexedAssetProofs :many
 SELECT proof_id, asset_id, proof_file
 FROM asset_proofs
 WHERE provenance_indexed = FALSE
+  AND proof_id > $1
 ORDER BY proof_id
-LIMIT $1
+LIMIT $2
 `
+
+type FetchUnindexedAssetProofsParams struct {
+	AfterProofID int64
+	RowLimit     int32
+}
 
 type FetchUnindexedAssetProofsRow struct {
 	ProofID   int64
@@ -2501,8 +2507,8 @@ type FetchUnindexedAssetProofsRow struct {
 	ProofFile []byte
 }
 
-func (q *Queries) FetchUnindexedAssetProofs(ctx context.Context, rowLimit int32) ([]FetchUnindexedAssetProofsRow, error) {
-	rows, err := q.db.QueryContext(ctx, FetchUnindexedAssetProofs, rowLimit)
+func (q *Queries) FetchUnindexedAssetProofs(ctx context.Context, arg FetchUnindexedAssetProofsParams) ([]FetchUnindexedAssetProofsRow, error) {
+	rows, err := q.db.QueryContext(ctx, FetchUnindexedAssetProofs, arg.AfterProofID, arg.RowLimit)
 	if err != nil {
 		return nil, err
 	}

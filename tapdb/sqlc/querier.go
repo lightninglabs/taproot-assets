@@ -281,7 +281,7 @@ type Querier interface {
 	FetchTapscriptTree(ctx context.Context, rootHash []byte) ([]FetchTapscriptTreeRow, error)
 	FetchTransferInputs(ctx context.Context, transferID int64) ([]FetchTransferInputsRow, error)
 	FetchTransferOutputs(ctx context.Context, transferID int64) ([]FetchTransferOutputsRow, error)
-	FetchUnindexedAssetProofs(ctx context.Context, rowLimit int32) ([]FetchUnindexedAssetProofsRow, error)
+	FetchUnindexedAssetProofs(ctx context.Context, arg FetchUnindexedAssetProofsParams) ([]FetchUnindexedAssetProofsRow, error)
 	// Note on hash construction: mssmt_nodes.hash_key on a compacted leaf
 	// commits to the subtree root at that leaf's tree height, which
 	// varies with the tree's shape and is therefore NOT canonical across
