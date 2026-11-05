@@ -45,6 +45,10 @@
   always using LND's default. A zero value still uses the configured default,
   and LND rejects values outside its supported range.
 
+- [Confirm custom-anchor transfers spending external assets](https://github.com/lightninglabs/taproot-assets/pull/2353)
+  using their archived proofs, including after restart. External inputs remain
+  outside the wallet; only locally controlled outputs are added to its holdings.
+
 - [Importing an asset wallet
   backup](https://github.com/lightninglabs/taproot-assets/pull/2277) into a
   node whose database was wiped but whose proofs directory survived no longer
