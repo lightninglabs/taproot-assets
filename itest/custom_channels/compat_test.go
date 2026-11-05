@@ -32,10 +32,11 @@ import (
 
 // compatVersions lists the historical release versions to test backward
 // compatibility against. Update this list before each release to include
-// the latest 2 minor versions. v0.8.0 is the earliest tagged release that
-// includes the cmd/tapd-integrated binary, so it is our initial baseline.
+// the latest 2 minor versions. v0.8.5 is the earliest tagged release that
+// supports the stxo-spender feature, which the current build requires of its
+// peers, so it is our baseline.
 var compatVersions = []string{
-	"v0.8.0",
+	"v0.8.5",
 }
 
 // buildCompatBinary builds or retrieves a cached tapd-integrated binary for
@@ -185,6 +186,10 @@ func runBackwardsCompatLifecycle(ctx context.Context,
 
 	lndArgs := slices.Clone(lndArgsTemplate)
 	tapdArgs := slices.Clone(tapdArgsTemplate)
+
+	// A universe sync that fails is retried on the next sync interval,
+	// which is kept short here.
+	tapdArgs = append(tapdArgs, "--universe.syncinterval=5s")
 
 	// Charlie (the old node) doubles as the proof courier for both nodes,
 	// so we pin his RPC port up front (minimum viable proof distribution).

@@ -57,8 +57,8 @@ func ourFeatures() []lnwire.FeatureBit {
 	// following slice we could make something more explicit / modular.
 	return []lnwire.FeatureBit{
 		NoOpHTLCsOptional,
-		STXOOptional,
-		STXOSpenderOptional,
+		STXORequired,
+		STXOSpenderRequired,
 		SplitTreeV1Optional,
 	}
 }

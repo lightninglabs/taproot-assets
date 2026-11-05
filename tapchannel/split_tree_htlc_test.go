@@ -25,10 +25,17 @@ func TestNextCommitSplitTreeV0(t *testing.T) {
 	negotiator := tapfeatures.NewAuxChannelNegotiator()
 	v0Peer, v1Peer := route.Vertex{0x01}, route.Vertex{0x02}
 	require.NoError(t, negotiator.ProcessInitRecords(
-		v0Peer, auxInitRecords(t, tapfeatures.STXOOptional),
+		v0Peer, auxInitRecords(
+			t, tapfeatures.STXOOptional,
+			tapfeatures.STXOSpenderOptional,
+		),
 	))
 	require.NoError(t, negotiator.ProcessInitRecords(
-		v1Peer, auxInitRecords(t, tapfeatures.SplitTreeV1Optional),
+		v1Peer, auxInitRecords(
+			t, tapfeatures.STXOOptional,
+			tapfeatures.STXOSpenderOptional,
+			tapfeatures.SplitTreeV1Optional,
+		),
 	))
 
 	shaper := NewAuxTrafficShaper(&TrafficShaperConfig{
