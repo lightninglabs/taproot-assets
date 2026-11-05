@@ -328,9 +328,14 @@ func (h *supplyCommitTestHarness) assertHandlesInvalidEvent(event Event,
 
 	h.expectFailure(expectedErr)
 	h.sendEvent(event)
-	h.assertNoStateTransitions()
 
-	require.ErrorIs(h.t, h.mockErrReporter.GetReportedError(), expectedErr)
+	require.Eventually(h.t, func() bool {
+		return errors.Is(
+			h.mockErrReporter.GetReportedError(), expectedErr,
+		)
+	}, testTimeout, 10*time.Millisecond)
+
+	h.assertNoStateTransitions()
 }
 
 // assertAndGetCurrentState fetches the current state from the state machine,

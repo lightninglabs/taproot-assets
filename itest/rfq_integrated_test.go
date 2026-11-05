@@ -30,6 +30,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/port"
 	"github.com/lightningnetwork/lnd/lntest/wait"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/stretchr/testify/require"
 )
 
@@ -169,9 +170,19 @@ func newRfqIntegratedScenario(
 		require.NoError(t.t, os.MkdirAll(logDir, 0750))
 	})
 
+	// The nodes' lnd instances take fee estimates from a fee service
+	// pinned to the floor rate rather than from the btcd backend.
+	feeService := lntest.NewFeeService(t.t)
+	feeService.SetFeeRate(chainfee.FeePerKwFloor, 1)
+	require.NoError(t.t, feeService.Start())
+	t.t.Cleanup(func() {
+		require.NoError(t.t, feeService.Stop())
+	})
+
 	net := NewIntegratedNetworkHarness(
 		t.t, "./tapd-integrated-itest", backend, miner.HarnessNetParams,
 	)
+	net.FeeServiceURL = feeService.URL()
 	t.t.Cleanup(net.TearDown)
 	net.Miner = t.lndHarness.Miner()
 	lndArgs := []string{
