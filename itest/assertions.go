@@ -991,6 +991,12 @@ func AssertReceiveEventsCustom(t *testing.T,
 	status []taprpc.AddrEventStatus) {
 
 	success := make(chan struct{})
+
+	// Close success on every return, including a failed require, so
+	// the goroutine below exits with this function and never calls
+	// t.Logf after the test has completed.
+	defer close(success)
+
 	timeout := time.After(defaultWaitTimeout)
 
 	// To make sure we don't forever hang on receiving on the stream, we'll
@@ -1028,7 +1034,6 @@ func AssertReceiveEventsCustom(t *testing.T,
 		// nolint: lll
 		if event.Status == taprpc.AddrEventStatus_ADDR_EVENT_STATUS_COMPLETED {
 			stream.Cancel()
-			close(success)
 			return
 		}
 
@@ -1096,6 +1101,12 @@ func AssertSendEvents(t *testing.T, targetScriptKey []byte,
 	to tapfreighter.SendState) {
 
 	success := make(chan struct{})
+
+	// Close success on every return, including a failed require, so
+	// the goroutine below exits with this function and never calls
+	// t.Logf after the test has completed.
+	defer close(success)
+
 	timeout := time.After(defaultWaitTimeout)
 	expectedStatus := from
 
@@ -1152,7 +1163,6 @@ func AssertSendEvents(t *testing.T, targetScriptKey []byte,
 		}
 
 		if event.SendState == to.String() {
-			close(success)
 			return
 		}
 
