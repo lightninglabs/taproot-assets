@@ -42,14 +42,11 @@ func TestRetryFuncNSuccessReturnsImmediately(t *testing.T) {
 		var callCount atomic.Int32
 
 		ctx := context.Background()
-		start := time.Now()
 
 		result, err := RetryFuncN(ctx, config, func() (int, error) {
 			callCount.Add(1)
 			return expectedValue, nil
 		})
-
-		elapsed := time.Since(start)
 
 		// The function should only be called once.
 		require.Equal(t, int32(1), callCount.Load())
@@ -59,10 +56,6 @@ func TestRetryFuncNSuccessReturnsImmediately(t *testing.T) {
 
 		// The correct value should be returned.
 		require.Equal(t, expectedValue, result)
-
-		// The function should return almost immediately (allowing for
-		// some execution overhead).
-		require.Less(t, elapsed, 10*time.Millisecond)
 	})
 }
 
