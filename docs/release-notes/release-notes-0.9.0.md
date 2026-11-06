@@ -329,6 +329,13 @@
   `payment_swap_amount`. Zero means unset everywhere and the existing
   fields are unchanged.
 
+* [PR#2383](https://github.com/lightninglabs/taproot-assets/pull/2383)
+  adds a `sign_anchor_inputs` flag to `PublishAndLogTransfer`. With the
+  flag set, tapd signs and finalizes the anchor inputs of the transfer
+  that spend anchor outputs it owns, so a caller that funds the anchor
+  transaction itself only signs its own inputs. Every other input must
+  already be finalized.
+
 ## tapcli Updates
 
 ## Config Changes
