@@ -47,7 +47,8 @@ service AssetWallet {
     PublishAndLogTransfer accepts a fully committed and signed anchor
     transaction and publishes it to the Bitcoin network. It also logs the
     transfer of the given active and passive assets in the database and ships
-    any outgoing proofs to the counterparties.
+    any outgoing proofs to the counterparties. If sign_anchor_inputs is set,
+    tapd first signs the anchor inputs it owns.
     */
     rpc PublishAndLogTransfer (PublishAndLogRequest)
         returns (taprpc.SendAssetResponse);
@@ -465,6 +466,13 @@ message PublishAndLogRequest {
     Multiple transfers can share the same label.
     */
     string label = 7;
+
+    /*
+    If set, tapd signs and finalizes the anchor inputs of this transfer that
+    spend anchor outputs it owns and that have no final witness yet. All other
+    inputs must already be finalized.
+    */
+    bool sign_anchor_inputs = 8;
 }
 
 message NextInternalKeyRequest {

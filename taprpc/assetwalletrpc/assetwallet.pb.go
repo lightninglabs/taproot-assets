@@ -1027,9 +1027,14 @@ type PublishAndLogRequest struct {
 	//An optional short label for the transfer. This label can be used to track
 	//the progress of the transfer via the logs or an event subscription.
 	//Multiple transfers can share the same label.
-	Label         string `protobuf:"bytes,7,opt,name=label,proto3" json:"label,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Label string `protobuf:"bytes,7,opt,name=label,proto3" json:"label,omitempty"`
+	//
+	//If set, tapd signs and finalizes the anchor inputs of this transfer that
+	//spend anchor outputs it owns and that have no final witness yet. All other
+	//inputs must already be finalized.
+	SignAnchorInputs bool `protobuf:"varint,8,opt,name=sign_anchor_inputs,json=signAnchorInputs,proto3" json:"sign_anchor_inputs,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *PublishAndLogRequest) Reset() {
@@ -1109,6 +1114,13 @@ func (x *PublishAndLogRequest) GetLabel() string {
 		return x.Label
 	}
 	return ""
+}
+
+func (x *PublishAndLogRequest) GetSignAnchorInputs() bool {
+	if x != nil {
+		return x.SignAnchorInputs
+	}
+	return false
 }
 
 type NextInternalKeyRequest struct {
@@ -2174,7 +2186,7 @@ const file_assetwalletrpc_assetwallet_proto_rawDesc = "" +
 	"\rvirtual_psbts\x18\x02 \x03(\fR\fvirtualPsbts\x12.\n" +
 	"\x13passive_asset_psbts\x18\x04 \x03(\fR\x11passiveAssetPsbts\x12.\n" +
 	"\x13change_output_index\x18\x05 \x01(\x05R\x11changeOutputIndex\x12:\n" +
-	"\x10lnd_locked_utxos\x18\x06 \x03(\v2\x10.taprpc.OutPointR\x0elndLockedUtxos\"\xc7\x02\n" +
+	"\x10lnd_locked_utxos\x18\x06 \x03(\v2\x10.taprpc.OutPointR\x0elndLockedUtxos\"\xf5\x02\n" +
 	"\x14PublishAndLogRequest\x12\x1f\n" +
 	"\vanchor_psbt\x18\x01 \x01(\fR\n" +
 	"anchorPsbt\x12#\n" +
@@ -2183,7 +2195,8 @@ const file_assetwalletrpc_assetwallet_proto_rawDesc = "" +
 	"\x13change_output_index\x18\x04 \x01(\x05R\x11changeOutputIndex\x12:\n" +
 	"\x10lnd_locked_utxos\x18\x05 \x03(\v2\x10.taprpc.OutPointR\x0elndLockedUtxos\x127\n" +
 	"\x18skip_anchor_tx_broadcast\x18\x06 \x01(\bR\x15skipAnchorTxBroadcast\x12\x14\n" +
-	"\x05label\x18\a \x01(\tR\x05label\"7\n" +
+	"\x05label\x18\a \x01(\tR\x05label\x12,\n" +
+	"\x12sign_anchor_inputs\x18\b \x01(\bR\x10signAnchorInputs\"7\n" +
 	"\x16NextInternalKeyRequest\x12\x1d\n" +
 	"\n" +
 	"key_family\x18\x01 \x01(\rR\tkeyFamily\"S\n" +
