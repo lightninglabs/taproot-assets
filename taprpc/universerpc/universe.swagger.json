@@ -1194,6 +1194,19 @@
               "SORT_DIRECTION_ASC"
             ],
             "default": "SORT_DIRECTION_DESC"
+          },
+          {
+            "name": "proof_type",
+            "description": "An optional filter to only return roots of the given proof type. If left\nunspecified, roots of all proof types are returned.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "enum": [
+              "PROOF_TYPE_UNSPECIFIED",
+              "PROOF_TYPE_ISSUANCE",
+              "PROOF_TYPE_TRANSFER"
+            ],
+            "default": "PROOF_TYPE_UNSPECIFIED"
           }
         ],
         "tags": [

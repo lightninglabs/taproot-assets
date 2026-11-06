@@ -383,6 +383,10 @@ var allTestCases = []*testCase{
 		test: testUniverseSync,
 	},
 	{
+		name: "universe roots proof type filter",
+		test: testUniverseRootsProofTypeFilter,
+	},
+	{
 		name: "universe delete leaf",
 		test: testUniverseDeleteLeaf,
 	},
