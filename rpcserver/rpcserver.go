@@ -3562,7 +3562,8 @@ func (r *RPCServer) validateInputAssets(ctx context.Context,
 // PublishAndLogTransfer accepts a fully committed and signed anchor transaction
 // and publishes it to the Bitcoin network. It also logs the transfer of the
 // given active and passive assets in the database and ships any outgoing proofs
-// to the counterparties.
+// to the counterparties. If requested, it first signs the anchor inputs it
+// owns.
 func (r *RPCServer) PublishAndLogTransfer(ctx context.Context,
 	req *wrpc.PublishAndLogRequest) (*taprpc.SendAssetResponse, error) {
 
@@ -3600,6 +3601,13 @@ func (r *RPCServer) PublishAndLogTransfer(ctx context.Context,
 	if err != nil {
 		return nil, fmt.Errorf("error validating anchor outputs: %w",
 			err)
+	}
+
+	if req.SignAnchorInputs {
+		err = r.signAnchorInputs(ctx, pkt, allPackets)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	chainFees, err := pkt.GetTxFee()
@@ -3671,6 +3679,44 @@ func (r *RPCServer) PublishAndLogTransfer(ctx context.Context,
 	return &taprpc.SendAssetResponse{
 		Transfer: parcel,
 	}, nil
+}
+
+// signAnchorInputs signs and finalizes the inputs of the anchor transaction
+// that spend anchor outputs of the given packets owned by this daemon.
+func (r *RPCServer) signAnchorInputs(ctx context.Context, pkt *psbt.Packet,
+	vPackets []*tappsbt.VPacket) error {
+
+	unsigned, err := tapsend.UnsignedAnchorInputs(pkt, vPackets)
+	if err != nil {
+		return err
+	}
+
+	anchors := make([]tapsend.OwnedAnchorInput, 0, len(unsigned))
+	for _, idx := range unsigned {
+		op := pkt.UnsignedTx.TxIn[idx].PreviousOutPoint
+
+		utxo, err := r.cfg.AssetStore.FetchManagedUTXO(ctx, op)
+		if err != nil {
+			return fmt.Errorf("anchor input %d (%v) is not "+
+				"managed by this daemon: %w", idx, op, err)
+		}
+		if !r.cfg.AddrBook.IsLocalKey(ctx, utxo.InternalKey) {
+			return fmt.Errorf("anchor input %d (%v) is not owned "+
+				"by this daemon", idx, op)
+		}
+
+		anchors = append(anchors, tapsend.OwnedAnchorInput{
+			Index:       idx,
+			InternalKey: utxo.InternalKey,
+			MerkleRoot:  utxo.MerkleRoot,
+			Value:       utxo.OutputValue,
+		})
+	}
+
+	return tapsend.SignAnchorInputs(
+		ctx, pkt, anchors, r.cfg.ChainParams.HDCoinType,
+		r.cfg.Lnd.WalletKit.SignPsbt,
+	)
 }
 
 // NextInternalKey derives the next internal key for the given key family and

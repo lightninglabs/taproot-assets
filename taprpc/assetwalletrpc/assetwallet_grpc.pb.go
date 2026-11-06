@@ -46,7 +46,8 @@ type AssetWalletClient interface {
 	//PublishAndLogTransfer accepts a fully committed and signed anchor
 	//transaction and publishes it to the Bitcoin network. It also logs the
 	//transfer of the given active and passive assets in the database and ships
-	//any outgoing proofs to the counterparties.
+	//any outgoing proofs to the counterparties. If sign_anchor_inputs is set,
+	//tapd first signs the anchor inputs it owns.
 	PublishAndLogTransfer(ctx context.Context, in *PublishAndLogRequest, opts ...grpc.CallOption) (*taprpc.SendAssetResponse, error)
 	//
 	//NextInternalKey derives the next internal key for the given key family and
@@ -274,7 +275,8 @@ type AssetWalletServer interface {
 	//PublishAndLogTransfer accepts a fully committed and signed anchor
 	//transaction and publishes it to the Bitcoin network. It also logs the
 	//transfer of the given active and passive assets in the database and ships
-	//any outgoing proofs to the counterparties.
+	//any outgoing proofs to the counterparties. If sign_anchor_inputs is set,
+	//tapd first signs the anchor inputs it owns.
 	PublishAndLogTransfer(context.Context, *PublishAndLogRequest) (*taprpc.SendAssetResponse, error)
 	//
 	//NextInternalKey derives the next internal key for the given key family and
