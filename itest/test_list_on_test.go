@@ -367,6 +367,10 @@ var allTestCases = []*testCase{
 		test: testPsbtExternalCommit,
 	},
 	{
+		name: "psbt sign anchor inputs",
+		test: testPsbtSignAnchorInputs,
+	},
+	{
 		name: "multi input psbt single asset id",
 		test: testMultiInputPsbtSingleAssetID,
 	},
