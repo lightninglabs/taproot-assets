@@ -9466,70 +9466,10 @@ func (r *RPCServer) AddAssetBuyOrder(ctx context.Context,
 
 	timeout := time.After(time.Second * time.Duration(req.TimeoutSeconds))
 
-	type (
-		targetEventType = *rfq.PeerAcceptedBuyQuoteEvent
-		rejectEventType = *rfq.InvalidQuoteRespEvent
-		peerRejectType  = *rfq.IncomingRejectQuoteEvent
+	return waitForBuyOrderResponse(
+		eventSubscriber.NewItemCreated.ChanOut(), r.quit, timeout, id,
+		*buyOrder, peer,
 	)
-
-	for {
-		select {
-		case event := <-eventSubscriber.NewItemCreated.ChanOut():
-			switch e := event.(type) {
-			case rejectEventType:
-				if e.QuoteResponse.MsgID() == id {
-					return nil, fmt.Errorf("peer %s "+
-						"rejected quote %v",
-						peer.String(),
-						e.QuoteResponse.String())
-				}
-
-			case peerRejectType:
-				if e.MsgID() == id {
-					return nil, fmt.Errorf(
-						"peer %s rejected "+
-							"quote %v",
-						peer.String(),
-						e.String(),
-					)
-				}
-
-			case targetEventType:
-				if !e.MatchesOrder(*buyOrder) {
-					rpcsLog.Debugf("Received event of "+
-						"type %T but order doesn't "+
-						"match, skipping", event)
-
-					continue
-				}
-
-				resp, err := rfq.NewAddAssetBuyOrderResponse(
-					event,
-				)
-				if err != nil {
-					return nil, fmt.Errorf("error "+
-						"marshalling buy order "+
-						"response: %w", err)
-				}
-
-				return resp, nil
-
-			default:
-				rpcsLog.Debugf("Received event of type %T "+
-					"but expected accepted sell quote, "+
-					"skipping", event)
-
-				continue
-			}
-
-		case <-r.quit:
-			return nil, fmt.Errorf("server shutting down")
-
-		case <-timeout:
-			return nil, fmt.Errorf("timeout waiting for response "+
-				"(peer=%s)", peer.String())
-		}
-	}
 }
 
 // checkPeerChannel checks if there is a channel with the given peer. If the
@@ -9748,70 +9688,10 @@ func (r *RPCServer) AddAssetSellOrder(ctx context.Context,
 
 	timeout := time.After(time.Second * time.Duration(req.TimeoutSeconds))
 
-	type (
-		targetEventType = *rfq.PeerAcceptedSellQuoteEvent
-		rejectEventType = *rfq.InvalidQuoteRespEvent
-		peerRejectType  = *rfq.IncomingRejectQuoteEvent
+	return waitForSellOrderResponse(
+		eventSubscriber.NewItemCreated.ChanOut(), r.quit, timeout, id,
+		*sellOrder, peer,
 	)
-
-	for {
-		select {
-		case event := <-eventSubscriber.NewItemCreated.ChanOut():
-			switch e := event.(type) {
-			case rejectEventType:
-				if e.QuoteResponse.MsgID() == id {
-					return nil, fmt.Errorf("peer %s "+
-						"rejected quote %v",
-						peer.String(),
-						e.QuoteResponse.String())
-				}
-
-			case peerRejectType:
-				if e.MsgID() == id {
-					return nil, fmt.Errorf(
-						"peer %s rejected "+
-							"quote %v",
-						peer.String(),
-						e.String(),
-					)
-				}
-
-			case targetEventType:
-				if !e.MatchesOrder(*sellOrder) {
-					rpcsLog.Debugf("Received event of "+
-						"type %T but order doesn't "+
-						"match, skipping", event)
-
-					continue
-				}
-
-				resp, err := rfq.NewAddAssetSellOrderResponse(
-					event,
-				)
-				if err != nil {
-					return nil, fmt.Errorf("error "+
-						"marshalling sell order "+
-						"response: %w", err)
-				}
-
-				return resp, nil
-
-			default:
-				rpcsLog.Debugf("Received event of type %T "+
-					"but expected accepted sell quote, "+
-					"skipping", event)
-
-				continue
-			}
-
-		case <-r.quit:
-			return nil, fmt.Errorf("server shutting down")
-
-		case <-timeout:
-			return nil, fmt.Errorf("timeout waiting for response "+
-				"from peer %s", peer.String())
-		}
-	}
 }
 
 // AddAssetSellOffer upserts a new sell offer for the given asset into the
