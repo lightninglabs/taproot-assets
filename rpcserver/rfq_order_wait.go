@@ -47,7 +47,7 @@ func waitForBuyOrderResponse(events <-chan fn.Event, quit <-chan struct{},
 				}
 
 			case targetEventType:
-				if !e.MatchesOrder(order) {
+				if e.MsgID() != id || !e.MatchesOrder(order) {
 					rpcsLog.Debugf("Received event of "+
 						"type %T but order doesn't "+
 						"match, skipping", event)
@@ -120,7 +120,7 @@ func waitForSellOrderResponse(events <-chan fn.Event, quit <-chan struct{},
 				}
 
 			case targetEventType:
-				if !e.MatchesOrder(order) {
+				if e.MsgID() != id || !e.MatchesOrder(order) {
 					rpcsLog.Debugf("Received event of "+
 						"type %T but order doesn't "+
 						"match, skipping", event)
