@@ -136,7 +136,9 @@ func TestIndexedProofStorageProperties(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	unindexed, err := db.FetchUnindexedAssetProofs(ctx, 10)
+	unindexed, err := db.FetchUnindexedAssetProofs(
+		ctx, sqlc.FetchUnindexedAssetProofsParams{RowLimit: 10},
+	)
 	require.NoError(t, err)
 	require.Len(t, unindexed, 1)
 	for idx := range proofs {
@@ -158,7 +160,9 @@ func TestIndexedProofStorageProperties(t *testing.T) {
 		},
 	)
 	require.ErrorContains(t, err, "does not match indexed proof")
-	unindexed, err = db.FetchUnindexedAssetProofs(ctx, 10)
+	unindexed, err = db.FetchUnindexedAssetProofs(
+		ctx, sqlc.FetchUnindexedAssetProofsParams{RowLimit: 10},
+	)
 	require.NoError(t, err)
 	require.Len(t, unindexed, 1)
 
@@ -171,7 +175,9 @@ func TestIndexedProofStorageProperties(t *testing.T) {
 	require.Contains(t, programmaticMigrations,
 		uint(Migration72BackfillProofProvenance))
 
-	unindexed, err = db.FetchUnindexedAssetProofs(ctx, 10)
+	unindexed, err = db.FetchUnindexedAssetProofs(
+		ctx, sqlc.FetchUnindexedAssetProofsParams{RowLimit: 10},
+	)
 	require.NoError(t, err)
 	require.Empty(t, unindexed)
 	for idx := range proofs {

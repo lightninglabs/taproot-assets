@@ -65,13 +65,18 @@ var (
 const proofProvenanceBackfillPageSize = 128
 
 // backfillProofProvenance rebuilds the derived transaction-to-proof index for
-// every legacy proof blob. It runs inside the migration's single transaction:
-// bounded pages keep memory flat, and indexing marks each row complete, so the
-// unindexed set shrinks to nothing or the whole migration rolls back.
+// every legacy proof blob. It runs inside the migration's single transaction,
+// in bounded pages that keep memory flat. A blob that doesn't decode is logged
+// and left unindexed, which excludes it from reverse lookups; any other error
+// rolls back the whole migration.
 func backfillProofProvenance(ctx context.Context, q sqlc.Querier) error {
+	var afterProofID int64
 	for {
 		rows, err := q.FetchUnindexedAssetProofs(
-			ctx, proofProvenanceBackfillPageSize,
+			ctx, sqlc.FetchUnindexedAssetProofsParams{
+				AfterProofID: afterProofID,
+				RowLimit:     proofProvenanceBackfillPageSize,
+			},
 		)
 		if err != nil {
 			return fmt.Errorf(
@@ -83,12 +88,14 @@ func backfillProofProvenance(ctx context.Context, q sqlc.Querier) error {
 		}
 
 		for _, row := range rows {
+			afterProofID = row.ProofID
+
 			indexed, err := NewIndexedProofFile(row.ProofFile)
 			if err != nil {
-				return fmt.Errorf(
-					"indexing legacy proof %d: %w",
-					row.ProofID, err,
-				)
+				log.Warnf("Leaving legacy proof %d unindexed: "+
+					"%v", row.ProofID, err)
+
+				continue
 			}
 
 			err = IndexStoredAssetProof(

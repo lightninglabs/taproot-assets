@@ -200,6 +200,14 @@
   certificate on its first start unless the contents of that directory
   are moved into `--letsencryptdir`.
 
+* [PR#2340](https://github.com/lightninglabs/taproot-assets/pull/2340)
+  makes a V1 group key reveal decode from its own record only, and
+  refuse unknown even types within it. Records that follow the reveal in
+  a proof are no longer consumed by it. Asset witnesses also compare by
+  the content of their witness stacks, so nil and empty stacks and
+  elements compare equal. The proof provenance backfill run during the
+  database upgrade logs and skips any stored proof it can't decode.
+
 # New Features
 
 ## Functional Enhancements

@@ -1989,7 +1989,9 @@ func TestMigration72BackfillsProofProvenance(t *testing.T) {
 		AssetID:   assetID,
 		ProofFile: blob,
 	}))
-	unindexed, err := db.FetchUnindexedAssetProofs(ctx, 10)
+	unindexed, err := db.FetchUnindexedAssetProofs(
+		ctx, sqlc.FetchUnindexedAssetProofsParams{RowLimit: 10},
+	)
 	require.NoError(t, err)
 	require.Len(t, unindexed, 1)
 
@@ -1998,7 +2000,9 @@ func TestMigration72BackfillsProofProvenance(t *testing.T) {
 	))
 	require.NoError(t, err)
 
-	unindexed, err = db.FetchUnindexedAssetProofs(ctx, 10)
+	unindexed, err = db.FetchUnindexedAssetProofs(
+		ctx, sqlc.FetchUnindexedAssetProofsParams{RowLimit: 10},
+	)
 	require.NoError(t, err)
 	require.Empty(t, unindexed)
 
@@ -2007,6 +2011,89 @@ func TestMigration72BackfillsProofProvenance(t *testing.T) {
 		SELECT COUNT(*) FROM asset_proof_anchors
 	`).Scan(&anchorCount))
 	require.Positive(t, anchorCount)
+}
+
+// TestMigration72SkipsUndecodableProofs tests that migration 72 leaves a
+// legacy proof blob it can't decode unindexed, and still indexes the blobs
+// that follow it.
+func TestMigration72SkipsUndecodableProofs(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db := NewTestDBWithVersion(t, 71)
+	_, assetStore := newAssetStoreFromDB(db.BaseDB)
+
+	assetGen := newAssetGenerator(t, 2, 1)
+	assetGen.genAssets(t, assetStore, []assetDesc{{
+		assetGen:    assetGen.assetGens[0],
+		anchorPoint: assetGen.anchorPoints[0],
+		amt:         10,
+	}, {
+		assetGen:    assetGen.assetGens[1],
+		anchorPoint: assetGen.anchorPoints[1],
+		amt:         10,
+	}})
+
+	type storedProof struct {
+		proofID int64
+		assetID int64
+		blob    []byte
+	}
+	rows, err := db.QueryContext(ctx, `
+		SELECT proof_id, asset_id, proof_file
+		FROM asset_proofs
+		ORDER BY proof_id
+	`)
+	require.NoError(t, err)
+	defer rows.Close()
+
+	var stored []storedProof
+	for rows.Next() {
+		var p storedProof
+		require.NoError(t, rows.Scan(&p.proofID, &p.assetID, &p.blob))
+		stored = append(stored, p)
+	}
+	require.NoError(t, rows.Err())
+	require.Len(t, stored, 2)
+
+	// Mimic two proofs written by a pre-index binary, the first of which
+	// is truncated, over the empty index migration 71 creates.
+	_, err = db.ExecContext(ctx, "DELETE FROM asset_proof_anchors")
+	require.NoError(t, err)
+
+	bad, good := stored[0], stored[1]
+	require.NoError(t, db.UpsertAssetProofByID(ctx, ProofUpdateByID{
+		AssetID:   bad.assetID,
+		ProofFile: bad.blob[:len(bad.blob)/2],
+	}))
+	require.NoError(t, db.UpsertAssetProofByID(ctx, ProofUpdateByID{
+		AssetID:   good.assetID,
+		ProofFile: good.blob,
+	}))
+
+	err = db.ExecuteMigrations(TargetLatest, WithProgrammaticMigrations(
+		makeProgrammaticMigrations(db, programmaticMigrations, true),
+	))
+	require.NoError(t, err)
+
+	unindexed, err := db.FetchUnindexedAssetProofs(
+		ctx, sqlc.FetchUnindexedAssetProofsParams{RowLimit: 10},
+	)
+	require.NoError(t, err)
+	require.Len(t, unindexed, 1)
+	require.Equal(t, bad.proofID, unindexed[0].ProofID)
+
+	anchorCount := func(proofID int64) int {
+		var count int
+		require.NoError(t, db.QueryRowContext(ctx, `
+			SELECT COUNT(*) FROM asset_proof_anchors
+			WHERE proof_id = $1
+		`, proofID).Scan(&count))
+
+		return count
+	}
+	require.Zero(t, anchorCount(bad.proofID))
+	require.Positive(t, anchorCount(good.proofID))
 }
 
 // TestMigration61CancelsDuplicatePreBroadcastBatches verifies that the
