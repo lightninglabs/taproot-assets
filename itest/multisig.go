@@ -395,6 +395,12 @@ func withTransitionProofVersion(
 	}
 }
 
+func withSkipFunding() commitVirtualPsbtsOption {
+	return func(request *wrpc.CommitVirtualPsbtsRequest) {
+		request.SkipFunding = true
+	}
+}
+
 func CommitVirtualPsbts(t *testing.T, funder commands.RpcClientsBundle,
 	packet *psbt.Packet, activePackets []*tappsbt.VPacket,
 	passivePackets []*tappsbt.VPacket,
@@ -528,6 +534,10 @@ type publishAndLogTransferOptions struct {
 
 	// expectedErr is the expected error when calling PublishAndLogTransfer.
 	expectedErr string
+
+	// signAnchorInputs indicates whether tapd should sign the anchor
+	// inputs it owns.
+	signAnchorInputs bool
 }
 
 // defaultPublishAndLogTransferOptions returns the default options for
@@ -560,6 +570,14 @@ func withExpectedErr(expectedErr string) PublishAndLogTransferOption {
 	}
 }
 
+// withSignAnchorInputs is an option for PublishAndLogTransfer that asks tapd
+// to sign the anchor inputs it owns.
+func withSignAnchorInputs() PublishAndLogTransferOption {
+	return func(opts *publishAndLogTransferOptions) {
+		opts.signAnchorInputs = true
+	}
+}
+
 // PublishAndLogTransfer is a helper function that invokes the
 // PublishAndLogTransfer RPC endpoint on the specified tapd node. This endpoint
 // performs a pre-anchored transfer.
@@ -589,6 +607,7 @@ func PublishAndLogTransfer(t *testing.T, tapd commands.RpcClientsBundle,
 		LndLockedUtxos:        commitResp.LndLockedUtxos,
 		SkipAnchorTxBroadcast: options.skipAnchorTxBroadcast,
 		Label:                 options.label,
+		SignAnchorInputs:      options.signAnchorInputs,
 	}
 
 	for idx := range activeAssets {

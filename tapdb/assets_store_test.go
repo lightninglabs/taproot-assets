@@ -2149,6 +2149,13 @@ func TestAssetExportLog(t *testing.T) {
 	require.Len(t, utxos, 1)
 	require.Equal(t, assetGen.anchorPoints[0], utxos[0].OutPoint)
 
+	utxo, err := assetsStore.FetchManagedUTXO(ctx, assetGen.anchorPoints[0])
+	require.NoError(t, err)
+	require.Equal(t, utxos[0], utxo)
+
+	_, err = assetsStore.FetchManagedUTXO(ctx, assetGen.anchorPoints[1])
+	require.ErrorIs(t, err, sql.ErrNoRows)
+
 	newAnchorTx := wire.NewMsgTx(2)
 	newAnchorTx.AddTxIn(&wire.TxIn{})
 	newAnchorTx.TxIn[0].SignatureScript = []byte{}

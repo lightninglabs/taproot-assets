@@ -1485,6 +1485,54 @@ func (a *AssetStore) CountUnconfirmedAssets(ctx context.Context,
 	return uint64(count), nil
 }
 
+// FetchManagedUTXO fetches the managed UTXO at the given outpoint.
+func (a *AssetStore) FetchManagedUTXO(ctx context.Context,
+	outpoint wire.OutPoint) (*ManagedUTXO, error) {
+
+	outpointBytes, err := encodeOutpoint(outpoint)
+	if err != nil {
+		return nil, err
+	}
+
+	var u AnchorPoint
+	readOpts := NewAssetStoreReadTx()
+	dbErr := a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
+		u, err = q.FetchManagedUTXO(ctx, UtxoQuery{
+			Outpoint: outpointBytes,
+		})
+		return err
+	})
+	if dbErr != nil {
+		return nil, dbErr
+	}
+
+	internalKey, err := btcec.ParsePubKey(u.RawKey)
+	if err != nil {
+		return nil, err
+	}
+
+	utxo := &ManagedUTXO{
+		OutPoint:    outpoint,
+		OutputValue: btcutil.Amount(u.AmtSats),
+		InternalKey: keychain.KeyDescriptor{
+			PubKey: internalKey,
+			KeyLocator: keychain.KeyLocator{
+				Index:  uint32(u.KeyIndex),
+				Family: keychain.KeyFamily(u.KeyFamily),
+			},
+		},
+		TaprootAssetRoot: u.TaprootAssetRoot,
+		MerkleRoot:       u.MerkleRoot,
+		TapscriptSibling: u.TapscriptSibling,
+		LeaseOwner:       u.LeaseOwner,
+	}
+	if u.LeaseExpiry.Valid {
+		utxo.LeaseExpiry = u.LeaseExpiry.Time
+	}
+
+	return utxo, nil
+}
+
 // FetchManagedUTXOs fetches all UTXOs we manage.
 func (a *AssetStore) FetchManagedUTXOs(ctx context.Context) (
 	[]*ManagedUTXO, error) {

@@ -3066,6 +3066,165 @@ func repointSplitRoot(t *testing.T, vPkt *tappsbt.VPacket) *tappsbt.VPacket {
 	return repointed
 }
 
+// testPsbtSignAnchorInputs tests a transfer whose anchor transaction is funded
+// by an external wallet. The wallet signs only its own inputs, and tapd signs
+// the anchor inputs it owns when publishing.
+func testPsbtSignAnchorInputs(t *harnessTest) {
+	ctx := context.Background()
+
+	assets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner(), t.tapd,
+		[]*mintrpc.MintAssetRequest{issuableAssets[0]},
+	)
+	targetAsset := assets[0]
+	assetID := targetAsset.AssetGenesis.AssetId
+
+	var (
+		aliceTapd = t.tapd
+		bobLnd    = t.lndHarness.NewNodeWithCoins("Bob", nil)
+	)
+
+	// Bob receives the assets, and his lnd wallet, which Alice's tapd
+	// can't use, funds the anchor transaction.
+	bobTapd := setupTapdHarness(t.t, t, bobLnd, t.universeServer)
+	defer func() {
+		require.NoError(t.t, bobTapd.stop(!*noDelete))
+	}()
+
+	const assetsToSend = 1000
+	bobAddr, err := bobTapd.NewAddr(ctx, &taprpc.NewAddrRequest{
+		AssetId: assetID,
+		Amt:     assetsToSend,
+	})
+	require.NoError(t.t, err)
+
+	fundResp, err := aliceTapd.FundVirtualPsbt(
+		ctx, &wrpc.FundVirtualPsbtRequest{
+			Template: &wrpc.FundVirtualPsbtRequest_Raw{
+				Raw: &wrpc.TxTemplate{
+					Recipients: map[string]uint64{
+						bobAddr.Encoded: bobAddr.Amount,
+					},
+				},
+			},
+		},
+	)
+	require.NoError(t.t, err)
+
+	activeAsset, err := tappsbt.Decode(fundResp.FundedPsbt)
+	require.NoError(t.t, err)
+	activeAssets := []*tappsbt.VPacket{
+		signVirtualPacket(t.t, aliceTapd, activeAsset),
+	}
+	passiveAssets := make(
+		[]*tappsbt.VPacket, len(fundResp.PassiveAssetPsbts),
+	)
+	for idx := range fundResp.PassiveAssetPsbts {
+		passiveAsset, err := tappsbt.Decode(
+			fundResp.PassiveAssetPsbts[idx],
+		)
+		require.NoError(t.t, err)
+
+		passiveAssets[idx] = signVirtualPacket(
+			t.t, aliceTapd, passiveAsset,
+		)
+	}
+
+	allPackets := append([]*tappsbt.VPacket{}, activeAssets...)
+	allPackets = append(allPackets, passiveAssets...)
+	btcPacket, err := tapsend.PrepareAnchoringTemplate(allPackets)
+	require.NoError(t.t, err)
+	numAnchorInputs := len(btcPacket.UnsignedTx.TxIn)
+
+	// Bob adds his inputs and a P2WPKH change output, so the transaction
+	// is final before tapd commits to it.
+	btcPacketBytes, err := fn.Serialize(btcPacket)
+	require.NoError(t.t, err)
+	bobFundResp := bobLnd.RPC.FundPsbt(&walletrpc.FundPsbtRequest{
+		Template: &walletrpc.FundPsbtRequest_CoinSelect{
+			CoinSelect: &walletrpc.PsbtCoinSelect{
+				Psbt: btcPacketBytes,
+				ChangeOutput: &walletrpc.PsbtCoinSelect_Add{
+					Add: true,
+				},
+			},
+		},
+		Fees: &walletrpc.FundPsbtRequest_SatPerVbyte{
+			SatPerVbyte: uint64(feeRateSatPerKVByte / 1000),
+		},
+		MinConfs: 1,
+	})
+	btcPacket, err = psbt.NewFromRawBytes(
+		bytes.NewReader(bobFundResp.FundedPsbt), false,
+	)
+	require.NoError(t.t, err)
+	require.Greater(t.t, len(btcPacket.UnsignedTx.TxIn), numAnchorInputs)
+
+	var commitResp *wrpc.CommitVirtualPsbtsResponse
+	btcPacket, activeAssets, passiveAssets, commitResp = CommitVirtualPsbts(
+		t.t, aliceTapd, btcPacket, activeAssets, passiveAssets,
+		bobFundResp.ChangeOutputIndex, withSkipFunding(),
+	)
+
+	// tapd only signs its own anchor inputs, so Bob's inputs must be
+	// finalized first.
+	PublishAndLogTransfer(
+		t.t, aliceTapd, btcPacket, activeAssets, passiveAssets,
+		commitResp, withSignAnchorInputs(),
+		withExpectedErr("is not an anchor input of this transfer"),
+	)
+
+	btcPacket = signPacket(t.t, bobLnd, btcPacket)
+	for idx := range btcPacket.Inputs {
+		pIn := btcPacket.Inputs[idx]
+		if idx < numAnchorInputs {
+			require.Empty(t.t, pIn.TaprootKeySpendSig)
+			continue
+		}
+
+		require.NoError(t.t, psbt.Finalize(btcPacket, idx))
+	}
+
+	// Without the flag, tapd expects a fully signed transaction.
+	PublishAndLogTransfer(
+		t.t, aliceTapd, btcPacket, activeAssets, passiveAssets,
+		commitResp,
+		withExpectedErr("error extracting final anchor transaction"),
+	)
+
+	sendResp := PublishAndLogTransfer(
+		t.t, aliceTapd, btcPacket, activeAssets, passiveAssets,
+		commitResp, withSignAnchorInputs(),
+	)
+
+	var anchorTx wire.MsgTx
+	err = anchorTx.Deserialize(bytes.NewReader(sendResp.Transfer.AnchorTx))
+	require.NoError(t.t, err)
+	require.Equal(t.t, btcPacket.UnsignedTx.TxHash(), anchorTx.TxHash())
+	for idx := range numAnchorInputs {
+		witness := anchorTx.TxIn[idx].Witness
+		require.Len(t.t, witness, 1)
+		require.Len(t.t, witness[0], schnorr.SignatureSize)
+	}
+
+	expectedAmounts := []uint64{
+		targetAsset.Amount - assetsToSend, assetsToSend,
+	}
+	AssertAssetOutboundTransferWithOutputs(
+		t.t, t.lndHarness.Miner(), aliceTapd, sendResp.Transfer,
+		[][]byte{assetID}, expectedAmounts, 0, 1, len(expectedAmounts),
+		true,
+	)
+
+	AssertNonInteractiveRecvComplete(t.t, bobTapd, 1)
+	AssertBalanceByID(t.t, bobTapd, assetID, assetsToSend)
+	AssertBalances(
+		t.t, aliceTapd, targetAsset.Amount-assetsToSend,
+		WithAssetID(assetID), WithNumUtxos(1),
+		WithScriptKeyType(asset.ScriptKeyBip86),
+	)
+}
+
 // testPsbtLockTimeSend tests that we can send minted assets into a ScriptKey
 // encumbered with an absolute (CLTV) lock time.
 func testPsbtLockTimeSend(t *harnessTest) {

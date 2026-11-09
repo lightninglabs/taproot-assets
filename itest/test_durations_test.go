@@ -105,6 +105,7 @@ var testCaseSeconds = map[string]int{
 	"psbt sighash none invalid":                             73,
 	"psbt trustless swap":                                   72,
 	"psbt external commit":                                  55,
+	"psbt sign anchor inputs":                               72,
 	"multi input psbt single asset id":                      77,
 	"psbt alt leaf anchoring":                               71,
 	"universe REST API":                                     48,
