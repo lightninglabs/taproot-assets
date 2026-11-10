@@ -212,6 +212,13 @@
   elements compare equal. The proof provenance backfill run during the
   database upgrade logs and skips any stored proof it can't decode.
 
+* [PR#2367](https://github.com/lightninglabs/taproot-assets/pull/2367)
+  makes the custodian check that the block a V2 address send fragment
+  names is on chain at the fragment's block height, and reject the
+  fragment otherwise. The custodian also skips a mailbox message that it
+  decrypts but cannot process, and continues with the rest of the batch,
+  as it does for a message that it cannot decrypt.
+
 # New Features
 
 ## Functional Enhancements
