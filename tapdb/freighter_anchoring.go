@@ -1392,54 +1392,16 @@ func (a *AssetStore) rebuildAnchorConfirm(ctx context.Context,
 				"proof suffix: %w", err)
 		}
 
-		// Stamp the witness's block context onto the suffix; this
-		// is exactly what confirmation adds to the pre-broadcast
-		// suffix.
-		suffix.AnchorTx = *anchorTx
-		suffix.BlockHeader = header
-		suffix.BlockHeight = blockHeight
-		suffix.TxMerkleProof = merkle
-
 		// The output's full proof file is its primary input's
-		// file with the suffix appended, and any additional
-		// inputs' files attached to the suffix. Which inputs
-		// those are is determined by the suffix's own witnesses
-		// (resolved through the split commitment root where
-		// applicable), exactly as at pre-broadcast verification.
+		// file with the confirmed suffix appended, and any
+		// additional inputs' files attached to the suffix.
 		assetID := suffix.Asset.ID()
-		witnesses := suffix.Asset.Witnesses()
-		var prevIDs []asset.PrevID
-		for _, in := range inputPrevIDs {
-			for _, witness := range witnesses {
-				if witness.PrevID != nil &&
-					in == *witness.PrevID {
-
-					prevIDs = append(prevIDs, in)
-				}
-			}
-		}
-		if len(prevIDs) == 0 {
-			return nil, nil, fmt.Errorf("no inputs found for "+
-				"output asset %v", assetID)
-		}
-
-		for extra := 1; extra < len(prevIDs); extra++ {
-			extraFile, err := fetchInputFile(prevIDs[extra])
-			if err != nil {
-				return nil, nil, err
-			}
-			suffix.AdditionalInputs = append(
-				suffix.AdditionalInputs, *extraFile,
-			)
-		}
-
-		file, err := fetchInputFile(prevIDs[0])
+		file, suffix, err := proof.AppendConfirmedSuffix(
+			suffix, anchorTx, header, blockHeight, merkle,
+			inputPrevIDs, fetchInputFile,
+		)
 		if err != nil {
 			return nil, nil, err
-		}
-		if err := file.AppendProof(*suffix); err != nil {
-			return nil, nil, fmt.Errorf("unable to append "+
-				"proof: %w", err)
 		}
 		var blob bytes.Buffer
 		if err := file.Encode(&blob); err != nil {

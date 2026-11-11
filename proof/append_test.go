@@ -3,6 +3,7 @@ package proof
 import (
 	"bytes"
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/btcsuite/btcd/blockchain"
@@ -328,6 +329,99 @@ func TestVerifyProofSuffix(t *testing.T) {
 		require.Equal(t, suffix.OutPoint(), snapshot.OutPoint)
 		require.Equal(t, suffix.Asset.Amount, snapshot.Asset.Amount)
 	})
+}
+
+// TestAppendConfirmedSuffix completes an unconfirmed merge suffix into a full
+// proof file, and leaves the suffix and the input files it is given unchanged
+// whether the call succeeds or fails.
+func TestAppendConfirmedSuffix(t *testing.T) {
+	t.Parallel()
+
+	suffix, inputFiles := buildMergeSuffix(t, false)
+	primary, err := suffix.Asset.PrimaryPrevID()
+	require.NoError(t, err)
+
+	inputs := []asset.PrevID{*primary}
+	for prevID := range inputFiles {
+		if prevID != *primary {
+			inputs = append(inputs, prevID)
+		}
+	}
+	require.Len(t, inputs, 2)
+
+	fetch := func(prevID asset.PrevID) (*File, error) {
+		return inputFiles[prevID], nil
+	}
+	appendSuffix := func(s *Proof, ins []asset.PrevID,
+		fetchInput func(asset.PrevID) (*File, error)) (*File, *Proof,
+		error) {
+
+		return AppendConfirmedSuffix(
+			s, &suffix.AnchorTx, suffix.BlockHeader, 123,
+			suffix.TxMerkleProof, ins, fetchInput,
+		)
+	}
+
+	suffixBytes, err := suffix.Bytes()
+	require.NoError(t, err)
+	primaryProofs := inputFiles[*primary].NumProofs()
+	requireUnchanged := func() {
+		t.Helper()
+
+		current, err := suffix.Bytes()
+		require.NoError(t, err)
+		require.Equal(t, suffixBytes, current)
+		require.Equal(
+			t, primaryProofs, inputFiles[*primary].NumProofs(),
+		)
+	}
+
+	// The primary input is fetched last, so this fails after the
+	// additional input was attached.
+	errFetch := errors.New("fetch failed")
+	_, _, err = appendSuffix(
+		suffix, inputs, func(prevID asset.PrevID) (*File, error) {
+			if prevID == *primary {
+				return nil, errFetch
+			}
+
+			return fetch(prevID)
+		},
+	)
+	require.ErrorIs(t, err, errFetch)
+	requireUnchanged()
+
+	file, confirmed, err := appendSuffix(suffix, inputs, fetch)
+	require.NoError(t, err)
+	requireUnchanged()
+
+	require.Equal(t, primaryProofs+1, file.NumProofs())
+	last, err := file.LastProof()
+	require.NoError(t, err)
+	require.EqualValues(t, 123, last.BlockHeight)
+	require.Len(t, last.AdditionalInputs, 1)
+	require.EqualValues(t, 123, confirmed.BlockHeight)
+	require.Len(t, confirmed.AdditionalInputs, 1)
+
+	snapshot, err := file.Verify(context.Background(), MockVerifierCtx)
+	require.NoError(t, err)
+	require.Equal(t, suffix.Asset.ID(), snapshot.Asset.ID())
+	require.Equal(t, suffix.Asset.Amount, snapshot.Asset.Amount)
+
+	// The first input the asset spends must be the one the suffix
+	// extends.
+	_, _, err = appendSuffix(
+		suffix, []asset.PrevID{inputs[1], inputs[0]}, fetch,
+	)
+	require.ErrorContains(t, err, "does not match proof suffix")
+
+	// A completed proof is not a suffix.
+	_, _, err = appendSuffix(confirmed, inputs, fetch)
+	require.ErrorContains(t, err, "already carries additional inputs")
+
+	_, _, err = appendSuffix(suffix, nil, fetch)
+	require.ErrorContains(t, err, "no inputs found")
+	requireUnchanged()
 }
 
 // TestFullFileAnchorInputs checks that full-file verification binds each asset
