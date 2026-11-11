@@ -447,7 +447,7 @@
     },
     "/v1/taproot-assets/wallet/virtual-psbt/log-transfer": {
       "post": {
-        "summary": "PublishAndLogTransfer accepts a fully committed and signed anchor\ntransaction and publishes it to the Bitcoin network. It also logs the\ntransfer of the given active and passive assets in the database and ships\nany outgoing proofs to the counterparties.",
+        "summary": "PublishAndLogTransfer accepts a fully committed and signed anchor\ntransaction and publishes it to the Bitcoin network. It also logs the\ntransfer of the given active and passive assets in the database and ships\nany outgoing proofs to the counterparties. If sign_anchor_inputs is set,\ntapd first signs the anchor inputs it owns.",
         "operationId": "AssetWallet_PublishAndLogTransfer",
         "responses": {
           "200": {
@@ -885,6 +885,10 @@
         "label": {
           "type": "string",
           "description": "An optional short label for the transfer. This label can be used to track\nthe progress of the transfer via the logs or an event subscription.\nMultiple transfers can share the same label."
+        },
+        "sign_anchor_inputs": {
+          "type": "boolean",
+          "description": "If set, tapd signs and finalizes the anchor inputs of this transfer that\nspend anchor outputs it owns and that have no final witness yet. All other\ninputs must already be finalized."
         }
       }
     },

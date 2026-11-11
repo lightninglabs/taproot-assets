@@ -363,8 +363,20 @@ var allTestCases = []*testCase{
 		test: testPsbtTrustlessSwap,
 	},
 	{
+		name: "psbt external input",
+		test: testPsbtExternalInput,
+	},
+	{
+		name: "psbt external input restart",
+		test: testPsbtExternalInputRestart,
+	},
+	{
 		name: "psbt external commit",
 		test: testPsbtExternalCommit,
+	},
+	{
+		name: "psbt sign anchor inputs",
+		test: testPsbtSignAnchorInputs,
 	},
 	{
 		name: "multi input psbt single asset id",
@@ -519,6 +531,10 @@ var allTestCases = []*testCase{
 	{
 		name: "address v2 with simple asset",
 		test: testAddressV2WithSimpleAsset,
+	},
+	{
+		name: "universe tls verification",
+		test: testUniverseTLSVerification,
 	},
 	{
 		name: "address v2 with group key",

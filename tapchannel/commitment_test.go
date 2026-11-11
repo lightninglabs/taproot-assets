@@ -3,9 +3,15 @@ package tapchannel
 import (
 	"testing"
 
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/txscript/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
+	"github.com/lightninglabs/taproot-assets/tapsend"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -804,4 +810,57 @@ func TestComputeView(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestInPlaceCustomCommitSortOneToOne tests that the custom sort matches each
+// allocation to a single output, and refuses allocations that share an
+// output index.
+func TestInPlaceCustomCommitSortOneToOne(t *testing.T) {
+	t.Parallel()
+
+	key := test.RandPrivKey().PubKey()
+	pkScript, err := txscript.PayToTaprootScript(key)
+	require.NoError(t, err)
+
+	newAlloc := func(outputIndex uint32) *tapsend.Allocation {
+		return &tapsend.Allocation{
+			Type:                tapsend.AllocationTypeNoAssets,
+			OutputIndex:         outputIndex,
+			BtcAmount:           50_000,
+			SortTaprootKeyBytes: schnorr.SerializePubKey(key),
+		}
+	}
+	newTx := func() *wire.MsgTx {
+		tx := wire.NewMsgTx(2)
+		tx.AddTxIn(&wire.TxIn{})
+		for range 2 {
+			tx.AddTxOut(&wire.TxOut{
+				Value:    50_000,
+				PkScript: pkScript,
+			})
+		}
+
+		return tx
+	}
+
+	// Two identical outputs, each matched by both allocations, fill both
+	// output slots.
+	tx := newTx()
+	err = InPlaceCustomCommitSort(
+		tx, make([]uint32, 2), make([]input.HtlcIndex, 2),
+		[]*tapsend.Allocation{newAlloc(1), newAlloc(0)},
+	)
+	require.NoError(t, err)
+	for _, txOut := range tx.TxOut {
+		require.NotNil(t, txOut)
+		require.Equal(t, int64(50_000), txOut.Value)
+		require.Equal(t, pkScript, txOut.PkScript)
+	}
+
+	// Allocations that share an output index are refused.
+	err = InPlaceCustomCommitSort(
+		newTx(), make([]uint32, 2), make([]input.HtlcIndex, 2),
+		[]*tapsend.Allocation{newAlloc(0), newAlloc(0)},
+	)
+	require.ErrorContains(t, err, "duplicate order index 0")
 }

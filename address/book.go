@@ -19,6 +19,13 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
+const (
+	// compressedKeyEvenParity and compressedKeyOddParity are the prefix
+	// bytes of a compressed public key with an even or odd y-coordinate.
+	compressedKeyEvenParity byte = 0x02
+	compressedKeyOddParity  byte = 0x03
+)
+
 var (
 	// ErrAssetGroupUnknown is returned when the asset genesis is not known.
 	// This means an address can't be created until a Universe bootstrap or
@@ -288,6 +295,69 @@ func (b *Book) QueryAssetInfo(ctx context.Context,
 		return asset.AssetGroup{}, fmt.Errorf("invalid specifier: %s",
 			&specifier)
 	}
+}
+
+// QueryAssetGroupByGroupKeyX returns the asset group whose tweaked group key
+// has the given x-coordinate. Only the local store is consulted; an unknown key
+// yields ErrAssetGroupUnknown.
+//
+// An asset HTLC paid against a group key carries the x-coordinate of that key
+// in its balance's asset ID field, as a placeholder for "any tranche of this
+// group" (see rfq.Manager.AssetMatchesSpecifier). This lets callers resolve
+// such a placeholder without mistaking it for an unknown tranche.
+func (b *Book) QueryAssetGroupByGroupKeyX(ctx context.Context,
+	keyX [32]byte) (*asset.AssetGroup, error) {
+
+	for _, parity := range []byte{
+		compressedKeyEvenParity, compressedKeyOddParity,
+	} {
+		groupKey, err := btcec.ParsePubKey(
+			append([]byte{parity}, keyX[:]...),
+		)
+		if err != nil {
+			// Not a point on the curve, so it cannot be a group
+			// key.
+			return nil, ErrAssetGroupUnknown
+		}
+
+		group, err := b.cfg.Store.QueryAssetGroupByGroupKey(
+			ctx, groupKey,
+		)
+		switch {
+		case err == nil:
+			return group, nil
+
+		case errors.Is(err, ErrAssetGroupUnknown):
+			continue
+
+		default:
+			return nil, err
+		}
+	}
+
+	return nil, ErrAssetGroupUnknown
+}
+
+// QueryLocalAssetGroup resolves the asset group that an asset ID carried by
+// an HTLC refers to, consulting only the local store. The ID is either the ID
+// of a tranche known to this node, or the x-coordinate of a group key, which
+// group-key HTLCs carry as a placeholder for any tranche of that group. An ID
+// that matches neither yields ErrAssetGroupUnknown and nothing is fetched from
+// the federation, so this is safe to call from paths that must not block on
+// network access.
+func (b *Book) QueryLocalAssetGroup(ctx context.Context,
+	id asset.ID) (*asset.AssetGroup, error) {
+
+	group, err := b.cfg.Store.QueryAssetGroupByID(ctx, id)
+	switch {
+	case err == nil:
+		return group, nil
+
+	case !errors.Is(err, ErrAssetGroupUnknown):
+		return nil, err
+	}
+
+	return b.QueryAssetGroupByGroupKeyX(ctx, id)
 }
 
 // queryAssetInfoByID attempts to locate asset genesis information by querying

@@ -831,8 +831,12 @@ type SellRequest struct {
 	AssetRateLimit *FixedPoint `protobuf:"bytes,7,opt,name=asset_rate_limit,json=assetRateLimit,proto3" json:"asset_rate_limit,omitempty"`
 	// execution_policy is the optional execution policy for this request.
 	ExecutionPolicy ExecutionPolicy `protobuf:"varint,8,opt,name=execution_policy,json=executionPolicy,proto3,enum=portfoliopilotrpc.ExecutionPolicy" json:"execution_policy,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// payment_swap_amount is the optional msat amount the peer actually
+	// intends to swap, excluding any routing fee budget. A value of 0 means
+	// unset.
+	PaymentSwapAmount uint64 `protobuf:"varint,9,opt,name=payment_swap_amount,json=paymentSwapAmount,proto3" json:"payment_swap_amount,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *SellRequest) Reset() {
@@ -919,6 +923,13 @@ func (x *SellRequest) GetExecutionPolicy() ExecutionPolicy {
 		return x.ExecutionPolicy
 	}
 	return ExecutionPolicy_EXECUTION_POLICY_IOC
+}
+
+func (x *SellRequest) GetPaymentSwapAmount() uint64 {
+	if x != nil {
+		return x.PaymentSwapAmount
+	}
+	return 0
 }
 
 // ResolveRequestRequest specifies a quote request to resolve.
@@ -1335,8 +1346,12 @@ type QueryAssetRatesRequest struct {
 	// expiry_timestamp is an optional expiry Unix timestamp (seconds) for the
 	// query context. If set to zero, it is considered unset.
 	ExpiryTimestamp uint64 `protobuf:"varint,9,opt,name=expiry_timestamp,json=expiryTimestamp,proto3" json:"expiry_timestamp,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// payment_swap_amount is the optional msat amount that is actually
+	// intended to be swapped, excluding any routing fee budget. If set to
+	// zero, it is considered unset.
+	PaymentSwapAmount uint64 `protobuf:"varint,10,opt,name=payment_swap_amount,json=paymentSwapAmount,proto3" json:"payment_swap_amount,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *QueryAssetRatesRequest) Reset() {
@@ -1432,6 +1447,13 @@ func (x *QueryAssetRatesRequest) GetExpiryTimestamp() uint64 {
 	return 0
 }
 
+func (x *QueryAssetRatesRequest) GetPaymentSwapAmount() uint64 {
+	if x != nil {
+		return x.PaymentSwapAmount
+	}
+	return 0
+}
+
 // QueryAssetRatesResponse is the response to a QueryAssetRates call.
 type QueryAssetRatesResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -1509,7 +1531,7 @@ const file_portfoliopilotrpc_portfolio_pilot_proto_rawDesc = "" +
 	"\apeer_id\x18\x05 \x01(\fR\x06peerId\x12(\n" +
 	"\x10asset_min_amount\x18\x06 \x01(\x04R\x0eassetMinAmount\x12G\n" +
 	"\x10asset_rate_limit\x18\a \x01(\v2\x1d.portfoliopilotrpc.FixedPointR\x0eassetRateLimit\x12M\n" +
-	"\x10execution_policy\x18\b \x01(\x0e2\".portfoliopilotrpc.ExecutionPolicyR\x0fexecutionPolicy\"\xe0\x03\n" +
+	"\x10execution_policy\x18\b \x01(\x0e2\".portfoliopilotrpc.ExecutionPolicyR\x0fexecutionPolicy\"\x90\x04\n" +
 	"\vSellRequest\x12J\n" +
 	"\x0fasset_specifier\x18\x01 \x01(\v2!.portfoliopilotrpc.AssetSpecifierR\x0eassetSpecifier\x12,\n" +
 	"\x12payment_max_amount\x18\x02 \x01(\x04R\x10paymentMaxAmount\x12D\n" +
@@ -1518,7 +1540,8 @@ const file_portfoliopilotrpc_portfolio_pilot_proto_rawDesc = "" +
 	"\apeer_id\x18\x05 \x01(\fR\x06peerId\x12,\n" +
 	"\x12payment_min_amount\x18\x06 \x01(\x04R\x10paymentMinAmount\x12G\n" +
 	"\x10asset_rate_limit\x18\a \x01(\v2\x1d.portfoliopilotrpc.FixedPointR\x0eassetRateLimit\x12M\n" +
-	"\x10execution_policy\x18\b \x01(\x0e2\".portfoliopilotrpc.ExecutionPolicyR\x0fexecutionPolicy\"\xa9\x01\n" +
+	"\x10execution_policy\x18\b \x01(\x0e2\".portfoliopilotrpc.ExecutionPolicyR\x0fexecutionPolicy\x12.\n" +
+	"\x13payment_swap_amount\x18\t \x01(\x04R\x11paymentSwapAmount\"\xa9\x01\n" +
 	"\x15ResolveRequestRequest\x12@\n" +
 	"\vbuy_request\x18\x01 \x01(\v2\x1d.portfoliopilotrpc.BuyRequestH\x00R\n" +
 	"buyRequest\x12C\n" +
@@ -1540,7 +1563,7 @@ const file_portfoliopilotrpc_portfolio_pilot_proto_rawDesc = "" +
 	"\x18VerifyAcceptQuoteRequest\x128\n" +
 	"\x06accept\x18\x01 \x01(\v2 .portfoliopilotrpc.AcceptedQuoteR\x06accept\"W\n" +
 	"\x19VerifyAcceptQuoteResponse\x12:\n" +
-	"\x06status\x18\x01 \x01(\x0e2\".portfoliopilotrpc.QuoteRespStatusR\x06status\"\xe8\x03\n" +
+	"\x06status\x18\x01 \x01(\x0e2\".portfoliopilotrpc.QuoteRespStatusR\x06status\"\x98\x04\n" +
 	"\x16QueryAssetRatesRequest\x12J\n" +
 	"\x0fasset_specifier\x18\x01 \x01(\v2!.portfoliopilotrpc.AssetSpecifierR\x0eassetSpecifier\x12G\n" +
 	"\tdirection\x18\x02 \x01(\x0e2).portfoliopilotrpc.AssetTransferDirectionR\tdirection\x121\n" +
@@ -1550,7 +1573,9 @@ const file_portfoliopilotrpc_portfolio_pilot_proto_rawDesc = "" +
 	"\x0fasset_rate_hint\x18\x06 \x01(\v2\x1c.portfoliopilotrpc.AssetRateR\rassetRateHint\x122\n" +
 	"\x15price_oracle_metadata\x18\a \x01(\tR\x13priceOracleMetadata\x12\x17\n" +
 	"\apeer_id\x18\b \x01(\fR\x06peerId\x12)\n" +
-	"\x10expiry_timestamp\x18\t \x01(\x04R\x0fexpiryTimestamp\"V\n" +
+	"\x10expiry_timestamp\x18\t \x01(\x04R\x0fexpiryTimestamp\x12.\n" +
+	"\x13payment_swap_amount\x18\n" +
+	" \x01(\x04R\x11paymentSwapAmount\"V\n" +
 	"\x17QueryAssetRatesResponse\x12;\n" +
 	"\n" +
 	"asset_rate\x18\x01 \x01(\v2\x1c.portfoliopilotrpc.AssetRateR\tassetRate*\x87\x01\n" +

@@ -191,8 +191,8 @@ type ForwardStore interface {
 
 	// SettledFillByRfqID returns the total settled outgoing amount (in
 	// millisatoshis) of all settled forwarding events, grouped by RFQ
-	// session ID. It is used to restore lifetime fill accounting after a
-	// restart.
+	// session ID, including both policy legs of forwards. It is used to
+	// restore lifetime fill accounting after a restart.
 	SettledFillByRfqID(ctx context.Context) (map[rfqmsg.ID]uint64, error)
 
 	// QueryForwardsWithCount retrieves forwarding event records matching

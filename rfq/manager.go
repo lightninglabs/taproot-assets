@@ -270,6 +270,7 @@ func (m *Manager) startSubsystems(ctx context.Context) error {
 	m.orderHandler, err = NewOrderHandler(OrderHandlerCfg{
 		CleanupInterval:   CacheCleanupInterval,
 		HtlcInterceptor:   m.cfg.HtlcInterceptor,
+		ChannelLister:     m.cfg.ChannelLister,
 		HtlcSubscriber:    m.cfg.HtlcSubscriber,
 		AliasManager:      m.cfg.AliasManager,
 		AcceptHtlcEvents:  m.acceptHtlcEvents,
@@ -310,6 +311,7 @@ func (m *Manager) startSubsystems(ctx context.Context) error {
 	m.negotiator, err = NewNegotiator(NegotiatorCfg{
 		PriceOracle:             m.cfg.PriceOracle,
 		PortfolioPilot:          m.cfg.PortfolioPilot,
+		fetchChannel:            m.FetchChannel,
 		OutgoingMessages:        m.outgoingMessages,
 		AcceptPriceDeviationPpm: m.cfg.AcceptPriceDeviationPpm,
 		SkipQuoteAcceptVerify:   m.cfg.SkipQuoteAcceptVerify,
@@ -1439,7 +1441,8 @@ func EstimateAssetUnits(ctx context.Context, oracle PriceOracle,
 
 	oracleRes, err := oracle.QueryBuyPrice(
 		ctx, specifier, fn.None[uint64](), fn.Some(amtMsat),
-		fn.None[rfqmsg.AssetRate](), counterparty, metadata, intent,
+		fn.None[lnwire.MilliSatoshi](), fn.None[rfqmsg.AssetRate](),
+		counterparty, metadata, intent,
 	)
 	if err != nil {
 		return 0, err

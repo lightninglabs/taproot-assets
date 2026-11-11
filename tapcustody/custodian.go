@@ -22,6 +22,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapnode"
 	"github.com/lightninglabs/taproot-assets/tapreorg"
+	"github.com/lightninglabs/taproot-assets/taptls"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -213,10 +214,9 @@ type Config struct {
 	// mailbox service.
 	MboxBackoffCfg *proof.BackoffCfg
 
-	// MboxInsecure indicates whether the auth mailbox service should be
-	// accessed over an insecure connection (without TLS). This is only used
-	// for testing.
-	MboxInsecure bool
+	// MboxTLS is the TLS policy for connections to the auth mailbox
+	// service.
+	MboxTLS taptls.Policy
 
 	// ProofRetrievalDelay is the time duration the custodian waits having
 	// identified an asset transfer on-chain and before retrieving the
@@ -334,8 +334,7 @@ func NewCustodian(cfg *Config) *Custodian {
 		mboxSubscriptions: mbox.NewMultiSubscription(
 			// nolint:lll
 			mbox.ClientConfig{
-				Insecure:           cfg.MboxInsecure,
-				SkipTlsVerify:      !cfg.MboxInsecure,
+				TLS:                cfg.MboxTLS,
 				Signer:             cfg.Signer,
 				MinBackoff:         mboxBackoffCfg.InitialBackoff,
 				MaxBackoff:         mboxBackoffCfg.MaxBackoff,
@@ -1177,7 +1176,8 @@ func (c *Custodian) importAddrToWallet(ctx context.Context,
 
 // handleMailboxMessages processes the received mailbox messages and attempts
 // to decrypt them. If successful, it will then attempt to receive proofs for
-// the contained SendFragment messages using the proof courier service.
+// the contained SendFragment messages using the proof courier service. A
+// message that can't be decrypted or processed is skipped.
 func (c *Custodian) handleMailboxMessages(msgs *mbox.ReceivedMessages) error {
 	ctx, cancel := c.WithCtxQuitNoTimeout()
 	defer cancel()
@@ -1197,6 +1197,7 @@ func (c *Custodian) handleMailboxMessages(msgs *mbox.ReceivedMessages) error {
 	}
 
 	var maxMsgBlockHeight uint32
+msgLoop:
 	for _, mboxMsg := range msgs.Messages {
 		// Decrypt the mailbox message using the receiver's key.
 		log.Debugf("Decrypting mailbox message with ID %d for %x",
@@ -1233,8 +1234,10 @@ func (c *Custodian) handleMailboxMessages(msgs *mbox.ReceivedMessages) error {
 				)
 				c.publishSubscriberStatusEvent(errEvent)
 
-				return fmt.Errorf("unable to derive script "+
-					"key for asset: %w", err)
+				log.Errorf("Unable to derive script key for "+
+					"asset: %v", err)
+
+				continue msgLoop
 			}
 
 			err = c.cfg.AddrBook.InsertScriptKey(
@@ -1247,8 +1250,10 @@ func (c *Custodian) handleMailboxMessages(msgs *mbox.ReceivedMessages) error {
 				)
 				c.publishSubscriberStatusEvent(errEvent)
 
-				return fmt.Errorf("unable to insert script "+
-					"key into address book: %w", err)
+				log.Errorf("Unable to insert script key into "+
+					"address book: %v", err)
+
+				continue msgLoop
 			}
 
 			log.Tracef("Expecting to fetch proof for outpoint %s "+
@@ -1291,6 +1296,26 @@ func (c *Custodian) handleMailboxMessages(msgs *mbox.ReceivedMessages) error {
 			continue
 		}
 
+		// The block mentioned in the fragment must be on chain at the
+		// fragment's block height.
+		err = c.cfg.ChainBridge.VerifyBlock(
+			ctx, fragment.BlockHeader, fragment.BlockHeight,
+		)
+		if err != nil {
+			c.publishSubscriberStatusEvent(
+				NewAssetReceiveErrorEvent(
+					err, *tapAddr.Tap, op,
+					0, address.StatusTransactionDetected,
+				),
+			)
+
+			log.Errorf("Unable to verify block %s at height %d: "+
+				"%v", fragment.BlockHeader.BlockHash(),
+				fragment.BlockHeight, err)
+
+			continue
+		}
+
 		// Let's now make sure we can fetch the block mentioned in the
 		// fragment, so we can extract the transaction from it.
 		block, err := c.cfg.ChainBridge.GetBlock(
@@ -1304,8 +1329,10 @@ func (c *Custodian) handleMailboxMessages(msgs *mbox.ReceivedMessages) error {
 				),
 			)
 
-			return fmt.Errorf("unable to fetch block %s: %w",
+			log.Errorf("Unable to fetch block %s: %v",
 				fragment.BlockHeader.BlockHash(), err)
+
+			continue
 		}
 
 		eventSrc, err := address.NewTransferFromFragment(
@@ -1319,8 +1346,10 @@ func (c *Custodian) handleMailboxMessages(msgs *mbox.ReceivedMessages) error {
 				),
 			)
 
-			return fmt.Errorf("error creating event source from "+
-				"fragment: %w", err)
+			log.Errorf("Unable to create event source from "+
+				"fragment: %v", err)
+
+			continue
 		}
 
 		// We have all the information we need to create a new address
@@ -1339,7 +1368,9 @@ func (c *Custodian) handleMailboxMessages(msgs *mbox.ReceivedMessages) error {
 				),
 			)
 
-			return fmt.Errorf("error creating event: %w", err)
+			log.Errorf("Unable to create event: %v", err)
+
+			continue
 		}
 
 		// Let's update our cache of ongoing events.

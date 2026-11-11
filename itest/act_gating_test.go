@@ -223,7 +223,7 @@ func testActGatedSupplyEmissions(t *harnessTest) {
 	MineBlocks(t.t, lndMiner, 1, 1)
 	t.lndHarness.MineBlocks(5)
 
-	fetchResp, _ = WaitForSupplyCommit(
+	WaitForSupplyCommit(
 		t.t, ctxb, t.tapd, groupKeyBytes, fn.Some(firstOutpoint),
 		func(resp *unirpc.FetchSupplyCommitResponse) bool {
 			return resp.BurnSubtreeRoot != nil &&

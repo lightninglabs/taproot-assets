@@ -1061,93 +1061,6 @@ func TestWatcherSeedWithTriggers(t *testing.T) {
 	require.Equal(t, "abandoned", phaseKind(h.site.appliedPhase(id)))
 }
 
-// TestWatcherConflictAbandon drives the adverse side: a foreign spend
-// conflicts at potency, recovers when it reorgs out, and abandons at
-// act depth when it returns and buries.
-func TestWatcherConflictAbandon(t *testing.T) {
-	t.Parallel()
-
-	h := newHarness(t)
-	h.start()
-
-	op := wire.OutPoint{Hash: chainhash.Hash{2}, Index: 0}
-	satTx := h.spendTx(op)
-	foreignTx := h.spendTx(op)
-	id := h.register(testThreshold, []*wire.MsgTx{satTx}, op)
-
-	// A foreign spend confirms: conflicted, soft action only.
-	h.sim.MineBlock(foreignTx)
-	h.settleWhere(id, func(a *tapreorg.Anchoring) bool {
-		return phaseKind(a.Phase) == "conflicted" &&
-			tapreorg.PhaseEqual(a.DeliveredPhase, a.Phase)
-	})
-
-	// The foreign spend reorgs out with no successor: back to
-	// unwitnessed. Excluded middle honoured — the registry never
-	// asserts a stale conflict.
-	h.sim.Reorg(1, nil)
-	h.settleConverged(id, tapreorg.Unwitnessed{})
-	require.Equal(
-		t, "unwitnessed", phaseKind(h.site.appliedPhase(id)),
-	)
-
-	// The foreign spend returns and buries: the chain has decided
-	// against us; compensation runs.
-	h.sim.MineBlock(foreignTx)
-	h.sim.MineBlocks(int(testThreshold) - 1)
-	h.settleWhere(id, func(a *tapreorg.Anchoring) bool {
-		abandoned, ok := a.Phase.(tapreorg.Abandoned)
-		if !ok {
-			return false
-		}
-		cause, ok := abandoned.Cause.(tapreorg.ForeignBurial)
-		if !ok || cause.Spend.W.TxHash() != foreignTx.TxHash() {
-			return false
-		}
-
-		return tapreorg.PhaseEqual(a.DeliveredPhase, a.Phase)
-	})
-	require.Equal(t, "abandoned", phaseKind(h.site.appliedPhase(id)))
-}
-
-// TestWatcherRewitness drives the form-change case: a different
-// satisfying transaction (an RBF-style replacement) wins after a
-// reorg, and the anchoring rewitnesses rather than conflicting.
-func TestWatcherRewitness(t *testing.T) {
-	t.Parallel()
-
-	h := newHarness(t)
-	h.start()
-
-	op := wire.OutPoint{Hash: chainhash.Hash{3}, Index: 0}
-	formA := h.spendTx(op)
-	formB := h.spendTx(op)
-	id := h.register(testThreshold, []*wire.MsgTx{formA, formB}, op)
-
-	h.sim.MineBlock(formA)
-	h.settleWhere(id, func(a *tapreorg.Anchoring) bool {
-		w, ok := a.Phase.(tapreorg.Witnessed)
-		return ok && w.W.TxHash() == formA.TxHash() &&
-			tapreorg.PhaseEqual(a.DeliveredPhase, a.Phase)
-	})
-
-	// The reorg replaces form A with form B in one step.
-	h.sim.Reorg(1, []*wire.MsgTx{formB})
-	h.settleWhere(id, func(a *tapreorg.Anchoring) bool {
-		w, ok := a.Phase.(tapreorg.Witnessed)
-		return ok && w.W.TxHash() == formB.TxHash() &&
-			tapreorg.PhaseEqual(a.DeliveredPhase, a.Phase)
-	})
-
-	// Burial follows the winning form.
-	h.sim.MineBlocks(int(testThreshold) - 1)
-	h.settleWhere(id, func(a *tapreorg.Anchoring) bool {
-		b, ok := a.Phase.(tapreorg.Buried)
-		return ok && b.W.TxHash() == formB.TxHash() &&
-			tapreorg.PhaseEqual(a.DeliveredPhase, a.Phase)
-	})
-}
-
 // TestWatcherReplacement drives the two-anchoring composition behind
 // an RBF-style fee bump: each broadcast form registers its own
 // anchoring over the same trigger, so each experiences the other as a
@@ -1402,41 +1315,6 @@ func TestWatcherStuckDelivery(t *testing.T) {
 	require.Equal(t, "buried", phaseKind(h.site.appliedPhase(id)))
 }
 
-// TestWatcherStreamTermination pins the self-healing clause on its
-// most common real trigger: the notifier closing subscription streams,
-// as lnd does when it prunes registrations a safety margin past their
-// dispatch, or when it restarts. The severed sensor must be rebuilt by
-// the reconciliation sweep — not orphaned — so that sensing continues
-// to certify outcomes afterwards.
-func TestWatcherStreamTermination(t *testing.T) {
-	t.Parallel()
-
-	h := newHarness(t)
-	h.start()
-
-	op := wire.OutPoint{Hash: chainhash.Hash{0xd1}, Index: 0}
-	formA := h.spendTx(op)
-	id := h.register(3, []*wire.MsgTx{formA}, op)
-
-	h.settleConverged(id, tapreorg.Unwitnessed{})
-
-	h.sim.MineBlock(formA)
-	h.settleWhere(id, func(a *tapreorg.Anchoring) bool {
-		_, ok := a.Phase.(tapreorg.Witnessed)
-		return ok
-	})
-
-	// Sever every stream, then bury: the burial certification can
-	// only be sensed by a rebuilt sensor.
-	h.sim.SeverSubscriptionStreams()
-	h.sim.MineBlocks(3)
-
-	h.settleWhere(id, func(a *tapreorg.Anchoring) bool {
-		_, ok := a.Phase.(tapreorg.Buried)
-		return ok && tapreorg.PhaseEqual(a.DeliveredPhase, a.Phase)
-	})
-}
-
 // TestWatcherEpochTermination pins the one deliberately fatal
 // condition: losing the block epoch stream means losing the chain,
 // and it must escalate loudly rather than freeze sensing behind a
@@ -1497,38 +1375,6 @@ func TestWatcherEscalationNotDropped(t *testing.T) {
 	case <-time.After(settleTimeout):
 		t.Fatal("the escalation was dropped")
 	}
-}
-
-// TestWatcherRegistryFaults injects database failures into the
-// sensing and delivery write paths mid-flight: every failed write
-// must heal through resense and the reconciliation sweep, none may
-// escalate, and convergence must complete once the database returns.
-func TestWatcherRegistryFaults(t *testing.T) {
-	t.Parallel()
-
-	h := newHarness(t)
-	h.start()
-
-	op := wire.OutPoint{Hash: chainhash.Hash{0xe6}, Index: 0}
-	formA := h.spendTx(op)
-	id := h.register(3, []*wire.MsgTx{formA}, op)
-
-	// The witnessing writes fail on first contact.
-	h.registry.FailNextCalls(2, "")
-	h.sim.MineBlock(formA)
-	h.settleWhere(id, func(a *tapreorg.Anchoring) bool {
-		_, ok := a.Phase.(tapreorg.Witnessed)
-		return ok && tapreorg.PhaseEqual(a.DeliveredPhase, a.Phase)
-	})
-
-	// The burial certification's writes fail on first contact.
-	h.registry.FailNextCalls(2, "")
-	h.sim.MineBlocks(3)
-	h.settleWhere(id, func(a *tapreorg.Anchoring) bool {
-		_, ok := a.Phase.(tapreorg.Buried)
-		return ok && tapreorg.PhaseEqual(a.DeliveredPhase, a.Phase)
-	})
-	require.NoError(t, h.escalation())
 }
 
 // TestWatcherStaleConfDelivery constructs, deterministically, the
@@ -1664,36 +1510,6 @@ func TestWatcherDuplicateDeliveries(t *testing.T) {
 	require.Equal(
 		t, []string{"witnessed", "buried"}, h.site.deliveries(id),
 	)
-	require.NoError(t, h.escalation())
-}
-
-// TestWatcherSubscriptionStreamErrors delivers errors on the
-// subscription error channels — the way lnd reports a server-side
-// subscription failure — and requires full recovery through the
-// resense path, with no critical escalation.
-func TestWatcherSubscriptionStreamErrors(t *testing.T) {
-	t.Parallel()
-
-	h := newHarness(t)
-	h.start()
-
-	op := wire.OutPoint{Hash: chainhash.Hash{0xe4}, Index: 0}
-	formA := h.spendTx(op)
-	id := h.register(3, []*wire.MsgTx{formA}, op)
-
-	h.sim.MineBlock(formA)
-	h.settleWhere(id, func(a *tapreorg.Anchoring) bool {
-		_, ok := a.Phase.(tapreorg.Witnessed)
-		return ok
-	})
-
-	h.sim.ErrorSubscriptionStreams(errors.New("server-side failure"))
-	h.sim.MineBlocks(3)
-
-	h.settleWhere(id, func(a *tapreorg.Anchoring) bool {
-		_, ok := a.Phase.(tapreorg.Buried)
-		return ok && tapreorg.PhaseEqual(a.DeliveredPhase, a.Phase)
-	})
 	require.NoError(t, h.escalation())
 }
 

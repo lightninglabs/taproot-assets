@@ -47,6 +47,19 @@ var (
 	ErrListInvalid = errors.New("encoded list is invalid")
 )
 
+func boundedBytesRecord(typ tlv.Type, value *[]byte,
+	maxSize uint64) tlv.Record {
+
+	size := func() uint64 {
+		return uint64(len(*value))
+	}
+
+	return tlv.MakeDynamicRecord(
+		typ, value, size, tlv.EVarBytes,
+		asset.DVarBytesWithLimit(maxSize),
+	)
+}
+
 type (
 	// HtlcAmountRecordType is a type alias for the TLV type that is used to
 	// encode an asset ID and amount list within the custom records of an
@@ -1850,7 +1863,7 @@ func eScriptKeyMap(w io.Writer, val interface{}, buf *[8]byte) error {
 
 // dScriptKeyMap is a decoder for ScriptKeyMap.
 func dScriptKeyMap(r io.Reader, val interface{}, buf *[8]byte,
-	_ uint64) error {
+	l uint64) error {
 
 	if typ, ok := val.(*ScriptKeyMap); ok {
 		numKeys, err := tlv.ReadVarInt(r, buf)
@@ -1862,7 +1875,14 @@ func dScriptKeyMap(r io.Reader, val interface{}, buf *[8]byte,
 			return nil
 		}
 
-		keys := make(ScriptKeyMap, numKeys)
+		const scriptKeyMapEntrySize = 32 +
+			btcec.PubKeyBytesLenCompressed
+		if numKeys > l/scriptKeyMapEntrySize {
+			return fmt.Errorf("%w: script key count %d cannot fit "+
+				"in %d bytes", ErrListInvalid, numKeys, l)
+		}
+
+		keys := make(ScriptKeyMap)
 		for i := uint64(0); i < numKeys; i++ {
 			var assetID asset.ID
 			if _, err := io.ReadFull(r, assetID[:]); err != nil {
@@ -2157,7 +2177,14 @@ func (t *TapscriptSigDesc) Encode(w io.Writer) error {
 // io.Reader.
 func (t *TapscriptSigDesc) Decode(r io.Reader) error {
 	tlvStream, err := tlv.NewStream(
-		t.TapTweak.Record(), t.CtrlBlock.Record(),
+		boundedBytesRecord(
+			t.TapTweak.TlvType(), &t.TapTweak.Val,
+			tlv.MaxRecordSize,
+		),
+		boundedBytesRecord(
+			t.CtrlBlock.TlvType(), &t.CtrlBlock.Val,
+			tlv.MaxRecordSize,
+		),
 	)
 	if err != nil {
 		return err

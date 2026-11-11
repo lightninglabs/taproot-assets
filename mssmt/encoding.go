@@ -73,6 +73,11 @@ func (p *CompressedProof) Decode(r io.Reader) error {
 	if err := binary.Read(r, byteOrder, &numNodes); err != nil {
 		return err
 	}
+	if numNodes > MaxTreeLevels {
+		return fmt.Errorf("%w: too many nodes: %d",
+			ErrInvalidCompressedProof, numNodes)
+	}
+
 	nodes := make([]Node, 0, numNodes)
 	for i := uint16(0); i < numNodes; i++ {
 		var keyBytes [sha256.Size]byte

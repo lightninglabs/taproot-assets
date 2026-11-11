@@ -19,138 +19,140 @@ const _ = grpc.SupportPackageIsVersion7
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type UniverseClient interface {
 	// tapcli: `universe multiverse`
-	// MultiverseRoot returns the root of the multiverse tree. This is useful to
-	// determine the equality of two multiverse trees, since the root can directly
-	// be compared to another multiverse root to find out if a sync is required.
+	//MultiverseRoot returns the root of the multiverse tree. This is useful to
+	//determine the equality of two multiverse trees, since the root can directly
+	//be compared to another multiverse root to find out if a sync is required.
 	MultiverseRoot(ctx context.Context, in *MultiverseRootRequest, opts ...grpc.CallOption) (*MultiverseRootResponse, error)
 	// tapcli: `universe roots`
-	// AssetRoots queries for the known Universe roots associated with each known
-	// asset. These roots represent the supply/audit state for each known asset.
+	//AssetRoots queries for the known Universe roots associated with each known
+	//asset. These roots represent the supply/audit state for each known asset.
 	AssetRoots(ctx context.Context, in *AssetRootRequest, opts ...grpc.CallOption) (*AssetRootResponse, error)
 	// tapcli: `universe roots`
-	// QueryAssetRoots attempts to locate the current Universe root for a specific
-	// asset. This asset can be identified by its asset ID or group key.
+	//QueryAssetRoots attempts to locate the current Universe root for a specific
+	//asset. This asset can be identified by its asset ID or group key.
 	QueryAssetRoots(ctx context.Context, in *AssetRootQuery, opts ...grpc.CallOption) (*QueryRootResponse, error)
 	// tapcli: `universe delete`
-	// DeleteAssetRoot deletes the Universe root for a specific asset, including
-	// all asoociated universe keys, leaves, and events.
+	//DeleteAssetRoot deletes the Universe root for a specific asset, including
+	//all asoociated universe keys, leaves, and events.
 	DeleteAssetRoot(ctx context.Context, in *DeleteRootQuery, opts ...grpc.CallOption) (*DeleteRootResponse, error)
 	// tapcli: `universe delete-leaf`
-	// DeleteAssetLeaf deletes a single Universe leaf, identified by its
-	// universe ID and leaf key (outpoint + script key).
+	//DeleteAssetLeaf deletes a single Universe leaf, identified by its
+	//universe ID and leaf key (outpoint + script key).
 	DeleteAssetLeaf(ctx context.Context, in *DeleteAssetLeafRequest, opts ...grpc.CallOption) (*DeleteAssetLeafResponse, error)
 	// tapcli: `universe keys`
-	// AssetLeafKeys queries for the set of Universe keys associated with a given
-	// asset_id or group_key. Each key takes the form: (outpoint, script_key),
-	// where outpoint is an outpoint in the Bitcoin blockchain that anchors a
-	// valid Taproot Asset commitment, and script_key is the script_key of
-	// the asset within the Taproot Asset commitment for the given asset_id or
-	// group_key.
+	//AssetLeafKeys queries for the set of Universe keys associated with a given
+	//asset_id or group_key. Each key takes the form: (outpoint, script_key),
+	//where outpoint is an outpoint in the Bitcoin blockchain that anchors a
+	//valid Taproot Asset commitment, and script_key is the script_key of
+	//the asset within the Taproot Asset commitment for the given asset_id or
+	//group_key.
 	AssetLeafKeys(ctx context.Context, in *AssetLeafKeysRequest, opts ...grpc.CallOption) (*AssetLeafKeyResponse, error)
 	// tapcli: `universe leaves`
-	// AssetLeaves queries for the set of asset leaves (the values in the Universe
-	// MS-SMT tree) for a given asset_id or group_key. These represents either
-	// asset issuance events (they have a genesis witness) or asset transfers that
-	// took place on chain. The leaves contain a normal Taproot Asset proof, as
-	// well as details for the asset.
+	//AssetLeaves queries for the set of asset leaves (the values in the Universe
+	//MS-SMT tree) for a given asset_id or group_key. These represents either
+	//asset issuance events (they have a genesis witness) or asset transfers that
+	//took place on chain. The leaves contain a normal Taproot Asset proof, as
+	//well as details for the asset.
 	AssetLeaves(ctx context.Context, in *AssetLeavesRequest, opts ...grpc.CallOption) (*AssetLeafResponse, error)
 	// tapcli: `universe proofs query`
-	// QueryProof attempts to query for an issuance or transfer proof for a given
-	// asset based on its UniverseKey. A UniverseKey is composed of the Universe
-	// ID (asset_id/group_key) and also a leaf key (outpoint || script_key). If
-	// found, then the issuance proof is returned that includes an inclusion proof
-	// to the known Universe root, as well as a Taproot Asset state transition or
-	// issuance proof for the said asset.
+	//QueryProof attempts to query for an issuance or transfer proof for a given
+	//asset based on its UniverseKey. A UniverseKey is composed of the Universe
+	//ID (asset_id/group_key) and also a leaf key (outpoint || script_key). If
+	//found, then the issuance proof is returned that includes an inclusion proof
+	//to the known Universe root, as well as a Taproot Asset state transition or
+	//issuance proof for the said asset.
 	QueryProof(ctx context.Context, in *UniverseKey, opts ...grpc.CallOption) (*AssetProofResponse, error)
 	// tapcli: `universe proofs insert`
-	// InsertProof attempts to insert a new issuance or transfer proof into the
-	// Universe tree specified by the UniverseKey. If valid, then the proof is
-	// inserted into the database, with a new Universe root returned for the
-	// updated asset_id/group_key.
+	//InsertProof attempts to insert a new issuance or transfer proof into the
+	//Universe tree specified by the UniverseKey. If valid, then the proof is
+	//inserted into the database, with a new Universe root returned for the
+	//updated asset_id/group_key.
 	InsertProof(ctx context.Context, in *AssetProof, opts ...grpc.CallOption) (*AssetProofResponse, error)
 	// tapcli: `universe proofs push`
-	// PushProof attempts to query the local universe for a proof specified by a
-	// UniverseKey. If found, a connection is made to a remote Universe server to
-	// attempt to upload the asset leaf.
+	//PushProof attempts to query the local universe for a proof specified by a
+	//UniverseKey. If found, a connection is made to a remote Universe server to
+	//attempt to upload the asset leaf.
 	PushProof(ctx context.Context, in *PushProofRequest, opts ...grpc.CallOption) (*PushProofResponse, error)
 	// tapcli: `universe info`
-	// Info returns a set of information about the current state of the Universe
-	// and allows a caller to check that a universe server is reachable and
-	// configured correctly to allow proof courier access without macaroons.
+	//Info returns a set of information about the current state of the Universe
+	//and allows a caller to check that a universe server is reachable and
+	//configured correctly to allow proof courier access without macaroons.
 	Info(ctx context.Context, in *InfoRequest, opts ...grpc.CallOption) (*InfoResponse, error)
 	// tapcli: `universe sync`
-	// SyncUniverse takes host information for a remote Universe server, then
-	// attempts to synchronize either only the set of specified asset_ids, or all
-	// assets if none are specified. The sync process will attempt to query for
-	// the latest known root for each asset, performing tree based reconciliation
-	// to arrive at a new shared root.
+	//SyncUniverse takes host information for a remote Universe server, then
+	//attempts to synchronize either only the set of specified asset_ids, or all
+	//assets if none are specified. The sync process will attempt to query for
+	//the latest known root for each asset, performing tree based reconciliation
+	//to arrive at a new shared root.
 	SyncUniverse(ctx context.Context, in *SyncRequest, opts ...grpc.CallOption) (*SyncResponse, error)
-	// SyncDelta returns the universe leaves inserted on this server after
-	// the given sequence number, in insertion order. A federation peer
-	// that tracks a per-server cursor can fetch exactly the leaves it
-	// hasn't seen yet, instead of enumerating all leaf keys to compute a
-	// set difference. The response carries the current roots of every
-	// universe touched by the delta so the caller can verify convergence
-	// after applying it.
+	//
+	//SyncDelta returns the universe leaves inserted on this server after
+	//the given sequence number, in insertion order. A federation peer
+	//that tracks a per-server cursor can fetch exactly the leaves it
+	//hasn't seen yet, instead of enumerating all leaf keys to compute a
+	//set difference. The response carries the current roots of every
+	//universe touched by the delta so the caller can verify convergence
+	//after applying it.
 	SyncDelta(ctx context.Context, in *SyncDeltaRequest, opts ...grpc.CallOption) (*SyncDeltaResponse, error)
 	// tapcli: `universe federation list`
-	// ListFederationServers lists the set of servers that make up the federation
-	// of the local Universe server. This servers are used to push out new proofs,
-	// and also periodically call sync new proofs from the remote server.
+	//ListFederationServers lists the set of servers that make up the federation
+	//of the local Universe server. This servers are used to push out new proofs,
+	//and also periodically call sync new proofs from the remote server.
 	ListFederationServers(ctx context.Context, in *ListFederationServersRequest, opts ...grpc.CallOption) (*ListFederationServersResponse, error)
 	// tapcli: `universe federation add`
-	// AddFederationServer adds a new server to the federation of the local
-	// Universe server. Once a server is added, this call can also optionally be
-	// used to trigger a sync of the remote server.
+	//AddFederationServer adds a new server to the federation of the local
+	//Universe server. Once a server is added, this call can also optionally be
+	//used to trigger a sync of the remote server.
 	AddFederationServer(ctx context.Context, in *AddFederationServerRequest, opts ...grpc.CallOption) (*AddFederationServerResponse, error)
 	// tapcli: `universe federation del`
-	// DeleteFederationServer removes a server from the federation of the local
-	// Universe server.
+	//DeleteFederationServer removes a server from the federation of the local
+	//Universe server.
 	DeleteFederationServer(ctx context.Context, in *DeleteFederationServerRequest, opts ...grpc.CallOption) (*DeleteFederationServerResponse, error)
 	// tapcli: `universe stats`
-	// UniverseStats returns a set of aggregate statistics for the current state
-	// of the Universe. Stats returned include: total number of syncs, total
-	// number of proofs, and total number of known assets.
+	//UniverseStats returns a set of aggregate statistics for the current state
+	//of the Universe. Stats returned include: total number of syncs, total
+	//number of proofs, and total number of known assets.
 	UniverseStats(ctx context.Context, in *StatsRequest, opts ...grpc.CallOption) (*StatsResponse, error)
 	// tapcli: `universe stats assets`
-	// QueryAssetStats returns a set of statistics for a given set of assets.
-	// Stats can be queried for all assets, or based on the: asset ID, name, or
-	// asset type. Pagination is supported via the offset and limit params.
-	// Results can also be sorted based on any of the main query params.
+	//QueryAssetStats returns a set of statistics for a given set of assets.
+	//Stats can be queried for all assets, or based on the: asset ID, name, or
+	//asset type. Pagination is supported via the offset and limit params.
+	//Results can also be sorted based on any of the main query params.
 	QueryAssetStats(ctx context.Context, in *AssetStatsQuery, opts ...grpc.CallOption) (*UniverseAssetStats, error)
 	// tapcli: `universe stats events`
-	// QueryEvents returns the number of sync and proof events for a given time
-	// period, grouped by day.
+	//QueryEvents returns the number of sync and proof events for a given time
+	//period, grouped by day.
 	QueryEvents(ctx context.Context, in *QueryEventsRequest, opts ...grpc.CallOption) (*QueryEventsResponse, error)
-	// SetFederationSyncConfig sets the configuration of the universe federation
-	// sync.
+	//
+	//SetFederationSyncConfig sets the configuration of the universe federation
+	//sync.
 	SetFederationSyncConfig(ctx context.Context, in *SetFederationSyncConfigRequest, opts ...grpc.CallOption) (*SetFederationSyncConfigResponse, error)
 	// tapcli: `universe federation config info`
-	// QueryFederationSyncConfig queries the universe federation sync configuration
-	// settings.
+	//QueryFederationSyncConfig queries the universe federation sync configuration
+	//settings.
 	QueryFederationSyncConfig(ctx context.Context, in *QueryFederationSyncConfigRequest, opts ...grpc.CallOption) (*QueryFederationSyncConfigResponse, error)
 	// tapcli: `universe ignoreoutpoint`
-	// IgnoreAssetOutPoint allows an asset issuer to mark a specific asset outpoint
-	// as ignored. An ignored outpoint will be included in the next universe supply
-	// commitment transaction that is published.
+	//IgnoreAssetOutPoint allows an asset issuer to mark a specific asset outpoint
+	//as ignored. An ignored outpoint will be included in the next universe supply
+	//commitment transaction that is published.
 	IgnoreAssetOutPoint(ctx context.Context, in *IgnoreAssetOutPointRequest, opts ...grpc.CallOption) (*IgnoreAssetOutPointResponse, error)
 	// tapcli: `universe updatesupplycommit`
-	// UpdateSupplyCommit updates the on-chain supply commitment for a specific
-	// asset group.
+	//UpdateSupplyCommit updates the on-chain supply commitment for a specific
+	//asset group.
 	UpdateSupplyCommit(ctx context.Context, in *UpdateSupplyCommitRequest, opts ...grpc.CallOption) (*UpdateSupplyCommitResponse, error)
 	// tapcli: `universe fetchsupplycommit`
-	// FetchSupplyCommit fetches the on-chain supply commitment for a specific
-	// asset group.
+	//FetchSupplyCommit fetches the on-chain supply commitment for a specific
+	//asset group.
 	FetchSupplyCommit(ctx context.Context, in *FetchSupplyCommitRequest, opts ...grpc.CallOption) (*FetchSupplyCommitResponse, error)
 	// tapcli: `universe supplyleaves`
-	// FetchSupplyLeaves fetches the supply leaves for a specific asset group
-	// within a specified block height range. The leaves include issuance, burn,
-	// and ignore leaves, which represent the supply changes for the asset group.
+	//FetchSupplyLeaves fetches the supply leaves for a specific asset group
+	//within a specified block height range. The leaves include issuance, burn,
+	//and ignore leaves, which represent the supply changes for the asset group.
 	FetchSupplyLeaves(ctx context.Context, in *FetchSupplyLeavesRequest, opts ...grpc.CallOption) (*FetchSupplyLeavesResponse, error)
 	// tapcli: `universe supplycommit insert`
-	// InsertSupplyCommit inserts a supply commitment for a specific asset
-	// group. This includes the commitment details, supply leaves (issuance, burn,
-	// and ignore), and chain proof that proves the commitment has been mined.
+	//InsertSupplyCommit inserts a supply commitment for a specific asset
+	//group. This includes the commitment details, supply leaves (issuance, burn,
+	//and ignore), and chain proof that proves the commitment has been mined.
 	InsertSupplyCommit(ctx context.Context, in *InsertSupplyCommitRequest, opts ...grpc.CallOption) (*InsertSupplyCommitResponse, error)
 }
 
@@ -401,138 +403,140 @@ func (c *universeClient) InsertSupplyCommit(ctx context.Context, in *InsertSuppl
 // for forward compatibility
 type UniverseServer interface {
 	// tapcli: `universe multiverse`
-	// MultiverseRoot returns the root of the multiverse tree. This is useful to
-	// determine the equality of two multiverse trees, since the root can directly
-	// be compared to another multiverse root to find out if a sync is required.
+	//MultiverseRoot returns the root of the multiverse tree. This is useful to
+	//determine the equality of two multiverse trees, since the root can directly
+	//be compared to another multiverse root to find out if a sync is required.
 	MultiverseRoot(context.Context, *MultiverseRootRequest) (*MultiverseRootResponse, error)
 	// tapcli: `universe roots`
-	// AssetRoots queries for the known Universe roots associated with each known
-	// asset. These roots represent the supply/audit state for each known asset.
+	//AssetRoots queries for the known Universe roots associated with each known
+	//asset. These roots represent the supply/audit state for each known asset.
 	AssetRoots(context.Context, *AssetRootRequest) (*AssetRootResponse, error)
 	// tapcli: `universe roots`
-	// QueryAssetRoots attempts to locate the current Universe root for a specific
-	// asset. This asset can be identified by its asset ID or group key.
+	//QueryAssetRoots attempts to locate the current Universe root for a specific
+	//asset. This asset can be identified by its asset ID or group key.
 	QueryAssetRoots(context.Context, *AssetRootQuery) (*QueryRootResponse, error)
 	// tapcli: `universe delete`
-	// DeleteAssetRoot deletes the Universe root for a specific asset, including
-	// all asoociated universe keys, leaves, and events.
+	//DeleteAssetRoot deletes the Universe root for a specific asset, including
+	//all asoociated universe keys, leaves, and events.
 	DeleteAssetRoot(context.Context, *DeleteRootQuery) (*DeleteRootResponse, error)
 	// tapcli: `universe delete-leaf`
-	// DeleteAssetLeaf deletes a single Universe leaf, identified by its
-	// universe ID and leaf key (outpoint + script key).
+	//DeleteAssetLeaf deletes a single Universe leaf, identified by its
+	//universe ID and leaf key (outpoint + script key).
 	DeleteAssetLeaf(context.Context, *DeleteAssetLeafRequest) (*DeleteAssetLeafResponse, error)
 	// tapcli: `universe keys`
-	// AssetLeafKeys queries for the set of Universe keys associated with a given
-	// asset_id or group_key. Each key takes the form: (outpoint, script_key),
-	// where outpoint is an outpoint in the Bitcoin blockchain that anchors a
-	// valid Taproot Asset commitment, and script_key is the script_key of
-	// the asset within the Taproot Asset commitment for the given asset_id or
-	// group_key.
+	//AssetLeafKeys queries for the set of Universe keys associated with a given
+	//asset_id or group_key. Each key takes the form: (outpoint, script_key),
+	//where outpoint is an outpoint in the Bitcoin blockchain that anchors a
+	//valid Taproot Asset commitment, and script_key is the script_key of
+	//the asset within the Taproot Asset commitment for the given asset_id or
+	//group_key.
 	AssetLeafKeys(context.Context, *AssetLeafKeysRequest) (*AssetLeafKeyResponse, error)
 	// tapcli: `universe leaves`
-	// AssetLeaves queries for the set of asset leaves (the values in the Universe
-	// MS-SMT tree) for a given asset_id or group_key. These represents either
-	// asset issuance events (they have a genesis witness) or asset transfers that
-	// took place on chain. The leaves contain a normal Taproot Asset proof, as
-	// well as details for the asset.
+	//AssetLeaves queries for the set of asset leaves (the values in the Universe
+	//MS-SMT tree) for a given asset_id or group_key. These represents either
+	//asset issuance events (they have a genesis witness) or asset transfers that
+	//took place on chain. The leaves contain a normal Taproot Asset proof, as
+	//well as details for the asset.
 	AssetLeaves(context.Context, *AssetLeavesRequest) (*AssetLeafResponse, error)
 	// tapcli: `universe proofs query`
-	// QueryProof attempts to query for an issuance or transfer proof for a given
-	// asset based on its UniverseKey. A UniverseKey is composed of the Universe
-	// ID (asset_id/group_key) and also a leaf key (outpoint || script_key). If
-	// found, then the issuance proof is returned that includes an inclusion proof
-	// to the known Universe root, as well as a Taproot Asset state transition or
-	// issuance proof for the said asset.
+	//QueryProof attempts to query for an issuance or transfer proof for a given
+	//asset based on its UniverseKey. A UniverseKey is composed of the Universe
+	//ID (asset_id/group_key) and also a leaf key (outpoint || script_key). If
+	//found, then the issuance proof is returned that includes an inclusion proof
+	//to the known Universe root, as well as a Taproot Asset state transition or
+	//issuance proof for the said asset.
 	QueryProof(context.Context, *UniverseKey) (*AssetProofResponse, error)
 	// tapcli: `universe proofs insert`
-	// InsertProof attempts to insert a new issuance or transfer proof into the
-	// Universe tree specified by the UniverseKey. If valid, then the proof is
-	// inserted into the database, with a new Universe root returned for the
-	// updated asset_id/group_key.
+	//InsertProof attempts to insert a new issuance or transfer proof into the
+	//Universe tree specified by the UniverseKey. If valid, then the proof is
+	//inserted into the database, with a new Universe root returned for the
+	//updated asset_id/group_key.
 	InsertProof(context.Context, *AssetProof) (*AssetProofResponse, error)
 	// tapcli: `universe proofs push`
-	// PushProof attempts to query the local universe for a proof specified by a
-	// UniverseKey. If found, a connection is made to a remote Universe server to
-	// attempt to upload the asset leaf.
+	//PushProof attempts to query the local universe for a proof specified by a
+	//UniverseKey. If found, a connection is made to a remote Universe server to
+	//attempt to upload the asset leaf.
 	PushProof(context.Context, *PushProofRequest) (*PushProofResponse, error)
 	// tapcli: `universe info`
-	// Info returns a set of information about the current state of the Universe
-	// and allows a caller to check that a universe server is reachable and
-	// configured correctly to allow proof courier access without macaroons.
+	//Info returns a set of information about the current state of the Universe
+	//and allows a caller to check that a universe server is reachable and
+	//configured correctly to allow proof courier access without macaroons.
 	Info(context.Context, *InfoRequest) (*InfoResponse, error)
 	// tapcli: `universe sync`
-	// SyncUniverse takes host information for a remote Universe server, then
-	// attempts to synchronize either only the set of specified asset_ids, or all
-	// assets if none are specified. The sync process will attempt to query for
-	// the latest known root for each asset, performing tree based reconciliation
-	// to arrive at a new shared root.
+	//SyncUniverse takes host information for a remote Universe server, then
+	//attempts to synchronize either only the set of specified asset_ids, or all
+	//assets if none are specified. The sync process will attempt to query for
+	//the latest known root for each asset, performing tree based reconciliation
+	//to arrive at a new shared root.
 	SyncUniverse(context.Context, *SyncRequest) (*SyncResponse, error)
-	// SyncDelta returns the universe leaves inserted on this server after
-	// the given sequence number, in insertion order. A federation peer
-	// that tracks a per-server cursor can fetch exactly the leaves it
-	// hasn't seen yet, instead of enumerating all leaf keys to compute a
-	// set difference. The response carries the current roots of every
-	// universe touched by the delta so the caller can verify convergence
-	// after applying it.
+	//
+	//SyncDelta returns the universe leaves inserted on this server after
+	//the given sequence number, in insertion order. A federation peer
+	//that tracks a per-server cursor can fetch exactly the leaves it
+	//hasn't seen yet, instead of enumerating all leaf keys to compute a
+	//set difference. The response carries the current roots of every
+	//universe touched by the delta so the caller can verify convergence
+	//after applying it.
 	SyncDelta(context.Context, *SyncDeltaRequest) (*SyncDeltaResponse, error)
 	// tapcli: `universe federation list`
-	// ListFederationServers lists the set of servers that make up the federation
-	// of the local Universe server. This servers are used to push out new proofs,
-	// and also periodically call sync new proofs from the remote server.
+	//ListFederationServers lists the set of servers that make up the federation
+	//of the local Universe server. This servers are used to push out new proofs,
+	//and also periodically call sync new proofs from the remote server.
 	ListFederationServers(context.Context, *ListFederationServersRequest) (*ListFederationServersResponse, error)
 	// tapcli: `universe federation add`
-	// AddFederationServer adds a new server to the federation of the local
-	// Universe server. Once a server is added, this call can also optionally be
-	// used to trigger a sync of the remote server.
+	//AddFederationServer adds a new server to the federation of the local
+	//Universe server. Once a server is added, this call can also optionally be
+	//used to trigger a sync of the remote server.
 	AddFederationServer(context.Context, *AddFederationServerRequest) (*AddFederationServerResponse, error)
 	// tapcli: `universe federation del`
-	// DeleteFederationServer removes a server from the federation of the local
-	// Universe server.
+	//DeleteFederationServer removes a server from the federation of the local
+	//Universe server.
 	DeleteFederationServer(context.Context, *DeleteFederationServerRequest) (*DeleteFederationServerResponse, error)
 	// tapcli: `universe stats`
-	// UniverseStats returns a set of aggregate statistics for the current state
-	// of the Universe. Stats returned include: total number of syncs, total
-	// number of proofs, and total number of known assets.
+	//UniverseStats returns a set of aggregate statistics for the current state
+	//of the Universe. Stats returned include: total number of syncs, total
+	//number of proofs, and total number of known assets.
 	UniverseStats(context.Context, *StatsRequest) (*StatsResponse, error)
 	// tapcli: `universe stats assets`
-	// QueryAssetStats returns a set of statistics for a given set of assets.
-	// Stats can be queried for all assets, or based on the: asset ID, name, or
-	// asset type. Pagination is supported via the offset and limit params.
-	// Results can also be sorted based on any of the main query params.
+	//QueryAssetStats returns a set of statistics for a given set of assets.
+	//Stats can be queried for all assets, or based on the: asset ID, name, or
+	//asset type. Pagination is supported via the offset and limit params.
+	//Results can also be sorted based on any of the main query params.
 	QueryAssetStats(context.Context, *AssetStatsQuery) (*UniverseAssetStats, error)
 	// tapcli: `universe stats events`
-	// QueryEvents returns the number of sync and proof events for a given time
-	// period, grouped by day.
+	//QueryEvents returns the number of sync and proof events for a given time
+	//period, grouped by day.
 	QueryEvents(context.Context, *QueryEventsRequest) (*QueryEventsResponse, error)
-	// SetFederationSyncConfig sets the configuration of the universe federation
-	// sync.
+	//
+	//SetFederationSyncConfig sets the configuration of the universe federation
+	//sync.
 	SetFederationSyncConfig(context.Context, *SetFederationSyncConfigRequest) (*SetFederationSyncConfigResponse, error)
 	// tapcli: `universe federation config info`
-	// QueryFederationSyncConfig queries the universe federation sync configuration
-	// settings.
+	//QueryFederationSyncConfig queries the universe federation sync configuration
+	//settings.
 	QueryFederationSyncConfig(context.Context, *QueryFederationSyncConfigRequest) (*QueryFederationSyncConfigResponse, error)
 	// tapcli: `universe ignoreoutpoint`
-	// IgnoreAssetOutPoint allows an asset issuer to mark a specific asset outpoint
-	// as ignored. An ignored outpoint will be included in the next universe supply
-	// commitment transaction that is published.
+	//IgnoreAssetOutPoint allows an asset issuer to mark a specific asset outpoint
+	//as ignored. An ignored outpoint will be included in the next universe supply
+	//commitment transaction that is published.
 	IgnoreAssetOutPoint(context.Context, *IgnoreAssetOutPointRequest) (*IgnoreAssetOutPointResponse, error)
 	// tapcli: `universe updatesupplycommit`
-	// UpdateSupplyCommit updates the on-chain supply commitment for a specific
-	// asset group.
+	//UpdateSupplyCommit updates the on-chain supply commitment for a specific
+	//asset group.
 	UpdateSupplyCommit(context.Context, *UpdateSupplyCommitRequest) (*UpdateSupplyCommitResponse, error)
 	// tapcli: `universe fetchsupplycommit`
-	// FetchSupplyCommit fetches the on-chain supply commitment for a specific
-	// asset group.
+	//FetchSupplyCommit fetches the on-chain supply commitment for a specific
+	//asset group.
 	FetchSupplyCommit(context.Context, *FetchSupplyCommitRequest) (*FetchSupplyCommitResponse, error)
 	// tapcli: `universe supplyleaves`
-	// FetchSupplyLeaves fetches the supply leaves for a specific asset group
-	// within a specified block height range. The leaves include issuance, burn,
-	// and ignore leaves, which represent the supply changes for the asset group.
+	//FetchSupplyLeaves fetches the supply leaves for a specific asset group
+	//within a specified block height range. The leaves include issuance, burn,
+	//and ignore leaves, which represent the supply changes for the asset group.
 	FetchSupplyLeaves(context.Context, *FetchSupplyLeavesRequest) (*FetchSupplyLeavesResponse, error)
 	// tapcli: `universe supplycommit insert`
-	// InsertSupplyCommit inserts a supply commitment for a specific asset
-	// group. This includes the commitment details, supply leaves (issuance, burn,
-	// and ignore), and chain proof that proves the commitment has been mined.
+	//InsertSupplyCommit inserts a supply commitment for a specific asset
+	//group. This includes the commitment details, supply leaves (issuance, burn,
+	//and ignore), and chain proof that proves the commitment has been mined.
 	InsertSupplyCommit(context.Context, *InsertSupplyCommitRequest) (*InsertSupplyCommitResponse, error)
 	mustEmbedUnimplementedUniverseServer()
 }

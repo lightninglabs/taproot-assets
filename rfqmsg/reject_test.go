@@ -9,6 +9,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
 
@@ -79,6 +80,22 @@ func TestRejectEncodeDecode(t *testing.T) {
 			)
 		})
 	}
+}
+
+// TestRejectErrDecoderEmptyRecord verifies that the decoder rejects a missing
+// reject code before subtracting its size from the record length.
+func TestRejectErrDecoderEmptyRecord(t *testing.T) {
+	t.Parallel()
+
+	var (
+		rejectErr RejectErr
+		buf       [8]byte
+	)
+	err := rejectErrDecoder(
+		bytes.NewReader(nil), &rejectErr, &buf, 0,
+	)
+	var decodeErr tlv.ErrTypeForDecoding
+	require.ErrorAs(t, err, &decodeErr)
 }
 
 // buildRejectWire constructs a wire-encoded Reject message originating

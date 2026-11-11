@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -22,6 +23,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/miner"
+	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 )
@@ -930,9 +932,14 @@ func spawnTempMiner(t *testing.T, ht *harnessTest,
 	// stop breaks the ones after it. The stops are cleanups on the
 	// root harness T and run in LIFO order: registering this after
 	// the spawn re-creates the directory just before this miner's own
-	// stop reads it.
+	// stop reads it. The directory is .tempminerlogs/<network> under
+	// the node log directory.
+	tempMinerLogs := filepath.Join(
+		node.GetLogDir(), ".tempminerlogs",
+		miner.HarnessNetParams.Name,
+	)
 	ht.lndHarness.Cleanup(func() {
-		_ = os.MkdirAll("regtest/.tempminerlogs/regtest", 0755)
+		_ = os.MkdirAll(tempMinerLogs, 0755)
 	})
 
 	return tempMiner

@@ -955,13 +955,14 @@ func taprootKeySpendWitness(t *testing.T, privKey btcec.PrivateKey,
 }
 
 // randBurnProofWithGroupKey constructs a valid burn proof that passes
-// burnProof.Verify with real verifiers. It builds on randProofWithGroupKey
-// for the genesis proof, then constructs a transfer to a burn key with a
-// valid Schnorr witness. The genesis proof is embedded as AdditionalInputs
-// so proof.Verify can resolve the previous asset state.
+// verification with real verifiers. It builds on randProofWithGroupKey for
+// the genesis proof, then constructs a transfer to a burn key with a valid
+// Schnorr witness. Like the burn proofs the chain porter records, the burn
+// proof is a bare transition: the genesis proof file it spends is returned
+// separately as the input's provenance.
 func randBurnProofWithGroupKey(t *testing.T,
 	groupPrivKey *btcec.PrivateKey,
-	delegationKey *btcec.PublicKey) proof.Proof {
+	delegationKey *btcec.PublicKey) (proof.Proof, *proof.File) {
 
 	t.Helper()
 
@@ -1068,7 +1069,7 @@ func randBurnProofWithGroupKey(t *testing.T,
 	genesisFile, err := proof.NewFile(proof.V0, genesisProof)
 	require.NoError(t, err)
 
-	return proof.Proof{
+	burnProof := proof.Proof{
 		PrevOut:       prevOutpoint,
 		BlockHeader:   burnBlockHeader,
 		BlockHeight:   genesisProof.BlockHeight + 1,
@@ -1083,8 +1084,9 @@ func randBurnProofWithGroupKey(t *testing.T,
 				TapSiblingPreimage: siblingPreimage,
 			},
 		},
-		AdditionalInputs: []proof.File{*genesisFile},
 	}
+
+	return burnProof, genesisFile
 }
 
 // createVerifiableCommitment builds a RootCommitment whose chain anchor

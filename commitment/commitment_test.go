@@ -2052,3 +2052,116 @@ func TestProofTapKeyBinding(t *testing.T) {
 		require.ErrorIs(t, err, ErrTapKeyMismatch)
 	})
 }
+
+// TestProofMissingTreeProof tests that the DeriveBy methods of a decoded proof
+// without a tree proof record return mssmt.ErrInvalidProofLength.
+func TestProofMissingTreeProof(t *testing.T) {
+	t.Parallel()
+
+	target := randAsset(t, asset.RandGenesis(t, asset.Normal), nil)
+
+	tapCommitment, err := FromAssets(nil, target)
+	require.NoError(t, err)
+
+	_, fullProof, err := tapCommitment.Proof(
+		target.TapCommitmentKey(), target.AssetCommitmentKey(),
+	)
+	require.NoError(t, err)
+
+	// encodeStream returns the encoding of a TLV stream of the given
+	// records.
+	encodeStream := func(records ...tlv.Record) []byte {
+		stream, err := tlv.NewStream(records...)
+		require.NoError(t, err)
+
+		var buf bytes.Buffer
+		require.NoError(t, stream.Encode(&buf))
+
+		return buf.Bytes()
+	}
+
+	// decodeProof decodes a proof from the given asset proof and Taproot
+	// Asset proof encodings. A nil asset proof encoding omits the asset
+	// proof record.
+	decodeProof := func(assetProof, tapProof []byte) Proof {
+		records := make([]tlv.Record, 0, 2)
+		if assetProof != nil {
+			records = append(records, tlv.MakePrimitiveRecord(
+				ProofAssetProofType, &assetProof,
+			))
+		}
+		records = append(records, tlv.MakePrimitiveRecord(
+			ProofTaprootAssetProofType, &tapProof,
+		))
+
+		var proof Proof
+		err := proof.Decode(bytes.NewReader(encodeStream(records...)))
+		require.NoError(t, err)
+
+		return proof
+	}
+
+	// The asset proof and Taproot Asset proof encodings without a tree
+	// proof record.
+	assetVersion := fullProof.AssetProof.Version
+	tapKey := fullProof.AssetProof.TapKey
+	bareAssetProof := encodeStream(
+		AssetProofVersionRecord(&assetVersion),
+		AssetProofAssetIDRecord(&tapKey),
+	)
+	tapVersion := fullProof.TaprootAssetProof.Version
+	bareTapProof := encodeStream(
+		TaprootAssetProofVersionRecord(&tapVersion),
+	)
+
+	// The asset proof encoding with a tree proof record.
+	var fullAssetProof bytes.Buffer
+	err = AssetProofEncoder(&fullAssetProof, &fullProof.AssetProof, nil)
+	require.NoError(t, err)
+
+	t.Run("asset inclusion", func(t *testing.T) {
+		t.Parallel()
+
+		proof := decodeProof(bareAssetProof, bareTapProof)
+		require.Empty(t, proof.AssetProof.Nodes)
+
+		_, err := proof.DeriveByAssetInclusion(target)
+		require.ErrorIs(t, err, mssmt.ErrInvalidProofLength)
+	})
+
+	t.Run("asset exclusion", func(t *testing.T) {
+		t.Parallel()
+
+		proof := decodeProof(bareAssetProof, bareTapProof)
+		require.Empty(t, proof.AssetProof.Nodes)
+
+		_, err := proof.DeriveByAssetExclusion(
+			target.AssetCommitmentKey(), target.TapCommitmentKey(),
+		)
+		require.ErrorIs(t, err, mssmt.ErrInvalidProofLength)
+	})
+
+	t.Run("asset commitment exclusion", func(t *testing.T) {
+		t.Parallel()
+
+		proof := decodeProof(nil, bareTapProof)
+		require.Nil(t, proof.AssetProof)
+		require.Empty(t, proof.TaprootAssetProof.Nodes)
+
+		_, err := proof.DeriveByAssetCommitmentExclusion(
+			target.TapCommitmentKey(),
+		)
+		require.ErrorIs(t, err, mssmt.ErrInvalidProofLength)
+	})
+
+	t.Run("asset inclusion with asset tree proof", func(t *testing.T) {
+		t.Parallel()
+
+		proof := decodeProof(fullAssetProof.Bytes(), bareTapProof)
+		require.Len(t, proof.AssetProof.Nodes, mssmt.MaxTreeLevels)
+		require.Empty(t, proof.TaprootAssetProof.Nodes)
+
+		_, err := proof.DeriveByAssetInclusion(target)
+		require.ErrorIs(t, err, mssmt.ErrInvalidProofLength)
+	})
+}

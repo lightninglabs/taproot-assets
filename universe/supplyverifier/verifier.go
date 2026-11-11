@@ -42,6 +42,12 @@ type VerifierCfg struct {
 
 	// SupplyTreeView is used to fetch supply leaves by height.
 	SupplyTreeView SupplyTreeView
+
+	// Provenance holds the sources that assemble the full proof file of
+	// an asset from a universe, in the order they are tried. A burn is a
+	// state transition, so its leaf verifies only against the provenance
+	// of the input it consumes.
+	Provenance []proof.Exporter
 }
 
 // Validate performs basic validation on the verifier configuration.
@@ -68,6 +74,10 @@ func (v *VerifierCfg) Validate() error {
 
 	if v.SupplyTreeView == nil {
 		return fmt.Errorf("supply tree view is required")
+	}
+
+	if len(v.Provenance) == 0 {
+		return fmt.Errorf("provenance is required")
 	}
 
 	return nil
@@ -609,7 +619,102 @@ func (v *Verifier) verifyIgnoreLeaf(ctx context.Context,
 	return nil
 }
 
-// verifyBurnLeaf verifies a single burn leaf entry.
+// burnInputLocator returns the locator of a burn's primary input.
+func burnInputLocator(burnProof *proof.Proof) (proof.Locator, error) {
+	prevID, err := burnProof.Asset.PrimaryPrevID()
+	if err != nil {
+		return proof.Locator{}, err
+	}
+	if prevID == nil {
+		return proof.Locator{}, fmt.Errorf("burn asset has no " +
+			"primary input")
+	}
+
+	scriptKey, err := btcec.ParsePubKey(prevID.ScriptKey[:])
+	if err != nil {
+		return proof.Locator{}, fmt.Errorf("unable to parse input "+
+			"script key: %w", err)
+	}
+
+	var groupKey *btcec.PublicKey
+	if burnProof.Asset.GroupKey != nil {
+		groupKey = &burnProof.Asset.GroupKey.GroupPubKey
+	}
+
+	return proof.Locator{
+		AssetID:   &prevID.ID,
+		GroupKey:  groupKey,
+		ScriptKey: *scriptKey,
+		OutPoint:  &prevID.OutPoint,
+	}, nil
+}
+
+// burnProofFile assembles the full proof file of a burn: the provenance of
+// the burn's primary input, fetched from the given source, with the burn
+// proof appended.
+func burnProofFile(ctx context.Context, source proof.Exporter,
+	inputLoc proof.Locator, burnProof *proof.Proof) (*proof.File, error) {
+
+	inputBlob, err := source.FetchProof(ctx, inputLoc)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch input provenance: %w",
+			err)
+	}
+
+	burnFile, err := inputBlob.AsFile()
+	if err != nil {
+		return nil, fmt.Errorf("unable to decode input provenance: %w",
+			err)
+	}
+
+	err = burnFile.AppendProof(*burnProof)
+	if err != nil {
+		return nil, fmt.Errorf("unable to append burn proof: %w", err)
+	}
+
+	return burnFile, nil
+}
+
+// verifyBurnProvenance verifies a burn proof as the last proof of its full
+// proof file, built from the provenance of the burn's primary input. The
+// burn proof is a bare state transition: it carries no provenance for the
+// input it consumes. Each provenance source is tried in turn, until one
+// yields a file that verifies.
+func (v *Verifier) verifyBurnProvenance(ctx context.Context,
+	burnProof *proof.Proof) error {
+
+	inputLoc, err := burnInputLocator(burnProof)
+	if err != nil {
+		return err
+	}
+
+	var sourceErrs []error
+	for _, source := range v.cfg.Provenance {
+		burnFile, err := burnProofFile(
+			ctx, source, inputLoc, burnProof,
+		)
+		if err != nil {
+			sourceErrs = append(sourceErrs, fmt.Errorf("unable to "+
+				"assemble burn proof file: %w", err))
+			continue
+		}
+
+		_, err = burnFile.Verify(ctx, v.proofVerifierCtx(ctx))
+		if err != nil {
+			sourceErrs = append(sourceErrs, fmt.Errorf("burn "+
+				"proof failed verification: %w", err))
+			continue
+		}
+
+		return nil
+	}
+
+	return fmt.Errorf("%w: %w", ErrBurnProvenance,
+		errors.Join(sourceErrs...))
+}
+
+// verifyBurnLeaf verifies the claims of a single burn leaf entry. Its proof
+// is verified against its input's provenance by verifyBurnProvenance.
 func (v *Verifier) verifyBurnLeaf(ctx context.Context,
 	assetSpec asset.Specifier, burnEntry supplycommit.NewBurnEvent) error {
 
@@ -618,21 +723,6 @@ func (v *Verifier) verifyBurnLeaf(ctx context.Context,
 	burnProof := burnEntry.BurnProof
 	if burnProof == nil {
 		return fmt.Errorf("missing burn proof for burn leaf")
-	}
-
-	vCtx := v.proofVerifierCtx(ctx)
-	lookup, err := vCtx.ChainLookupGen.GenProofChainLookup(
-		burnProof,
-	)
-	if err != nil {
-		return fmt.Errorf("unable to generate proof chain lookup: %w",
-			err)
-	}
-
-	_, err = burnProof.Verify(ctx, nil, lookup, vCtx)
-	if err != nil {
-		return fmt.Errorf("burn leaf proof failed verification: %w",
-			err)
 	}
 
 	// Ensure that the leaf key asset ID matches the asset ID in the burn
@@ -807,19 +897,40 @@ func (v *Verifier) VerifyCommit(ctx context.Context,
 		return fmt.Errorf("unable to verify supply leaves: %w", err)
 	}
 
+	// Verify the commitment against its predecessor before verifying the
+	// provenance of its burn leaves. Spending the pre-commitment outputs
+	// or the previous commitment ties the commitment to the issuer, and
+	// its root ties the leaves to it. Provenance verification fetches and
+	// verifies the full provenance of every burn, so it only runs for
+	// leaves the issuer committed to.
+	//
 	// If the commitment does not specify a spent outpoint, then we dispatch
-	// to the initial commitment verification routine.
+	// to the initial commitment verification routine. Otherwise, we
+	// dispatch to the incremental commitment verification routine.
 	if commitment.SpentCommitment.IsNone() {
-		return v.verifyInitialCommit(
+		err = v.verifyInitialCommit(
+			ctx, assetSpec, commitment, leaves,
+			unspentPreCommits,
+		)
+	} else {
+		err = v.verifyIncrementalCommit(
 			ctx, assetSpec, commitment, leaves,
 			unspentPreCommits,
 		)
 	}
+	if err != nil {
+		return err
+	}
 
-	// Otherwise, we dispatch to the incremental commitment verification
-	// routine.
-	return v.verifyIncrementalCommit(
-		ctx, assetSpec, commitment, leaves,
-		unspentPreCommits,
-	)
+	for idx := range leaves.BurnLeafEntries {
+		burnProof := leaves.BurnLeafEntries[idx].BurnProof
+
+		err = v.verifyBurnProvenance(ctx, burnProof)
+		if err != nil {
+			return fmt.Errorf("burn leaf failed verification: %w",
+				err)
+		}
+	}
+
+	return nil
 }

@@ -2204,4 +2204,10 @@ message Anchoring {
     // The last delivery error, surfaced once the anchoring is flagged
     // stuck. Empty when the anchoring is not stuck.
     string stuck_reason = 15;
+
+    // The site's per-registration identity key, opaque to the
+    // registry; empty when the site registered none. Each current
+    // site keys an anchoring by the hash of the transaction it stakes
+    // on, in the same byte order as witness_txid.
+    bytes match_key = 16;
 }

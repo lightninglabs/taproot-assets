@@ -30,6 +30,13 @@ func rejectErrEncoder(w io.Writer, val any, buf *[8]byte) error {
 
 // rejectErrDecoder is a function that decodes a RejectErr from a reader.
 func rejectErrDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
+	if l == 0 {
+		return tlv.NewTypeForDecodingErr(val, "RejectErr", l, 1)
+	}
+	if l > tlv.MaxRecordSize {
+		return tlv.ErrRecordTooLarge
+	}
+
 	if typ, ok := val.(*RejectErr); ok {
 		var rejectCode uint8
 		if err := tlv.DUint8(r, &rejectCode, buf, 1); err != nil {

@@ -81,8 +81,6 @@ func testCustomChannelsFundingReorg(ctx context.Context,
 	// Fund the channel: the funding transaction broadcasts, and the
 	// porter stakes the funding transfer as an anchoring the moment
 	// it is handed the parcel.
-	preFund := listPorterAnchoringIDs(t.t, charlie)
-
 	t.Logf("Opening asset channel...")
 	assetFundResp, err := asTapd(charlie).FundChannel(
 		ctx, &tchrpc.FundChannelRequest{
@@ -94,7 +92,10 @@ func testCustomChannelsFundingReorg(ctx context.Context,
 	)
 	require.NoError(t.t, err)
 
-	fundingAnchoring := findPorterAnchoring(t.t, charlie, preFund)
+	fundingTxid, err := chainhash.NewHashFromStr(assetFundResp.Txid)
+	require.NoError(t.t, err)
+
+	fundingAnchoring := findPorterAnchoring(t.t, charlie, *fundingTxid)
 	assertAnchoringPhase(t.t, charlie, fundingAnchoring, "unwitnessed")
 
 	// One confirmation is potency, not act: the anchoring
@@ -102,8 +103,6 @@ func testCustomChannelsFundingReorg(ctx context.Context,
 	// the channel itself is still three short of activating).
 	mineBlocks(t, net, 1, 1)
 
-	fundingTxid, err := chainhash.NewHashFromStr(assetFundResp.Txid)
-	require.NoError(t.t, err)
 	assertAnchoringPhase(t.t, charlie, fundingAnchoring, "witnessed")
 	locateAssetTransfers(t.t, charlie, *fundingTxid)
 

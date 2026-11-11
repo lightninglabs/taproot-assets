@@ -268,6 +268,8 @@ func TestFileArchiverImportVerifiedProofs(t *testing.T) {
 // TestMigrateOldFileNames tests that we can migrate old file names to the new
 // format.
 func TestMigrateOldFileNames(t *testing.T) {
+	ctx := context.Background()
+
 	// First, we'll make a temp directory we'll use as the root of our file
 	// system.
 	tempDir := t.TempDir()
@@ -372,7 +374,7 @@ func TestMigrateOldFileNames(t *testing.T) {
 	// under the new naming scheme.
 	proof6 := RandProof(t, genesis2, scriptKey2, oddTxBlock, 2, 1)
 	err = fileArchive.ImportProofs(
-		nil, MockVerifierCtx, false, &AnnotatedProof{
+		ctx, MockVerifierCtx, false, &AnnotatedProof{
 			Locator: Locator{
 				AssetID:   fn.Ptr(proof6.Asset.ID()),
 				ScriptKey: *proof6.Asset.ScriptKey.PubKey,

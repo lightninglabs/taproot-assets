@@ -205,6 +205,9 @@ const (
 // ActiveAssetsStore is a sub-set of the main sqlc.Querier interface that
 // contains methods related to querying the set of confirmed assets.
 type ActiveAssetsStore interface {
+	// SetAssetSpentByID marks a newly materialized burn or tombstone spent.
+	SetAssetSpentByID(ctx context.Context, assetID int64) error
+
 	// UpsertAssetStore houses the methods related to inserting/updating
 	// assets.
 	UpsertAssetStore
@@ -520,14 +523,29 @@ type AssetStore struct {
 	txHeights *lru.Cache[chainhash.Hash, cacheableBlockHeight]
 
 	dbType sqlc.BackendType
+
+	// proofFiles holds proofs for outputs not owned by this wallet.
+	proofFiles *proof.FileArchiver
+}
+
+// AssetStoreOption configures an asset store.
+type AssetStoreOption func(*AssetStore)
+
+// WithProofFiles supplies the file archive for external transfer inputs. It
+// must not open database transactions while confirmation holds one.
+func WithProofFiles(archive *proof.FileArchiver) AssetStoreOption {
+	return func(store *AssetStore) {
+		store.proofFiles = archive
+	}
 }
 
 // NewAssetStore creates a new AssetStore from the specified BatchedAssetStore
 // interface.
 func NewAssetStore(db BatchedAssetStore, metaDB BatchedMetaStore,
-	clock clock.Clock, dbType sqlc.BackendType) *AssetStore {
+	clock clock.Clock, dbType sqlc.BackendType,
+	opts ...AssetStoreOption) *AssetStore {
 
-	return &AssetStore{
+	store := &AssetStore{
 		db:               db,
 		metaDb:           metaDB,
 		eventDistributor: fn.NewEventDistributor[proof.Blob](),
@@ -537,6 +555,11 @@ func NewAssetStore(db BatchedAssetStore, metaDB BatchedMetaStore,
 		),
 		dbType: dbType,
 	}
+	for _, opt := range opts {
+		opt(store)
+	}
+
+	return store
 }
 
 // ManagedUTXO holds information about a given UTXO we manage.
@@ -1483,6 +1506,54 @@ func (a *AssetStore) CountUnconfirmedAssets(ctx context.Context,
 	}
 
 	return uint64(count), nil
+}
+
+// FetchManagedUTXO fetches the managed UTXO at the given outpoint.
+func (a *AssetStore) FetchManagedUTXO(ctx context.Context,
+	outpoint wire.OutPoint) (*ManagedUTXO, error) {
+
+	outpointBytes, err := encodeOutpoint(outpoint)
+	if err != nil {
+		return nil, err
+	}
+
+	var u AnchorPoint
+	readOpts := NewAssetStoreReadTx()
+	dbErr := a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
+		u, err = q.FetchManagedUTXO(ctx, UtxoQuery{
+			Outpoint: outpointBytes,
+		})
+		return err
+	})
+	if dbErr != nil {
+		return nil, dbErr
+	}
+
+	internalKey, err := btcec.ParsePubKey(u.RawKey)
+	if err != nil {
+		return nil, err
+	}
+
+	utxo := &ManagedUTXO{
+		OutPoint:    outpoint,
+		OutputValue: btcutil.Amount(u.AmtSats),
+		InternalKey: keychain.KeyDescriptor{
+			PubKey: internalKey,
+			KeyLocator: keychain.KeyLocator{
+				Index:  uint32(u.KeyIndex),
+				Family: keychain.KeyFamily(u.KeyFamily),
+			},
+		},
+		TaprootAssetRoot: u.TaprootAssetRoot,
+		MerkleRoot:       u.MerkleRoot,
+		TapscriptSibling: u.TapscriptSibling,
+		LeaseOwner:       u.LeaseOwner,
+	}
+	if u.LeaseExpiry.Valid {
+		utxo.LeaseExpiry = u.LeaseExpiry.Time
+	}
+
+	return utxo, nil
 }
 
 // FetchManagedUTXOs fetches all UTXOs we manage.

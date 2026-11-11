@@ -15,6 +15,10 @@ var (
 	// ErrInvalidCompressedProof is returned when a compressed proof has an
 	// invalid combination of explicit nodes and default hash bits.
 	ErrInvalidCompressedProof = errors.New("mssmt: invalid compressed proof")
+
+	// ErrInvalidProofLength is returned when a proof does not have exactly
+	// one sibling node per tree level.
+	ErrInvalidProofLength = errors.New("mssmt: invalid proof length")
 )
 
 // Proof represents a merkle proof for a MS-SMT.
@@ -77,8 +81,15 @@ func NewProofFromCompressedBytes(compressedProofBytes []byte) (Proof, error) {
 	return *p, nil
 }
 
-// Root returns the root node obtained by walking up the tree.
+// Root returns the root node obtained by walking up the tree. It returns
+// ErrInvalidProofLength if the proof does not have exactly MaxTreeLevels
+// sibling nodes.
 func (p Proof) Root(key [32]byte, leaf Node) (*BranchNode, error) {
+	if len(p.Nodes) != MaxTreeLevels {
+		return nil, fmt.Errorf("%w, num_nodes=%v, num_expected=%v",
+			ErrInvalidProofLength, len(p.Nodes), MaxTreeLevels)
+	}
+
 	return walkUp(&key, leaf, p.Nodes, nil)
 }
 

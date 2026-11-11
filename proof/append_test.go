@@ -3,7 +3,6 @@ package proof
 import (
 	"bytes"
 	"context"
-	"errors"
 	"testing"
 
 	"github.com/btcsuite/btcd/blockchain"
@@ -127,7 +126,7 @@ func TestFinalProofSkipTimeLockCLTV(t *testing.T) {
 	_, err := f.Verify(context.Background(), MockVerifierCtx)
 	require.Error(t, err)
 	var vmErr vm.Error
-	require.True(t, errors.As(err, &vmErr))
+	require.ErrorAs(t, err, &vmErr)
 	require.Equal(t, vm.ErrUnfinalizedAsset, vmErr.Kind)
 
 	_, err = f.Verify(
@@ -147,7 +146,7 @@ func TestFinalProofSkipTimeLockCSV(t *testing.T) {
 	_, err := f.Verify(context.Background(), MockVerifierCtx)
 	require.Error(t, err)
 	var vmErr vm.Error
-	require.True(t, errors.As(err, &vmErr))
+	require.ErrorAs(t, err, &vmErr)
 	require.Equal(t, vm.ErrUnfinalizedAsset, vmErr.Kind)
 
 	_, err = f.Verify(
@@ -1345,12 +1344,12 @@ func buildMergeSuffixWithKeys(t *testing.T, sharedAnchorOut bool) (*Proof,
 	require.NoError(t, leafFile.Decode(bytes.NewReader(leafBlob)))
 
 	return suffix, map[asset.PrevID]*File{
-			*rootPrevID: rootFile,
-			*leafPrevID: leafFile,
-		}, map[asset.PrevID]*btcec.PrivateKey{
-			*rootPrevID: rootPrivKey,
-			*leafPrevID: leafPrivKey,
-		}
+		*rootPrevID: rootFile,
+		*leafPrevID: leafFile,
+	}, map[asset.PrevID]*btcec.PrivateKey{
+		*rootPrevID: rootPrivKey,
+		*leafPrevID: leafPrivKey,
+	}
 }
 
 // signAssetTransfer creates a virtual transaction for an asset transfer and

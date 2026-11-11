@@ -1928,6 +1928,7 @@ func marshalAnchoring(summary tapdb.AnchoringSummary) *taprpc.Anchoring {
 		NumCandidates:        summary.NumCandidates,
 		LastDeliveryError:    summary.LastDeliveryError,
 		TerminalAt:           summary.TerminalAt,
+		MatchKey:             summary.MatchKey,
 	}
 }
 
@@ -2085,6 +2086,16 @@ func (r *RPCServer) NewAddr(ctx context.Context,
 			proof.AuthMailboxUniRpcCourierType)
 	}
 
+	// A pinned certificate or a verification exception for the courier
+	// host is part of this node's TLS policy only.
+	if r.cfg.UniverseTLS.HostScoped(courierAddr.Host) {
+		rpcsLog.WarnS(ctx, "Proof courier host has a pinned "+
+			"certificate or a TLS verification exception on this "+
+			"node; senders without matching TLS configuration "+
+			"cannot verify the courier", nil,
+			"courier_addr", courierAddr.String())
+	}
+
 	// If the courier is an (auth mailbox) universe RPC type we will check
 	// that we can connect to it.
 	connCheckScheme := courierAddr.Scheme == proof.UniverseRpcCourierType ||
@@ -2094,7 +2105,8 @@ func (r *RPCServer) NewAddr(ctx context.Context,
 			"RPC", "courier_addr", courierAddr.String())
 
 		err := proof.CheckUniverseRpcCourierConnection(
-			ctx, proofCourierCheckTimeout, courierAddr,
+			ctx, proofCourierCheckTimeout, r.cfg.UniverseTLS,
+			courierAddr,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("connection check failed for "+
@@ -3197,8 +3209,8 @@ func (r *RPCServer) CommitVirtualPsbts(ctx context.Context,
 	var (
 		lockedUTXO      []*walletrpc.UtxoLease
 		lockedOutpoints []wire.OutPoint
-		fundedPacket    *psbt.Packet = pkt
-		changeIndex     int32        = -1
+		fundedPacket          = pkt
+		changeIndex     int32 = -1
 		success         bool
 	)
 
@@ -3550,7 +3562,8 @@ func (r *RPCServer) validateInputAssets(ctx context.Context,
 // PublishAndLogTransfer accepts a fully committed and signed anchor transaction
 // and publishes it to the Bitcoin network. It also logs the transfer of the
 // given active and passive assets in the database and ships any outgoing proofs
-// to the counterparties.
+// to the counterparties. If requested, it first signs the anchor inputs it
+// owns.
 func (r *RPCServer) PublishAndLogTransfer(ctx context.Context,
 	req *wrpc.PublishAndLogRequest) (*taprpc.SendAssetResponse, error) {
 
@@ -3588,6 +3601,13 @@ func (r *RPCServer) PublishAndLogTransfer(ctx context.Context,
 	if err != nil {
 		return nil, fmt.Errorf("error validating anchor outputs: %w",
 			err)
+	}
+
+	if req.SignAnchorInputs {
+		err = r.signAnchorInputs(ctx, pkt, allPackets)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	chainFees, err := pkt.GetTxFee()
@@ -3659,6 +3679,44 @@ func (r *RPCServer) PublishAndLogTransfer(ctx context.Context,
 	return &taprpc.SendAssetResponse{
 		Transfer: parcel,
 	}, nil
+}
+
+// signAnchorInputs signs and finalizes the inputs of the anchor transaction
+// that spend anchor outputs of the given packets owned by this daemon.
+func (r *RPCServer) signAnchorInputs(ctx context.Context, pkt *psbt.Packet,
+	vPackets []*tappsbt.VPacket) error {
+
+	unsigned, err := tapsend.UnsignedAnchorInputs(pkt, vPackets)
+	if err != nil {
+		return err
+	}
+
+	anchors := make([]tapsend.OwnedAnchorInput, 0, len(unsigned))
+	for _, idx := range unsigned {
+		op := pkt.UnsignedTx.TxIn[idx].PreviousOutPoint
+
+		utxo, err := r.cfg.AssetStore.FetchManagedUTXO(ctx, op)
+		if err != nil {
+			return fmt.Errorf("anchor input %d (%v) is not "+
+				"managed by this daemon: %w", idx, op, err)
+		}
+		if !r.cfg.AddrBook.IsLocalKey(ctx, utxo.InternalKey) {
+			return fmt.Errorf("anchor input %d (%v) is not owned "+
+				"by this daemon", idx, op)
+		}
+
+		anchors = append(anchors, tapsend.OwnedAnchorInput{
+			Index:       idx,
+			InternalKey: utxo.InternalKey,
+			MerkleRoot:  utxo.MerkleRoot,
+			Value:       utxo.OutputValue,
+		})
+	}
+
+	return tapsend.SignAnchorInputs(
+		ctx, pkt, anchors, r.cfg.ChainParams.HDCoinType,
+		r.cfg.Lnd.WalletKit.SignPsbt,
+	)
 }
 
 // NextInternalKey derives the next internal key for the given key family and
@@ -8187,14 +8245,17 @@ func (r *RPCServer) PushProof(ctx context.Context,
 	// Make sure that we aren't trying to push the proof to ourself, and
 	// then attempt to push the proof.
 	err = CheckFederationServer(
-		r.cfg.RuntimeID, universe.DefaultTimeout, remoteUniAddr,
+		r.cfg.UniverseTLS, r.cfg.RuntimeID, universe.DefaultTimeout,
+		remoteUniAddr,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("check federation "+
 			"server %v: %w", remoteUniAddr.HostStr(), err)
 	}
 
-	remoteUni, err := NewRpcUniverseRegistrar(remoteUniAddr)
+	remoteUni, err := NewRpcUniverseRegistrar(
+		r.cfg.UniverseTLS, remoteUniAddr,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("dial remote "+
 			"universe %v: %w", remoteUniAddr.HostStr(), err)
@@ -8581,7 +8642,8 @@ func (r *RPCServer) AddFederationServer(ctx context.Context,
 		// that we can actually connect to it and that it isn't
 		// ourselves.
 		err := CheckFederationServer(
-			r.cfg.RuntimeID, universe.DefaultTimeout, server,
+			r.cfg.UniverseTLS, r.cfg.RuntimeID,
+			universe.DefaultTimeout, server,
 		)
 		if err != nil {
 			return nil, fmt.Errorf(""+
@@ -9644,10 +9706,25 @@ func unmarshalAssetSellOrder(
 		return nil, err
 	}
 
+	// Unmarshal the optional swap amount. A value of zero means unset.
+	var paymentSwapAmt fn.Option[lnwire.MilliSatoshi]
+	if req.PaymentSwapAmt > 0 {
+		if req.PaymentSwapAmt > req.PaymentMaxAmt {
+			return nil, fmt.Errorf("payment swap amount (%d) "+
+				"exceeds payment max amount (%d)",
+				req.PaymentSwapAmt, req.PaymentMaxAmt)
+		}
+
+		paymentSwapAmt = fn.Some(
+			lnwire.MilliSatoshi(req.PaymentSwapAmt),
+		)
+	}
+
 	return &rfq.SellOrder{
 		AssetSpecifier:      assetSpecifier,
 		PaymentMaxAmt:       lnwire.MilliSatoshi(req.PaymentMaxAmt),
 		PaymentMinAmt:       paymentMinAmt,
+		PaymentSwapAmt:      paymentSwapAmt,
 		AssetRateLimit:      assetRateLimit,
 		ExecutionPolicy:     execPolicy,
 		Expiry:              expiry,
@@ -10347,17 +10424,17 @@ func (r *RPCServer) SendPayment(req *tchrpc.SendPaymentRequest,
 				"quote: %w", err)
 		}
 
-		// paymentMaxAmt is the maximum amount that the counterparty is
-		// expected to pay. This is the amount that the invoice is
-		// asking for plus the fee limit in milli-satoshis.
-		paymentMaxAmt, _, err := r.parseRequest(pReq)
+		// The parsed request holds the maximum amount the
+		// counterparty is expected to pay. This is the amount that the
+		// invoice is asking for plus the fee limit in milli-satoshis.
+		parsedReq, err := r.parseRequest(pReq)
 		if err != nil {
 			return err
 		}
 
 		// Check if the payment requires overpayment based on the quote.
 		err = checkOverpayment(
-			sellOrder, paymentMaxAmt, req.AllowOverpay,
+			sellOrder, parsedReq.paymentMaxAmt, req.AllowOverpay,
 		)
 		if err != nil {
 			return err
@@ -10421,10 +10498,11 @@ func (r *RPCServer) SendPayment(req *tchrpc.SendPaymentRequest,
 				"use: %w", err)
 		}
 
-		// paymentMaxAmt is the maximum amount that the counterparty is
-		// expected to pay. This is the amount that the invoice is
-		// asking for plus the fee limit in milli-satoshis.
-		paymentMaxAmt, expiry, err := r.parseRequest(pReq)
+		// The parsed request holds the amount the invoice is asking
+		// for, and the maximum amount that the counterparty is expected
+		// to pay, which is the invoice amount plus the fee limit in
+		// milli-satoshis.
+		parsedReq, err := r.parseRequest(pReq)
 		if err != nil {
 			return err
 		}
@@ -10445,7 +10523,7 @@ func (r *RPCServer) SendPayment(req *tchrpc.SendPaymentRequest,
 		// need to initiate the negotiation procedure for this payment.
 		// We'll store here all the quotes we acquired successfully.
 		acquiredQuotes := r.acquirePaymentQuotes(
-			ctx, &rpcSpecifier, paymentMaxAmt, expiry, chanMap,
+			ctx, &rpcSpecifier, parsedReq, chanMap,
 			req.AllowOverpay, payHash, req.PriceOracleMetadata,
 		)
 
@@ -10586,7 +10664,7 @@ func (r *RPCServer) SendPayment(req *tchrpc.SendPaymentRequest,
 		update, err := updateStream.Recv()
 		if err != nil {
 			// Stream is closed; no more updates.
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				return nil
 			}
 			return fmt.Errorf("failed to receive payment "+
@@ -10611,33 +10689,49 @@ func (r *RPCServer) SendPayment(req *tchrpc.SendPaymentRequest,
 	}
 }
 
-// parseRequest parses the payment request and returns the payment maximum
-// amount and the expiry time.
+// parsedPaymentRequest holds the amounts and expiry derived from a payment
+// request.
+type parsedPaymentRequest struct {
+	// paymentAmt is the amount the invoice asks for (or the user supplied
+	// amount for a zero amount invoice), excluding any routing fees.
+	paymentAmt lnwire.MilliSatoshi
+
+	// paymentMaxAmt is the maximum amount that the counterparty is
+	// expected to pay: paymentAmt plus the fee limit of the payment.
+	paymentMaxAmt lnwire.MilliSatoshi
+
+	// expiry is the time at which the invoice expires.
+	expiry time.Time
+}
+
+// parseRequest parses the payment request and returns the payment amount, the
+// payment maximum amount and the expiry time.
 func (r *RPCServer) parseRequest(
-	req *routerrpc.SendPaymentRequest) (lnwire.MilliSatoshi, time.Time,
-	error) {
+	req *routerrpc.SendPaymentRequest) (parsedPaymentRequest, error) {
+
+	var zero parsedPaymentRequest
 
 	invoice, err := zpay32.Decode(req.PaymentRequest, r.cfg.Lnd.ChainParams)
 	if err != nil {
-		return 0, time.Time{}, fmt.Errorf("error decoding payment "+
-			"request: %w", err)
+		return zero, fmt.Errorf("error decoding payment request: %w",
+			err)
 	}
 
-	var paymentMaxAmt lnwire.MilliSatoshi
+	var paymentAmt lnwire.MilliSatoshi
 	if invoice.MilliSat == nil {
 		amt, err := lnrpc.UnmarshallAmt(req.Amt, req.AmtMsat)
 		if err != nil {
-			return 0, time.Time{}, fmt.Errorf("error "+
-				"unmarshalling amount: %w", err)
+			return zero, fmt.Errorf("error unmarshalling "+
+				"amount: %w", err)
 		}
 		if amt == 0 {
-			return 0, time.Time{}, errors.New("amount must be " +
-				"specified when paying a zero amount invoice")
+			return zero, errors.New("amount must be specified " +
+				"when paying a zero amount invoice")
 		}
 
-		paymentMaxAmt = amt
+		paymentAmt = amt
 	} else {
-		paymentMaxAmt = *invoice.MilliSat
+		paymentAmt = *invoice.MilliSat
 	}
 
 	// Calculate the fee limit that should be used for this payment.
@@ -10645,14 +10739,15 @@ func (r *RPCServer) parseRequest(
 		req.FeeLimitSat, req.FeeLimitMsat,
 	)
 	if err != nil {
-		return 0, time.Time{}, fmt.Errorf("error unmarshalling fee "+
-			"limit: %w", err)
+		return zero, fmt.Errorf("error unmarshalling fee limit: %w",
+			err)
 	}
 
-	paymentMaxAmt += feeLimit
-
-	expiry := invoice.Timestamp.Add(invoice.Expiry())
-	return paymentMaxAmt, expiry, nil
+	return parsedPaymentRequest{
+		paymentAmt:    paymentAmt,
+		paymentMaxAmt: paymentAmt + feeLimit,
+		expiry:        invoice.Timestamp.Add(invoice.Expiry()),
+	}, nil
 }
 
 // checkOverpayment checks if paying a certain invoice amount requires
@@ -11053,6 +11148,18 @@ func (r *RPCServer) AddInvoice(ctx context.Context,
 			)
 		}
 
+		// With pre-existing route hints, the invoice carries the hints
+		// that passed the quote expiry filter.
+		if existingQuotes {
+			routeHints, err = invoicesrpc.CreateZpay32HopHints(
+				iReq.RouteHints,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("error parsing route "+
+					"hints: %w", err)
+			}
+		}
+
 		payReq, err := r.cfg.Lnd.Invoices.AddHoldInvoice(
 			ctx, &invoicesrpc.AddInvoiceData{
 				Memo: iReq.Memo,
@@ -11062,6 +11169,7 @@ func (r *RPCServer) AddInvoice(ctx context.Context,
 				Hash:            &payHash,
 				DescriptionHash: iReq.DescriptionHash,
 				Expiry:          iReq.Expiry,
+				CltvExpiry:      iReq.CltvExpiry,
 				// We set private to false as we don't want to
 				// add any hop hints other than this one.
 				Private:     false,
@@ -11335,7 +11443,7 @@ func (r *RPCServer) forwardAssetPaymentUpdates(ctx context.Context,
 
 // streamRecvError normalizes expected stream shutdown errors.
 func streamRecvError(ctx context.Context, err error) error {
-	if err == io.EOF {
+	if errors.Is(err, io.EOF) {
 		return nil
 	}
 
@@ -11668,11 +11776,13 @@ func newAssetGroupLookup(ctx context.Context,
 	}
 }
 
-// groupKey returns the compressed tweaked group key that the given asset
-// tranche belongs to, or nil if the tranche has no group, the asset isn't
-// known to this tapd, or no address book is configured. Errors are logged
-// and swallowed: a list RPC should never fail because of opportunistic
-// metadata enrichment.
+// groupKey returns the compressed tweaked group key that the given asset ID
+// belongs to, or nil if the asset has no group, the asset isn't known to this
+// tapd, or no address book is configured. The ID is either a tranche ID or
+// the group key x-coordinate placeholder that group-key HTLCs carry. Only the
+// local store is consulted: an unknown asset must never cause a list RPC to
+// block on a federation sync. Errors are logged and swallowed: a list RPC
+// should never fail because of opportunistic metadata enrichment.
 func (l *assetGroupLookup) groupKey(id asset.ID) []byte {
 	if gk, ok := l.cache[id]; ok {
 		return gk
@@ -11683,19 +11793,18 @@ func (l *assetGroupLookup) groupKey(id asset.ID) []byte {
 		return nil
 	}
 
-	info, err := l.addrBook.QueryAssetInfo(
-		l.ctx, asset.NewSpecifierFromId(id),
-	)
+	group, err := l.addrBook.QueryLocalAssetGroup(l.ctx, id)
 	if err != nil {
-		rpcsLog.Debugf("list rpc: unable to query asset info for "+
+		rpcsLog.Debugf("list rpc: unable to resolve asset group for "+
 			"asset_id %x: %v", id[:], err)
 		l.cache[id] = nil
+
 		return nil
 	}
 
 	var gk []byte
-	if info.GroupKey != nil {
-		gk = info.GroupKey.GroupPubKey.SerializeCompressed()
+	if group.GroupKey != nil {
+		gk = group.GroupKey.GroupPubKey.SerializeCompressed()
 	}
 	l.cache[id] = gk
 
@@ -11996,8 +12105,8 @@ func (r *RPCServer) acquireBuyOrder(ctx context.Context,
 // payment with all available peers. The list of successfully negotiated quotes
 // is returned.
 func (r *RPCServer) acquirePaymentQuotes(ctx context.Context,
-	rpcSpecifier *rfqrpc.AssetSpecifier, paymentMaxAmt lnwire.MilliSatoshi,
-	expiry time.Time, chanMap rfq.PeerChanMap, overpay bool, payHash string,
+	rpcSpecifier *rfqrpc.AssetSpecifier, parsedReq parsedPaymentRequest,
+	chanMap rfq.PeerChanMap, overpay bool, payHash string,
 	metadata string) []*rfqrpc.PeerAcceptedSellQuote {
 
 	var acquiredQuotes []*rfqrpc.PeerAcceptedSellQuote
@@ -12022,15 +12131,17 @@ func (r *RPCServer) acquirePaymentQuotes(ctx context.Context,
 			defer cancel()
 
 			quote, err := r.acquireSellQuote(
-				rpcCtx, rpcSpecifier, paymentMaxAmt,
-				expiry, &peer, metadata,
+				rpcCtx, rpcSpecifier, parsedReq, &peer,
+				metadata,
 			)
 			if err != nil {
 				fn.SendOrDone(collectorCtx, errorCollector, err)
 				return
 			}
 
-			err = checkOverpayment(quote, paymentMaxAmt, overpay)
+			err = checkOverpayment(
+				quote, parsedReq.paymentMaxAmt, overpay,
+			)
 			if err != nil {
 				fn.SendOrDone(collectorCtx, errorCollector, err)
 				return
@@ -12068,25 +12179,42 @@ func (r *RPCServer) acquirePaymentQuotes(ctx context.Context,
 	}
 }
 
+// newPaymentSellOrderRequest creates a sell order used to acquire one of the
+// quotes that can jointly fund an asset payment.
+func newPaymentSellOrderRequest(rpcSpecifier *rfqrpc.AssetSpecifier,
+	parsedReq parsedPaymentRequest, peerPubKey *route.Vertex,
+	metadata string) *rfqrpc.AddAssetSellOrderRequest {
+
+	return &rfqrpc.AddAssetSellOrderRequest{
+		AssetSpecifier: rpcSpecifier,
+		PaymentMaxAmt:  uint64(parsedReq.paymentMaxAmt),
+		// A payment can combine quotes backed by different asset
+		// channels, so each peer must be allowed to offer a partial
+		// fill. Explicit zero avoids the RPC default of requiring
+		// the full maximum amount from every peer.
+		PaymentMinAmt: fn.Ptr[uint64](0),
+		// The max amount includes the routing fee budget, while the
+		// swap amount is the invoice amount itself. Both are passed on
+		// so the price oracle can tell the two apart.
+		PaymentSwapAmt:      uint64(parsedReq.paymentAmt),
+		Expiry:              uint64(parsedReq.expiry.Unix()),
+		PeerPubKey:          peerPubKey[:],
+		TimeoutSeconds:      uint32(rfq.DefaultTimeout.Seconds()),
+		PriceOracleMetadata: metadata,
+	}
+}
+
 // acquireSellQuote performs an RFQ negotiation with the target peer and quote
 // parameters and returns the quote if the negotiation was successful.
 func (r *RPCServer) acquireSellQuote(ctx context.Context,
-	rpcSpecifier *rfqrpc.AssetSpecifier, paymentMaxAmt lnwire.MilliSatoshi,
-	expiry time.Time, peerPubKey *route.Vertex,
+	rpcSpecifier *rfqrpc.AssetSpecifier, parsedReq parsedPaymentRequest,
+	peerPubKey *route.Vertex,
 	metadata string) (*rfqrpc.PeerAcceptedSellQuote, error) {
 
-	resp, err := r.AddAssetSellOrder(
-		ctx, &rfqrpc.AddAssetSellOrderRequest{
-			AssetSpecifier: rpcSpecifier,
-			PaymentMaxAmt:  uint64(paymentMaxAmt),
-			Expiry:         uint64(expiry.Unix()),
-			PeerPubKey:     peerPubKey[:],
-			TimeoutSeconds: uint32(
-				rfq.DefaultTimeout.Seconds(),
-			),
-			PriceOracleMetadata: metadata,
-		},
+	request := newPaymentSellOrderRequest(
+		rpcSpecifier, parsedReq, peerPubKey, metadata,
 	)
+	resp, err := r.AddAssetSellOrder(ctx, request)
 	if err != nil {
 		return nil, fmt.Errorf("error adding sell order: %w", err)
 	}
@@ -12213,8 +12341,8 @@ func (r *RPCServer) assetInvoiceAmt(ctx context.Context,
 
 	oracleResp, err := oracle.QuerySellPrice(
 		ctx, targetAsset, fn.None[uint64](), fn.Some(invoiceAmt),
-		fn.None[rfqmsg.AssetRate](), fn.None[route.Vertex](), metadata,
-		rfq.IntentPayInvoice,
+		fn.Some(invoiceAmt), fn.None[rfqmsg.AssetRate](),
+		fn.None[route.Vertex](), metadata, rfq.IntentPayInvoice,
 	)
 	if err != nil {
 		return 0, fmt.Errorf("error querying ask price: %w", err)
@@ -12665,6 +12793,7 @@ func (r *RPCServer) ImportAssetsFromBackup(ctx context.Context,
 		KeyDeriver:     r.cfg.Lnd.WalletKit,
 		WalletProofs:   r.cfg.AssetStore,
 		GroupRegistrar: r.cfg.TapAddrBook,
+		UniverseTLS:    r.cfg.UniverseTLS,
 	}
 
 	numImported, numSkipped, err := backup.ImportBackup(

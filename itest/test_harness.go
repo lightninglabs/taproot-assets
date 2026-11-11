@@ -449,6 +449,15 @@ type tapdHarnessParams struct {
 	// baseDir, if set, is the tapd data directory to use instead of a
 	// fresh temporary one. This restarts a tapd on existing data.
 	baseDir string
+
+	// strictUniverseTLS indicates whether the node verifies the
+	// certificates of universe servers, proof couriers and auth
+	// mailboxes.
+	strictUniverseTLS bool
+
+	// universeTLSPins maps a host to the path of the only certificate the
+	// node trusts for it.
+	universeTLSPins map[string]string
 }
 
 // Option is a tapd harness option.
@@ -500,6 +509,16 @@ func WithSweepOrphanUtxos() Option {
 	}
 }
 
+// WithStrictUniverseTLS makes the tapd harness verify the certificates of
+// universe servers, proof couriers and auth mailboxes, trusting only the given
+// certificates (host to certificate path) for their hosts.
+func WithStrictUniverseTLS(pins map[string]string) Option {
+	return func(th *tapdHarnessParams) {
+		th.strictUniverseTLS = true
+		th.universeTLSPins = pins
+	}
+}
+
 // WithBaseDir makes the tapd harness reuse the given data directory instead
 // of creating a fresh one, so a node can be restarted on existing data.
 func WithBaseDir(dir string) Option {
@@ -545,6 +564,8 @@ func setupTapdHarness(t *testing.T, ht *harnessTest,
 		ho.sendPriceHint = params.sendPriceHint
 		ho.disableSweepOrphanUtxos = !params.sweepOrphanUtxos
 		ho.reOrgSafeDepth = params.reOrgSafeDepth
+		ho.strictUniverseTLS = params.strictUniverseTLS
+		ho.universeTLSPins = params.universeTLSPins
 	}
 
 	tapdCfg := tapdConfig{

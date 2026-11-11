@@ -84,6 +84,12 @@ func (o *OracleHarness) SetPrice(specifier asset.Specifier, buyPrice,
 	o.sellPrices[specifier.String()] = sellPrice
 }
 
+// SetExpiryDelay sets how far in the future subsequently returned quote
+// expiry timestamps are set.
+func (o *OracleHarness) SetExpiryDelay(expiryDelay time.Duration) {
+	o.expiryDelay = expiryDelay
+}
+
 // Start runs the oracle harness.
 func (o *OracleHarness) Start(t *testing.T) {
 	// Start the mock RPC price oracle service.
@@ -96,6 +102,7 @@ func (o *OracleHarness) Start(t *testing.T) {
 	// Create the gRPC server with TLS
 	transportCredentials := credentials.NewTLS(&tls.Config{
 		Certificates: []tls.Certificate{tlsCert},
+		MinVersion:   tls.VersionTLS12,
 	})
 	o.grpcServer = grpc.NewServer(grpc.Creds(transportCredentials))
 
@@ -209,9 +216,9 @@ func (o *OracleHarness) QueryAssetRates(_ context.Context,
 		args := o.Called(
 			req.TransactionType, req.SubjectAsset,
 			req.SubjectAssetMaxAmount, req.PaymentAsset,
-			req.PaymentAssetMaxAmount, req.AssetRatesHint,
-			req.Intent, req.CounterpartyId, req.Metadata,
-			req.NodeId,
+			req.PaymentAssetMaxAmount, req.PaymentAssetSwapAmount,
+			req.AssetRatesHint, req.Intent, req.CounterpartyId,
+			req.Metadata, req.NodeId,
 		)
 		resp, _ := args.Get(0).(*oraclerpc.QueryAssetRatesResponse)
 		return resp, args.Error(1)

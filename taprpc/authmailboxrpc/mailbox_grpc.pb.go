@@ -18,29 +18,33 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type MailboxClient interface {
-	// Sends a single message to a receiver's mailbox. Requires a valid, unused
-	// Bitcoin P2TR transaction outpoint as proof of uniqueness, included in a
-	// block as proof of work.
-	SendMessage(ctx context.Context, in *SendMessageRequest, opts ...grpc.CallOption) (*SendMessageResponse, error)
-	// Initiates a bidirectional stream to receive messages for a specific
-	// receiver. This stream implements the challenge-response handshake required
-	// for receiver authentication before messages are delivered.
 	//
-	// Expected flow:
-	// 1. Client -> Server: ReceiveMessagesRequest(init = InitReceive{...})
-	// 2. Server -> Client: ReceiveMessagesResponse(challenge = Challenge{...})
-	// 3. Client -> Server: ReceiveMessagesRequest(auth_sig = AuthSignature{...})
-	// 4. Server -> Client: [Stream of ReceiveMessagesResponse(
-	// message = MailboxMessage{...}
-	// )]
-	// 5. Server -> Client: ReceiveMessagesResponse(eos = EndOfStream{})
+	//Sends a single message to a receiver's mailbox. Requires a valid, unused
+	//Bitcoin P2TR transaction outpoint as proof of uniqueness, included in a
+	//block as proof of work.
+	SendMessage(ctx context.Context, in *SendMessageRequest, opts ...grpc.CallOption) (*SendMessageResponse, error)
+	//
+	//Initiates a bidirectional stream to receive messages for a specific
+	//receiver. This stream implements the challenge-response handshake required
+	//for receiver authentication before messages are delivered.
+	//
+	//Expected flow:
+	//1. Client -> Server: ReceiveMessagesRequest(init = InitReceive{...})
+	//2. Server -> Client: ReceiveMessagesResponse(challenge = Challenge{...})
+	//3. Client -> Server: ReceiveMessagesRequest(auth_sig = AuthSignature{...})
+	//4. Server -> Client: [Stream of ReceiveMessagesResponse(
+	//message = MailboxMessage{...}
+	//)]
+	//5. Server -> Client: ReceiveMessagesResponse(eos = EndOfStream{})
 	ReceiveMessages(ctx context.Context, opts ...grpc.CallOption) (Mailbox_ReceiveMessagesClient, error)
-	// Returns basic server information.
+	//
+	//Returns basic server information.
 	MailboxInfo(ctx context.Context, in *MailboxInfoRequest, opts ...grpc.CallOption) (*MailboxInfoResponse, error)
-	// Removes one or more messages from the mailbox. The caller must prove
-	// ownership of the receiver key by providing a Schnorr signature over
-	// SHA256(receiver_id || big-endian uint64 message_id_1 || ...).
-	// Only messages that belong to the authenticated receiver are deleted.
+	//
+	//Removes one or more messages from the mailbox. The caller must prove
+	//ownership of the receiver key by providing a Schnorr signature over
+	//SHA256(receiver_id || big-endian uint64 message_id_1 || ...).
+	//Only messages that belong to the authenticated receiver are deleted.
 	RemoveMessage(ctx context.Context, in *RemoveMessageRequest, opts ...grpc.CallOption) (*RemoveMessageResponse, error)
 }
 
@@ -114,29 +118,33 @@ func (c *mailboxClient) RemoveMessage(ctx context.Context, in *RemoveMessageRequ
 // All implementations must embed UnimplementedMailboxServer
 // for forward compatibility
 type MailboxServer interface {
-	// Sends a single message to a receiver's mailbox. Requires a valid, unused
-	// Bitcoin P2TR transaction outpoint as proof of uniqueness, included in a
-	// block as proof of work.
-	SendMessage(context.Context, *SendMessageRequest) (*SendMessageResponse, error)
-	// Initiates a bidirectional stream to receive messages for a specific
-	// receiver. This stream implements the challenge-response handshake required
-	// for receiver authentication before messages are delivered.
 	//
-	// Expected flow:
-	// 1. Client -> Server: ReceiveMessagesRequest(init = InitReceive{...})
-	// 2. Server -> Client: ReceiveMessagesResponse(challenge = Challenge{...})
-	// 3. Client -> Server: ReceiveMessagesRequest(auth_sig = AuthSignature{...})
-	// 4. Server -> Client: [Stream of ReceiveMessagesResponse(
-	// message = MailboxMessage{...}
-	// )]
-	// 5. Server -> Client: ReceiveMessagesResponse(eos = EndOfStream{})
+	//Sends a single message to a receiver's mailbox. Requires a valid, unused
+	//Bitcoin P2TR transaction outpoint as proof of uniqueness, included in a
+	//block as proof of work.
+	SendMessage(context.Context, *SendMessageRequest) (*SendMessageResponse, error)
+	//
+	//Initiates a bidirectional stream to receive messages for a specific
+	//receiver. This stream implements the challenge-response handshake required
+	//for receiver authentication before messages are delivered.
+	//
+	//Expected flow:
+	//1. Client -> Server: ReceiveMessagesRequest(init = InitReceive{...})
+	//2. Server -> Client: ReceiveMessagesResponse(challenge = Challenge{...})
+	//3. Client -> Server: ReceiveMessagesRequest(auth_sig = AuthSignature{...})
+	//4. Server -> Client: [Stream of ReceiveMessagesResponse(
+	//message = MailboxMessage{...}
+	//)]
+	//5. Server -> Client: ReceiveMessagesResponse(eos = EndOfStream{})
 	ReceiveMessages(Mailbox_ReceiveMessagesServer) error
-	// Returns basic server information.
+	//
+	//Returns basic server information.
 	MailboxInfo(context.Context, *MailboxInfoRequest) (*MailboxInfoResponse, error)
-	// Removes one or more messages from the mailbox. The caller must prove
-	// ownership of the receiver key by providing a Schnorr signature over
-	// SHA256(receiver_id || big-endian uint64 message_id_1 || ...).
-	// Only messages that belong to the authenticated receiver are deleted.
+	//
+	//Removes one or more messages from the mailbox. The caller must prove
+	//ownership of the receiver key by providing a Schnorr signature over
+	//SHA256(receiver_id || big-endian uint64 message_id_1 || ...).
+	//Only messages that belong to the authenticated receiver are deleted.
 	RemoveMessage(context.Context, *RemoveMessageRequest) (*RemoveMessageResponse, error)
 	mustEmbedUnimplementedMailboxServer()
 }

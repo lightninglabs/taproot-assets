@@ -2,11 +2,13 @@ name: Backward Compatibility Tests
 
 on:
   # Run on every pull request so cross-version regressions are caught before
-  # merge, alongside manual dispatch and release branch pushes.
+  # merge, alongside manual dispatch and main and release branch pushes.
+  # Caches saved on main are restored by pull requests.
   pull_request:
   workflow_dispatch:
   push:
     branches:
+      - 'main'
       - 'release/**'
 
 concurrency:
@@ -36,14 +38,29 @@ jobs:
         with:
           go-version-file: go.mod
 
+      # Go trims build cache entries unused for five days on the first
+      # command run after trim.txt is a day old. A restored cache keeps the
+      # timestamps of the run that saved it. The restored cache is marked
+      # as trimmed now.
+      - name: Mark go build cache as trimmed
+        run: |
+          GOCACHE=$(go env GOCACHE)
+          mkdir -p "$GOCACHE"
+          date +%s > "$GOCACHE/trim.txt"
+
+      # The key changes with the files that list the compat versions. An
+      # older cache is restored and binaries for new versions are added.
       - name: Cache compat binaries
         uses: actions/cache@v4
         with:
           path: ~/.tapd-compat-bins
-          key: compat-bins-${{ runner.os }}-${{ runner.arch }}
+          key: >-
+            compat-bins-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('itest/custom_channels/compat_test.go', 'itest/custom_channels/spender_upgrade_test.go') }}
+          restore-keys: >-
+            compat-bins-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Build current integrated binary
-        run: make build-itest
+        run: make build-itest-integrated
 
       - name: Run backward compatibility tests
         run: make itest-cc-compat

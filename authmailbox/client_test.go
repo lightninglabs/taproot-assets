@@ -141,6 +141,8 @@ func randProof(t *testing.T) proof.TxProof {
 // restarted. It also tests that the client can receive messages from the
 // server's backlog.
 func TestServerClientAuthAndRestart(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	harness := NewMockServer(t)
 	clientCfg := harness.clientCfg
@@ -297,6 +299,8 @@ func TestServerClientAuthAndRestart(t *testing.T) {
 // TestSendMessage tests the SendMessage RPC of the server and its ability to
 // rate limit messages by validating the transaction proofs.
 func TestSendMessage(t *testing.T) {
+	t.Parallel()
+
 	txProof1 := proof.MockTxProof(t)
 	txProof2 := proof.MockTxProof(t)
 	txProof3 := proof.MockTxProof(t)
@@ -391,6 +395,8 @@ func TestSendMessage(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			ctx := context.Background()
 
 			harness := NewMockServer(t)

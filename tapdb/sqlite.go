@@ -4,7 +4,9 @@ import (
 	"database/sql"
 	"fmt"
 	"net/url"
+	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -260,8 +262,58 @@ func (s *SqliteStore) ExecuteMigrations(target MigrationTarget,
 	)
 }
 
+// testSqliteTemplate holds the contents of an SQLite database file with all
+// migrations applied. It is built once per process.
+var testSqliteTemplate struct {
+	once sync.Once
+	data []byte
+	err  error
+}
+
+// migratedSqliteTemplate returns the contents of an SQLite database file with
+// all migrations applied.
+func migratedSqliteTemplate() ([]byte, error) {
+	testSqliteTemplate.once.Do(func() {
+		testSqliteTemplate.data, testSqliteTemplate.err =
+			buildSqliteTemplate()
+	})
+
+	return testSqliteTemplate.data, testSqliteTemplate.err
+}
+
+// buildSqliteTemplate migrates a new SQLite database in a temporary directory,
+// checkpoints its WAL into the main file and returns the file's contents.
+func buildSqliteTemplate() ([]byte, error) {
+	dir, err := os.MkdirTemp("", "tapdb-template")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(dir)
+
+	dbPath := filepath.Join(dir, "template.db")
+	store, err := NewSqliteStore(&SqliteConfig{
+		DatabaseFileName:      dbPath,
+		SkipMigrationDbBackup: true,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = store.DB.Exec("PRAGMA wal_checkpoint(TRUNCATE);")
+	if err != nil {
+		_ = store.DB.Close()
+		return nil, err
+	}
+
+	if err := store.DB.Close(); err != nil {
+		return nil, err
+	}
+
+	return os.ReadFile(dbPath)
+}
+
 // NewTestSqliteDB is a helper function that creates an SQLite database for
-// testing.
+// testing. The database file is a copy of a migrated template.
 func NewTestSqliteDB(t testing.TB) *SqliteStore {
 	t.Helper()
 
@@ -269,6 +321,10 @@ func NewTestSqliteDB(t testing.TB) *SqliteStore {
 	// an in mem version to speed up tests
 	dbPath := filepath.Join(t.TempDir(), "tmp.db")
 	t.Logf("Creating new SQLite DB handle for testing: %s", dbPath)
+
+	template, err := migratedSqliteTemplate()
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(dbPath, template, 0600))
 
 	return NewTestSqliteDbHandleFromPath(t, dbPath)
 }

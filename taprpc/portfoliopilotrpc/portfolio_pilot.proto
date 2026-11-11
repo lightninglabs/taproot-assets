@@ -304,6 +304,11 @@ message SellRequest {
 
     // execution_policy is the optional execution policy for this request.
     ExecutionPolicy execution_policy = 8;
+
+    // payment_swap_amount is the optional msat amount the peer actually
+    // intends to swap, excluding any routing fee budget. A value of 0 means
+    // unset.
+    uint64 payment_swap_amount = 9;
 }
 
 // ResolveRequestRequest specifies a quote request to resolve.
@@ -401,6 +406,11 @@ message QueryAssetRatesRequest {
     // expiry_timestamp is an optional expiry Unix timestamp (seconds) for the
     // query context. If set to zero, it is considered unset.
     uint64 expiry_timestamp = 9;
+
+    // payment_swap_amount is the optional msat amount that is actually
+    // intended to be swapped, excluding any routing fee budget. If set to
+    // zero, it is considered unset.
+    uint64 payment_swap_amount = 10;
 }
 
 // QueryAssetRatesResponse is the response to a QueryAssetRates call.

@@ -3,10 +3,11 @@ package proof
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"crypto/sha512"
-	"crypto/tls"
 	"fmt"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -19,10 +20,10 @@ import (
 	"github.com/lightninglabs/taproot-assets/rpcutils"
 	mboxrpc "github.com/lightninglabs/taproot-assets/taprpc/authmailboxrpc"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
+	"github.com/lightninglabs/taproot-assets/taptls"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	grpcconn "google.golang.org/grpc/connectivity"
-	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/status"
 )
@@ -108,6 +109,9 @@ type CourierCfg struct {
 	// UniverseRpcCfg contains universe RPC protocol specific config
 	// parameters.
 	UniverseRpcCfg *UniverseRpcCourierCfg
+
+	// TLS is the TLS policy for connections to courier services.
+	TLS taptls.Policy
 
 	// TransferLog is a log for recording proof delivery and retrieval
 	// attempts.
@@ -215,8 +219,8 @@ func (u *URLDispatch) NewCourier(ctx context.Context, addr *url.URL,
 	switch addr.Scheme {
 	case HashmailCourierType:
 		return NewHashMailCourier(
-			ctx, u.cfg.HashMailCfg, u.cfg.TransferLog, addr,
-			lazyConnect,
+			ctx, u.cfg.HashMailCfg, u.cfg.TLS, u.cfg.TransferLog,
+			addr, lazyConnect,
 		)
 
 	// The auth mailbox courier is a universe RPC courier that also
@@ -226,8 +230,9 @@ func (u *URLDispatch) NewCourier(ctx context.Context, addr *url.URL,
 	// handle the send fragment fetching differently.
 	case UniverseRpcCourierType, AuthMailboxUniRpcCourierType:
 		return NewUniverseRpcCourier(
-			ctx, u.cfg.UniverseRpcCfg, u.cfg.TransferLog,
-			u.cfg.LocalArchive, addr, lazyConnect,
+			ctx, u.cfg.UniverseRpcCfg, u.cfg.TLS,
+			u.cfg.TransferLog, u.cfg.LocalArchive, addr,
+			lazyConnect,
 		)
 
 	case MockCourierType:
@@ -320,42 +325,29 @@ type HashMailBox struct {
 	client hashmailrpc.HashMailClient
 }
 
-// serverDialOpts returns the set of server options needed to connect to the
-// server using a TLS connection.
-func serverDialOpts() ([]grpc.DialOption, error) {
-	var opts []grpc.DialOption
-
-	// Skip TLS certificate verification.
-	tlsConfig := tls.Config{InsecureSkipVerify: true}
-	transportCredentials := credentials.NewTLS(&tlsConfig)
-	opts = append(opts, grpc.WithTransportCredentials(transportCredentials))
-
-	opts = append(opts, grpc.WithKeepaliveParams(courierKeepalive))
-
-	return opts, nil
+// serverDialOpts returns the set of options needed to connect to the server
+// under the given TLS policy.
+func serverDialOpts(tlsPolicy taptls.Policy) []grpc.DialOption {
+	return []grpc.DialOption{
+		tlsPolicy.DialOption(),
+		grpc.WithKeepaliveParams(courierKeepalive),
+	}
 }
 
 // NewHashMailBox makes a new mailbox by dialing to the server specified by the
-// address above.
-//
-// NOTE: The TLS certificate path argument (tlsCertPath) is optional. If unset,
-// then the system's TLS trust store is used.
-func NewHashMailBox(ctx context.Context, courierAddr *url.URL) (*HashMailBox,
-	error) {
+// address above, under the given TLS policy.
+func NewHashMailBox(ctx context.Context, courierAddr *url.URL,
+	tlsPolicy taptls.Policy) (*HashMailBox, error) {
 
 	if courierAddr.Scheme != HashmailCourierType {
 		return nil, fmt.Errorf("unsupported courier protocol: %v",
 			courierAddr.Scheme)
 	}
 
-	dialOpts, err := serverDialOpts()
-	if err != nil {
-		return nil, err
-	}
-
 	serverAddr := fmt.Sprintf(
 		"%s:%s", courierAddr.Hostname(), courierAddr.Port(),
 	)
+	dialOpts := serverDialOpts(tlsPolicy)
 	conn, err := grpc.DialContext(ctx, serverAddr, dialOpts...)
 	if err != nil {
 		return nil, err
@@ -582,10 +574,16 @@ func (e *BackoffExecError) Error() string {
 	return fmt.Sprintf("backoff exec error: %s", e.execErr.Error())
 }
 
-// DefaultProofTransferNumTries is the built-in maximum number of attempts
-// made during a proof transfer backoff run when the config's NumTries field
-// is left unset.
-const DefaultProofTransferNumTries = 2000
+const (
+	// DefaultProofTransferNumTries is the built-in maximum number of
+	// attempts made during a proof transfer backoff run when the config's
+	// NumTries field is left unset.
+	DefaultProofTransferNumTries = 2000
+
+	// DefaultProofTransferInitialBackoff is the default delay tapd uses
+	// before retrying a failed proof transfer.
+	DefaultProofTransferInitialBackoff = 30 * time.Second
+)
 
 // BackoffCfg configures the behaviour of the proof delivery backoff procedure.
 //
@@ -826,6 +824,9 @@ type HashMailCourier struct {
 	// addr is the address of the hashmail server.
 	addr *url.URL
 
+	// tlsPolicy is the TLS policy for connections to the hashmail server.
+	tlsPolicy taptls.Policy
+
 	// transferLog is a log for recording proof delivery and retrieval
 	// attempts.
 	transferLog TransferLog
@@ -849,12 +850,13 @@ type HashMailCourier struct {
 
 // NewHashMailCourier creates a new hashmail proof courier service handle.
 func NewHashMailCourier(ctx context.Context, cfg *HashMailCourierCfg,
-	transferLog TransferLog, courierAddr *url.URL,
+	tlsPolicy taptls.Policy, transferLog TransferLog, courierAddr *url.URL,
 	lazyConnect bool) (*HashMailCourier, error) {
 
 	courier := HashMailCourier{
 		cfg:           cfg,
 		addr:          courierAddr,
+		tlsPolicy:     tlsPolicy,
 		transferLog:   transferLog,
 		backoffHandle: NewBackoffHandler(cfg.BackoffCfg, transferLog),
 		subscribers:   make(map[uint64]*fn.EventReceiver[fn.Event]),
@@ -905,7 +907,7 @@ func (h *HashMailCourier) ensureConnect(ctx context.Context) error {
 	}
 
 	// Instantiate a new connection to the mailbox service.
-	mailbox, err := NewHashMailBox(ctx, h.addr)
+	mailbox, err := NewHashMailBox(ctx, h.addr, h.tlsPolicy)
 	if err != nil {
 		return fmt.Errorf("unable to connect to hashmail server: %w",
 			err)
@@ -1241,6 +1243,9 @@ type UniverseRpcCourier struct {
 	// addr is the address of the courier service.
 	addr *url.URL
 
+	// tlsPolicy is the TLS policy for connections to the courier service.
+	tlsPolicy taptls.Policy
+
 	// localArchive is the local archive that the courier will use to
 	// store and query for proofs.
 	localArchive Archiver
@@ -1273,12 +1278,13 @@ type UniverseRpcCourier struct {
 // NewUniverseRpcCourier creates a new universe RPC proof courier service
 // handle.
 func NewUniverseRpcCourier(ctx context.Context, cfg *UniverseRpcCourierCfg,
-	transferLog TransferLog, localArchive Archiver, addr *url.URL,
-	lazyConnect bool) (*UniverseRpcCourier, error) {
+	tlsPolicy taptls.Policy, transferLog TransferLog, localArchive Archiver,
+	addr *url.URL, lazyConnect bool) (*UniverseRpcCourier, error) {
 
 	courier := UniverseRpcCourier{
 		cfg:           cfg,
 		addr:          addr,
+		tlsPolicy:     tlsPolicy,
 		localArchive:  localArchive,
 		backoffHandle: NewBackoffHandler(cfg.BackoffCfg, transferLog),
 		subscribers:   make(map[uint64]*fn.EventReceiver[fn.Event]),
@@ -1322,19 +1328,15 @@ func (c *UniverseRpcCourier) ensureConnect(ctx context.Context) error {
 		}
 	}
 
-	// At this point, we know that the connection is not ready. We'll now
-	// attempt to establish a new connection to the courier service.
-	dialOpts, err := serverDialOpts()
-	if err != nil {
-		return err
-	}
-
 	// Ensure that the addr field has been set correctly.
 	if c.addr == nil {
 		return fmt.Errorf("universe RPC courier address is not set")
 	}
 
+	// At this point, we know that the connection is not ready. We'll now
+	// attempt to establish a new connection to the courier service.
 	serverAddr := fmt.Sprintf("%s:%s", c.addr.Hostname(), c.addr.Port())
+	dialOpts := serverDialOpts(c.tlsPolicy)
 	conn, err := grpc.DialContext(ctx, serverAddr, dialOpts...)
 	if err != nil {
 		return err
@@ -1453,6 +1455,50 @@ func (c *UniverseRpcCourier) deliverFragment(ctx context.Context,
 	return nil
 }
 
+// proofResponseBlob decodes the proof and asset ID from a Universe response.
+func proofResponseBlob(resp *unirpc.AssetProofResponse) (
+	Blob, asset.ID, error) {
+
+	var zeroAssetID asset.ID
+
+	assetLeaf := resp.GetAssetLeaf()
+	if assetLeaf == nil {
+		return nil, zeroAssetID, fmt.Errorf(
+			"universe response is missing asset leaf",
+		)
+	}
+
+	var transitionProof Proof
+	err := transitionProof.Decode(bytes.NewReader(assetLeaf.Proof))
+	if err != nil {
+		return nil, zeroAssetID, fmt.Errorf(
+			"unable to decode Universe proof response: %w", err,
+		)
+	}
+
+	return assetLeaf.Proof, transitionProof.Asset.ID(), nil
+}
+
+// isRetryableGroupInsertErr reports whether a group Universe insert error
+// should be retried. Older servers return rate limiter errors as Unknown
+// rather than ResourceExhausted.
+func isRetryableGroupInsertErr(err error) bool {
+	s := status.Convert(err)
+
+	switch s.Code() {
+	case codes.Unknown:
+		return strings.HasPrefix(s.Message(), "rate limiter: ")
+
+	case codes.Unavailable, codes.DeadlineExceeded,
+		codes.ResourceExhausted, codes.Canceled:
+
+		return true
+
+	default:
+		return false
+	}
+}
+
 // DeliverProof attempts to delivery a proof file to the receiver.
 func (c *UniverseRpcCourier) DeliverProof(ctx context.Context,
 	recipient Recipient, annotatedProof *AnnotatedProof,
@@ -1465,17 +1511,78 @@ func (c *UniverseRpcCourier) DeliverProof(ctx context.Context,
 		return err
 	}
 
-	log.Infof("Universe RPC proof courier attempting to deliver proof "+
-		"file (num_proofs=%d) for send event (asset_id=%v, amt=%v)",
-		proofFile.NumProofs(), recipient.AssetID, recipient.Amount)
+	// Collect and encode the complete proof DAG before starting delivery.
+	// In particular, merged asset inputs are nested proof files in
+	// AdditionalInputs and need their own Universe leaves.
+	transitionProofs := make([]*Proof, 0, proofFile.NumProofs())
+	err = proofFile.walkProofDAG(func(transitionProof *Proof) {
+		transitionProofs = append(transitionProofs, transitionProof)
+	})
+	if err != nil {
+		return fmt.Errorf("unable to walk proof file: %w", err)
+	}
 
-	// Iterate over each proof in the proof file and submit to the courier
-	// service.
-	for i := 0; i < proofFile.NumProofs(); i++ {
-		transitionProof, err := proofFile.ProofAt(uint32(i))
-		if err != nil {
-			return err
+	type deliverableProof struct {
+		proof *Proof
+		blob  []byte
+		loc   Locator
+	}
+	deliverableProofs := make([]deliverableProof, 0, len(transitionProofs))
+	seenLocators := make(map[[32]byte][sha256.Size]byte)
+	for _, transitionProof := range transitionProofs {
+		proofAsset := transitionProof.Asset
+		assetID := proofAsset.ID()
+		outPoint := transitionProof.OutPoint()
+
+		var groupPubKey *btcec.PublicKey
+		if proofAsset.GroupKey != nil {
+			groupPubKey = &proofAsset.GroupKey.GroupPubKey
 		}
+
+		loc := Locator{
+			AssetID:   &assetID,
+			GroupKey:  groupPubKey,
+			ScriptKey: *proofAsset.ScriptKey.PubKey,
+			OutPoint:  &outPoint,
+		}
+		locHash, err := loc.Hash()
+		if err != nil {
+			return fmt.Errorf("unable to hash proof locator: %w",
+				err)
+		}
+
+		proofBlob, err := transitionProof.Bytes()
+		if err != nil {
+			return fmt.Errorf("error encoding proof file: %w", err)
+		}
+		proofHash := sha256.Sum256(proofBlob)
+
+		knownProofHash, ok := seenLocators[locHash]
+		if ok {
+			if knownProofHash != proofHash {
+				return fmt.Errorf("conflicting proofs for "+
+					"Universe locator %x", locHash)
+			}
+
+			continue
+		}
+
+		seenLocators[locHash] = proofHash
+		deliverableProofs = append(deliverableProofs, deliverableProof{
+			proof: transitionProof,
+			blob:  proofBlob,
+			loc:   loc,
+		})
+	}
+
+	log.Infof("Universe RPC proof courier attempting to deliver proof "+
+		"DAG (num_proofs=%d) for send event (asset_id=%v, amt=%v)",
+		len(deliverableProofs), recipient.AssetID, recipient.Amount)
+
+	// Submit each proof in dependency-first order, so nested histories are
+	// available before a proof that spends them.
+	for i, deliverable := range deliverableProofs {
+		transitionProof := deliverable.proof
 		proofAsset := transitionProof.Asset
 
 		// Construct asset leaf.
@@ -1488,51 +1595,44 @@ func (c *UniverseRpcCourier) DeliverProof(ctx context.Context,
 			return err
 		}
 
-		transitionProofBytes, err := transitionProof.Bytes()
-		if err != nil {
-			return fmt.Errorf("error encoding proof file: %w", err)
-		}
-
 		assetLeaf := unirpc.AssetLeaf{
 			Asset: rpcAsset,
-			Proof: transitionProofBytes,
+			Proof: deliverable.blob,
 		}
 
 		// Construct universe key.
-		outPoint := transitionProof.OutPoint()
+		outPoint := *deliverable.loc.OutPoint
 		assetKey := rpcutils.MarshalAssetKey(
 			outPoint, proofAsset.ScriptKey.PubKey,
 		)
-		assetID := proofAsset.ID()
+		assetID := *deliverable.loc.AssetID
 
-		var (
-			groupPubKey      *btcec.PublicKey
-			groupPubKeyBytes []byte
-		)
-		if proofAsset.GroupKey != nil {
-			groupPubKey = &proofAsset.GroupKey.GroupPubKey
+		groupPubKey := deliverable.loc.GroupKey
+		var groupPubKeyBytes []byte
+		if groupPubKey != nil {
 			groupPubKeyBytes = groupPubKey.SerializeCompressed()
 		}
 
-		universeID := rpcutils.MarshalUniverseID(
-			assetID[:], groupPubKeyBytes,
-		)
-		universeKey := unirpc.UniverseKey{
-			Id:      universeID,
+		assetUniverseKey := unirpc.UniverseKey{
+			Id:      rpcutils.MarshalUniverseID(assetID[:], nil),
 			LeafKey: assetKey,
+		}
+		var groupUniverseKey *unirpc.UniverseKey
+		if groupPubKeyBytes != nil {
+			groupUniverseKey = &unirpc.UniverseKey{
+				Id: rpcutils.MarshalUniverseID(
+					nil, groupPubKeyBytes,
+				),
+				LeafKey: assetKey,
+			}
 		}
 
 		// Before attempting to deliver the proof, log that an attempted
 		// delivery is about to occur.
-		loc := Locator{
-			AssetID:   &assetID,
-			GroupKey:  groupPubKey,
-			ScriptKey: *proofAsset.ScriptKey.PubKey,
-			OutPoint:  &outPoint,
-		}
+		loc := deliverable.loc
 
 		// Setup delivery routine and start backoff procedure.
-		lastProof := i == proofFile.NumProofs()-1
+		lastProof := i == len(deliverableProofs)-1
 		deliverFunc := func() error {
 			// Connect to the courier service if a connection hasn't
 			// been established yet.
@@ -1548,21 +1648,75 @@ func (c *UniverseRpcCourier) DeliverProof(ctx context.Context,
 					"attempt: %w", err)
 			}
 
-			// Submit proof to courier.
-			subCtx, subCtxCancel = context.WithTimeout(
-				ctx, c.cfg.ServiceRequestTimeout,
-			)
-			defer subCtxCancel()
+			// An asset-ID Universe gives every grouped asset an
+			// unambiguous namespace. We also publish to the group
+			// Universe for compatibility and group discovery.
+			insertProof := func(key *unirpc.UniverseKey) error {
+				insertCtx, cancel := context.WithTimeout(
+					ctx, c.cfg.ServiceRequestTimeout,
+				)
+				defer cancel()
 
-			assetProof := unirpc.AssetProof{
-				Key:       &universeKey,
-				AssetLeaf: &assetLeaf,
+				assetProof := unirpc.AssetProof{
+					Key:       key,
+					AssetLeaf: &assetLeaf,
+				}
+				resp, err := c.client.InsertProof(
+					insertCtx, &assetProof,
+				)
+				if err != nil {
+					return err
+				}
+
+				_, actualAssetID, err := proofResponseBlob(resp)
+				if err != nil {
+					return err
+				}
+				if actualAssetID != assetID {
+					return fmt.Errorf(
+						"universe proof asset ID "+
+							"mismatch: got %x, "+
+							"want %x",
+						actualAssetID, assetID,
+					)
+				}
+
+				return nil
 			}
-			_, err = c.client.InsertProof(subCtx, &assetProof)
-			if err != nil {
-				return fmt.Errorf("error inserting proof "+
-					"into universe courier service: %w",
-					err)
+
+			assetErr := insertProof(&assetUniverseKey)
+			if assetErr != nil {
+				return fmt.Errorf(
+					"error inserting proof into "+
+						"asset ID Universe courier "+
+						"namespace: %w", assetErr,
+				)
+			}
+
+			// The asset-ID namespace is unambiguous. The group
+			// insert remains for compatibility and discovery,
+			// but a collision must not fail delivery.
+			if groupUniverseKey != nil {
+				groupErr := insertProof(groupUniverseKey)
+				if groupErr != nil &&
+					isRetryableGroupInsertErr(groupErr) {
+
+					return fmt.Errorf(
+						"error inserting proof "+
+							"into group Universe "+
+							"courier namespace: %w",
+						groupErr,
+					)
+				}
+				if groupErr != nil {
+					log.Warnf(
+						"Unable to publish "+
+							"grouped proof in "+
+							"group Universe "+
+							"(asset_id=%x): %v",
+						assetID, groupErr,
+					)
+				}
 			}
 
 			// The send fragment tells the receiver to fetch its
@@ -1570,7 +1724,14 @@ func (c *UniverseRpcCourier) DeliverProof(ctx context.Context,
 			// in the universe. A retry after a failed send inserts
 			// that proof again, which the universe accepts.
 			if lastProof && sendFragment != nil {
-				err = c.deliverFragment(subCtx, sendFragment)
+				fragmentCtx, cancel := context.WithTimeout(
+					ctx, c.cfg.ServiceRequestTimeout,
+				)
+				defer cancel()
+
+				err = c.deliverFragment(
+					fragmentCtx, sendFragment,
+				)
 				if err != nil {
 					return fmt.Errorf("error delivering "+
 						"send fragment to courier "+
@@ -1611,13 +1772,23 @@ func (c *UniverseRpcCourier) ReceiveProof(ctx context.Context,
 				"is missing outpoint", loc.AssetID[:])
 		}
 
-		universeKey := unirpc.UniverseKey{
+		assetKey := rpcutils.MarshalAssetKey(
+			*loc.OutPoint, &loc.ScriptKey,
+		)
+		assetUniverseKey := unirpc.UniverseKey{
 			Id: rpcutils.MarshalUniverseID(
-				loc.AssetID[:], groupKeyBytes,
+				loc.AssetID[:], nil,
 			),
-			LeafKey: rpcutils.MarshalAssetKey(
-				*loc.OutPoint, &loc.ScriptKey,
-			),
+			LeafKey: assetKey,
+		}
+		var groupUniverseKey *unirpc.UniverseKey
+		if groupKeyBytes != nil {
+			groupUniverseKey = &unirpc.UniverseKey{
+				Id: rpcutils.MarshalUniverseID(
+					nil, groupKeyBytes,
+				),
+				LeafKey: assetKey,
+			}
 		}
 
 		// Setup proof receive/query routine and start backoff
@@ -1638,24 +1809,74 @@ func (c *UniverseRpcCourier) ReceiveProof(ctx context.Context,
 					"recieve attempt: %w", err)
 			}
 
-			// Retrieve proof from courier.
-			subCtx, subCtxCancel = context.WithTimeout(
-				ctx, c.cfg.ServiceRequestTimeout,
-			)
-			defer subCtxCancel()
-
 			log.Tracef("Querying for proof with script key %x",
 				loc.ScriptKey.SerializeCompressed())
 
-			resp, err := c.client.QueryProof(subCtx, &universeKey)
-			if err != nil {
-				return fmt.Errorf("error retrieving proof "+
-					"from universe courier service: %w",
-					err)
+			queryProof := func(key *unirpc.UniverseKey) (Blob,
+				bool, error) {
+
+				queryCtx, cancel := context.WithTimeout(
+					ctx, c.cfg.ServiceRequestTimeout,
+				)
+				defer cancel()
+
+				resp, err := c.client.QueryProof(queryCtx, key)
+				if err != nil {
+					return nil, false, err
+				}
+
+				blob, actualAssetID, err := proofResponseBlob(
+					resp,
+				)
+				if err != nil {
+					return nil, false, err
+				}
+
+				return blob, actualAssetID == *loc.AssetID, nil
 			}
 
-			proofBlob = resp.AssetLeaf.Proof
+			if groupUniverseKey != nil {
+				groupBlob, matches, groupErr := queryProof(
+					groupUniverseKey,
+				)
+				groupErrCode := status.Code(groupErr)
+				switch {
+				case groupErr == nil && matches:
+					proofBlob = groupBlob
+					return nil
 
+				case groupErr != nil &&
+					groupErrCode != codes.NotFound &&
+					groupErrCode != codes.Unknown:
+
+					return fmt.Errorf(
+						"error retrieving group "+
+							"proof from universe "+
+							"courier service: %w",
+						groupErr,
+					)
+				}
+			}
+
+			assetBlob, matches, err := queryProof(
+				&assetUniverseKey,
+			)
+			if err != nil {
+				return fmt.Errorf(
+					"error retrieving asset ID "+
+						"proof from universe courier "+
+						"service: %w", err,
+				)
+			}
+			if !matches {
+				return fmt.Errorf(
+					"asset ID Universe returned "+
+						"proof for a different asset "+
+						"(want %x)", loc.AssetID[:],
+				)
+			}
+
+			proofBlob = assetBlob
 			return nil
 		}
 
@@ -1782,6 +2003,18 @@ func FetchProofProvenance(ctx context.Context, localArchive Archiver,
 	// is a reversal of that found in the proof file.
 	var reversedProofs []Blob
 	for {
+		// The walk follows inputs named by the proofs it fetches, so
+		// nothing but the source guarantees it reaches a genesis proof.
+		// Stop once the context ends, or once the chain is longer than
+		// any proof file may be.
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if len(reversedProofs) >= FileMaxNumProofs {
+			return nil, fmt.Errorf("%w: provenance exceeds %d "+
+				"proofs", ErrProofFileInvalid, FileMaxNumProofs)
+		}
+
 		// Before we attempt to fetch the proof from the potentially
 		// remote universe, we'll check our local archive to see if we
 		// already have it. This doesn't make sense in all cases, so we
@@ -1865,6 +2098,10 @@ func FetchProofProvenance(ctx context.Context, localArchive Archiver,
 		if err != nil {
 			return nil, err
 		}
+		if prevID == nil {
+			return nil, fmt.Errorf("%w: transfer proof has no "+
+				"primary input", ErrProofFileInvalid)
+		}
 
 		// Parse script key public key.
 		scriptKeyPubKey, err := btcec.ParsePubKey(prevID.ScriptKey[:])
@@ -1896,16 +2133,18 @@ func FetchProofProvenance(ctx context.Context, localArchive Archiver,
 }
 
 // CheckUniverseRpcCourierConnection checks if the universe RPC courier at the
-// given URL is reachable. It returns an error if the connection cannot be
-// established within the given timeout duration.
+// given URL is reachable under the given TLS policy. It returns an error if
+// the connection cannot be established within the given timeout duration.
 func CheckUniverseRpcCourierConnection(ctx context.Context,
-	timeout time.Duration, courierURL *url.URL) error {
+	timeout time.Duration, tlsPolicy taptls.Policy,
+	courierURL *url.URL) error {
 
 	// We now also make a quick test connection.
 	ctxt, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	courier, err := NewUniverseRpcCourier(
-		ctxt, &UniverseRpcCourierCfg{}, nil, nil, courierURL, false,
+		ctxt, &UniverseRpcCourierCfg{}, tlsPolicy, nil, nil,
+		courierURL, false,
 	)
 	if err != nil {
 		// Unimplemented here means that the courier is missing some

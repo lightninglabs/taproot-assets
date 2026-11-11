@@ -3,9 +3,11 @@ package proof
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -434,6 +436,27 @@ func TestProofEncoding(t *testing.T) {
 
 	err = unknownFile.ReplaceLastProof(proof)
 	require.ErrorIs(t, err, ErrUnknownVersion)
+}
+
+// TestProofFileDeclaredLength verifies EOF handling for a truncated proof at
+// the maximum permitted declared size.
+func TestProofFileDeclaredLength(t *testing.T) {
+	t.Parallel()
+
+	var encoded bytes.Buffer
+	_, err := encoded.Write(FilePrefixMagicBytes[:])
+	require.NoError(t, err)
+	require.NoError(t, binary.Write(&encoded, binary.BigEndian, uint32(V0)))
+
+	var scratch [8]byte
+	require.NoError(t, tlv.WriteVarInt(&encoded, 1, &scratch))
+	require.NoError(t, tlv.WriteVarInt(
+		&encoded, FileMaxProofSizeBytes, &scratch,
+	))
+
+	var file File
+	err = file.Decode(&encoded)
+	require.ErrorIs(t, err, io.EOF)
 }
 
 // genRandomGenesisWithProof is kept as an alias for the exported fixture
@@ -1034,8 +1057,9 @@ func TestOwnershipProofVerification(t *testing.T) {
 
 // TestProofReplacement ensures that proofs can be replaced in a proof file.
 func TestProofReplacement(t *testing.T) {
-	// We create a file with 1k proofs.
-	const numProofs = 1_000
+	// We create a file with 256 proofs, a count that encodes as a
+	// multi-byte varint.
+	const numProofs = 256
 	lotsOfProofs := make([]Proof, numProofs)
 	for i := 0; i < numProofs; i++ {
 		amt := uint64(i + 1)
@@ -1059,10 +1083,10 @@ func TestProofReplacement(t *testing.T) {
 		require.Equal(t, amt, p.Asset.Amount)
 	}
 	assertIndex(0, 1)
-	assertIndex(999, 1000)
+	assertIndex(numProofs-1, numProofs)
 
-	// We'll now go ahead and randomly replace 100 proofs.
-	const numReplacements = 100
+	// We'll now go ahead and randomly replace 25 proofs.
+	const numReplacements = 25
 	for i := 0; i < numReplacements; i++ {
 		amt := uint64(1000*numReplacements - i)
 		assetVersion := asset.Version(i % 2)

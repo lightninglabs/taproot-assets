@@ -3,6 +3,7 @@
 package custom_channels
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -132,11 +133,6 @@ func testCustomChannelsForceCloseSweepReorg(ctx context.Context,
 
 	findForceCloseTransfer(t.t, charlie, dave, closeTxid)
 
-	// Dave's porter site already carries anchorings from before the
-	// sweep (the channel funding among them); snapshot them so the
-	// sweep forms below are identified by exclusion.
-	preSweep := listPorterAnchoringIDs(t.t, dave)
-
 	// Dave sweeps his non-delay commitment output: the first sweep
 	// form. Capture the raw transaction while it sits in the mempool;
 	// the re-org choreography below mines both forms explicitly.
@@ -148,9 +144,8 @@ func testCustomChannelsForceCloseSweepReorg(ctx context.Context,
 	t.Logf("Dave sweep form A: %v", sweepTxidA)
 
 	// The porter staked the broadcast sweep as an anchoring the
-	// moment it was handed the parcel: one fresh anchoring, not yet
-	// witnessed.
-	anchoringA := findPorterAnchoring(t.t, dave, preSweep)
+	// moment it was handed the parcel, not yet witnessed.
+	anchoringA := findPorterAnchoring(t.t, dave, sweepTxidA)
 	assertAnchoringPhase(t.t, dave, anchoringA, "unwitnessed")
 
 	// Fee-bump the sweep while it is unconfirmed: lnd's sweeper
@@ -178,9 +173,7 @@ func testCustomChannelsForceCloseSweepReorg(ctx context.Context,
 
 	t.Logf("Dave sweep form B: %v", sweepTxidB)
 
-	anchoringB := findPorterAnchoring(
-		t.t, dave, append(slices.Clone(preSweep), anchoringA),
-	)
+	anchoringB := findPorterAnchoring(t.t, dave, sweepTxidB)
 	assertAnchoringPhase(t.t, dave, anchoringB, "unwitnessed")
 
 	// Fork point: both forms exist, neither is confirmed.
@@ -340,34 +333,11 @@ func waitForNodeHeight(t *testing.T, node *itest.IntegratedNode,
 	require.NoError(t, err)
 }
 
-// listPorterAnchoringIDs returns the IDs of the node's current
-// porter-site anchorings.
-func listPorterAnchoringIDs(t *testing.T,
-	node *itest.IntegratedNode) []int64 {
-
-	t.Helper()
-
-	ctxb := context.Background()
-	resp, err := asTapd(node).ListAnchorings(
-		ctxb, &taprpc.ListAnchoringsRequest{
-			Site: "tapfreighter.porter",
-		},
-	)
-	require.NoError(t, err)
-
-	ids := make([]int64, 0, len(resp.Anchorings))
-	for _, a := range resp.Anchorings {
-		ids = append(ids, a.Id)
-	}
-
-	return ids
-}
-
-// findPorterAnchoring returns the ID of the node's single porter-site
-// anchoring not in the exclude list. The porter registers sweep
-// broadcasts as anchorings, so each sweep form shows up here.
+// findPorterAnchoring returns the ID of the node's porter-site
+// anchoring for the given anchor transaction, once it is registered.
+// The porter keys each anchoring by its anchor txid.
 func findPorterAnchoring(t *testing.T, node *itest.IntegratedNode,
-	exclude []int64) int64 {
+	anchorTxid chainhash.Hash) int64 {
 
 	t.Helper()
 
@@ -383,19 +353,14 @@ func findPorterAnchoring(t *testing.T, node *itest.IntegratedNode,
 			return err
 		}
 
-		var fresh []int64
 		for _, a := range resp.Anchorings {
-			if !slices.Contains(exclude, a.Id) {
-				fresh = append(fresh, a.Id)
+			if bytes.Equal(a.MatchKey, anchorTxid[:]) {
+				id = a.Id
+				return nil
 			}
 		}
-		if len(fresh) != 1 {
-			return fmt.Errorf("want 1 fresh porter anchoring, "+
-				"got %d", len(fresh))
-		}
-		id = fresh[0]
 
-		return nil
+		return fmt.Errorf("no porter anchoring for %v", anchorTxid)
 	}, ccShortTimeout)
 	require.NoError(t, err)
 

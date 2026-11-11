@@ -744,6 +744,8 @@ func (c *Chain) RegisterConfirmationsNtfn(ctx context.Context,
 			"pkScript %x: %w", pkScript, err)
 	}
 
+	// The returned event's Cancel field hands cancel to the caller.
+	//nolint:gosec
 	subCtx, cancel := context.WithCancel(ctx)
 	if numConfs == 0 {
 		numConfs = 1

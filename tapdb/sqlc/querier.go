@@ -293,7 +293,7 @@ type Querier interface {
 	// broadcast. Used to drop a commitment that cannot confirm because its
 	// inputs are not real pre-commit or prior-commitment outpoints.
 	FetchUnconfirmedBroadcastSupplyCommits(ctx context.Context) ([]FetchUnconfirmedBroadcastSupplyCommitsRow, error)
-	FetchUnindexedAssetProofs(ctx context.Context, rowLimit int32) ([]FetchUnindexedAssetProofsRow, error)
+	FetchUnindexedAssetProofs(ctx context.Context, arg FetchUnindexedAssetProofsParams) ([]FetchUnindexedAssetProofsRow, error)
 	// Note on hash construction: mssmt_nodes.hash_key on a compacted leaf
 	// commits to the subtree root at that leaf's tree height, which
 	// varies with the tree's shape and is therefore NOT canonical across

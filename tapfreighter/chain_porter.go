@@ -1057,10 +1057,19 @@ func (p *ChainPorter) pingProofCouriers(proofCourierAddrs []url.URL) error {
 			addr.String(), instanceErr)
 	}
 
-	// If any errors occurred while pinging proof couriers, return an error.
+	// If any errors occurred while pinging proof couriers, return an error
+	// that carries each of them, in courier order.
 	if len(instanceErrors) > 0 {
+		errs := make([]error, 0, len(instanceErrors))
+		for idx := range couriers {
+			if instanceErr, ok := instanceErrors[idx]; ok {
+				errs = append(errs, instanceErr)
+			}
+		}
+
 		return fmt.Errorf("failed to ping proof courier(s) "+
-			"(error_count=%d)", len(instanceErrors))
+			"(error_count=%d): %w", len(instanceErrors),
+			errors.Join(errs...))
 	}
 
 	return nil

@@ -1,6 +1,6 @@
 module github.com/lightninglabs/taproot-assets/taprpc
 
-go 1.25.10
+go 1.27.3
 
 require (
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.29.0
@@ -95,7 +95,7 @@ require (
 	github.com/juju/testing v1.0.2 // indirect
 	github.com/juju/utils/v3 v3.2.0 // indirect
 	github.com/kkdai/bstream v1.0.0 // indirect
-	github.com/klauspost/compress v1.17.9 // indirect
+	github.com/klauspost/compress v1.18.7 // indirect
 	github.com/lib/pq v1.10.9 // indirect
 	github.com/lightninglabs/gozmq v0.0.0-20191113021534-d20a764486bf // indirect
 	github.com/lightninglabs/neutrino v0.17.1 // indirect
@@ -117,7 +117,7 @@ require (
 	github.com/moby/docker-image-spec v1.3.1 // indirect
 	github.com/moby/moby/api v1.54.2 // indirect
 	github.com/moby/moby/client v0.4.1 // indirect
-	github.com/moby/sys/user v0.3.0 // indirect
+	github.com/moby/sys/user v0.4.1 // indirect
 	github.com/moby/term v0.5.2 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.1 // indirect

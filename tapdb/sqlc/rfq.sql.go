@@ -263,11 +263,23 @@ func (q *Queries) QueryPendingForwards(ctx context.Context) ([]QueryPendingForwa
 }
 
 const QuerySettledFillByRfqID = `-- name: QuerySettledFillByRfqID :many
-SELECT
-    f.rfq_id, CAST(SUM(f.amt_out_msat) AS BIGINT) AS settled_amt_msat
-FROM forwards f
-WHERE f.settled_at IS NOT NULL
-GROUP BY f.rfq_id
+WITH settled AS (
+    SELECT rfq_id, chan_id_out, SUM(amt_out_msat) AS amt_msat
+    FROM forwards
+    WHERE settled_at IS NOT NULL
+    GROUP BY rfq_id, chan_id_out
+), legs AS (
+    SELECT rfq_id, amt_msat FROM settled
+    UNION ALL
+    SELECT p.rfq_id, s.amt_msat
+    FROM settled s
+    JOIN rfq_policies p ON p.scid = s.chan_id_out
+    WHERE p.policy_type = 'RFQ_POLICY_TYPE_SALE'
+        AND p.rfq_id != s.rfq_id
+)
+SELECT rfq_id, CAST(SUM(amt_msat) AS BIGINT) AS settled_amt_msat
+FROM legs
+GROUP BY rfq_id
 `
 
 type QuerySettledFillByRfqIDRow struct {

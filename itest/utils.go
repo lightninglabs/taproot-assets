@@ -3,6 +3,7 @@ package itest
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"testing"
 	"time"
@@ -95,7 +96,7 @@ func (e *EventSubscription[T]) Recv() (T, error) {
 	for {
 		event, err := e.ClientEventStream.Recv()
 		if err != nil {
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				// Handle end of stream.
 				return zero, err
 			}

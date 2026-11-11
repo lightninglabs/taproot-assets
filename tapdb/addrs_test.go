@@ -223,7 +223,7 @@ func TestAddressInsertion(t *testing.T) {
 
 	// Now change the amount, which upon upsert should trigger an error.
 	addrs[0].Amount += 1
-	require.Error(t,
+	require.ErrorIs(t,
 		addrBook.InsertAddrs(ctx, addrs[0]), ErrConflictingAddress,
 	)
 	addrs[0].Amount -= 1

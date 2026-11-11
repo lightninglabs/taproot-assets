@@ -2,6 +2,7 @@ package mssmt
 
 import (
 	"bytes"
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -70,6 +71,11 @@ func TestNewProofFromCompressedBytes(t *testing.T) {
 		expectNumNodes int
 	}{
 		{
+			name:           "maximum node count",
+			input:          compressedProofBytes(t, MaxTreeLevels),
+			expectNumNodes: MaxTreeLevels,
+		},
+		{
 			name:           "valid compressed proof with one node",
 			input:          compressedProofBytes(t, 1),
 			expectError:    false,
@@ -102,6 +108,13 @@ func TestNewProofFromCompressedBytes(t *testing.T) {
 			input:          []byte{0x00, 0x01},
 			expectError:    true,
 			errorMsg:       "decode compressed proof",
+			expectNumNodes: 0,
+		},
+		{
+			name:           "node count exceeds tree depth",
+			input:          []byte{0x01, 0x01},
+			expectError:    true,
+			errorMsg:       "invalid compressed proof",
 			expectNumNodes: 0,
 		},
 		{
@@ -253,6 +266,62 @@ func TestNewProofFromCompressedBytes(t *testing.T) {
 				)
 				require.True(t, isEqualNode)
 			}
+		})
+	}
+}
+
+// TestProofRootNodeCount asserts that Root returns ErrInvalidProofLength for a
+// proof without exactly one sibling node per tree level, and the tree root for
+// a proof with one sibling node per tree level.
+func TestProofRootNodeCount(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	key := [hashSize]byte{0x01}
+	leaf := NewLeafNode([]byte("leaf"), 1)
+
+	tree := NewFullTree(NewDefaultStore())
+	_, err := tree.Insert(ctx, key, leaf)
+	require.NoError(t, err)
+	treeRoot, err := tree.Root(ctx)
+	require.NoError(t, err)
+	proof, err := tree.MerkleProof(ctx, key)
+	require.NoError(t, err)
+	require.Len(t, proof.Nodes, MaxTreeLevels)
+
+	root, err := proof.Root(key, leaf)
+	require.NoError(t, err)
+	require.True(t, IsEqualNode(treeRoot, root))
+
+	testCases := []struct {
+		name  string
+		nodes []Node
+	}{{
+		name:  "nil nodes",
+		nodes: nil,
+	}, {
+		name:  "empty nodes",
+		nodes: []Node{},
+	}, {
+		name:  "one node",
+		nodes: proof.Nodes[:1],
+	}, {
+		name:  "one node short",
+		nodes: proof.Nodes[:MaxTreeLevels-1],
+	}, {
+		name: "one node long",
+		nodes: append(
+			append([]Node(nil), proof.Nodes...), proof.Nodes[0],
+		),
+	}}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			root, err := NewProof(tc.nodes).Root(key, leaf)
+			require.ErrorIs(t, err, ErrInvalidProofLength)
+			require.Nil(t, root)
 		})
 	}
 }

@@ -1,19 +1,32 @@
 version: "2"
+run:
+  build-tags:
+    - itest
 linters:
   enable:
+    - asasalint
+    - bidichk
+    - bodyclose
+    - durationcheck
     - errorlint
     - exhaustive
+    - fatcontext
+    - gocheckcompilerdirectives
     - gocritic
     - gosec
     - lll
+    - makezero
     - nilerr
+    - nilnesserr
+    - nosprintfhostport
+    - reassign
+    - rowserrcheck
+    - sqlclosecheck
     - tagliatelle
+    - testifylint
     - unconvert
     - whitespace
   settings:
-    errorlint:
-      asserts: false
-      comparison: false
     exhaustive:
       default-signifies-exhaustive: true
     gocritic:
@@ -25,22 +38,39 @@ linters:
         - exitAfterDefer
     gosec:
       excludes:
-        - G402 # Look for bad TLS connection settings
         - G306 # Poor file permissions used when writing to a new file.
-        - G601 # Implicit memory aliasing in for loop.
         - G115 # Integer overflow conversion.
+    govet:
+      disable:
+        - inline
     lll:
       # Max line length, lines longer will be reported.
       line-length: 80
       # Tab width in spaces.
       tab-width: 8
     staticcheck:
+      # This list replaces golangci-lint's default check list, whose
+      # ST exclusions are repeated here.
       checks:
+        - all
         - -SA1019
+        - -ST1000
+        - -ST1003
+        - -ST1016
+        - -ST1020
+        - -ST1021
+        - -ST1022
+        - -QF1008
     tagliatelle:
       case:
         rules:
           json: snake
+    testifylint:
+      disable-all: true
+      enable:
+        - error-is-as
+        - go-require
+        - require-error
     whitespace:
       multi-if: true
       multi-func: true
@@ -65,9 +95,7 @@ linters:
         path: internal/test/.*
       # Fix false positives because of build flags in itest directory.
       - linters:
-          - deadcode
           - unused
-          - varcheck
         path: itest/.*
     paths:
       - third_party$

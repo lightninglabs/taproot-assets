@@ -2,7 +2,6 @@ package tapgarden_test
 
 import (
 	"context"
-	"flag"
 	"fmt"
 	"strings"
 	"testing"
@@ -15,64 +14,10 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
-	"pgregory.net/rapid"
 )
 
-// defaultRapidChecks is the number of iterations TestCultivatorRestart
-// RecoveryRapid samples by default. The subset space being explored is
-// small (4 cases: each restart point on/off), so 30 iterations already
-// hits every case multiple times. Operators wanting deeper exploration
-// can override via `-rapid.checks=N`.
-const defaultRapidChecks = 30
-
-// init lowers rapid's iteration count from its built-in default (100,
-// which is gratuitous for the 4-element subset space and dominates the
-// package's test runtime once batch.Copy does real work) to
-// defaultRapidChecks. The write happens at package init -- before the
-// testing package parses flags -- so it cannot race a running test,
-// and an explicit -rapid.checks=N on the command line still wins
-// because flag parsing runs afterwards.
-func init() {
-	if cf := flag.Lookup("rapid.checks"); cf != nil {
-		_ = cf.Value.Set(fmt.Sprintf("%d", defaultRapidChecks))
-	}
-}
-
-// rapidTB routes harness failures to the current rapid iteration while
-// deferring everything else to the enclosing *testing.T. A require
-// failure inside the property body then fails only that iteration,
-// which is what lets rapid shrink to a minimal failing restart subset
-// instead of aborting the whole test at the first failure. testing.TB
-// cannot be implemented from scratch (it has an unexported method), so
-// the adapter embeds the outer TB and overrides the failure and
-// logging surface.
-type rapidTB struct {
-	testing.TB
-
-	rt *rapid.T
-}
-
-func (r rapidTB) Error(args ...any) { r.rt.Error(args...) }
-func (r rapidTB) Fail()             { r.rt.Fail() }
-func (r rapidTB) FailNow()          { r.rt.FailNow() }
-func (r rapidTB) Failed() bool      { return r.rt.Failed() }
-func (r rapidTB) Fatal(args ...any) { r.rt.Fatal(args...) }
-func (r rapidTB) Log(args ...any)   { r.rt.Log(args...) }
-
-func (r rapidTB) Errorf(format string, args ...any) {
-	r.rt.Errorf(format, args...)
-}
-
-func (r rapidTB) Fatalf(format string, args ...any) {
-	r.rt.Fatalf(format, args...)
-}
-
-func (r rapidTB) Logf(format string, args ...any) {
-	r.rt.Logf(format, args...)
-}
-
 // restartPoint enumerates the deterministically-observable disk states
-// at which we can simulate a daemon restart in the rapid harness. Each
+// at which TestCultivatorRestartRecovery simulates a daemon restart. Each
 // point is anchored to a well-defined synchronization signal (either a
 // disk-state poll or a mock channel send) so the restart is not racy.
 type restartPoint int
@@ -207,14 +152,11 @@ func drainRestartErrors(t *mintingTestHarness) {
 	}
 }
 
-// TestCultivatorRestartRecoveryRapid is a property-test capstone for the
-// §V idempotence audit. It samples every subset of the two
-// well-synchronized restart points and asserts that the mint flow
-// still ends with exactly one Finalized batch, regardless of when the
-// daemon is restarted along the way. testBasicAssetCreation pins the
-// "restart at every observable boundary" case in a fixed order; this
-// test fans that out so a failure shrinks to the smallest restart
-// subset that reproduces.
+// TestCultivatorRestartRecovery is the capstone for the §V idempotence
+// audit. It runs the mint flow once for every subset of the two
+// well-synchronized restart points and asserts that each run ends with
+// exactly one Finalized batch. testBasicAssetCreation pins the
+// "restart at every observable boundary" case in a fixed order.
 //
 // Scope: this harness exercises crash recovery at boundaries *between*
 // state-machine branches (the §II / §I concerns). The next layer --
@@ -222,26 +164,25 @@ func drainRestartErrors(t *mintingTestHarness) {
 // on the Nth attempt -- is the natural follow-up that would let this
 // same property cover the §V "idempotent re-run of partial branch"
 // case explicitly.
-func TestCultivatorRestartRecoveryRapid(t *testing.T) {
+func TestCultivatorRestartRecovery(t *testing.T) {
 	t.Parallel()
 
-	rapid.Check(t, func(rt *rapid.T) {
-		// Fresh DB and fresh mock-wallet/chain stack per iteration
-		// so iterations don't share state. The store keeps the
-		// outer t (its DB cleanup hooks need testing.T), while the
-		// harness reports failures against the current iteration
-		// through rt.
-		store := newMintingStore(t)
-		h := newMintingTestHarness(rapidTB{TB: t, rt: rt}, store)
-
+	for mask := 0; mask < 1<<len(allRestartPoints); mask++ {
 		restartAt := make(map[restartPoint]bool)
-		for _, rp := range allRestartPoints {
-			label := fmt.Sprintf("restart_after_%d", rp)
-			if rapid.Bool().Draw(rt, label) {
+		for i, rp := range allRestartPoints {
+			if mask&(1<<i) != 0 {
 				restartAt[rp] = true
 			}
 		}
 
-		runMintWithRestarts(h, 5, restartAt)
-	})
+		name := fmt.Sprintf("restart_mask_%02b", mask)
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			store := newMintingStore(t)
+			h := newMintingTestHarness(t, store)
+
+			runMintWithRestarts(h, 5, restartAt)
+		})
+	}
 }

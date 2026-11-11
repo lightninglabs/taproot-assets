@@ -1408,6 +1408,27 @@ func AppendRandTransfer(t testing.TB, file *File,
 	anchor func(tx *wire.MsgTx) (*wire.MsgBlock, uint32)) (
 	keychain.KeyDescriptor, *btcec.PrivateKey, wire.OutPoint) {
 
+	return appendRandTransfer(t, file, senderPrivKey, anchor, nil)
+}
+
+// AppendRandTransferWithRelativeLockTime is the same as AppendRandTransfer,
+// but sets the new asset's relative lock time before signing the transfer.
+func AppendRandTransferWithRelativeLockTime(t testing.TB, file *File,
+	senderPrivKey *btcec.PrivateKey, relativeLockTime uint64,
+	anchor func(tx *wire.MsgTx) (*wire.MsgBlock, uint32)) (
+	keychain.KeyDescriptor, *btcec.PrivateKey, wire.OutPoint) {
+
+	return appendRandTransfer(
+		t, file, senderPrivKey, anchor, &relativeLockTime,
+	)
+}
+
+func appendRandTransfer(t testing.TB, file *File,
+	senderPrivKey *btcec.PrivateKey,
+	anchor func(tx *wire.MsgTx) (*wire.MsgBlock, uint32),
+	relativeLockTime *uint64) (keychain.KeyDescriptor, *btcec.PrivateKey,
+	wire.OutPoint) {
+
 	t.Helper()
 
 	prevProof, err := file.LastProof()
@@ -1417,6 +1438,9 @@ func AppendRandTransfer(t testing.TB, file *File,
 	recipientKeyDesc := test.PubToKeyDesc(recipientPrivKey.PubKey())
 	newAsset := *prevProof.Asset.Copy()
 	newAsset.ScriptKey = asset.NewScriptKeyBip86(recipientKeyDesc)
+	if relativeLockTime != nil {
+		newAsset.RelativeLockTime = *relativeLockTime
+	}
 
 	// The holder signs the transfer with its script key.
 	prevOut := wire.OutPoint{

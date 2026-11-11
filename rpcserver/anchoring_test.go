@@ -36,6 +36,7 @@ func TestMarshalAnchoring(t *testing.T) {
 		LastDeliveryError: "handler down",
 		TerminalAt:        1_700_000_000,
 		NumCandidates:     2,
+		MatchKey:          []byte{0xbe, 0xef},
 	}
 
 	anchoring := marshalAnchoring(summary)
@@ -53,6 +54,7 @@ func TestMarshalAnchoring(t *testing.T) {
 	require.Equal(t, "handler down", anchoring.LastDeliveryError)
 	require.Equal(t, int64(1_700_000_000), anchoring.TerminalAt)
 	require.Equal(t, uint32(2), anchoring.NumCandidates)
+	require.Equal(t, summary.MatchKey, anchoring.MatchKey)
 
 	// Every phase name the response can carry resolves back
 	// through the filter's parser.

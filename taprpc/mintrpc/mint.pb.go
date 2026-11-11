@@ -97,29 +97,36 @@ type PendingAsset struct {
 	AssetType taprpc.AssetType `protobuf:"varint,2,opt,name=asset_type,json=assetType,proto3,enum=taprpc.AssetType" json:"asset_type,omitempty"`
 	// The name, or "tag" of the asset. This will affect the final asset ID.
 	Name string `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
-	// A blob that resents metadata related to the asset. This will affect the
-	// final asset ID.
+	//
+	//A blob that resents metadata related to the asset. This will affect the
+	//final asset ID.
 	AssetMeta *taprpc.AssetMeta `protobuf:"bytes,4,opt,name=asset_meta,json=assetMeta,proto3" json:"asset_meta,omitempty"`
-	// The total amount of units of the new asset that should be created. If the
-	// AssetType is Collectible, then this field cannot be set.
+	//
+	//The total amount of units of the new asset that should be created. If the
+	//AssetType is Collectible, then this field cannot be set.
 	Amount uint64 `protobuf:"varint,5,opt,name=amount,proto3" json:"amount,omitempty"`
-	// If true, then the asset will be created with a new group key, which allows
-	// for future asset issuance.
+	//
+	//If true, then the asset will be created with a new group key, which allows
+	//for future asset issuance.
 	NewGroupedAsset bool `protobuf:"varint,6,opt,name=new_grouped_asset,json=newGroupedAsset,proto3" json:"new_grouped_asset,omitempty"`
 	// The specific existing group key this asset should be minted with.
 	GroupKey []byte `protobuf:"bytes,7,opt,name=group_key,json=groupKey,proto3" json:"group_key,omitempty"`
-	// The name of the asset in the batch that will anchor a new asset group.
-	// This asset will be minted with the same group key as the anchor asset.
+	//
+	//The name of the asset in the batch that will anchor a new asset group.
+	//This asset will be minted with the same group key as the anchor asset.
 	GroupAnchor string `protobuf:"bytes,8,opt,name=group_anchor,json=groupAnchor,proto3" json:"group_anchor,omitempty"`
-	// The optional key that will be used as the internal key for an asset group
-	// created with this asset.
+	//
+	//The optional key that will be used as the internal key for an asset group
+	//created with this asset.
 	GroupInternalKey *taprpc.KeyDescriptor `protobuf:"bytes,9,opt,name=group_internal_key,json=groupInternalKey,proto3" json:"group_internal_key,omitempty"`
-	// The optional root of a tapscript tree that will be used when constructing a
-	// new asset group key. This enables future issuance authorized with a script
-	// witness.
+	//
+	//The optional root of a tapscript tree that will be used when constructing a
+	//new asset group key. This enables future issuance authorized with a script
+	//witness.
 	GroupTapscriptRoot []byte `protobuf:"bytes,10,opt,name=group_tapscript_root,json=groupTapscriptRoot,proto3" json:"group_tapscript_root,omitempty"`
-	// The optional script key to use for the new asset. If no script key is given,
-	// a BIP-86 key will be derived from the underlying wallet.
+	//
+	//The optional script key to use for the new asset. If no script key is given,
+	//a BIP-86 key will be derived from the underlying wallet.
 	ScriptKey     *taprpc.ScriptKey `protobuf:"bytes,11,opt,name=script_key,json=scriptKey,proto3" json:"script_key,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -312,68 +319,79 @@ type MintAsset struct {
 	AssetType taprpc.AssetType `protobuf:"varint,2,opt,name=asset_type,json=assetType,proto3,enum=taprpc.AssetType" json:"asset_type,omitempty"`
 	// The name, or "tag" of the asset. This will affect the final asset ID.
 	Name string `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
-	// A blob that resents metadata related to the asset. This will affect the
-	// final asset ID.
+	//
+	//A blob that resents metadata related to the asset. This will affect the
+	//final asset ID.
 	AssetMeta *taprpc.AssetMeta `protobuf:"bytes,4,opt,name=asset_meta,json=assetMeta,proto3" json:"asset_meta,omitempty"`
-	// The total amount of units of the new asset that should be created. If the
-	// AssetType is Collectible, then this field cannot be set.
+	//
+	//The total amount of units of the new asset that should be created. If the
+	//AssetType is Collectible, then this field cannot be set.
 	Amount uint64 `protobuf:"varint,5,opt,name=amount,proto3" json:"amount,omitempty"`
-	// If true, then the asset will be created with a group key, which allows for
-	// future asset issuance.
+	//
+	//If true, then the asset will be created with a group key, which allows for
+	//future asset issuance.
 	NewGroupedAsset bool `protobuf:"varint,6,opt,name=new_grouped_asset,json=newGroupedAsset,proto3" json:"new_grouped_asset,omitempty"`
-	// If true, then a group key or group anchor can be set to mint this asset into
-	// an existing asset group.
+	//
+	//If true, then a group key or group anchor can be set to mint this asset into
+	//an existing asset group.
 	GroupedAsset bool `protobuf:"varint,7,opt,name=grouped_asset,json=groupedAsset,proto3" json:"grouped_asset,omitempty"`
 	// The specific existing group key this asset should be minted with.
 	GroupKey []byte `protobuf:"bytes,8,opt,name=group_key,json=groupKey,proto3" json:"group_key,omitempty"`
-	// The name of the asset in the batch that will anchor a new asset group.
-	// This asset will be minted with the same group key as the anchor asset.
+	//
+	//The name of the asset in the batch that will anchor a new asset group.
+	//This asset will be minted with the same group key as the anchor asset.
 	GroupAnchor string `protobuf:"bytes,9,opt,name=group_anchor,json=groupAnchor,proto3" json:"group_anchor,omitempty"`
-	// The optional key that will be used as the internal key for an asset group
-	// created with this asset.
 	//
-	// If this field is set then external_group_key must be unset, and vice versa.
+	//The optional key that will be used as the internal key for an asset group
+	//created with this asset.
+	//
+	//If this field is set then external_group_key must be unset, and vice versa.
 	GroupInternalKey *taprpc.KeyDescriptor `protobuf:"bytes,10,opt,name=group_internal_key,json=groupInternalKey,proto3" json:"group_internal_key,omitempty"`
-	// An optional root of a Tapscript tree used when constructing a new asset
-	// group key. This allows for future asset issuance authorized using a
-	// script witness.
 	//
-	// If an external group key is provided, the V1 scheme for group key script
-	// construction will be used, which supports PSBT signing. In this scheme,
-	// the user-supplied Tapscript root is extended by two levels of Tapscript
-	// siblings that commit to the group anchor's asset ID. As a result, the
-	// provided Tapscript root becomes a branch within a larger Tapscript tree,
-	// and the final Tapscript root will differ from the one specified here.
+	//An optional root of a Tapscript tree used when constructing a new asset
+	//group key. This allows for future asset issuance authorized using a
+	//script witness.
+	//
+	//If an external group key is provided, the V1 scheme for group key script
+	//construction will be used, which supports PSBT signing. In this scheme,
+	//the user-supplied Tapscript root is extended by two levels of Tapscript
+	//siblings that commit to the group anchor's asset ID. As a result, the
+	//provided Tapscript root becomes a branch within a larger Tapscript tree,
+	//and the final Tapscript root will differ from the one specified here.
 	GroupTapscriptRoot []byte `protobuf:"bytes,11,opt,name=group_tapscript_root,json=groupTapscriptRoot,proto3" json:"group_tapscript_root,omitempty"`
-	// The optional script key to use for the new asset. If no script key is given,
-	// a BIP-86 key will be derived from the underlying wallet.
+	//
+	//The optional script key to use for the new asset. If no script key is given,
+	//a BIP-86 key will be derived from the underlying wallet.
 	ScriptKey *taprpc.ScriptKey `protobuf:"bytes,12,opt,name=script_key,json=scriptKey,proto3" json:"script_key,omitempty"`
-	// Decimal display dictates the number of decimal places to shift the amount to
-	// the left converting from Taproot Asset integer representation to a
-	// UX-recognizable fractional quantity.
 	//
-	// For example, if the decimal_display value is 2 and there's 100 of those
-	// assets, then a wallet would display the amount as "1.00". This field is
-	// intended as information for wallets that display balances and has no impact
-	// on the behavior of the daemon or any other part of the protocol. This value
-	// is encoded in the MetaData field as a JSON field, therefore it is only
-	// compatible with assets that have a JSON MetaData field.
+	//Decimal display dictates the number of decimal places to shift the amount to
+	//the left converting from Taproot Asset integer representation to a
+	//UX-recognizable fractional quantity.
+	//
+	//For example, if the decimal_display value is 2 and there's 100 of those
+	//assets, then a wallet would display the amount as "1.00". This field is
+	//intended as information for wallets that display balances and has no impact
+	//on the behavior of the daemon or any other part of the protocol. This value
+	//is encoded in the MetaData field as a JSON field, therefore it is only
+	//compatible with assets that have a JSON MetaData field.
 	DecimalDisplay uint32 `protobuf:"varint,13,opt,name=decimal_display,json=decimalDisplay,proto3" json:"decimal_display,omitempty"`
-	// The external group key is an optional field that allows specifying an
-	// external signing key for the group virtual transaction during minting.
-	// This key enables signing operations to be performed externally, outside
-	// the daemon.
 	//
-	// If this field is set then group_internal_key must be unset, and vice versa.
+	//The external group key is an optional field that allows specifying an
+	//external signing key for the group virtual transaction during minting.
+	//This key enables signing operations to be performed externally, outside
+	//the daemon.
+	//
+	//If this field is set then group_internal_key must be unset, and vice versa.
 	ExternalGroupKey *taprpc.ExternalKey `protobuf:"bytes,14,opt,name=external_group_key,json=externalGroupKey,proto3" json:"external_group_key,omitempty"`
-	// Enables the supply commitments feature for a new asset group.
 	//
-	// Supply commitments are minter‑controlled, on‑chain attestations that
-	// anchor and verify the evolving aggregate supply state of an asset group.
+	//Enables the supply commitments feature for a new asset group.
 	//
-	// When enabled, the batch must be a single asset group (all assets share the
-	// same group key). Valid only for creating a new asset group (the first
-	// minting tranche).
+	//Supply commitments are minter‑controlled, on‑chain attestations that
+	//anchor and verify the evolving aggregate supply state of an asset group.
+	//
+	//When enabled, the batch must be a single asset group (all assets share the
+	//same group key). Valid only for creating a new asset group (the first
+	//minting tranche).
 	EnableSupplyCommitments bool `protobuf:"varint,15,opt,name=enable_supply_commitments,json=enableSupplyCommitments,proto3" json:"enable_supply_commitments,omitempty"`
 	unknownFields           protoimpl.UnknownFields
 	sizeCache               protoimpl.SizeCache
@@ -516,11 +534,13 @@ func (x *MintAsset) GetEnableSupplyCommitments() bool {
 
 type MintAssetRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The asset to be minted.
+	//
+	//The asset to be minted.
 	Asset *MintAsset `protobuf:"bytes,1,opt,name=asset,proto3" json:"asset,omitempty"`
-	// If true, then the assets currently in the batch won't be returned in the
-	// response. This is mainly to avoid a lot of data being transmitted and
-	// possibly printed on the command line in the case of a very large batch.
+	//
+	//If true, then the assets currently in the batch won't be returned in the
+	//response. This is mainly to avoid a lot of data being transmitted and
+	//possibly printed on the command line in the case of a very large batch.
 	ShortResponse bool `protobuf:"varint,2,opt,name=short_response,json=shortResponse,proto3" json:"short_response,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -617,12 +637,14 @@ func (x *MintAssetResponse) GetPendingBatch() *MintingBatch {
 
 type MintingBatch struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// A public key serialized in compressed format that can be used to uniquely
-	// identify a pending minting batch. Responses that share the same key will be
-	// batched into the same minting transaction.
+	//
+	//A public key serialized in compressed format that can be used to uniquely
+	//identify a pending minting batch. Responses that share the same key will be
+	//batched into the same minting transaction.
 	BatchKey []byte `protobuf:"bytes,1,opt,name=batch_key,json=batchKey,proto3" json:"batch_key,omitempty"`
-	// The transaction ID of the batch. Only populated if the batch has been
-	// committed.
+	//
+	//The transaction ID of the batch. Only populated if the batch has been
+	//committed.
 	BatchTxid string `protobuf:"bytes,2,opt,name=batch_txid,json=batchTxid,proto3" json:"batch_txid,omitempty"`
 	// The state of the batch.
 	State BatchState `protobuf:"varint,3,opt,name=state,proto3,enum=mintrpc.BatchState" json:"state,omitempty"`
@@ -774,15 +796,17 @@ func (x *VerboseBatch) GetUnsealedAssets() []*UnsealedAsset {
 
 type FundBatchRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// If true, then the assets currently in the batch won't be returned in the
-	// response. This is mainly to avoid a lot of data being transmitted and
-	// possibly printed on the command line in the case of a very large batch.
+	//
+	//If true, then the assets currently in the batch won't be returned in the
+	//response. This is mainly to avoid a lot of data being transmitted and
+	//possibly printed on the command line in the case of a very large batch.
 	ShortResponse bool `protobuf:"varint,1,opt,name=short_response,json=shortResponse,proto3" json:"short_response,omitempty"`
 	// The optional fee rate to use for the minting transaction, in sat/kw.
 	FeeRate uint32 `protobuf:"varint,2,opt,name=fee_rate,json=feeRate,proto3" json:"fee_rate,omitempty"`
-	// The optional tapscript sibling that will be used when deriving the genesis
-	// output for the batch. This sibling is a tapscript tree, which allows the
-	// minter to encumber future transfers of assets in the batch with Tapscript.
+	//
+	//The optional tapscript sibling that will be used when deriving the genesis
+	//output for the batch. This sibling is a tapscript tree, which allows the
+	//minter to encumber future transfers of assets in the batch with Tapscript.
 	//
 	// Types that are valid to be assigned to BatchSibling:
 	//
@@ -867,8 +891,9 @@ type isFundBatchRequest_BatchSibling interface {
 }
 
 type FundBatchRequest_FullTree struct {
-	// An ordered list of TapLeafs, which will be used to construct a
-	// Tapscript tree.
+	//
+	//An ordered list of TapLeafs, which will be used to construct a
+	//Tapscript tree.
 	FullTree *taprpc.TapscriptFullTree `protobuf:"bytes,3,opt,name=full_tree,json=fullTree,proto3,oneof"`
 }
 
@@ -928,9 +953,10 @@ func (x *FundBatchResponse) GetBatch() *VerboseBatch {
 
 type SealBatchRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// If true, then the assets currently in the batch won't be returned in the
-	// response. This is mainly to avoid a lot of data being transmitted and
-	// possibly printed on the command line in the case of a very large batch.
+	//
+	//If true, then the assets currently in the batch won't be returned in the
+	//response. This is mainly to avoid a lot of data being transmitted and
+	//possibly printed on the command line in the case of a very large batch.
 	ShortResponse bool `protobuf:"varint,1,opt,name=short_response,json=shortResponse,proto3" json:"short_response,omitempty"`
 	// The assetID, witness pairs that authorize asset membership in a group.
 	// This field should not be used in conjunction with
@@ -1042,15 +1068,17 @@ func (x *SealBatchResponse) GetBatch() *MintingBatch {
 
 type FinalizeBatchRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// If true, then the assets currently in the batch won't be returned in the
-	// response. This is mainly to avoid a lot of data being transmitted and
-	// possibly printed on the command line in the case of a very large batch.
+	//
+	//If true, then the assets currently in the batch won't be returned in the
+	//response. This is mainly to avoid a lot of data being transmitted and
+	//possibly printed on the command line in the case of a very large batch.
 	ShortResponse bool `protobuf:"varint,1,opt,name=short_response,json=shortResponse,proto3" json:"short_response,omitempty"`
 	// The optional fee rate to use for the minting transaction, in sat/kw.
 	FeeRate uint32 `protobuf:"varint,2,opt,name=fee_rate,json=feeRate,proto3" json:"fee_rate,omitempty"`
-	// The optional tapscript sibling that will be used when deriving the genesis
-	// output for the batch. This sibling is a tapscript tree, which allows the
-	// minter to encumber future transfers of assets in the batch with Tapscript.
+	//
+	//The optional tapscript sibling that will be used when deriving the genesis
+	//output for the batch. This sibling is a tapscript tree, which allows the
+	//minter to encumber future transfers of assets in the batch with Tapscript.
 	//
 	// Types that are valid to be assigned to BatchSibling:
 	//
@@ -1135,8 +1163,9 @@ type isFinalizeBatchRequest_BatchSibling interface {
 }
 
 type FinalizeBatchRequest_FullTree struct {
-	// An ordered list of TapLeafs, which will be used to construct a
-	// Tapscript tree.
+	//
+	//An ordered list of TapLeafs, which will be used to construct a
+	//Tapscript tree.
 	FullTree *taprpc.TapscriptFullTree `protobuf:"bytes,3,opt,name=full_tree,json=fullTree,proto3,oneof"`
 }
 
@@ -1419,9 +1448,10 @@ func (x *ListBatchResponse) GetBatches() []*VerboseBatch {
 
 type SubscribeMintEventsRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// If true, then the assets currently in the batch won't be returned in the
-	// event's batch. This is mainly to avoid a lot of data being transmitted and
-	// possibly printed on the command line in the case of a very large batch.
+	//
+	//If true, then the assets currently in the batch won't be returned in the
+	//event's batch. This is mainly to avoid a lot of data being transmitted and
+	//possibly printed on the command line in the case of a very large batch.
 	ShortResponse bool `protobuf:"varint,1,opt,name=short_response,json=shortResponse,proto3" json:"short_response,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

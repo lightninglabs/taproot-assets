@@ -484,6 +484,19 @@ func (s *SimpleSyncer) syncRoot(ctx context.Context, remoteRoot Root,
 					"(leaf_key=%v)", spew.Sdump(key))
 			}
 
+			// A grouped asset can only be inserted under its group
+			// key, so a leaf holding one in an asset ID universe is
+			// skipped.
+			if uniID.GroupKey == nil &&
+				leafProof.Leaf.Asset.GroupKey != nil {
+
+				log.Warnf("UniverseRoot(%v): skipping grouped "+
+					"asset leaf (leaf_key=%x)",
+					uniID.String(), key.UniverseKey())
+
+				return nil
+			}
+
 			// If this is an issuance proof, then we can send
 			// things directly to the batch insertion goroutine.
 			// Otherwise, we'll another step to the pipeline below
@@ -598,6 +611,11 @@ func (s *SimpleSyncer) syncRoot(ctx context.Context, remoteRoot Root,
 	err = batchSyncEG.Wait()
 	if err != nil {
 		return err
+	}
+
+	// A universe with no imported leaves yields no sync diff.
+	if len(newLeafProofs) == 0 {
+		return nil
 	}
 
 	log.Infof("Universe sync for UniverseRoot(%v) complete, %d "+

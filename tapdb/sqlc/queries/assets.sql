@@ -930,6 +930,7 @@ ORDER BY asset_proofs.proof_id;
 SELECT proof_id, asset_id, proof_file
 FROM asset_proofs
 WHERE provenance_indexed = FALSE
+  AND proof_id > @after_proof_id
 ORDER BY proof_id
 LIMIT @row_limit;
 
@@ -1325,11 +1326,11 @@ VALUES (
     sqlc.narg('spent_by')
 )
 ON CONFLICT(outpoint) DO UPDATE SET
+    -- Proof replay can update discovery metadata but cannot undo a spend.
     group_key            = EXCLUDED.group_key,
     taproot_internal_key = EXCLUDED.taproot_internal_key,
     outpoint             = EXCLUDED.outpoint,
-    chain_txn_db_id      = EXCLUDED.chain_txn_db_id,
-    spent_by             = EXCLUDED.spent_by
+    chain_txn_db_id      = EXCLUDED.chain_txn_db_id
 RETURNING id;
 
 -- name: UpsertMintSupplyPreCommit :one

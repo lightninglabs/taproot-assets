@@ -1,4 +1,4 @@
-FUZZPKG = asset mssmt proof
+FUZZPKG = address asset backup commitment mssmt proof rfqmsg tapchannelmsg
 FUZZ_TEST_RUN_TIME = 30s
 FUZZ_TEST_TIMEOUT = 20m
 FUZZ_NUM_PROCESSES = 4

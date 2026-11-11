@@ -414,6 +414,12 @@ func verifyTaprootProof(anchor *wire.MsgTx, proof *TaprootProof,
 			"internal key")
 	}
 
+	// An internal key that is not on the curve is rejected.
+	if !proof.InternalKey.IsOnCurve() {
+		return nil, fmt.Errorf("taproot proof has an invalid " +
+			"internal key")
+	}
+
 	// Extract the final taproot key from the output including/excluding the
 	// asset, which we'll use to compare our derived key against.
 	expectedTaprootKey, err := ExtractTaprootKey(anchor, proof.OutputIndex)

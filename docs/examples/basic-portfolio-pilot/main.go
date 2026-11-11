@@ -290,9 +290,10 @@ func (p *RpcPortfolioPilotServer) ResolveRequest(_ context.Context,
 		sr := r.SellRequest
 		hint = sr.GetAssetRateHint()
 		fillCap = p.cfg.fillCapMsat
-		log.Printf("ResolveRequest sell: max=%d min=%d "+
+		log.Printf("ResolveRequest sell: max=%d min=%d swap=%d "+
 			"rate_limit=%v", sr.GetPaymentMaxAmount(),
 			sr.GetPaymentMinAmount(),
+			sr.GetPaymentSwapAmount(),
 			sr.GetAssetRateLimit())
 	default:
 		return nil, fmt.Errorf("unknown request type: %T", r)
@@ -687,6 +688,7 @@ func main() {
 
 	creds := credentials.NewTLS(&tls.Config{
 		Certificates: []tls.Certificate{tlsCert},
+		MinVersion:   tls.VersionTLS12,
 	})
 	backendService := grpc.NewServer(
 		grpc.Creds(creds),

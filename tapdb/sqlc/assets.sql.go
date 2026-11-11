@@ -2564,9 +2564,15 @@ const FetchUnindexedAssetProofs = `-- name: FetchUnindexedAssetProofs :many
 SELECT proof_id, asset_id, proof_file
 FROM asset_proofs
 WHERE provenance_indexed = FALSE
+  AND proof_id > $1
 ORDER BY proof_id
-LIMIT $1
+LIMIT $2
 `
+
+type FetchUnindexedAssetProofsParams struct {
+	AfterProofID int64
+	RowLimit     int32
+}
 
 type FetchUnindexedAssetProofsRow struct {
 	ProofID   int64
@@ -2574,8 +2580,8 @@ type FetchUnindexedAssetProofsRow struct {
 	ProofFile []byte
 }
 
-func (q *Queries) FetchUnindexedAssetProofs(ctx context.Context, rowLimit int32) ([]FetchUnindexedAssetProofsRow, error) {
-	rows, err := q.db.QueryContext(ctx, FetchUnindexedAssetProofs, rowLimit)
+func (q *Queries) FetchUnindexedAssetProofs(ctx context.Context, arg FetchUnindexedAssetProofsParams) ([]FetchUnindexedAssetProofsRow, error) {
+	rows, err := q.db.QueryContext(ctx, FetchUnindexedAssetProofs, arg.AfterProofID, arg.RowLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -4147,11 +4153,11 @@ VALUES (
     $5
 )
 ON CONFLICT(outpoint) DO UPDATE SET
+    -- Proof replay can update discovery metadata but cannot undo a spend.
     group_key            = EXCLUDED.group_key,
     taproot_internal_key = EXCLUDED.taproot_internal_key,
     outpoint             = EXCLUDED.outpoint,
-    chain_txn_db_id      = EXCLUDED.chain_txn_db_id,
-    spent_by             = EXCLUDED.spent_by
+    chain_txn_db_id      = EXCLUDED.chain_txn_db_id
 RETURNING id
 `
 

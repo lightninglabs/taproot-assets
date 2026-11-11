@@ -1840,6 +1840,11 @@
         "stuck_reason": {
           "type": "string",
           "description": "The last delivery error, surfaced once the anchoring is flagged\nstuck. Empty when the anchoring is not stuck."
+        },
+        "match_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The site's per-registration identity key, opaque to the\nregistry; empty when the site registered none. Each current\nsite keys an anchoring by the hash of the transaction it stakes\non, in the same byte order as witness_txid."
         }
       }
     },

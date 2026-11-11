@@ -36,6 +36,10 @@ var (
 	// ErrDuplicateScriptKeys is returned when two alt leaves have the same
 	// script key.
 	ErrDuplicateScriptKeys = errors.New("alt leaf: duplicate script keys")
+
+	// ErrRecordLength is returned when a record's value does not occupy
+	// exactly the record's declared length.
+	ErrRecordLength = errors.New("record: length mismatch")
 )
 
 // encodeOnce caches the serialization of a TLV record value so that the
@@ -111,18 +115,35 @@ func VarIntDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 }
 
 func DVarBytesWithLimit(limit uint64) tlv.Decoder {
-	return func(r io.Reader, val interface{}, _ *[8]byte, l uint64) error {
+	return func(r io.Reader, val interface{}, buf *[8]byte,
+		l uint64) error {
+
 		if l > limit {
 			return tlv.ErrRecordTooLarge
 		}
 
-		if b, ok := val.(*[]byte); ok {
-			*b = make([]byte, l)
-			_, err := io.ReadFull(r, *b)
-			return err
-		}
-		return tlv.NewTypeForDecodingErr(val, "[]byte", l, l)
+		return tlv.DVarBytes(r, val, buf, l)
 	}
+}
+
+// decodeExact runs decode over the next l bytes of r, and fails unless decode
+// consumes all of them.
+func decodeExact(r io.Reader, l uint64, decode func(io.Reader) error) error {
+	if l > math.MaxInt64 {
+		return tlv.ErrRecordTooLarge
+	}
+
+	lr := &io.LimitedReader{R: r, N: int64(l)}
+	if err := decode(lr); err != nil {
+		return err
+	}
+
+	if lr.N != 0 {
+		return fmt.Errorf("%w: %d of %d bytes unread", ErrRecordLength,
+			lr.N, l)
+	}
+
+	return nil
 }
 
 func InlineVarBytesEncoder(w io.Writer, val any, buf *[8]byte) error {

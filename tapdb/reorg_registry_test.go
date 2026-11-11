@@ -1107,17 +1107,20 @@ func TestReorgRegistryQueryAnchorings(t *testing.T) {
 
 	// Three minter anchorings and two porter anchorings; one
 	// minter witnessed, one minter buried (terminal rows must
-	// appear, unlike the sensing scan), one porter stuck.
+	// appear, unlike the sensing scan), one porter stuck. Only the
+	// porter anchorings carry a match key.
 	var ids []tapreorg.AnchoringID
 	for i := 0; i < 5; i++ {
 		site := tapreorg.SiteID("minter")
+		var matchKey []byte
 		if i >= 3 {
 			site = "porter"
+			matchKey = []byte{byte(i)}
 		}
 		op := testOutPoint(50+byte(i), 0)
-		id, err := store.Register(
-			ctx, testSpec(t, site, op), 500, nil, nil,
-		)
+		spec := testSpec(t, site, op)
+		spec.MatchKey = matchKey
+		id, err := store.Register(ctx, spec, 500, nil, nil)
 		require.NoError(t, err)
 		ids = append(ids, id)
 	}
@@ -1186,8 +1189,8 @@ func TestReorgRegistryQueryAnchorings(t *testing.T) {
 
 	// The summaries carry what the listing exists to expose: the
 	// stable phase names (round-tripping through the filter), the
-	// evidence renderings alongside, and the delivery failure text
-	// and terminal stamp read back.
+	// evidence renderings alongside, the delivery failure text and
+	// terminal stamp, and the match key read back.
 	require.NoError(t, store.UpsertCandidate(
 		ctx, ids[1], tapreorg.CandidateSpend{
 			Verdict:        tapreorg.VerdictSatisfies,
@@ -1224,6 +1227,10 @@ func TestReorgRegistryQueryAnchorings(t *testing.T) {
 	require.True(t, stuckRow.Stuck)
 	require.Equal(t, uint32(1), stuckRow.DeliveryAttempts)
 	require.Equal(t, "handler down", stuckRow.LastDeliveryError)
+
+	require.Nil(t, summaries[0].MatchKey)
+	require.Equal(t, []byte{3}, summaries[3].MatchKey)
+	require.Equal(t, []byte{4}, stuckRow.MatchKey)
 
 	code, err := tapreorg.PhaseCodeFromName(buried.Phase.String())
 	require.NoError(t, err)

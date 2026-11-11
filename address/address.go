@@ -578,14 +578,25 @@ func (a *Tap) Decode(r io.Reader) error {
 		return err
 	}
 
-	unknownOddTypes, err := asset.TlvStrictDecodeP2P(
-		stream, r, KnownAddressTypes,
-	)
+	parsedTypes, err := stream.DecodeWithParsedTypesP2P(r)
 	if err != nil {
 		return err
 	}
+	if err := asset.AssertNoUnknownEvenTypes(
+		parsedTypes, KnownAddressTypes,
+	); err != nil {
+		return err
+	}
+	if _, ok := parsedTypes[addrScriptKeyType]; !ok {
+		return fmt.Errorf("address: missing script key")
+	}
+	if _, ok := parsedTypes[addrInternalKeyType]; !ok {
+		return fmt.Errorf("address: missing internal key")
+	}
 
-	a.UnknownOddTypes = unknownOddTypes
+	a.UnknownOddTypes = asset.FilterUnknownTypes(
+		parsedTypes, KnownAddressTypes,
+	)
 
 	return nil
 }

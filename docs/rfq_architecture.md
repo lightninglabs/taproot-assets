@@ -1499,6 +1499,15 @@ invoice can even be generated. The receiver's node initiates a quote request to
 their asset channel peer, seeking to establish the terms under which they'll
 accept incoming assets.
 
+For a hold invoice, `AddInvoice.hodl_invoice.payment_hash` supplies the
+externally chosen payment hash. The receiver settles it later through LND's
+`SettleInvoice` RPC. `invoice_request.expiry` controls how long the invoice and
+its RFQ quote remain available for payment, while `invoice_request.cltv_expiry`
+sets the minimum final HTLC expiry delta in blocks. These are independent:
+an invoice can have a short quote lifetime and require a longer settlement
+window. A zero CLTV delta uses LND's configured default; LND rejects values
+outside its supported range.
+
 ```mermaid
 sequenceDiagram
     participant Receiver as Asset Receiver (Alice)

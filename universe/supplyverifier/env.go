@@ -25,6 +25,11 @@ var (
 	// previous supply commitment, but it is not found in the database.
 	ErrPrevCommitmentNotFound = fmt.Errorf("previous supply commitment " +
 		"not found")
+
+	// ErrBurnProvenance is returned when no provenance source yields a
+	// proof file that a burn leaf's proof verifies against.
+	ErrBurnProvenance = fmt.Errorf("no provenance source verifies the " +
+		"burn proof")
 )
 
 // SupplyCommitView is an interface that is used to look up supply commitments

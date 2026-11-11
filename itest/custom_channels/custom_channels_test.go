@@ -104,12 +104,20 @@ var testCases = []*ccTestCase{
 		test: testCustomChannelsMultiRFQ,
 	},
 	{
+		name: "hold invoice route hints",
+		test: testCustomChannelsHoldInvoiceRouteHints,
+	},
+	{
 		name: "oracle pricing",
 		test: testCustomChannelsOraclePricing,
 	},
 	{
 		name: "invoice quote expiry mismatch",
 		test: testCustomChannelsInvoiceQuoteExpiryMismatch,
+	},
+	{
+		name: "hold invoice cltv",
+		test: testCustomChannelsHoldInvoiceCLTV,
 	},
 	{
 		name: "limit constraints",

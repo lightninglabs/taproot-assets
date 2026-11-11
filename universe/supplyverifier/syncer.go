@@ -1,6 +1,7 @@
 package supplyverifier
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net/url"
@@ -10,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
 )
@@ -34,6 +36,14 @@ type UniverseClient interface {
 	FetchSupplyCommit(ctx context.Context, assetSpec asset.Specifier,
 		spentCommitOutpoint fn.Option[wire.OutPoint]) (
 		supplycommit.FetchSupplyCommitResult, error)
+
+	// InsertProof inserts a single issuance or transfer proof into the
+	// remote universe server.
+	InsertProof(ctx context.Context, p *proof.Proof) error
+
+	// FetchProof fetches the single issuance or transfer proof at the
+	// given locator from the remote universe server.
+	FetchProof(ctx context.Context, loc proof.Locator) (proof.Blob, error)
 
 	// Close closes the fetcher and cleans up any resources.
 	Close() error
@@ -81,6 +91,11 @@ type SupplySyncerConfig struct {
 	// UniverseFederationView is used to fetch the list of known
 	// universe servers in the federation.
 	UniverseFederationView UniverseFederationView
+
+	// LocalProofs fetches the full proof files of this node's own
+	// assets. The provenance of each burn a pushed commitment carries
+	// is published from them.
+	LocalProofs proof.Exporter
 }
 
 // SupplySyncer is a struct that is responsible for retrieving supply leaves
@@ -122,6 +137,16 @@ func (s *SupplySyncer) pushUniServer(ctx context.Context,
 		}
 	}()
 
+	// The server verifies burns against the provenance its own universe
+	// holds, and may already hold it, so a failed publication doesn't
+	// hold back the commitment.
+	err = s.publishBurnProvenance(ctx, client, updateLeaves)
+	if err != nil {
+		log.Warnf("Unable to publish burn provenance to universe "+
+			"server (server_addr=%s): %v", serverAddr.HostStr(),
+			err)
+	}
+
 	err = client.InsertSupplyCommit(
 		ctx, assetSpec, commitment, updateLeaves, chainProof,
 	)
@@ -141,6 +166,57 @@ func (s *SupplySyncer) pushUniServer(ctx context.Context,
 		"asset: %s, commitment_outpoint=%s",
 		serverAddr.HostStr(), assetSpec.String(),
 		commitment.CommitPoint().String())
+
+	return nil
+}
+
+// publishBurnProvenance inserts the provenance of each burn's primary input
+// into the remote universe, ahead of the commitment that carries the burns.
+// A burn leaf's proof is a bare state transition, which the server verifies
+// against the provenance its own universe holds.
+func (s *SupplySyncer) publishBurnProvenance(ctx context.Context,
+	client UniverseClient, leaves supplycommit.SupplyLeaves) error {
+
+	for _, burn := range leaves.BurnLeafEntries {
+		burnProof := burn.BurnProof
+		if burnProof == nil {
+			return fmt.Errorf("missing burn proof for burn leaf")
+		}
+
+		burnOutPoint := burnProof.OutPoint()
+		blob, err := s.cfg.LocalProofs.FetchProof(ctx, proof.Locator{
+			AssetID:   fn.Ptr(burnProof.Asset.ID()),
+			ScriptKey: *burnProof.Asset.ScriptKey.PubKey,
+			OutPoint:  &burnOutPoint,
+		})
+		if err != nil {
+			return fmt.Errorf("unable to fetch burn proof file: %w",
+				err)
+		}
+
+		burnFile, err := blob.AsFile()
+		if err != nil {
+			return fmt.Errorf("unable to decode burn proof file: "+
+				"%w", err)
+		}
+
+		// The burn's proof file is its primary input's file with the
+		// burn appended, so every proof but the last makes up the
+		// input's provenance. The server absorbs proofs it already
+		// holds.
+		for idx := 0; idx < burnFile.NumProofs()-1; idx++ {
+			p, err := burnFile.ProofAt(uint32(idx))
+			if err != nil {
+				return err
+			}
+
+			if err := client.InsertProof(ctx, p); err != nil {
+				return fmt.Errorf("unable to insert proof "+
+					"%d of burn input provenance: %w", idx,
+					err)
+			}
+		}
+	}
 
 	return nil
 }
@@ -448,4 +524,73 @@ func (s *SupplySyncer) PullSupplyCommitment(ctx context.Context,
 		FetchResult: fn.MaybeSome(finalResult),
 		ErrorMap:    errorMap,
 	}, nil
+}
+
+// Provenance returns a proof exporter for each universe server the syncer
+// pulls supply commitments from. Each assembles the full proof file of an
+// asset from the single proofs its server holds.
+func (s *SupplySyncer) Provenance(ctx context.Context,
+	canonicalUniverses []url.URL) ([]proof.Exporter, error) {
+
+	targetAddrs, err := s.fetchServerAddrs(ctx, canonicalUniverses)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch target universe "+
+			"server addresses: %w", err)
+	}
+
+	sources := make([]proof.Exporter, 0, len(targetAddrs))
+	for _, serverAddr := range targetAddrs {
+		sources = append(sources, &serverProvenance{
+			syncer:     s,
+			serverAddr: serverAddr,
+		})
+	}
+
+	return sources, nil
+}
+
+// serverProvenance is a proof exporter backed by a single universe server.
+type serverProvenance struct {
+	syncer     *SupplySyncer
+	serverAddr universe.ServerAddr
+}
+
+// FetchProof assembles the full proof file of the asset at the given
+// locator from the single proofs the universe server holds.
+//
+// NOTE: This is part of the proof.Exporter interface.
+func (p *serverProvenance) FetchProof(ctx context.Context,
+	loc proof.Locator) (proof.Blob, error) {
+
+	// Bound the server's round, as the commitment pull is.
+	ctx, cancel := context.WithTimeout(ctx, defaultPullTimeout)
+	defer cancel()
+
+	serverHost := p.serverAddr.HostStr()
+	client, err := p.syncer.cfg.ClientFactory(p.serverAddr)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create universe client "+
+			"(server_addr=%s): %w", serverHost, err)
+	}
+	defer func() {
+		if closeErr := client.Close(); closeErr != nil {
+			log.Errorf("Unable to close provenance universe "+
+				"client: %v", closeErr)
+		}
+	}()
+
+	file, err := proof.FetchProofProvenance(
+		ctx, nil, loc, client.FetchProof,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch proof provenance "+
+			"(server_addr=%s): %w", serverHost, err)
+	}
+
+	var buf bytes.Buffer
+	if err := file.Encode(&buf); err != nil {
+		return nil, fmt.Errorf("unable to encode proof file: %w", err)
+	}
+
+	return buf.Bytes(), nil
 }

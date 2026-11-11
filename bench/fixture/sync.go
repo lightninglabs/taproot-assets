@@ -2,6 +2,7 @@ package fixture
 
 import (
 	"context"
+	crand "crypto/rand"
 	"database/sql"
 	"fmt"
 	"math"
@@ -10,8 +11,6 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-
-	crand "crypto/rand"
 
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -500,11 +499,15 @@ func randMintingLeafFor(tb testing.TB,
 // randProof builds a minimal but structurally valid proof.Proof
 // suitable for round-tripping through Bytes/Decode. The fields are
 // random; the fixture uses mock verifiers so semantic validity is not
-// required.
+// required. The asset is ungrouped, matching the asset ID universes the
+// fixture seeds.
 func randProof(tb testing.TB) *proof.Proof {
 	tb.Helper()
 
-	proofAsset := *asset.RandAsset(tb, asset.Normal)
+	proofAsset := *asset.RandAssetWithValues(
+		tb, asset.RandGenesis(tb, asset.Normal), nil,
+		asset.RandScriptKey(tb),
+	)
 
 	var witnessData [32]byte
 	_, err := crand.Read(witnessData[:])

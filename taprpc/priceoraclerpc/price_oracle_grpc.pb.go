@@ -18,9 +18,10 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type PriceOracleClient interface {
-	// QueryAssetRates retrieves the exchange rate between a tap asset and BTC for
-	// a specified transaction type, subject asset, and payment asset. The asset
-	// rate represents the number of tap asset units per BTC.
+	//
+	//QueryAssetRates retrieves the exchange rate between a tap asset and BTC for
+	//a specified transaction type, subject asset, and payment asset. The asset
+	//rate represents the number of tap asset units per BTC.
 	QueryAssetRates(ctx context.Context, in *QueryAssetRatesRequest, opts ...grpc.CallOption) (*QueryAssetRatesResponse, error)
 }
 
@@ -45,9 +46,10 @@ func (c *priceOracleClient) QueryAssetRates(ctx context.Context, in *QueryAssetR
 // All implementations must embed UnimplementedPriceOracleServer
 // for forward compatibility
 type PriceOracleServer interface {
-	// QueryAssetRates retrieves the exchange rate between a tap asset and BTC for
-	// a specified transaction type, subject asset, and payment asset. The asset
-	// rate represents the number of tap asset units per BTC.
+	//
+	//QueryAssetRates retrieves the exchange rate between a tap asset and BTC for
+	//a specified transaction type, subject asset, and payment asset. The asset
+	//rate represents the number of tap asset units per BTC.
 	QueryAssetRates(context.Context, *QueryAssetRatesRequest) (*QueryAssetRatesResponse, error)
 	mustEmbedUnimplementedPriceOracleServer()
 }

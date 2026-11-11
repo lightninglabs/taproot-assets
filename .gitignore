@@ -58,3 +58,4 @@ vendor/
 /taproot-assets-*
 .aider*
 bench/results/
+/fuzz/

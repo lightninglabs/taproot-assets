@@ -448,7 +448,7 @@ func pickSendNode(t *testing.T, ctx context.Context, minBalance uint64,
 	*tapdHarness, bool) {
 
 	send, receive := a, b
-	if prand.Intn(1) == 0 {
+	if prand.Intn(2) == 0 {
 		send, receive = b, a
 	}
 

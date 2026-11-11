@@ -76,7 +76,25 @@ type (
 	requestExecutionPolicy = tlv.OptionalRecordT[
 		tlv.TlvType31, uint8,
 	]
+
+	// requestInAssetSwapAmt is a type alias for a record that represents
+	// the optional quantity of in-asset that the requesting peer actually
+	// intends to swap, excluding any routing fee budget.
+	requestInAssetSwapAmt = tlv.OptionalRecordT[tlv.TlvType33, uint64]
 )
+
+func oracleMetadataRecord(
+	metadata *tlv.RecordT[tlv.TlvType27, []byte]) tlv.Record {
+
+	size := func() uint64 {
+		return uint64(len(metadata.Val))
+	}
+
+	return tlv.MakeDynamicRecord(
+		metadata.TlvType(), &metadata.Val, size, tlv.EVarBytes,
+		asset.DVarBytesWithLimit(MaxOracleMetadataLength),
+	)
+}
 
 // ExecutionPolicy specifies how a quote request should be filled.
 type ExecutionPolicy uint8
@@ -212,6 +230,15 @@ type requestWireMsgData struct {
 	// ExecutionPolicy is an optional execution policy for the
 	// quote request (IOC or FOK).
 	ExecutionPolicy requestExecutionPolicy
+
+	// InAssetSwapAmt is an optional quantity of in-asset that the
+	// requesting peer actually intends to swap. Unlike MaxInAsset, this
+	// excludes any routing fee budget. For a sell request this is the
+	// invoice amount in msat, while MaxInAsset is the invoice amount plus
+	// the fee limit of the payment.
+	//
+	// NOTE: This field is optional.
+	InAssetSwapAmt requestInAssetSwapAmt
 }
 
 // newRequestWireMsgDataFromBuy creates a new requestWireMsgData from a buy
@@ -414,6 +441,16 @@ func newRequestWireMsgDataFromSell(q SellRequest) (requestWireMsgData, error) {
 		)
 	})
 
+	// Set optional swap amount.
+	var inAssetSwapAmt requestInAssetSwapAmt
+	q.PaymentSwapAmt.WhenSome(func(swapAmt lnwire.MilliSatoshi) {
+		inAssetSwapAmt = tlv.SomeRecordT[tlv.TlvType33](
+			tlv.NewPrimitiveRecord[tlv.TlvType33](
+				uint64(swapAmt),
+			),
+		)
+	})
+
 	// Encode message data component as TLV bytes.
 	return requestWireMsgData{
 		Version:             version,
@@ -429,6 +466,7 @@ func newRequestWireMsgDataFromSell(q SellRequest) (requestWireMsgData, error) {
 		AssetRateLimit:      assetRateLimit,
 		ExecutionPolicy:     execPolicy,
 		PriceOracleMetadata: oracleMetadata,
+		InAssetSwapAmt:      inAssetSwapAmt,
 	}, nil
 }
 
@@ -577,6 +615,11 @@ func (m *requestWireMsgData) Encode(w io.Writer) error {
 			records = append(records, r.Record())
 		},
 	)
+	m.InAssetSwapAmt.WhenSome(
+		func(r tlv.RecordT[tlv.TlvType33, uint64]) {
+			records = append(records, r.Record())
+		},
+	)
 
 	tlv.SortRecords(records)
 
@@ -607,6 +650,7 @@ func (m *requestWireMsgData) Decode(r io.Reader) error {
 	oracleMetadata := m.PriceOracleMetadata.Zero()
 	assetRateLimit := m.AssetRateLimit.Zero()
 	executionPolicy := m.ExecutionPolicy.Zero()
+	inAssetSwapAmt := m.InAssetSwapAmt.Zero()
 
 	// Create a tlv stream with all the fields.
 	tlvStream, err := tlv.NewStream(
@@ -629,9 +673,10 @@ func (m *requestWireMsgData) Decode(r io.Reader) error {
 		minInAsset.Record(),
 		minOutAsset.Record(),
 
-		oracleMetadata.Record(),
+		oracleMetadataRecord(&oracleMetadata),
 		assetRateLimit.Record(),
 		executionPolicy.Record(),
+		inAssetSwapAmt.Record(),
 	)
 	if err != nil {
 		return err
@@ -679,6 +724,9 @@ func (m *requestWireMsgData) Decode(r io.Reader) error {
 	}
 	if _, ok := tlvMap[executionPolicy.TlvType()]; ok {
 		m.ExecutionPolicy = tlv.SomeRecordT(executionPolicy)
+	}
+	if _, ok := tlvMap[inAssetSwapAmt.TlvType()]; ok {
+		m.InAssetSwapAmt = tlv.SomeRecordT(inAssetSwapAmt)
 	}
 
 	return nil
