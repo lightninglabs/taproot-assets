@@ -12,7 +12,6 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/chainhash/v2"
-	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
@@ -354,112 +353,6 @@ func (m *MockGroupTxBuilder) BuildGenesisTx(newAsset *Asset) (*wire.MsgTx,
 // A compile time assertion to ensure that MockGroupTxBuilder meets the
 // GenesisTxBuilder interface.
 var _ GenesisTxBuilder = (*MockGroupTxBuilder)(nil)
-
-// SignOutputRaw creates a signature for a single input.
-// Taken from lnd/lnwallet/btcwallet/signer:L344, SignOutputRaw
-func SignOutputRaw(priv *btcec.PrivateKey, tx *wire.MsgTx,
-	signDesc *input.SignDescriptor) (*schnorr.Signature, error) {
-
-	witnessScript := signDesc.WitnessScript
-
-	privKey := priv
-	var maybeTweakPrivKey *btcec.PrivateKey
-
-	switch {
-	case signDesc.SingleTweak != nil:
-		maybeTweakPrivKey = input.TweakPrivKey(
-			privKey, signDesc.SingleTweak,
-		)
-
-	case signDesc.DoubleTweak != nil:
-		maybeTweakPrivKey = input.DeriveRevocationPrivKey(
-			privKey, signDesc.DoubleTweak,
-		)
-
-	default:
-		maybeTweakPrivKey = privKey
-	}
-
-	privKey = maybeTweakPrivKey
-
-	// In case of a taproot output any signature is always a Schnorr
-	// signature, based on the new tapscript sighash algorithm.
-	if !txscript.IsPayToTaproot(signDesc.Output.PkScript) {
-		return nil, fmt.Errorf("mock signer: output script not taproot")
-	}
-
-	sigHashes := txscript.NewTxSigHashes(
-		tx, signDesc.PrevOutputFetcher,
-	)
-
-	// Are we spending a script path or the key path? The API is slightly
-	// different, so we need to account for that to get the raw signature.
-	var (
-		rawSig []byte
-		err    error
-	)
-	switch signDesc.SignMethod {
-	case input.TaprootKeySpendBIP0086SignMethod,
-		input.TaprootKeySpendSignMethod:
-
-		// This function tweaks the private key using the tap root key
-		// supplied as the tweak.
-		rawSig, err = txscript.RawTxInTaprootSignature(
-			tx, sigHashes, signDesc.InputIndex,
-			signDesc.Output.Value, signDesc.Output.PkScript,
-			signDesc.TapTweak, signDesc.HashType, privKey,
-		)
-
-	case input.TaprootScriptSpendSignMethod:
-		leaf := txscript.TapLeaf{
-			LeafVersion: txscript.BaseLeafVersion,
-			Script:      witnessScript,
-		}
-		rawSig, err = txscript.RawTxInTapscriptSignature(
-			tx, sigHashes, signDesc.InputIndex,
-			signDesc.Output.Value, signDesc.Output.PkScript,
-			leaf, signDesc.HashType, privKey,
-		)
-	default:
-		// A witness V0 sign method should never appear here.
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	return schnorr.ParseSignature(rawSig)
-}
-
-func SignVirtualTx(priv *btcec.PrivateKey, signDesc *SignDescriptor,
-	tx *wire.MsgTx, prevOut *wire.TxOut) (*schnorr.Signature, error) {
-
-	prevOutFetcher := txscript.NewCannedPrevOutputFetcher(
-		prevOut.PkScript, prevOut.Value,
-	)
-
-	sigHashes := txscript.NewTxSigHashes(tx, prevOutFetcher)
-
-	fullSignDesc := input.SignDescriptor{
-		KeyDesc:           signDesc.KeyDesc,
-		SingleTweak:       signDesc.SingleTweak,
-		DoubleTweak:       signDesc.DoubleTweak,
-		TapTweak:          signDesc.TapTweak,
-		WitnessScript:     signDesc.WitnessScript,
-		SignMethod:        signDesc.SignMethod,
-		Output:            signDesc.Output,
-		HashType:          signDesc.HashType,
-		SigHashes:         sigHashes,
-		PrevOutputFetcher: prevOutFetcher,
-		InputIndex:        signDesc.InputIndex,
-	}
-
-	sig, err := SignOutputRaw(priv, tx, &fullSignDesc)
-	if err != nil {
-		return nil, err
-	}
-
-	return sig, nil
-}
 
 // AssetCustomGroupKey constructs a new asset group key and anchor asset from a
 // given asset genesis. The asset group key may also commit to a Tapscript tree
