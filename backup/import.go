@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -31,6 +32,48 @@ const (
 // Historical spends are reported almost immediately; the timeout only fires
 // for unspent (valid) outpoints. A variable so tests can shorten it.
 var spendCheckTimeout = 10 * time.Second
+
+// offlineChainLookup is the chain lookup of the pre-verification pass, which
+// must not reach the chain backend. The verifier asks it for a height on every
+// state transition, but that pass skips time lock validation, so no answer is
+// compared against a lock. It answers with zero values, which fail a lock
+// check rather than satisfy it.
+type offlineChainLookup struct{}
+
+// TxBlockHeight returns the block height that the given transaction was
+// included in.
+func (offlineChainLookup) TxBlockHeight(context.Context,
+	chainhash.Hash) (uint32, error) {
+
+	return 0, nil
+}
+
+// MeanBlockTimestamp returns the timestamp of the block at the given height,
+// taking into account the mean time elapsed over the previous blocks.
+func (offlineChainLookup) MeanBlockTimestamp(context.Context,
+	uint32) (time.Time, error) {
+
+	return time.Time{}, nil
+}
+
+// CurrentHeight returns the current height of the main chain.
+func (offlineChainLookup) CurrentHeight(context.Context) (uint32, error) {
+	return 0, nil
+}
+
+// GenFileChainLookup generates a chain lookup interface for the given proof
+// file.
+func (l offlineChainLookup) GenFileChainLookup(*proof.File) asset.ChainLookup {
+	return l
+}
+
+// GenProofChainLookup generates a chain lookup interface for the given single
+// proof.
+func (l offlineChainLookup) GenProofChainLookup(*proof.Proof) (
+	asset.ChainLookup, error) {
+
+	return l, nil
+}
 
 // SpendChecker can determine whether an outpoint has been spent.
 type SpendChecker interface {
@@ -539,10 +582,10 @@ func ImportBackup(ctx context.Context, backupBlob []byte,
 	// the proof and its young anchorings.
 	//
 	// The pre-verify context uses no-op header verification
-	// and a mock chain lookup so it never hits the chain
-	// backend. The only code path that consumes the chain
-	// lookup is timelock validation, which is disabled via
-	// WithSkipTimeLockValidationForAllProofs.
+	// and an offline chain lookup so it never hits the chain
+	// backend. The chain lookup only feeds time lock
+	// validation, which WithSkipTimeLockValidationForAllProofs
+	// disables for every asset that uses a time lock.
 	preVerifyCtx := proof.VerifierCtx{
 		HeaderVerifier: func(_ wire.BlockHeader,
 			_ uint32) error {
@@ -552,7 +595,7 @@ func ImportBackup(ctx context.Context, backupBlob []byte,
 		MerkleVerifier:      cfg.ProofVerifier.MerkleVerifier,
 		GroupVerifier:       augmentedVerifier,
 		GroupAnchorVerifier: cfg.ProofVerifier.GroupAnchorVerifier,
-		ChainLookupGen:      proof.MockChainLookup,
+		ChainLookupGen:      offlineChainLookup{},
 		IgnoreChecker:       lfn.None[proof.IgnoreChecker](),
 	}
 
