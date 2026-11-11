@@ -225,6 +225,11 @@
   decrypts but cannot process, and continues with the rest of the batch,
   as it does for a message that it cannot decrypt.
 
+* [PR#2387](https://github.com/lightninglabs/taproot-assets/pull/2387)
+  makes `DecodeProof` and `VerifyProof` report the merkle root that the
+  anchor output of a split output commits to in
+  `chain_anchor.merkle_root`.
+
 # New Features
 
 ## Functional Enhancements
@@ -518,6 +523,16 @@
   builds the transport credentials of all outbound gRPC connections to
   universe servers, proof couriers, auth mailboxes, price oracles and
   portfolio pilots. The gosec G402 check is enabled.
+
+* [PR#2387](https://github.com/lightninglabs/taproot-assets/pull/2387)
+  moves the validation and commit sequence of `CommitVirtualPsbts` into
+  `tapsend`, and the assembly of confirmed proof files into `proof`, so
+  that an application embedding these packages seals transfers with the
+  code tapd runs. Virtual transaction signers take an
+  `asset.SignDescriptor`, and `asset`, `tapscript`, `tapsend` and
+  `address` no longer import `lndclient` directly. The new
+  `make build-wasm` target and CI job compile the core packages for
+  js/wasm.
 
 ## Tooling and Documentation
 
