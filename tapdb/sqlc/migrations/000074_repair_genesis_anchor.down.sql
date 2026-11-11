@@ -1,0 +1,3 @@
+-- The genesis-anchor repair and invalid-commitment cleanup cannot be
+-- reversed in isolation. This file exists only so the migration runner
+-- can step back through version 73.

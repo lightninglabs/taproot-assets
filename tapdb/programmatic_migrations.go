@@ -40,6 +40,12 @@ const (
 	// for proof files written before the index existed. Proof files are
 	// recursive values, so this cannot be expressed as portable SQL.
 	Migration72BackfillProofProvenance = 72
+
+	// Migration74RepairGenesisAnchor restores genesis_points.anchor_tx_id
+	// after a transfer proof retargeted it, then abandons never-confirmed
+	// supply commitments that spend neither a pre-commit nor a confirmed
+	// commitment outpoint.
+	Migration74RepairGenesisAnchor = 74
 )
 
 // programmaticMigration is a function type for a function that performs a
@@ -59,6 +65,8 @@ var (
 		Migration65BackfillEventKeys: backfillSupplyUpdateEventKeys,
 
 		Migration72BackfillProofProvenance: backfillProofProvenance,
+
+		Migration74RepairGenesisAnchor: repairGenesisAnchorMigration,
 	}
 )
 

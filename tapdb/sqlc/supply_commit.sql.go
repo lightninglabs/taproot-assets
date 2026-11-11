@@ -10,6 +10,47 @@ import (
 	"database/sql"
 )
 
+const ClearPendingSupplyCommitTransition = `-- name: ClearPendingSupplyCommitTransition :exec
+UPDATE supply_commit_transitions
+SET new_commitment_id = NULL,
+    pending_commit_txn_id = NULL,
+    frozen = FALSE
+WHERE transition_id = $1
+`
+
+func (q *Queries) ClearPendingSupplyCommitTransition(ctx context.Context, transitionID int64) error {
+	_, err := q.db.ExecContext(ctx, ClearPendingSupplyCommitTransition, transitionID)
+	return err
+}
+
+const ClearSpentCommitmentRef = `-- name: ClearSpentCommitmentRef :exec
+UPDATE supply_commitments
+SET spent_commitment = NULL
+WHERE spent_commitment = $1
+`
+
+func (q *Queries) ClearSpentCommitmentRef(ctx context.Context, spentCommitment sql.NullInt64) error {
+	_, err := q.db.ExecContext(ctx, ClearSpentCommitmentRef, spentCommitment)
+	return err
+}
+
+const ClearSupplyCommitmentRefs = `-- name: ClearSupplyCommitmentRefs :exec
+UPDATE supply_commit_transitions
+SET old_commitment_id = CASE
+        WHEN old_commitment_id = $1 THEN NULL
+        ELSE old_commitment_id
+    END,
+    new_commitment_id = CASE
+        WHEN new_commitment_id = $1 THEN NULL
+        ELSE new_commitment_id
+    END
+`
+
+func (q *Queries) ClearSupplyCommitmentRefs(ctx context.Context, oldCommitmentID sql.NullInt64) error {
+	_, err := q.db.ExecContext(ctx, ClearSupplyCommitmentRefs, oldCommitmentID)
+	return err
+}
+
 const DeleteSupplyCommitTransition = `-- name: DeleteSupplyCommitTransition :exec
 DELETE FROM supply_commit_transitions
 WHERE transition_id = $1
@@ -71,6 +112,43 @@ func (q *Queries) FetchChainTxByID(ctx context.Context, txnID int64) (FetchChain
 	return i, err
 }
 
+const FetchConfirmedSupplyCommitOutpoints = `-- name: FetchConfirmedSupplyCommitOutpoints :many
+SELECT ct.txid, sc.output_index
+FROM supply_commitments sc
+JOIN chain_txns ct
+    ON sc.chain_txn_id = ct.txn_id
+WHERE ct.block_hash IS NOT NULL
+    AND sc.output_index IS NOT NULL
+`
+
+type FetchConfirmedSupplyCommitOutpointsRow struct {
+	Txid        []byte
+	OutputIndex sql.NullInt32
+}
+
+func (q *Queries) FetchConfirmedSupplyCommitOutpoints(ctx context.Context) ([]FetchConfirmedSupplyCommitOutpointsRow, error) {
+	rows, err := q.db.QueryContext(ctx, FetchConfirmedSupplyCommitOutpoints)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FetchConfirmedSupplyCommitOutpointsRow
+	for rows.Next() {
+		var i FetchConfirmedSupplyCommitOutpointsRow
+		if err := rows.Scan(&i.Txid, &i.OutputIndex); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const FetchInternalKeyByID = `-- name: FetchInternalKeyByID :one
 SELECT raw_key, key_family, key_index
 FROM internal_keys
@@ -88,6 +166,64 @@ func (q *Queries) FetchInternalKeyByID(ctx context.Context, keyID int64) (FetchI
 	var i FetchInternalKeyByIDRow
 	err := row.Scan(&i.RawKey, &i.KeyFamily, &i.KeyIndex)
 	return i, err
+}
+
+const FetchMintSupplyPreCommitOutpoints = `-- name: FetchMintSupplyPreCommitOutpoints :many
+SELECT outpoint
+FROM mint_supply_pre_commits
+WHERE outpoint IS NOT NULL
+`
+
+func (q *Queries) FetchMintSupplyPreCommitOutpoints(ctx context.Context) ([][]byte, error) {
+	rows, err := q.db.QueryContext(ctx, FetchMintSupplyPreCommitOutpoints)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items [][]byte
+	for rows.Next() {
+		var outpoint []byte
+		if err := rows.Scan(&outpoint); err != nil {
+			return nil, err
+		}
+		items = append(items, outpoint)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const FetchRemoteSupplyPreCommitOutpoints = `-- name: FetchRemoteSupplyPreCommitOutpoints :many
+SELECT outpoint
+FROM supply_pre_commits
+WHERE outpoint IS NOT NULL
+`
+
+func (q *Queries) FetchRemoteSupplyPreCommitOutpoints(ctx context.Context) ([][]byte, error) {
+	rows, err := q.db.QueryContext(ctx, FetchRemoteSupplyPreCommitOutpoints)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items [][]byte
+	for rows.Next() {
+		var outpoint []byte
+		if err := rows.Scan(&outpoint); err != nil {
+			return nil, err
+		}
+		items = append(items, outpoint)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const FetchSupplyCommit = `-- name: FetchSupplyCommit :one
@@ -182,6 +318,64 @@ func (q *Queries) FetchSupplyUpdateEventsForBackfill(ctx context.Context, numLim
 			&i.GroupKey,
 			&i.UpdateTypeID,
 			&i.EventData,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const FetchUnconfirmedBroadcastSupplyCommits = `-- name: FetchUnconfirmedBroadcastSupplyCommits :many
+SELECT
+    sm.group_key,
+    sc.commit_id,
+    t.transition_id,
+    ct.raw_tx
+FROM supply_commit_state_machines sm
+JOIN supply_commit_states states
+    ON sm.current_state_id = states.id
+JOIN supply_commit_transitions t
+    ON t.state_machine_group_key = sm.group_key
+    AND t.finalized = FALSE
+JOIN supply_commitments sc
+    ON t.new_commitment_id = sc.commit_id
+JOIN chain_txns ct
+    ON sc.chain_txn_id = ct.txn_id
+WHERE states.state_name = 'CommitBroadcastState'
+    AND ct.block_hash IS NULL
+`
+
+type FetchUnconfirmedBroadcastSupplyCommitsRow struct {
+	GroupKey     []byte
+	CommitID     int64
+	TransitionID int64
+	RawTx        []byte
+}
+
+// Never-confirmed commitments whose state machine is still waiting to
+// broadcast. Used to drop a commitment that cannot confirm because its
+// inputs are not real pre-commit or prior-commitment outpoints.
+func (q *Queries) FetchUnconfirmedBroadcastSupplyCommits(ctx context.Context) ([]FetchUnconfirmedBroadcastSupplyCommitsRow, error) {
+	rows, err := q.db.QueryContext(ctx, FetchUnconfirmedBroadcastSupplyCommits)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FetchUnconfirmedBroadcastSupplyCommitsRow
+	for rows.Next() {
+		var i FetchUnconfirmedBroadcastSupplyCommitsRow
+		if err := rows.Scan(
+			&i.GroupKey,
+			&i.CommitID,
+			&i.TransitionID,
+			&i.RawTx,
 		); err != nil {
 			return nil, err
 		}
@@ -1027,6 +1221,30 @@ func (q *Queries) QuerySupplyUpdateEvents(ctx context.Context, transitionID sql.
 	return items, nil
 }
 
+const ResetSupplyCommitMachineForAbandon = `-- name: ResetSupplyCommitMachineForAbandon :exec
+UPDATE supply_commit_state_machines
+SET current_state_id = (
+        SELECT id FROM supply_commit_states
+        WHERE state_name = $1
+    ),
+    latest_commitment_id = CASE
+        WHEN latest_commitment_id = $2 THEN NULL
+        ELSE latest_commitment_id
+    END
+WHERE group_key = $3
+`
+
+type ResetSupplyCommitMachineForAbandonParams struct {
+	StateName          string
+	LatestCommitmentID sql.NullInt64
+	GroupKey           []byte
+}
+
+func (q *Queries) ResetSupplyCommitMachineForAbandon(ctx context.Context, arg ResetSupplyCommitMachineForAbandonParams) error {
+	_, err := q.db.ExecContext(ctx, ResetSupplyCommitMachineForAbandon, arg.StateName, arg.LatestCommitmentID, arg.GroupKey)
+	return err
+}
+
 const SetSupplyUpdateEventKey = `-- name: SetSupplyUpdateEventKey :exec
 UPDATE supply_update_events
 SET event_key = $1
@@ -1054,6 +1272,28 @@ WHERE transition_id = $1
 
 func (q *Queries) UnbindSupplyUpdateEvents(ctx context.Context, transitionID sql.NullInt64) error {
 	_, err := q.db.ExecContext(ctx, UnbindSupplyUpdateEvents, transitionID)
+	return err
+}
+
+const UnmarkMintPreCommitsSpentBy = `-- name: UnmarkMintPreCommitsSpentBy :exec
+UPDATE mint_supply_pre_commits
+SET spent_by = NULL
+WHERE spent_by = $1
+`
+
+func (q *Queries) UnmarkMintPreCommitsSpentBy(ctx context.Context, spentBy sql.NullInt64) error {
+	_, err := q.db.ExecContext(ctx, UnmarkMintPreCommitsSpentBy, spentBy)
+	return err
+}
+
+const UnmarkRemotePreCommitsSpentBy = `-- name: UnmarkRemotePreCommitsSpentBy :exec
+UPDATE supply_pre_commits
+SET spent_by = NULL
+WHERE spent_by = $1
+`
+
+func (q *Queries) UnmarkRemotePreCommitsSpentBy(ctx context.Context, spentBy sql.NullInt64) error {
+	_, err := q.db.ExecContext(ctx, UnmarkRemotePreCommitsSpentBy, spentBy)
 	return err
 }
 

@@ -634,22 +634,50 @@ func upsertAssetGen(ctx context.Context, db UpsertAssetStore,
 		return 0, fmt.Errorf("unable to upsert chain tx: %w", err)
 	}
 
-	// Finally, we'll anchor the genesis point to link to the chain
-	// transaction we upserted above.
-	genesisPoint, err := encodeOutpoint(assetGen.FirstPrevOut)
-	if err != nil {
-		return 0, fmt.Errorf("unable to encode genesis point: %w", err)
-	}
-	if err := db.AnchorGenesisPoint(ctx, GenesisPointAnchor{
-		PrevOut:    genesisPoint,
-		AnchorTxID: sqlInt64(chainTXID),
-	}); err != nil {
-		return 0, fmt.Errorf("unable to anchor genesis tx: %w", err)
+	// The genesis anchor is the transaction that spends the genesis
+	// outpoint: the mint. Transfer proofs carry the same genesis and a
+	// later anchor transaction. Writing that later transaction here
+	// retargets the mint anchor, and supply pre-commit resolution then
+	// builds commitment inputs against the transfer txid.
+	//
+	// Re-upserting the issuance proof heals a pointer that a transfer
+	// previously overwrote, because only the mint spends the genesis
+	// outpoint.
+	if anchorSpendsGenesis(&genesisProof.AnchorTx, assetGen.FirstPrevOut) {
+		genesisPoint, err := encodeOutpoint(assetGen.FirstPrevOut)
+		if err != nil {
+			return 0, fmt.Errorf("unable to encode genesis "+
+				"point: %w", err)
+		}
+		err = db.AnchorGenesisPoint(ctx, GenesisPointAnchor{
+			PrevOut:    genesisPoint,
+			AnchorTxID: sqlInt64(chainTXID),
+		})
+		if err != nil {
+			return 0, fmt.Errorf("unable to anchor genesis "+
+				"tx: %w", err)
+		}
 	}
 
 	// TODO(roasbeef): need to mark that this is a imported gen?
 
 	return genAssetID, nil
+}
+
+// anchorSpendsGenesis reports whether tx spends the genesis outpoint. The
+// minting transaction is the spend of that outpoint.
+func anchorSpendsGenesis(tx *wire.MsgTx, genesis wire.OutPoint) bool {
+	if tx == nil {
+		return false
+	}
+
+	for _, txIn := range tx.TxIn {
+		if txIn.PreviousOutPoint == genesis {
+			return true
+		}
+	}
+
+	return false
 }
 
 // shouldInsertPreCommit determines whether a supply pre-commitment

@@ -49,6 +49,14 @@
   using their archived proofs, including after restart. External inputs remain
   outside the wallet; only locally controlled outputs are added to its holdings.
 
+- [A transfer proof no longer moves the genesis
+  anchor](https://github.com/lightninglabs/taproot-assets/pull/2345) off the
+  mint transaction. Previously, sending a grouped asset before its first supply
+  commitment made that commitment spend the transfer output instead of the mint
+  supply pre-commit, so the backend rejected it and later supply updates
+  stalled. A database migration repairs affected genesis anchors, and pending
+  supply updates are rebuilt into a valid commitment on restart.
+
 - [Importing an asset wallet
   backup](https://github.com/lightninglabs/taproot-assets/pull/2277) into a
   node whose database was wiped but whose proofs directory survived no longer

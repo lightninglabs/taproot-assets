@@ -629,6 +629,48 @@ func (q *Queries) FetchAllAssetMeta(ctx context.Context) ([]FetchAllAssetMetaRow
 	return items, nil
 }
 
+const FetchAllChainTxns = `-- name: FetchAllChainTxns :many
+SELECT txn_id, txid, raw_tx, block_height, block_hash
+FROM chain_txns
+`
+
+type FetchAllChainTxnsRow struct {
+	TxnID       int64
+	Txid        []byte
+	RawTx       []byte
+	BlockHeight sql.NullInt32
+	BlockHash   []byte
+}
+
+func (q *Queries) FetchAllChainTxns(ctx context.Context) ([]FetchAllChainTxnsRow, error) {
+	rows, err := q.db.QueryContext(ctx, FetchAllChainTxns)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FetchAllChainTxnsRow
+	for rows.Next() {
+		var i FetchAllChainTxnsRow
+		if err := rows.Scan(
+			&i.TxnID,
+			&i.Txid,
+			&i.RawTx,
+			&i.BlockHeight,
+			&i.BlockHash,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const FetchAssetID = `-- name: FetchAssetID :many
 SELECT asset_id
     FROM assets
@@ -1893,6 +1935,37 @@ func (q *Queries) FetchManagedUTXOs(ctx context.Context) ([]FetchManagedUTXOsRow
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const FetchMintPreCommitOutpointsByGenesisID = `-- name: FetchMintPreCommitOutpointsByGenesisID :many
+SELECT msp.outpoint
+FROM mint_supply_pre_commits msp
+JOIN asset_minting_batches amb ON msp.batch_id = amb.batch_id
+WHERE amb.genesis_id = $1
+  AND msp.outpoint IS NOT NULL
+`
+
+func (q *Queries) FetchMintPreCommitOutpointsByGenesisID(ctx context.Context, genesisID sql.NullInt64) ([][]byte, error) {
+	rows, err := q.db.QueryContext(ctx, FetchMintPreCommitOutpointsByGenesisID, genesisID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items [][]byte
+	for rows.Next() {
+		var outpoint []byte
+		if err := rows.Scan(&outpoint); err != nil {
+			return nil, err
+		}
+		items = append(items, outpoint)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
