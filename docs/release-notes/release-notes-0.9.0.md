@@ -49,6 +49,12 @@
   using their archived proofs, including after restart. External inputs remain
   outside the wallet; only locally controlled outputs are added to its holdings.
 
+- [Confirm transfers whose input proofs come from the local
+  universe](https://github.com/lightninglabs/taproot-assets/pull/2386). tapd
+  copies an input proof it holds in neither its wallet nor its proof archive
+  into the archive before it stores the transfer, so confirmation can extend
+  every input proof the pre-broadcast check accepted.
+
 - [Importing an asset wallet
   backup](https://github.com/lightninglabs/taproot-assets/pull/2277) into a
   node whose database was wiped but whose proofs directory survived no longer
