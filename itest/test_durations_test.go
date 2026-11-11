@@ -107,6 +107,7 @@ var testCaseSeconds = map[string]int{
 	"psbt external input":                                   71,
 	"psbt external input restart":                           72,
 	"psbt external input universe proof":                    72,
+	"psbt external input request proof":                     72,
 	"psbt external commit":                                  55,
 	"psbt sign anchor inputs":                               72,
 	"multi input psbt single asset id":                      77,

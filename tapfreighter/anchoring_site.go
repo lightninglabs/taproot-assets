@@ -612,7 +612,7 @@ func (p *ChainPorter) inputAnchorScript(ctx context.Context,
 	input asset.PrevID) ([]byte, error) {
 
 	op := input.OutPoint
-	file, err := p.fetchInputProof(ctx, input)
+	file, err := p.fetchInputProof(ctx, input, nil)
 	if err != nil {
 		return nil, fmt.Errorf("unable to fetch input proof for %v: "+
 			"%w", op, err)

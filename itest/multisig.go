@@ -538,6 +538,10 @@ type publishAndLogTransferOptions struct {
 	// signAnchorInputs indicates whether tapd should sign the anchor
 	// inputs it owns.
 	signAnchorInputs bool
+
+	// inputProofFiles are the proof files of inputs tapd holds no proof
+	// for.
+	inputProofFiles [][]byte
 }
 
 // defaultPublishAndLogTransferOptions returns the default options for
@@ -578,6 +582,14 @@ func withSignAnchorInputs() PublishAndLogTransferOption {
 	}
 }
 
+// withInputProofFiles is an option for PublishAndLogTransfer that supplies
+// the proof files of inputs tapd holds no proof for.
+func withInputProofFiles(files ...[]byte) PublishAndLogTransferOption {
+	return func(opts *publishAndLogTransferOptions) {
+		opts.inputProofFiles = files
+	}
+}
+
 // PublishAndLogTransfer is a helper function that invokes the
 // PublishAndLogTransfer RPC endpoint on the specified tapd node. This endpoint
 // performs a pre-anchored transfer.
@@ -608,6 +620,7 @@ func PublishAndLogTransfer(t *testing.T, tapd commands.RpcClientsBundle,
 		SkipAnchorTxBroadcast: options.skipAnchorTxBroadcast,
 		Label:                 options.label,
 		SignAnchorInputs:      options.signAnchorInputs,
+		InputProofFiles:       options.inputProofFiles,
 	}
 
 	for idx := range activeAssets {

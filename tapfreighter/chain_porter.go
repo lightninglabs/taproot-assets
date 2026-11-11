@@ -692,26 +692,25 @@ func inputProofLocator(input asset.PrevID) (proof.Locator, error) {
 	}, nil
 }
 
-// fetchInputProof fetches a proof for the given input from the proof archive.
-func (p *ChainPorter) fetchInputProof(ctx context.Context,
-	input asset.PrevID) (*proof.File, error) {
+// fetchInputProofBlob fetches the proof file of an input. Without a
+// caller-supplied proof it reads the proof archives. With one, the wallet's
+// own proof still comes first, since re-orgs restamp it, and the supplied
+// proof shadows any other archived copy, which may predate a re-org.
+func (p *ChainPorter) fetchInputProofBlob(ctx context.Context,
+	locator proof.Locator, input asset.PrevID,
+	supplied map[asset.PrevID]proof.Blob) (proof.Blob, error) {
 
-	locator, err := inputProofLocator(input)
-	if err != nil {
-		return nil, err
-	}
-	inputProofBytes, err := p.cfg.ProofReader.FetchProof(ctx, locator)
-	if err != nil {
-		return nil, fmt.Errorf("error fetching input proof -- "+
-			"locator=%v: %w", spew.Sdump(locator), err)
-	}
-	inputProofFile := proof.NewEmptyFile(proof.V0)
-	err = inputProofFile.Decode(bytes.NewReader(inputProofBytes))
-	if err != nil {
-		return nil, fmt.Errorf("error decoding input proof: %w", err)
+	suppliedBlob, ok := supplied[input]
+	if !ok {
+		return p.cfg.ProofReader.FetchProof(ctx, locator)
 	}
 
-	return inputProofFile, nil
+	blob, err := p.cfg.WalletProofs.FetchProof(ctx, locator)
+	if errors.Is(err, proof.ErrProofNotFound) {
+		return suppliedBlob, nil
+	}
+
+	return blob, err
 }
 
 // walletHasProof returns true if the wallet holds the proof of the given
@@ -731,10 +730,38 @@ func (p *ChainPorter) walletHasProof(ctx context.Context,
 	return true, nil
 }
 
+// fetchInputProof fetches a proof for the given input from the proof archive
+// or the caller-supplied proofs.
+func (p *ChainPorter) fetchInputProof(ctx context.Context,
+	input asset.PrevID,
+	supplied map[asset.PrevID]proof.Blob) (*proof.File, error) {
+
+	locator, err := inputProofLocator(input)
+	if err != nil {
+		return nil, err
+	}
+	inputProofBytes, err := p.fetchInputProofBlob(
+		ctx, locator, input, supplied,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error fetching input proof -- "+
+			"locator=%v: %w", spew.Sdump(locator), err)
+	}
+	inputProofFile := proof.NewEmptyFile(proof.V0)
+	err = inputProofFile.Decode(bytes.NewReader(inputProofBytes))
+	if err != nil {
+		return nil, fmt.Errorf("error decoding input proof: %w", err)
+	}
+
+	return inputProofFile, nil
+}
+
 // unarchivedInputProof returns the proof file of an input that confirmation
 // could not read, or nil if the wallet or the file archive already holds it.
+// A caller-supplied proof is returned unless the wallet holds the input.
 func (p *ChainPorter) unarchivedInputProof(ctx context.Context,
-	locator proof.Locator) (proof.Blob, error) {
+	locator proof.Locator, input asset.PrevID,
+	supplied map[asset.PrevID]proof.Blob) (proof.Blob, error) {
 
 	inWallet, err := p.walletHasProof(ctx, locator)
 	if err != nil {
@@ -742,6 +769,9 @@ func (p *ChainPorter) unarchivedInputProof(ctx context.Context,
 	}
 	if inWallet {
 		return nil, nil
+	}
+	if suppliedBlob, ok := supplied[input]; ok {
+		return suppliedBlob, nil
 	}
 
 	archived, err := p.cfg.ProofWriter.HasProof(ctx, locator)
@@ -759,8 +789,9 @@ func (p *ChainPorter) unarchivedInputProof(ctx context.Context,
 // archiveInputProofs copies the proof file of every active input that the
 // wallet does not hold into the file archive. Confirmation extends input
 // proofs from the wallet or the file archive only, so an input proved from
-// another source, such as the local universe, must reach the archive before
-// the transfer is stored.
+// another source, such as the local universe or the caller, must reach the
+// archive before the transfer is stored. A caller-supplied proof replaces an
+// archived copy.
 func (p *ChainPorter) archiveInputProofs(ctx context.Context,
 	pkg *sendPackage) error {
 
@@ -780,7 +811,9 @@ func (p *ChainPorter) archiveInputProofs(ctx context.Context,
 			if err != nil {
 				return err
 			}
-			blob, err := p.unarchivedInputProof(ctx, locator)
+			blob, err := p.unarchivedInputProof(
+				ctx, locator, prevID, pkg.InputProofs,
+			)
 			if err != nil {
 				return fmt.Errorf("error fetching input proof "+
 					"%v: %w", prevID.OutPoint, err)
@@ -1239,7 +1272,8 @@ func (p *ChainPorter) prelimCheckAddrParcel(addrParcel AddressParcel) error {
 // verifyVPacketsPreBroadcast performs verification checks on the given virtual
 // packets before the anchor transaction is broadcast.
 func (p *ChainPorter) verifyVPacketsPreBroadcast(ctx context.Context,
-	packets []*tappsbt.VPacket) error {
+	packets []*tappsbt.VPacket,
+	inputProofs map[asset.PrevID]proof.Blob) error {
 
 	headerVerifier := tapnode.GenHeaderVerifier(ctx, p.cfg.ChainBridge)
 	vCtx := proof.VerifierCtx{
@@ -1271,6 +1305,7 @@ func (p *ChainPorter) verifyVPacketsPreBroadcast(ctx context.Context,
 		for outIdx := range vPkt.Outputs {
 			err := p.verifyOutputProofPreBroadcast(
 				ctx, vCtx, verifier, vPkt, pktIdx, outIdx,
+				inputProofs,
 			)
 			if err != nil {
 				return fmt.Errorf("verify output proofs "+
@@ -1287,7 +1322,8 @@ func (p *ChainPorter) verifyVPacketsPreBroadcast(ctx context.Context,
 // for the final proof, since the anchor transaction is not yet confirmed.
 func (p *ChainPorter) verifyOutputProofPreBroadcast(ctx context.Context,
 	vCtx proof.VerifierCtx, verifier proof.Verifier,
-	vPkt *tappsbt.VPacket, pktIdx, outIdx int) error {
+	vPkt *tappsbt.VPacket, pktIdx, outIdx int,
+	inputProofs map[asset.PrevID]proof.Blob) error {
 
 	vOut := vPkt.Outputs[outIdx]
 	if vOut.ProofSuffix == nil {
@@ -1335,7 +1371,9 @@ func (p *ChainPorter) verifyOutputProofPreBroadcast(ctx context.Context,
 	)
 	for idx := range inputsForAsset {
 		prevID := inputsForAsset[idx]
-		inputProofFile, err := p.fetchInputProof(ctx, prevID)
+		inputProofFile, err := p.fetchInputProof(
+			ctx, prevID, inputProofs,
+		)
 		if err != nil {
 			return fmt.Errorf("error fetching input proof %d "+
 				"(vpkt_idx=%d, "+
@@ -1679,7 +1717,9 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		allPackets = append(allPackets, currentPkg.VirtualPackets...)
 		allPackets = append(allPackets, currentPkg.PassiveAssets...)
 
-		err := p.verifyVPacketsPreBroadcast(ctx, allPackets)
+		err := p.verifyVPacketsPreBroadcast(
+			ctx, allPackets, currentPkg.InputProofs,
+		)
 		if err != nil {
 			p.unlockInputs(ctx, &currentPkg)
 

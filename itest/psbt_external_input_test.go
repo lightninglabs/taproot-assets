@@ -34,6 +34,10 @@ const (
 	// externalProofUniverse inserts each proof of the file into the
 	// publisher's local universe.
 	externalProofUniverse
+
+	// externalProofRequest supplies the proof file with the publish
+	// request.
+	externalProofRequest
 )
 
 func testPsbtExternalInput(t *harnessTest) {
@@ -46,6 +50,10 @@ func testPsbtExternalInputRestart(t *harnessTest) {
 
 func testPsbtExternalInputUniverseProof(t *harnessTest) {
 	testExternalInputConfirmation(t, true, externalProofUniverse)
+}
+
+func testPsbtExternalInputRequestProof(t *harnessTest) {
+	testExternalInputConfirmation(t, true, externalProofRequest)
 }
 
 // testExternalInputConfirmation spends a composed output without importing it
@@ -166,6 +174,12 @@ func testExternalInputConfirmation(t *harnessTest, restart bool,
 			require.NoError(t.t, err)
 			InsertProofIntoUniverse(t.t, alice, rawProof)
 		}
+
+	// The publishing wallet receives the history with the transfer.
+	case externalProofRequest:
+		publishOpts = append(
+			publishOpts, withInputProofFiles(lockFile.RawProofFile),
+		)
 	}
 
 	assertExternalNotOwned := func() {
