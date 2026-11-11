@@ -20,7 +20,6 @@ import (
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btclog/v2"
 	"github.com/davecgh/go-spew/spew"
-	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
@@ -804,7 +803,7 @@ func CreateTaprootSignature(vIn *tappsbt.VInput, virtualTx *wire.MsgTx,
 
 	// Start with a default sign descriptor and the BIP-0086 sign method
 	// then adjust depending on the input parameters.
-	spendDesc := lndclient.SignDescriptor{
+	spendDesc := asset.SignDescriptor{
 		KeyDesc:    keyDesc,
 		SignMethod: input.TaprootKeySpendBIP0086SignMethod,
 		Output:     prevOut,
@@ -895,7 +894,7 @@ func CreateTaprootSignature(vIn *tappsbt.VInput, virtualTx *wire.MsgTx,
 
 // addKeyTweaks examines if there are any tweak parameters given in the
 // custom/proprietary PSBT fields and may add them to the given sign descriptor.
-func addKeyTweaks(unknowns []*psbt.Unknown, desc *lndclient.SignDescriptor) {
+func addKeyTweaks(unknowns []*psbt.Unknown, desc *asset.SignDescriptor) {
 	// There can be other custom/unknown keys in a PSBT that we just ignore.
 	// Key tweaking is optional and only one tweak (single _or_ double) can
 	// ever be applied (at least for any use cases described in the BOLT

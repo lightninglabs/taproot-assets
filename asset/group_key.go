@@ -17,7 +17,6 @@ import (
 	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
-	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/pedersen"
 	"github.com/lightningnetwork/lnd/input"
@@ -1459,7 +1458,7 @@ func DeriveGroupKey(genSigner GenesisSigner, genTx GroupVirtualTx,
 
 	// Populate the signing descriptor needed to sign the virtual minting
 	// transaction.
-	signDesc := &lndclient.SignDescriptor{
+	signDesc := &SignDescriptor{
 		KeyDesc:     req.RawKey,
 		SingleTweak: genTx.GenID[:],
 		TapTweak:    req.TapscriptRoot,

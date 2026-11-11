@@ -15,7 +15,6 @@ import (
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
-	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/cmd/commands"
 	"github.com/lightninglabs/taproot-assets/commitment"
@@ -780,7 +779,7 @@ func (m *muSig2PartialSigner) ValidateWitnesses(*asset.Asset,
 	return nil
 }
 
-func (m *muSig2PartialSigner) SignVirtualTx(_ *lndclient.SignDescriptor,
+func (m *muSig2PartialSigner) SignVirtualTx(_ *asset.SignDescriptor,
 	tx *wire.MsgTx, prevOut *wire.TxOut) (*schnorr.Signature, error) {
 
 	prevOutputFetcher := txscript.NewCannedPrevOutputFetcher(

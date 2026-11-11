@@ -14,7 +14,6 @@ import (
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
-	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/mssmt"
@@ -230,7 +229,7 @@ func NewMockGenesisSigner(priv *btcec.PrivateKey) *MockGenesisSigner {
 
 // SignVirtualTx generates a signature according to the passed signing
 // descriptor and virtual TX.
-func (r *MockGenesisSigner) SignVirtualTx(signDesc *lndclient.SignDescriptor,
+func (r *MockGenesisSigner) SignVirtualTx(signDesc *SignDescriptor,
 	virtualTx *wire.MsgTx, prevOut *wire.TxOut) (*schnorr.Signature,
 	error) {
 
@@ -431,7 +430,7 @@ func SignOutputRaw(priv *btcec.PrivateKey, tx *wire.MsgTx,
 	return schnorr.ParseSignature(rawSig)
 }
 
-func SignVirtualTx(priv *btcec.PrivateKey, signDesc *lndclient.SignDescriptor,
+func SignVirtualTx(priv *btcec.PrivateKey, signDesc *SignDescriptor,
 	tx *wire.MsgTx, prevOut *wire.TxOut) (*schnorr.Signature, error) {
 
 	prevOutFetcher := txscript.NewCannedPrevOutputFetcher(

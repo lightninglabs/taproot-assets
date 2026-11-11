@@ -15,7 +15,6 @@ import (
 	"github.com/btcsuite/btcd/psbt/v2"
 	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
-	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -525,7 +524,7 @@ func (m *MockGenSigner) FailSigningOnce() {
 	m.failSigning.Store(true)
 }
 
-func (m *MockGenSigner) SignVirtualTx(signDesc *lndclient.SignDescriptor,
+func (m *MockGenSigner) SignVirtualTx(signDesc *asset.SignDescriptor,
 	virtualTx *wire.MsgTx, prevOut *wire.TxOut) (*schnorr.Signature,
 	error) {
 

@@ -26,11 +26,12 @@ func NewLndRpcVirtualTxSigner(lnd *lndclient.LndServices) *LndRpcVirtualTxSigner
 
 // SignVirtualTx generates a signature according to the passed signing
 // descriptor and virtual TX.
-func (l *LndRpcVirtualTxSigner) SignVirtualTx(signDesc *lndclient.SignDescriptor,
+func (l *LndRpcVirtualTxSigner) SignVirtualTx(signDesc *asset.SignDescriptor,
 	tx *wire.MsgTx, prevOut *wire.TxOut) (*schnorr.Signature, error) {
 
 	sigs, err := l.lnd.Signer.SignOutputRawKeyLocator(
-		context.Background(), tx, []*lndclient.SignDescriptor{signDesc},
+		context.Background(), tx,
+		[]*lndclient.SignDescriptor{lndSignDescriptor(signDesc)},
 		[]*wire.TxOut{prevOut},
 	)
 	if err != nil {
@@ -45,6 +46,22 @@ func (l *LndRpcVirtualTxSigner) SignVirtualTx(signDesc *lndclient.SignDescriptor
 	}
 
 	return virtualTxSig, nil
+}
+
+// lndSignDescriptor converts a sign descriptor into its lnd client
+// counterpart.
+func lndSignDescriptor(desc *asset.SignDescriptor) *lndclient.SignDescriptor {
+	return &lndclient.SignDescriptor{
+		KeyDesc:       desc.KeyDesc,
+		SingleTweak:   desc.SingleTweak,
+		DoubleTweak:   desc.DoubleTweak,
+		TapTweak:      desc.TapTweak,
+		WitnessScript: desc.WitnessScript,
+		SignMethod:    desc.SignMethod,
+		Output:        desc.Output,
+		HashType:      desc.HashType,
+		InputIndex:    desc.InputIndex,
+	}
 }
 
 // Compile time assertions to ensure LndRpcVirtualTxSigner meets the
