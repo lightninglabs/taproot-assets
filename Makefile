@@ -156,6 +156,15 @@ build-docs-examples:
 	@$(call print, "Building docs examples.")
 	$(MAKE) -C ./docs/examples build
 
+# WASM_PKGS are the packages an embedder compiles for the browser, so they
+# have to build for js/wasm.
+WASM_PKGS := address asset backup commitment mssmt proof tappsbt tapscript \
+	tapsend vm
+
+build-wasm:
+	@$(call print, "Building core packages for js/wasm.")
+	GOOS=js GOARCH=wasm $(GOBUILD) $(addprefix $(PKG)/,$(WASM_PKGS))
+
 install:
 	@$(call print, "Installing tapd and tapcli.")
 	$(GOINSTALL) -tags="${tags}" -ldflags="$(RELEASE_LDFLAGS)" $(PKG)/cmd/tapd
