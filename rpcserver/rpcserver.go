@@ -3310,44 +3310,10 @@ func (r *RPCServer) CommitVirtualPsbts(ctx context.Context,
 	}
 
 	// We can now update the anchor outputs as we have the final
-	// commitments.
-	outputCommitments, err := tapsend.CreateOutputCommitments(
-		allPackets, tapsend.WithSpenderLeaves(),
-	)
+	// commitments, and create the transition proof suffixes.
+	err = tapsend.CommitPackets(fundedPacket, allPackets, proofOpts...)
 	if err != nil {
-		return nil, fmt.Errorf("unable to create new output "+
-			"commitments: %w", err)
-	}
-
-	for _, vPkt := range allPackets {
-		err = tapsend.UpdateTaprootOutputKeys(
-			fundedPacket, vPkt, outputCommitments,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("error updating taproot output "+
-				"keys: %w", err)
-		}
-	}
-
-	// We're done creating the output commitments, we can now create the
-	// transition proof suffixes.
-	for idx := range allPackets {
-		vPkt := allPackets[idx]
-
-		for vOutIdx := range vPkt.Outputs {
-			proofSuffix, err := tapsend.CreateProofSuffix(
-				fundedPacket.UnsignedTx, fundedPacket.Outputs,
-				vPkt, outputCommitments, vOutIdx, allPackets,
-				proofOpts...,
-			)
-			if err != nil {
-				return nil, fmt.Errorf("unable to create "+
-					"proof suffix for output %d of vPSBT "+
-					"%d: %w", vOutIdx, idx, err)
-			}
-
-			vPkt.Outputs[vOutIdx].ProofSuffix = proofSuffix
-		}
+		return nil, err
 	}
 
 	// We can now prepare the full answer, beginning with the serialized
@@ -3511,55 +3477,7 @@ func (r *RPCServer) validateInputAssets(ctx context.Context,
 		}
 	}
 
-	// At this point all the virtual packet inputs and outputs should fully
-	// match the BTC level anchor transaction. Version 0 assets should also
-	// be signed now.
-	if err := tapsend.AssertInputAnchorsEqual(vPackets); err != nil {
-		return fmt.Errorf("input anchors don't match: %w", err)
-	}
-	if err := tapsend.AssertOutputAnchorsEqual(vPackets); err != nil {
-		return fmt.Errorf("output anchors don't match: %w", err)
-	}
-	err = tapsend.ValidateAnchorInputs(btcPkt, vPackets, purgedAssets)
-	if err != nil {
-		return fmt.Errorf("error validating anchor inputs: %w", err)
-	}
-
-	// The witness of a split only signs the split commitment root, so we
-	// make sure each split root asset is the one its split tree commits
-	// to. Otherwise a split root could be changed after signing, for
-	// example to point to another script key at the same amount.
-	if err := tapsend.ValidateSplitRootLocators(vPackets); err != nil {
-		return fmt.Errorf("error validating split roots: %w", err)
-	}
-
-	// Now that we know the packet inputs match the anchored assets, we can
-	// also check that we don't inflate or deflate the asset supply with the
-	// active and passive assets. We explicitly don't look at the pruned
-	// assets. We have already made sure that the total sum of all inputs
-	// that was committed to in the input anchor is accounted for with the
-	// active, passive and pruned assets. Now we just need to make sure the
-	// active and passive transfers don't create or destroy assets.
-	inputBalances := make(map[asset.ID]uint64)
-	outputBalances := make(map[asset.ID]uint64)
-	for _, vPkt := range vPackets {
-		for _, vIn := range vPkt.Inputs {
-			inputBalances[vIn.Asset().ID()] += vIn.Asset().Amount
-		}
-		for _, vOut := range vPkt.Outputs {
-			outputBalances[vOut.Asset.ID()] += vOut.Asset.Amount
-		}
-	}
-	for assetID, inputBalance := range inputBalances {
-		outputBalance := outputBalances[assetID]
-		if inputBalance != outputBalance {
-			return fmt.Errorf("input and output balances don't "+
-				"match for asset %x: %d != %d", assetID[:],
-				inputBalance, outputBalance)
-		}
-	}
-
-	return nil
+	return tapsend.ValidateAnchoredPackets(btcPkt, vPackets, purgedAssets)
 }
 
 // PublishAndLogTransfer accepts a fully committed and signed anchor transaction
