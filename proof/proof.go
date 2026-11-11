@@ -522,7 +522,14 @@ func (p *Proof) ToChainAsset() (asset.ChainAsset, error) {
 			"sibling: %w", err)
 	}
 
-	tapProof, err := commitmentProof.DeriveByAssetInclusion(&p.Asset)
+	commitmentKeys, err := p.InclusionProof.DeriveByAssetInclusion(
+		&p.Asset, fn.Ptr(false),
+	)
+	if err != nil {
+		return emptyAsset, fmt.Errorf("error deriving inclusion "+
+			"proof: %w", err)
+	}
+	tapProof, err := commitmentKeys.GetCommitment()
 	if err != nil {
 		return emptyAsset, fmt.Errorf("error deriving inclusion "+
 			"proof: %w", err)

@@ -133,6 +133,25 @@ func createProofSuffix(t *testing.T, stxoProof bool, expectedErr string) {
 				require.NoError(t, err)
 			}
 
+			// The anchor reported for the output must be the one
+			// its anchor output commits to, split outputs
+			// included.
+			chainAsset, err := proofSuffix.ToChainAsset()
+			require.NoError(t, err)
+			anchorKey := txscript.ComputeTaprootOutputKey(
+				chainAsset.AnchorInternalKey,
+				chainAsset.AnchorMerkleRoot,
+			)
+			anchorScript, err := txscript.PayToTaprootScript(
+				anchorKey,
+			)
+			require.NoError(t, err)
+			anchorIdx := chainAsset.AnchorOutpoint.Index
+			require.Equal(
+				t, pkt.UnsignedTx.TxOut[anchorIdx].PkScript,
+				anchorScript,
+			)
+
 			ctx := context.Background()
 			prev := &proof.AssetSnapshot{
 				Asset: vPkt.Inputs[0].Asset(),
