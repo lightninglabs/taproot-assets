@@ -7,6 +7,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/internal/test/lndmock"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightninglabs/taproot-assets/tapchannelmsg"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -70,7 +71,8 @@ func TestIssue115ForeignAssetIdRejected(t *testing.T) {
 		prevState, chanState, chanAssetState, lntypes.Local,
 		lnwire.MilliSatoshi(1_000_000_000),
 		lnwire.MilliSatoshi(1_000_000_000), makeView(fundedAsset),
-		testChainParams, test.RandCommitmentKeyRing(t), STXOFeatures{},
+		testChainParams, lndmock.RandCommitmentKeyRing(t),
+		STXOFeatures{},
 	)
 	require.NoError(t, err, "HTLC declaring the funded asset must pass")
 
@@ -85,7 +87,7 @@ func TestIssue115ForeignAssetIdRejected(t *testing.T) {
 			lnwire.MilliSatoshi(1_000_000_000),
 			lnwire.MilliSatoshi(1_000_000_000),
 			makeView(foreignAsset), testChainParams,
-			test.RandCommitmentKeyRing(t), STXOFeatures{},
+			lndmock.RandCommitmentKeyRing(t), STXOFeatures{},
 		)
 		require.Error(t, err,
 			"whoseCommit=%v: HTLC declaring an asset the channel "+
@@ -104,7 +106,8 @@ func TestIssue115ForeignAssetIdRejected(t *testing.T) {
 		prevState, chanState, groupedChanAssetState, lntypes.Local,
 		lnwire.MilliSatoshi(1_000_000_000),
 		lnwire.MilliSatoshi(1_000_000_000), makeView(groupPlaceholder),
-		testChainParams, test.RandCommitmentKeyRing(t), STXOFeatures{},
+		testChainParams, lndmock.RandCommitmentKeyRing(t),
+		STXOFeatures{},
 	)
 	require.NoError(t, err,
 		"the funding group's placeholder ID must be accepted")
@@ -118,7 +121,8 @@ func TestIssue115ForeignAssetIdRejected(t *testing.T) {
 		lnwire.MilliSatoshi(1_000_000_000),
 		lnwire.MilliSatoshi(1_000_000_000),
 		makeView(foreignPlaceholder),
-		testChainParams, test.RandCommitmentKeyRing(t), STXOFeatures{},
+		testChainParams, lndmock.RandCommitmentKeyRing(t),
+		STXOFeatures{},
 	)
 	require.Error(t, err,
 		"a foreign group's placeholder ID must be rejected")

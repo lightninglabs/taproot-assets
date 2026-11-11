@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/internal/test/lndmock"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
 	"pgregory.net/rapid"
@@ -168,7 +169,7 @@ func TestGenSignedIgnore(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			mockSigner := test.NewMockSigner()
+			mockSigner := lndmock.NewMockSigner()
 			mockSigner.Signature = tc.signature
 
 			if tc.expectErr {

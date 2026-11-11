@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/lightninglabs/taproot-assets/fn"
-	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/internal/test/lndmock"
 	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightninglabs/taproot-assets/tapchannelmsg"
@@ -97,7 +97,7 @@ func TestIssue121CarrierDustEvaluation(t *testing.T) {
 			lntypes.Local,
 			lnwire.MilliSatoshi(1_000_000_000),
 			lnwire.MilliSatoshi(1_000_000_000), view,
-			testChainParams, test.RandCommitmentKeyRing(t),
+			testChainParams, lndmock.RandCommitmentKeyRing(t),
 			STXOFeatures{},
 		)
 		require.NoError(t, err,
@@ -140,7 +140,8 @@ func TestIssue121CarrierDustEvaluation(t *testing.T) {
 		prevState, highDustChanState, chanAssetState, lntypes.Local,
 		lnwire.MilliSatoshi(1_000_000_000),
 		lnwire.MilliSatoshi(1_000_000_000), view,
-		testChainParams, test.RandCommitmentKeyRing(t), STXOFeatures{},
+		testChainParams, lndmock.RandCommitmentKeyRing(t),
+		STXOFeatures{},
 	)
 	require.Error(t, err,
 		"a carrier below the negotiated dust limit must still be "+

@@ -12,6 +12,8 @@ import (
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/internal/test/grpcmock"
+	"github.com/lightninglabs/taproot-assets/internal/test/lndmock"
 	"github.com/lightninglabs/taproot-assets/proof"
 	mboxrpc "github.com/lightninglabs/taproot-assets/taprpc/authmailboxrpc"
 	"github.com/lightninglabs/taproot-assets/taptls"
@@ -238,7 +240,7 @@ type MockServer struct {
 }
 
 func NewMockServer(t *testing.T) *MockServer {
-	signer := test.NewMockSigner()
+	signer := lndmock.NewMockSigner()
 	signer.Signature = test.RandBytes(64)
 
 	return NewMockServerWithSigner(t, signer)
@@ -294,7 +296,7 @@ func (m *MockServer) Start(t *testing.T) {
 	require.NoError(t, m.srv.Start(m.cfg))
 	mboxrpc.RegisterMailboxServer(m.grpcServer, m.srv)
 
-	cleanup, err := test.StartMockGRPCServerWithAddr(
+	cleanup, err := grpcmock.StartMockGRPCServerWithAddr(
 		t, m.grpcServer, false, m.ListenAddr,
 	)
 	require.NoError(t, err)

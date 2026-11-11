@@ -19,6 +19,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/internal/test/lndmock"
 	"github.com/lightninglabs/taproot-assets/proof"
 	cmsg "github.com/lightninglabs/taproot-assets/tapchannelmsg"
 	"github.com/lightninglabs/taproot-assets/tapscript"
@@ -490,7 +491,7 @@ func htlcVerifyJob(t *testing.T, numSigs int) (*wire.MsgTx,
 	return &inputProof.AnchorTx, lnwallet.AuxVerifyJob{
 		SigBlob: lfn.Some(sigList.Bytes()),
 		BaseAuxJob: lnwallet.BaseAuxJob{
-			KeyRing: test.RandCommitmentKeyRing(t),
+			KeyRing: lndmock.RandCommitmentKeyRing(t),
 			HTLC: lnwallet.AuxHtlcDescriptor{
 				HtlcIndex: 0,
 				Amount:    lnwire.NewMSatFromSatoshis(354),
@@ -646,7 +647,7 @@ func htlcGroupProof(t *testing.T, groupKey *asset.GroupKey,
 func TestVerifyHtlcSignatureMultiAsset(t *testing.T) {
 	privKey := test.RandPrivKey()
 
-	keyRing := test.RandCommitmentKeyRing(t)
+	keyRing := lndmock.RandCommitmentKeyRing(t)
 	keyRing.RemoteHtlcKey = privKey.PubKey()
 
 	commitTx := randProof(t).AnchorTx

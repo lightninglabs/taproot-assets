@@ -15,6 +15,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/internal/test/lndmock"
 	"github.com/lightninglabs/taproot-assets/proof"
 	cmsg "github.com/lightninglabs/taproot-assets/tapchannelmsg"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
@@ -700,7 +701,7 @@ func TestResolveContractNoAssetOutputs(t *testing.T) {
 
 			// The commitment transaction carries the asset output
 			// first and the BTC-only to-local output second.
-			keyRing := test.RandCommitmentKeyRing(t)
+			keyRing := lndmock.RandCommitmentKeyRing(t)
 			const csvDelay = 144
 			toLocalTree, err := input.NewLocalCommitScriptTree(
 				csvDelay, keyRing.ToLocalKey,
