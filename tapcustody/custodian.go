@@ -774,8 +774,8 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 				prevStatus := event.Status
 
 				xfer, err := address.NewTransferFromWalletTx(
-					event.Addr, walletTx, uint32(idx),
-					sendOutputs,
+					event.Addr, addrWalletTx(walletTx),
+					uint32(idx), sendOutputs,
 				)
 				if err != nil {
 					errEvent := NewAssetReceiveErrorEvent(
@@ -1077,7 +1077,7 @@ func (c *Custodian) mapToTapAddr(walletTx *lndclient.Transaction,
 	}
 
 	xfer, err := address.NewTransferFromWalletTx(
-		addr, walletTx, outputIdx, sendOutputs,
+		addr, addrWalletTx(walletTx), outputIdx, sendOutputs,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error creating event source: %w", err)
@@ -1930,6 +1930,17 @@ func (c *Custodian) RemoveSubscriber(
 	delete(c.statusEventsSubs, subscriber.ID())
 
 	return nil
+}
+
+// addrWalletTx extracts the fields of a wallet transaction that an incoming
+// address transfer is created from.
+func addrWalletTx(tx *lndclient.Transaction) *address.WalletTx {
+	return &address.WalletTx{
+		Tx:            tx.Tx,
+		Confirmations: tx.Confirmations,
+		BlockHash:     tx.BlockHash,
+		BlockHeight:   tx.BlockHeight,
+	}
 }
 
 // hasWalletTaprootOutput returns true if one of the outputs of the given
