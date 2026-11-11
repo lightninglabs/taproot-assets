@@ -473,6 +473,17 @@ message PublishAndLogRequest {
     inputs must already be finalized.
     */
     bool sign_anchor_inputs = 8;
+
+    /*
+    The proof files of asset inputs that this daemon's wallet holds no proof
+    for, such as an input whose last transitions happened in transactions
+    this daemon never saw. Each file must end in the proof of one of the
+    transfer's inputs. The daemon verifies each file and stores it in its
+    proof archive, replacing any copy stored there, so it can extend the
+    input's proof once the anchor transaction confirms. A file for an input
+    whose proof the wallet holds is ignored.
+    */
+    repeated bytes input_proof_files = 9;
 }
 
 message NextInternalKeyRequest {
