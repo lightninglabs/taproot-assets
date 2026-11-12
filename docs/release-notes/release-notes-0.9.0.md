@@ -225,6 +225,13 @@
   decrypts but cannot process, and continues with the rest of the batch,
   as it does for a message that it cannot decrypt.
 
+* [PR#2260](https://github.com/lightninglabs/taproot-assets/pull/2260):
+  `tapcli universe roots --proof_type` no longer ignores the filter when
+  no asset ID or group key is given. The `AssetRoots` RPC gains an
+  optional `proof_type` field, so callers can list only issuance or only
+  transfer roots. Fixes
+  [#1762](https://github.com/lightninglabs/taproot-assets/issues/1762).
+
 # New Features
 
 ## Functional Enhancements
