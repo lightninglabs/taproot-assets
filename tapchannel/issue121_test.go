@@ -35,6 +35,7 @@ func TestIssue121CarrierDustEvaluation(t *testing.T) {
 	prevState := tapchannelmsg.NewCommitment(
 		nil, []*tapchannelmsg.AssetOutput{channel.assetOutput}, nil,
 		nil, lnwallet.CommitAuxLeaves{}, false, false,
+		tapchannelmsg.SigHashAll,
 	)
 	chanAssetState := tapchannelmsg.NewOpenChannel(
 		[]*tapchannelmsg.AssetOutput{channel.assetOutput}, 0, nil,
@@ -62,6 +63,7 @@ func TestIssue121CarrierDustEvaluation(t *testing.T) {
 		require.False(t, lnwallet.HtlcIsDust(
 			taprootChanType, false, lntypes.Remote, feePerKw,
 			carrierSat, 0,
+			false,
 		), "carrier must not be dust for taproot channels at "+
 			"feePerKw=%v", feePerKw)
 
@@ -99,6 +101,7 @@ func TestIssue121CarrierDustEvaluation(t *testing.T) {
 			lnwire.MilliSatoshi(1_000_000_000), view,
 			testChainParams, test.RandCommitmentKeyRing(t),
 			STXOFeatures{},
+			false,
 		)
 		require.NoError(t, err,
 			"asset commitment must assemble at feePerKw=%v for a "+
@@ -141,6 +144,7 @@ func TestIssue121CarrierDustEvaluation(t *testing.T) {
 		lnwire.MilliSatoshi(1_000_000_000),
 		lnwire.MilliSatoshi(1_000_000_000), view,
 		testChainParams, test.RandCommitmentKeyRing(t), STXOFeatures{},
+		false,
 	)
 	require.Error(t, err,
 		"a carrier below the negotiated dust limit must still be "+

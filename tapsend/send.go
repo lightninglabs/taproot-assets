@@ -813,7 +813,7 @@ func CreateTaprootSignature(vIn *tappsbt.VInput, virtualTx *wire.MsgTx,
 	}
 
 	// Add any tweak parameters that may be present in the PSBT.
-	addKeyTweaks(vIn.Unknowns, &spendDesc)
+	AddKeyTweaks(vIn.Unknowns, &spendDesc)
 
 	// There are three possible signing cases: BIP-0086 key spend path, key
 	// spend path with a script root, and script spend path.
@@ -893,13 +893,15 @@ func CreateTaprootSignature(vIn *tappsbt.VInput, virtualTx *wire.MsgTx,
 	return witness, nil
 }
 
-// addKeyTweaks examines if there are any tweak parameters given in the
-// custom/proprietary PSBT fields and may add them to the given sign descriptor.
-func addKeyTweaks(unknowns []*psbt.Unknown, desc *lndclient.SignDescriptor) {
-	// There can be other custom/unknown keys in a PSBT that we just ignore.
-	// Key tweaking is optional and only one tweak (single _or_ double) can
-	// ever be applied (at least for any use cases described in the BOLT
-	// spec).
+// AddKeyTweaks examines if there are any tweak parameters given in the
+// custom/proprietary PSBT fields and may add them to the given sign
+// descriptor.
+func AddKeyTweaks(unknowns []*psbt.Unknown, desc *lndclient.SignDescriptor) {
+	// There can be other custom/unknown keys in a PSBT that we just
+	// ignore. Key tweaking is optional. Historically only one tweak
+	// (single _or_ double) was ever set, but second-level HTLC signing
+	// for aux channels sets both, and lnd's signer applies them combined
+	// (double/revocation first, then single/HTLC index).
 	for _, u := range unknowns {
 		if bytes.Equal(
 			u.Key, btcwallet.PsbtKeyTypeInputSignatureTweakSingle,

@@ -2318,6 +2318,9 @@ func TestAssetExportLog(t *testing.T) {
 	require.NoError(t, assetsStore.LogPendingParcel(
 		ctx, spendDelta, leaseOwner, leaseExpiry,
 	))
+	require.NoError(t, assetsStore.LogPendingParcel(
+		ctx, spendDelta, leaseOwner, leaseExpiry,
+	))
 
 	assetID := inputAsset.ID()
 	receiverIdentifier := tapfreighter.NewOutputIdentifier(

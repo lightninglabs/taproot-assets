@@ -112,7 +112,7 @@ func setupAuxLeafSigner(t *testing.T, numJobs int32) (*AuxLeafSigner,
 
 	com := cmsg.NewCommitment(
 		nil, nil, outgoingHtlcs, nil, lnwallet.CommitAuxLeaves{}, false,
-		false,
+		false, cmsg.SigHashAll,
 	)
 	cancelChan := make(chan struct{})
 
