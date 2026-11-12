@@ -138,6 +138,7 @@ var testCaseSeconds = map[string]int{
 	"pre commit output":                                     48,
 	"supply commit ignore asset":                            76,
 	"supply commit mint burn":                               51,
+	"supply commit send before commit":                      57,
 	"supply verify peer node":                               87,
 	"fetch supply leaves":                                   52,
 	"auth mailbox message store and fetch":                  47,

@@ -304,7 +304,7 @@ func (w rebuildWatcher) Register(ctx context.Context,
 ) (tapreorg.AnchoringID, error) {
 
 	if phase1 != nil {
-		err := phase1(ctx, rebuildRegTx{q: w.q}, 1)
+		err := phase1(ctx, rebuildRegTx(w), 1)
 		if err != nil {
 			return 0, err
 		}
