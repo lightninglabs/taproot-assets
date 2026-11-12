@@ -2,12 +2,16 @@ package tapchannel
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"net/url"
+	"slices"
+	"sort"
 	"sync"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
@@ -28,6 +32,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chancloser"
 	"github.com/lightningnetwork/lnd/lnwallet/types"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -103,7 +108,9 @@ type assetCloseInfo struct {
 	// that output.
 	outputCommitments tappsbt.OutputCommitments
 
-	// closeFee is the fee that was paid to close the channel.
+	// closeFee is the fee that was paid to close the channel. With the
+	// RBF close flow the fee isn't known when the close info is created,
+	// so it's zero and the fee is taken from the confirmed transaction.
 	closeFee int64
 
 	// stxoFeatures are the channel's STXO features at AuxCloseOutputs
@@ -111,6 +118,283 @@ type assetCloseInfo struct {
 	// branch even after a restart wipes the in-memory feature map on
 	// AuxChannelNegotiator.
 	stxoFeatures STXOFeatures
+
+	// assetOutputs are the asset carrying outputs of the close
+	// transactions this info was created for. They tell the close
+	// candidates of a channel apart: with the legacy close flow the fee
+	// of each proposal changes the output order and with it the asset
+	// commitments, and with the RBF close flow a shutdown that is
+	// exchanged again after a reconnect carries new keys.
+	assetOutputs []closeAssetOutput
+}
+
+// sameCloseCandidate returns true if the two close candidates, identified by
+// their asset outputs, describe the same close transactions.
+func sameCloseCandidate(outputsA, outputsB []closeAssetOutput) bool {
+	if len(outputsA) != len(outputsB) {
+		return false
+	}
+
+	for i, out := range outputsA {
+		otherOut := outputsB[i]
+		if out.outputIndex != otherOut.outputIndex ||
+			!bytes.Equal(out.pkScript, otherOut.pkScript) {
+
+			return false
+		}
+	}
+
+	return true
+}
+
+// matchesCloseTx returns true if the close transaction carries this
+// candidate's asset outputs at the expected indexes.
+func (a *assetCloseInfo) matchesCloseTx(closeTx *wire.MsgTx) bool {
+	if len(a.assetOutputs) == 0 {
+		return false
+	}
+
+	for _, out := range a.assetOutputs {
+		if out.outputIndex >= uint32(len(closeTx.TxOut)) {
+			return false
+		}
+
+		txOut := closeTx.TxOut[out.outputIndex]
+		if !bytes.Equal(txOut.PkScript, out.pkScript) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// matchCloseCandidate returns the close candidate that produced the given
+// close transaction, if any. The newest candidates are checked first. A
+// candidate without asset outputs can't be matched, so it's only returned
+// if it's the only candidate there is.
+func matchCloseCandidate(closeTx *wire.MsgTx,
+	candidates []*assetCloseInfo) (*assetCloseInfo, bool) {
+
+	for i := len(candidates) - 1; i >= 0; i-- {
+		if candidates[i].matchesCloseTx(closeTx) {
+			return candidates[i], true
+		}
+	}
+
+	if len(candidates) == 1 && len(candidates[0].assetOutputs) == 0 {
+		return candidates[0], true
+	}
+
+	return nil, false
+}
+
+// addCloseCandidate appends the candidate to the list, replacing an existing
+// entry with the same asset outputs, and drops the oldest candidates beyond
+// the cap.
+func addCloseCandidate(candidates []*assetCloseInfo,
+	candidate *assetCloseInfo) []*assetCloseInfo {
+
+	for i, existing := range candidates {
+		if sameCloseCandidate(
+			existing.assetOutputs, candidate.assetOutputs,
+		) {
+
+			candidates[i] = candidate
+
+			return candidates
+		}
+	}
+
+	candidates = append(candidates, candidate)
+	if len(candidates) > maxCloseCandidates {
+		candidates = candidates[len(candidates)-maxCloseCandidates:]
+	}
+
+	return candidates
+}
+
+// addPersistedCandidate is the persisted counterpart of addCloseCandidate.
+func addPersistedCandidate(candidates []*persistedCloseInfo,
+	candidate *persistedCloseInfo) []*persistedCloseInfo {
+
+	for i, existing := range candidates {
+		if sameCloseCandidate(
+			existing.assetOutputs, candidate.assetOutputs,
+		) {
+
+			candidates[i] = candidate
+
+			return candidates
+		}
+	}
+
+	candidates = append(candidates, candidate)
+	if len(candidates) > maxCloseCandidates {
+		candidates = candidates[len(candidates)-maxCloseCandidates:]
+	}
+
+	return candidates
+}
+
+// settledBtcAmount returns the BTC amount a party's close output settles to
+// with the legacy close negotiation, before the asset anchor amounts are
+// subtracted. The channel initiator gets the commitment fee back and pays
+// the close fee.
+func settledBtcAmount(desc types.AuxCloseDesc, isLocal bool,
+	amt btcutil.Amount) btcutil.Amount {
+
+	if desc.Initiator == isLocal {
+		amt += desc.CommitFee
+		amt -= desc.CloseFee
+	}
+
+	return amt
+}
+
+// sortCloseAllocsByKey orders the close allocations independently of their
+// BTC amounts: the asset allocations come first, followed by the BTC
+// allocations, each ordered by their taproot key.
+func sortCloseAllocsByKey(allocs []*tapsend.Allocation) {
+	slices.SortStableFunc(allocs, func(a, b *tapsend.Allocation) int {
+		aAssets := a.Type != tapsend.AllocationTypeNoAssets
+		bAssets := b.Type != tapsend.AllocationTypeNoAssets
+
+		switch {
+		case aAssets && !bAssets:
+			return -1
+
+		case !aAssets && bAssets:
+			return 1
+		}
+
+		return bytes.Compare(
+			a.SortTaprootKeyBytes, b.SortTaprootKeyBytes,
+		)
+	})
+}
+
+// closeOutputSort returns the sort of the close transactions of an RBF close
+// negotiation. The order doesn't depend on the output values, as those
+// change with every fee: the asset outputs come first, in the order of the
+// given scripts, followed by the BTC outputs ordered by script. A BTC output
+// that lnd merged into an asset output, because the party's balance left no
+// room for a separate output, is found by the asset script it carries.
+func closeOutputSort(assetScripts [][]byte) func(*wire.MsgTx) error {
+	rank := func(txOut *wire.TxOut) int {
+		for i, script := range assetScripts {
+			if bytes.Equal(txOut.PkScript, script) {
+				return i
+			}
+		}
+
+		return len(assetScripts)
+	}
+
+	return func(tx *wire.MsgTx) error {
+		sort.Sort(sortableInputSlice(tx.TxIn))
+
+		slices.SortStableFunc(tx.TxOut, func(a, b *wire.TxOut) int {
+			return cmp.Or(
+				cmp.Compare(rank(a), rank(b)),
+				bytes.Compare(a.PkScript, b.PkScript),
+				cmp.Compare(a.Value, b.Value),
+			)
+		})
+
+		return nil
+	}
+}
+
+// btcCloseAllocations returns a BTC allocation for every output of the
+// confirmed close transaction that isn't one of the asset outputs of the
+// close info. The exclusion proofs of the asset outputs are built from
+// them. The outputs are found by the BTC internal keys of the shutdown
+// records rather than by the indexes the allocations were created with, as
+// with the legacy close flow the fee of the final transaction decides the
+// order, and a party's BTC output may have been merged into its asset output
+// altogether. A close info without asset outputs predates this record, and
+// keeps its allocations as they are.
+func btcCloseAllocations(closeTx *wire.MsgTx,
+	closeInfo *assetCloseInfo) ([]*tapsend.Allocation, error) {
+
+	if len(closeInfo.assetOutputs) == 0 {
+		return closeInfo.allocations, nil
+	}
+
+	isAssetOutput := make(map[uint32]bool, len(closeInfo.assetOutputs))
+	for _, out := range closeInfo.assetOutputs {
+		isAssetOutput[out.outputIndex] = true
+	}
+
+	btcKeys := make(map[string]*btcec.PublicKey)
+	for _, alloc := range closeInfo.allocations {
+		if alloc.Type != tapsend.AllocationTypeNoAssets {
+			continue
+		}
+
+		taprootKey := txscript.ComputeTaprootKeyNoScript(
+			alloc.InternalKey,
+		)
+		pkScript, err := txscript.PayToTaprootScript(taprootKey)
+		if err != nil {
+			return nil, err
+		}
+
+		btcKeys[string(pkScript)] = alloc.InternalKey
+	}
+
+	var allocs []*tapsend.Allocation
+	for idx, txOut := range closeTx.TxOut {
+		if isAssetOutput[uint32(idx)] {
+			continue
+		}
+
+		internalKey, ok := btcKeys[string(txOut.PkScript)]
+		if !ok {
+			return nil, fmt.Errorf("output %d of close tx pays "+
+				"to unknown script %x", idx, txOut.PkScript)
+		}
+
+		allocs = append(allocs, &tapsend.Allocation{
+			Type:        tapsend.AllocationTypeNoAssets,
+			OutputIndex: uint32(idx),
+			InternalKey: internalKey,
+			BtcAmount:   btcutil.Amount(txOut.Value),
+		})
+	}
+
+	return allocs, nil
+}
+
+// validateShutdownBtcKey makes sure the delivery script of a close output is
+// a P2TR output for the BTC internal key that was sent in the shutdown
+// records. The internal key is what the exclusion proofs for the output are
+// built with, so a mismatch makes every proof of the close invalid.
+func validateShutdownBtcKey(pkScript []byte,
+	shutdownMsg tapchannelmsg.AuxShutdownMsg) error {
+
+	if !txscript.IsPayToTaproot(pkScript) {
+		return fmt.Errorf("delivery script %x is not P2TR", pkScript)
+	}
+
+	internalKey := shutdownMsg.BtcInternalKey.Val
+	if internalKey == nil {
+		return fmt.Errorf("shutdown records carry no BTC internal key")
+	}
+
+	taprootKey := txscript.ComputeTaprootKeyNoScript(internalKey)
+	expectedScript, err := txscript.PayToTaprootScript(taprootKey)
+	if err != nil {
+		return err
+	}
+
+	if !bytes.Equal(expectedScript, pkScript) {
+		return fmt.Errorf("delivery script %x doesn't match BTC "+
+			"internal key %x of shutdown records", pkScript,
+			internalKey.SerializeCompressed())
+	}
+
+	return nil
 }
 
 // AuxChanCloser is used to implement asset-aware co-op close for channels.
@@ -122,7 +406,8 @@ type AuxChanCloser struct {
 
 	sync.RWMutex
 
-	closeInfo map[wire.OutPoint]*assetCloseInfo
+	// closeInfo holds the close candidates per channel, oldest first.
+	closeInfo map[wire.OutPoint][]*assetCloseInfo
 
 	// ContextGuard provides a wait group and main quit channel that can
 	// be used to create guarded contexts.
@@ -133,7 +418,7 @@ type AuxChanCloser struct {
 func NewAuxChanCloser(cfg AuxChanCloserCfg) *AuxChanCloser {
 	return &AuxChanCloser{
 		cfg:       cfg,
-		closeInfo: make(map[wire.OutPoint]*assetCloseInfo),
+		closeInfo: make(map[wire.OutPoint][]*assetCloseInfo),
 		ContextGuard: &fn.ContextGuard{
 			DefaultTimeout: DefaultTimeout,
 			Quit:           make(chan struct{}),
@@ -421,6 +706,28 @@ func (a *AuxChanCloser) AuxCloseOutputs(
 		limitSpewer.Sdump(localShutdown),
 		limitSpewer.Sdump(remoteShutdown))
 
+	// The BTC outputs of both parties need to match the internal keys
+	// sent in the shutdown records, as those keys are what the exclusion
+	// proofs of the close are built with.
+	err = lfn.MapOptionZ(
+		desc.LocalCloseOutput, func(o types.CloseOutput) error {
+			return validateShutdownBtcKey(o.PkScript, localShutdown)
+		},
+	)
+	if err != nil {
+		return none, fmt.Errorf("invalid local close output: %w", err)
+	}
+	err = lfn.MapOptionZ(
+		desc.RemoteCloseOutput, func(o types.CloseOutput) error {
+			return validateShutdownBtcKey(
+				o.PkScript, remoteShutdown,
+			)
+		},
+	)
+	if err != nil {
+		return none, fmt.Errorf("invalid remote close output: %w", err)
+	}
+
 	// To start with, we'll now create the allocations for the asset
 	// outputs. We track the amount that'll go to the anchor assets, so we
 	// can subtract this from the settled BTC amount.
@@ -460,65 +767,58 @@ func (a *AuxChanCloser) AuxCloseOutputs(
 	}
 
 	// Next, we'll create allocations for the (up to) two settled outputs
-	// in the co-op close transaction.
-	desc.LocalCloseOutput.WhenSome(func(o types.CloseOutput) {
-		btcAmt := o.Amt
-		if desc.Initiator {
-			btcAmt += desc.CommitFee
-			btcAmt -= desc.CloseFee
-		}
-
-		amtAfterAnchor := btcAmt - localAssetAnchorAmt
-
-		// If we can't have a non-dust output after subtracting the
-		// anchor amt, then we'll just drop this allocation, and modify
-		// our asset allocation to match this value.
-		if amtAfterAnchor <= o.DustLimit {
-			if localAlloc != nil {
-				localAlloc.BtcAmount = btcAmt
-			}
-			return
-		}
+	// in the co-op close transaction. With the RBF close flow these
+	// outputs are requested once and used for every close transaction of
+	// the negotiation, whatever its fee, so their amounts play no part:
+	// lnd refuses a fee that would merge or drop a settled output. With
+	// the legacy flow, we mirror the amounts of the close transaction so
+	// the allocations sort the way lnd sorts the outputs.
+	addBtcAlloc := func(o types.CloseOutput, isLocal bool,
+		assetAlloc *tapsend.Allocation, anchorAmt btcutil.Amount,
+		shutdown tapchannelmsg.AuxShutdownMsg) {
 
 		// Snip off the first two bytes, as we'll be getting a P2TR
 		// output from the higher level. We want a raw pubkey here.
 		sortScript := o.PkScript[2:]
-		closeAllocs = append(closeAllocs, &tapsend.Allocation{
+		btcAlloc := &tapsend.Allocation{
 			Type:                tapsend.AllocationTypeNoAssets,
-			BtcAmount:           amtAfterAnchor,
 			SortTaprootKeyBytes: sortScript,
-			InternalKey:         localShutdown.BtcInternalKey.Val,
-		})
+			InternalKey:         shutdown.BtcInternalKey.Val,
+		}
+
+		if desc.FeeIndependent {
+			closeAllocs = append(closeAllocs, btcAlloc)
+
+			return
+		}
+
+		btcAmt := settledBtcAmount(desc, isLocal, o.Amt)
+		amtAfterAnchor := btcAmt - anchorAmt
+
+		// If we can't have a non-dust output after subtracting the
+		// anchor amt, then we'll just drop this allocation, and modify
+		// the asset allocation to match this value.
+		if amtAfterAnchor <= o.DustLimit {
+			if assetAlloc != nil {
+				assetAlloc.BtcAmount = btcAmt
+			}
+
+			return
+		}
+
+		btcAlloc.BtcAmount = amtAfterAnchor
+		closeAllocs = append(closeAllocs, btcAlloc)
+	}
+	desc.LocalCloseOutput.WhenSome(func(o types.CloseOutput) {
+		addBtcAlloc(
+			o, true, localAlloc, localAssetAnchorAmt, localShutdown,
+		)
 	})
 	desc.RemoteCloseOutput.WhenSome(func(o types.CloseOutput) {
-		btcAmt := o.Amt
-		if !desc.Initiator {
-			btcAmt += desc.CommitFee
-			btcAmt -= desc.CloseFee
-		}
-
-		amtAfterAnchor := btcAmt - remoteAssetAnchorAmt
-
-		// If we can't have a non-dust output after subtracting the
-		// anchor amt, then we'll just drop this allocation, and modify
-		// our asset allocation to match this value.
-		if amtAfterAnchor <= o.DustLimit {
-			if remoteAlloc != nil {
-				remoteAlloc.BtcAmount = btcAmt
-			}
-
-			return
-		}
-
-		// Snip off the first two bytes, as we'll be getting a P2TR
-		// output from the higher level. We want a raw pubkey here.
-		sortScript := o.PkScript[2:]
-		closeAllocs = append(closeAllocs, &tapsend.Allocation{
-			Type:                tapsend.AllocationTypeNoAssets,
-			BtcAmount:           amtAfterAnchor,
-			SortTaprootKeyBytes: sortScript,
-			InternalKey:         remoteShutdown.BtcInternalKey.Val,
-		})
+		addBtcAlloc(
+			o, false, remoteAlloc, remoteAssetAnchorAmt,
+			remoteShutdown,
+		)
 	})
 
 	log.Infof("Allocations for co-op close txn: %v",
@@ -526,8 +826,15 @@ func (a *AuxChanCloser) AuxCloseOutputs(
 
 	// With all allocations created, we now sort them to ensure that we
 	// have a stable and deterministic order that both parties can arrive
-	// at. We then assign the output indexes according to that order.
-	tapsend.InPlaceAllocationSort(closeAllocs)
+	// at. We then assign the output indexes according to that order. The
+	// RBF close flow needs an order that doesn't depend on the amounts,
+	// as the asset outputs are signed for their indexes once, for every
+	// fee of the negotiation.
+	if desc.FeeIndependent {
+		sortCloseAllocsByKey(closeAllocs)
+	} else {
+		tapsend.InPlaceAllocationSort(closeAllocs)
+	}
 	for idx := range closeAllocs {
 		closeAllocs[idx].OutputIndex = uint32(idx)
 	}
@@ -611,43 +918,12 @@ func (a *AuxChanCloser) AuxCloseOutputs(
 			"commitments: %w", err)
 	}
 
-	// Now that the vPackets have been fully updated, we'll store them for
-	// later so we can finalize the coop close.
-	a.closeInfo[desc.ChanPoint] = &assetCloseInfo{
-		allocations:       closeAllocs,
-		vPackets:          vPackets,
-		outputCommitments: outCommitments,
-		closeFee:          int64(desc.CloseFee),
-		stxoFeatures:      stxoFeatures,
-	}
-
-	// Mirror the in-memory entry to disk so a tapd restart between now
-	// and the on-chain close confirmation (which is when FinalizeClose
-	// will run via the chain watcher) doesn't strand the channel in a
-	// pending state. If the store isn't configured we simply skip — the
-	// only consequence is that we lose the restart-recovery property.
-	if a.cfg.CloseStore != nil {
-		noAssets := extractNoAssetAllocs(closeAllocs)
-		putCtx, cancel := auxOpCtx()
-		err = a.cfg.CloseStore.Put(
-			putCtx, desc.ChanPoint, &persistedCloseInfo{
-				vPackets:         vPackets,
-				pristineVPackets: pristineVPackets,
-				noAssetAllocs:    noAssets,
-				closeFee:         int64(desc.CloseFee),
-				stxoFeatures:     stxoFeatures,
-			},
-		)
-		cancel()
-		if err != nil {
-			return none, fmt.Errorf("persist aux close info: %w",
-				err)
-		}
-	}
-
 	// With the taproot keys updated, we know the pkScripts needed, so
 	// we'll create the wallet option for the co-op close.
-	var closeOutputs []lnwallet.CloseOutput
+	var (
+		closeOutputs []lnwallet.CloseOutput
+		assetOutputs []closeAssetOutput
+	)
 	assetAllocations := fn.Filter(closeAllocs, tapsend.FilterByTypeExclude(
 		tapsend.AllocationTypeNoAssets,
 	))
@@ -665,16 +941,66 @@ func (a *AuxChanCloser) AuxCloseOutputs(
 			},
 			IsLocal: alloc.Type == tapsend.CommitAllocationToLocal,
 		})
+		assetOutputs = append(assetOutputs, closeAssetOutput{
+			outputIndex: alloc.OutputIndex,
+			pkScript:    pkScript,
+		})
 	}
 
+	// Now that the vPackets have been fully updated, we'll store them for
+	// later so we can finalize the coop close. Every close transaction
+	// that was signed for may confirm, so we keep one candidate per set
+	// of asset outputs that was signed.
+	candidates := addCloseCandidate(
+		a.closeInfo[desc.ChanPoint], &assetCloseInfo{
+			allocations:       closeAllocs,
+			vPackets:          vPackets,
+			outputCommitments: outCommitments,
+			closeFee:          int64(desc.CloseFee),
+			stxoFeatures:      stxoFeatures,
+			assetOutputs:      assetOutputs,
+		},
+	)
+
+	// Mirror the in-memory entries to disk so a tapd restart between now
+	// and the on-chain close confirmation (which is when FinalizeClose
+	// will run via the chain watcher) doesn't strand the channel in a
+	// pending state. If the store isn't configured we simply skip — the
+	// only consequence is that we lose the restart-recovery property.
+	if a.cfg.CloseStore != nil {
+		newest := candidates[len(candidates)-1]
+		err := a.persistCandidate(desc.ChanPoint, &persistedCloseInfo{
+			vPackets:         newest.vPackets,
+			pristineVPackets: pristineVPackets,
+			noAssetAllocs:    extractNoAssetAllocs(closeAllocs),
+			assetOutputs:     newest.assetOutputs,
+			closeFee:         newest.closeFee,
+			stxoFeatures:     newest.stxoFeatures,
+		})
+		if err != nil {
+			return none, fmt.Errorf("persist aux close info: %w",
+				err)
+		}
+	}
+
+	a.closeInfo[desc.ChanPoint] = candidates
+
 	// As a final step, we'll craft a custom sorting function for the co-op
-	// close txn.
+	// close txn. The RBF close flow sorts by script alone, so the order
+	// holds for every fee of the negotiation.
 	sortFunc := func(tx *wire.MsgTx) error {
 		cltvs := make([]uint32, len(closeAllocs))
 		htlcIndexes := make([]input.HtlcIndex, len(closeAllocs))
 		return InPlaceCustomCommitSort(
 			tx, cltvs, htlcIndexes, closeAllocs,
 		)
+	}
+	if desc.FeeIndependent {
+		sortFunc = closeOutputSort(fn.Map(
+			assetOutputs, func(o closeAssetOutput) []byte {
+				return o.pkScript
+			},
+		))
 	}
 
 	return lfn.Some(chancloser.AuxCloseOutputs{
@@ -782,6 +1108,24 @@ func (a *AuxChanCloser) ShutdownBlob(
 	return lfn.Some[lnwire.CustomRecords](records), nil
 }
 
+// SupportsRbfClose returns true if the channel can be closed with lnd's RBF
+// co-op close flow with the given peer. That's the case if the peer signalled
+// the feature in its init message, which means it drives its aux closer hooks
+// from within the RBF flow as well.
+//
+// NOTE: This method is part of the chancloser.AuxChanCloser interface.
+func (a *AuxChanCloser) SupportsRbfClose(chanID lnwire.ChannelID,
+	peer route.Vertex) bool {
+
+	features := a.cfg.AuxChanNegotiator.GetPeerFeatures(peer)
+	supported := features.HasFeature(tapfeatures.RbfCoopCloseOptional)
+
+	log.Debugf("RBF co-op close for channel %v with peer %x "+
+		"supported=%v", chanID, peer[:], supported)
+
+	return supported
+}
+
 // shipChannelTxn takes a channel transaction, an output commitment, and the
 // set of vPackets used to make the output commitment and ships a complete
 // pre-signed package off to the porter. This'll insert a transfer for the
@@ -839,13 +1183,37 @@ func shipChannelTxn(txSender tapfreighter.Porter, chanTx *wire.MsgTx,
 	return nil
 }
 
-// recoverCloseInfo reconstructs an assetCloseInfo from the persisted
-// snapshot written by AuxCloseOutputs. The post-mutation vPackets are used
-// directly; the pristine vPackets are fed through the same pipeline
-// (signCommitVirtualPackets + CreateOutputCommitments) to rebuild the
-// output commitments map without disturbing the post-mutation state.
+// persistCandidate adds the given close candidate to the ones persisted for
+// the channel. The persisted candidates are the source of truth across
+// restarts, so they're merged on disk rather than derived from the in-memory
+// candidates, which are empty after a restart.
+func (a *AuxChanCloser) persistCandidate(chanPoint wire.OutPoint,
+	candidate *persistedCloseInfo) error {
+
+	ctx, cancel := auxOpCtx()
+	defer cancel()
+
+	saved, err := a.cfg.CloseStore.Get(ctx, chanPoint)
+	switch {
+	case errors.Is(err, ErrNoAuxCloseInfo):
+		saved = nil
+
+	case err != nil:
+		return fmt.Errorf("load persisted close info: %w", err)
+	}
+
+	saved = addPersistedCandidate(saved, candidate)
+
+	return a.cfg.CloseStore.Put(ctx, chanPoint, saved)
+}
+
+// recoverCloseInfo reconstructs the close candidates of a channel from the
+// persisted snapshots written by AuxCloseOutputs. The post-mutation vPackets
+// are used directly; the pristine vPackets are fed through the same pipeline
+// (signCommitVirtualPackets + CreateOutputCommitments) to rebuild the output
+// commitments map without disturbing the post-mutation state.
 func (a *AuxChanCloser) recoverCloseInfo(
-	chanPoint wire.OutPoint) (*assetCloseInfo, error) {
+	chanPoint wire.OutPoint) ([]*assetCloseInfo, error) {
 
 	if a.cfg.CloseStore == nil {
 		return nil, fmt.Errorf("no aux close store configured")
@@ -854,41 +1222,52 @@ func (a *AuxChanCloser) recoverCloseInfo(
 	ctx, cancel := auxOpCtx()
 	defer cancel()
 
-	saved, err := a.cfg.CloseStore.Get(ctx, chanPoint)
+	savedInfos, err := a.cfg.CloseStore.Get(ctx, chanPoint)
 	if err != nil {
 		return nil, fmt.Errorf("load persisted close info: %w", err)
 	}
 
-	// Replay the pristine vPackets through the same pipeline that
-	// originally produced the output commitments. We work on the
-	// pristine copies — never on saved.vPackets — because the latter
-	// are already in the post-mutation state and another pass through
-	// CreateOutputCommitments would double-append STXO leaves.
-	if err := signCommitVirtualPackets(
-		ctx, saved.pristineVPackets,
-	); err != nil {
-		return nil, fmt.Errorf("sign commit virtual packets: %w", err)
+	recovered := make([]*assetCloseInfo, 0, len(savedInfos))
+	for _, saved := range savedInfos {
+		// Replay the pristine vPackets through the same pipeline that
+		// originally produced the output commitments. We work on the
+		// pristine copies — never on saved.vPackets — because the
+		// latter are already in the post-mutation state and another
+		// pass through CreateOutputCommitments would double-append
+		// STXO leaves.
+		if err := signCommitVirtualPackets(
+			ctx, saved.pristineVPackets,
+		); err != nil {
+			return nil, fmt.Errorf("sign commit virtual "+
+				"packets: %w", err)
+		}
+
+		// Use the STXO features captured at AuxCloseOutputs time, not
+		// whatever the (in-memory, post-restart-empty) negotiator
+		// currently reports.
+		opts := saved.stxoFeatures.CommitOpts()
+
+		outCommitments, err := tapsend.CreateOutputCommitments(
+			saved.pristineVPackets, opts...,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("create output "+
+				"commitments: %w", err)
+		}
+
+		recovered = append(recovered, &assetCloseInfo{
+			allocations: allocsFromNoAssetAllocs(
+				saved.noAssetAllocs,
+			),
+			vPackets:          saved.vPackets,
+			outputCommitments: outCommitments,
+			closeFee:          saved.closeFee,
+			stxoFeatures:      saved.stxoFeatures,
+			assetOutputs:      saved.assetOutputs,
+		})
 	}
 
-	// Use the STXO features captured at AuxCloseOutputs time, not
-	// whatever the (in-memory, post-restart-empty) negotiator currently
-	// reports.
-	opts := saved.stxoFeatures.CommitOpts()
-
-	outCommitments, err := tapsend.CreateOutputCommitments(
-		saved.pristineVPackets, opts...,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("create output commitments: %w", err)
-	}
-
-	return &assetCloseInfo{
-		allocations:       allocsFromNoAssetAllocs(saved.noAssetAllocs),
-		vPackets:          saved.vPackets,
-		outputCommitments: outCommitments,
-		closeFee:          saved.closeFee,
-		stxoFeatures:      saved.stxoFeatures,
-	}, nil
+	return recovered, nil
 }
 
 // FinalizeClose is called once the co-op close transaction has been agreed
@@ -907,20 +1286,32 @@ func (a *AuxChanCloser) FinalizeClose(desc types.AuxCloseDesc,
 		return nil
 	}
 
-	closeInfo, ok := a.closeInfo[desc.ChanPoint]
+	// With the RBF close flow, any of the close transactions negotiated
+	// may have confirmed, so we pick the candidate that produced the one
+	// that did.
+	closeInfo, ok := matchCloseCandidate(
+		closeTx, a.closeInfo[desc.ChanPoint],
+	)
 	if !ok {
-		// In-memory state is gone — most likely because tapd was
-		// restarted between AuxCloseOutputs and the on-chain close
-		// confirmation. Fall back to the persisted snapshot, replay
-		// the deterministic pipeline steps that mutate vPackets and
-		// build the output commitments, and proceed as if the state
-		// had never been lost.
+		// In-memory state is gone or incomplete — most likely because
+		// tapd was restarted between AuxCloseOutputs and the on-chain
+		// close confirmation. Fall back to the persisted snapshots,
+		// replay the deterministic pipeline steps that mutate vPackets
+		// and build the output commitments, and proceed as if the
+		// state had never been lost.
 		recovered, err := a.recoverCloseInfo(desc.ChanPoint)
 		if err != nil {
 			return fmt.Errorf("no vPackets found for "+
 				"ChannelPoint(%v): %w", desc.ChanPoint, err)
 		}
-		closeInfo = recovered
+
+		closeInfo, ok = matchCloseCandidate(closeTx, recovered)
+		if !ok {
+			return fmt.Errorf("no close candidate matches close "+
+				"tx %v of ChannelPoint(%v)", closeTx.TxHash(),
+				desc.ChanPoint)
+		}
+
 		a.closeInfo[desc.ChanPoint] = recovered
 	}
 
@@ -981,13 +1372,28 @@ func (a *AuxChanCloser) FinalizeClose(desc types.AuxCloseDesc,
 
 	defer delete(a.closeInfo, desc.ChanPoint)
 
+	// The BTC outputs of the confirmed transaction are what the exclusion
+	// proofs of the asset outputs are built against.
+	btcAllocs, err := btcCloseAllocations(closeTx, closeInfo)
+	if err != nil {
+		return fmt.Errorf("unable to match close tx outputs: %w", err)
+	}
+
+	// The close fee is known once the transaction is, which is what lnd
+	// reports it from. The fee recorded with the close info is what the
+	// legacy close flow negotiated.
+	closeFee := closeInfo.closeFee
+	if desc.CloseFee > 0 {
+		closeFee = int64(desc.CloseFee)
+	}
+
 	// With the co-op close transaction known, we have the information we
 	// need to create the proof suffixes for each relevant close output.
 	for idx := range closeInfo.vPackets {
 		vPkt := closeInfo.vPackets[idx]
 		for outIdx := range vPkt.Outputs {
 			exclusionCreator := tapsend.NonAssetExclusionProofs(
-				closeInfo.allocations,
+				btcAllocs,
 			)
 
 			// Prefer the STXO features pinned on closeInfo at
@@ -1014,9 +1420,9 @@ func (a *AuxChanCloser) FinalizeClose(desc types.AuxCloseDesc,
 	// to the porter so it can insert a record on disk, and deliver the
 	// relevant set of proofs. For co-op close, no height hint is needed
 	// as the transaction is being broadcast now.
-	err := shipChannelTxn(
+	err = shipChannelTxn(
 		a.cfg.TxSender, closeTx, closeInfo.outputCommitments,
-		closeInfo.vPackets, closeInfo.closeFee, fn.None[uint32](),
+		closeInfo.vPackets, closeFee, fn.None[uint32](),
 	)
 	if err != nil {
 		return err
