@@ -371,6 +371,14 @@ var allTestCases = []*testCase{
 		test: testPsbtExternalInputRestart,
 	},
 	{
+		name: "psbt external input universe proof",
+		test: testPsbtExternalInputUniverseProof,
+	},
+	{
+		name: "psbt external input request proof",
+		test: testPsbtExternalInputRequestProof,
+	},
+	{
 		name: "psbt external commit",
 		test: testPsbtExternalCommit,
 	},

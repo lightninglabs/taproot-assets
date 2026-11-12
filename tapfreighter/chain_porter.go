@@ -49,6 +49,16 @@ type VerifiedProofImporter interface {
 		proofs ...proof.VerifiedAnnotatedProof) error
 }
 
+// ProofFileArchive stores verified proof files and reports which ones it
+// holds.
+type ProofFileArchive interface {
+	VerifiedProofImporter
+
+	// HasProof returns true if the archive holds the proof file for the
+	// given locator.
+	HasProof(ctx context.Context, id proof.Locator) (bool, error)
+}
+
 // BurnSupplyCommitter is used by the chain porter to update the on-chain supply
 // commitment when burns 1st party burns are confirmed.
 type BurnSupplyCommitter interface {
@@ -92,10 +102,17 @@ type ChainPorterConfig struct {
 	// virtual transactions.
 	AssetWallet Wallet
 
-	ProofWriter VerifiedProofImporter
+	// ProofWriter is the file archive that holds the proof files of
+	// transfer inputs and confirmed outputs.
+	ProofWriter ProofFileArchive
 
 	// ProofReader is used to fetch input proofs.
 	ProofReader proof.Exporter
+
+	// WalletProofs holds the proofs of wallet assets. Confirmation reads an
+	// input's proof from it before the file archive, and re-orgs restamp
+	// the proofs it holds.
+	WalletProofs proof.Exporter
 
 	// ProofCourierDispatcher is the dispatcher that is used to create new
 	// proof courier handles for sending proofs based on the protocol of
@@ -660,25 +677,75 @@ func (p *ChainPorter) sendBurnSupplyCommitEvents(ctx context.Context,
 	return nil
 }
 
-// fetchInputProof fetches a proof for the given input from the proof archive.
-func (p *ChainPorter) fetchInputProof(ctx context.Context,
-	input asset.PrevID) (*proof.File, error) {
-
+// inputProofLocator returns the proof locator of a transfer input.
+func inputProofLocator(input asset.PrevID) (proof.Locator, error) {
 	scriptKey, err := btcec.ParsePubKey(input.ScriptKey[:])
 	if err != nil {
-		return nil, fmt.Errorf("error parsing script key: %w", err)
+		return proof.Locator{}, fmt.Errorf("error parsing script "+
+			"key: %w", err)
 	}
-	inputProofLocator := proof.Locator{
-		AssetID:   &input.ID,
+
+	return proof.Locator{
+		AssetID:   fn.Ptr(input.ID),
 		ScriptKey: *scriptKey,
-		OutPoint:  &input.OutPoint,
+		OutPoint:  fn.Ptr(input.OutPoint),
+	}, nil
+}
+
+// fetchInputProofBlob fetches the proof file of an input. Without a
+// caller-supplied proof it reads the proof archives. With one, the wallet's
+// own proof still comes first, since re-orgs restamp it, and the supplied
+// proof shadows any other archived copy, which may predate a re-org.
+func (p *ChainPorter) fetchInputProofBlob(ctx context.Context,
+	locator proof.Locator, input asset.PrevID,
+	supplied map[asset.PrevID]proof.Blob) (proof.Blob, error) {
+
+	suppliedBlob, ok := supplied[input]
+	if !ok {
+		return p.cfg.ProofReader.FetchProof(ctx, locator)
 	}
-	inputProofBytes, err := p.cfg.ProofReader.FetchProof(
-		ctx, inputProofLocator,
+
+	blob, err := p.cfg.WalletProofs.FetchProof(ctx, locator)
+	if errors.Is(err, proof.ErrProofNotFound) {
+		return suppliedBlob, nil
+	}
+
+	return blob, err
+}
+
+// walletHasProof returns true if the wallet holds the proof of the given
+// input.
+func (p *ChainPorter) walletHasProof(ctx context.Context,
+	locator proof.Locator) (bool, error) {
+
+	_, err := p.cfg.WalletProofs.FetchProof(ctx, locator)
+	switch {
+	case errors.Is(err, proof.ErrProofNotFound):
+		return false, nil
+
+	case err != nil:
+		return false, err
+	}
+
+	return true, nil
+}
+
+// fetchInputProof fetches a proof for the given input from the proof archive
+// or the caller-supplied proofs.
+func (p *ChainPorter) fetchInputProof(ctx context.Context,
+	input asset.PrevID,
+	supplied map[asset.PrevID]proof.Blob) (*proof.File, error) {
+
+	locator, err := inputProofLocator(input)
+	if err != nil {
+		return nil, err
+	}
+	inputProofBytes, err := p.fetchInputProofBlob(
+		ctx, locator, input, supplied,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error fetching input proof -- "+
-			"locator=%v: %w", spew.Sdump(inputProofLocator), err)
+			"locator=%v: %w", spew.Sdump(locator), err)
 	}
 	inputProofFile := proof.NewEmptyFile(proof.V0)
 	err = inputProofFile.Decode(bytes.NewReader(inputProofBytes))
@@ -687,6 +754,98 @@ func (p *ChainPorter) fetchInputProof(ctx context.Context,
 	}
 
 	return inputProofFile, nil
+}
+
+// unarchivedInputProof returns the proof file of an input that confirmation
+// could not read, or nil if the wallet or the file archive already holds it.
+// A caller-supplied proof is returned unless the wallet holds the input.
+func (p *ChainPorter) unarchivedInputProof(ctx context.Context,
+	locator proof.Locator, input asset.PrevID,
+	supplied map[asset.PrevID]proof.Blob) (proof.Blob, error) {
+
+	inWallet, err := p.walletHasProof(ctx, locator)
+	if err != nil {
+		return nil, err
+	}
+	if inWallet {
+		return nil, nil
+	}
+	if suppliedBlob, ok := supplied[input]; ok {
+		return suppliedBlob, nil
+	}
+
+	archived, err := p.cfg.ProofWriter.HasProof(ctx, locator)
+	if err != nil {
+		return nil, fmt.Errorf("error checking archived input "+
+			"proof: %w", err)
+	}
+	if archived {
+		return nil, nil
+	}
+
+	return p.cfg.ProofReader.FetchProof(ctx, locator)
+}
+
+// archiveInputProofs copies the proof file of every active input that the
+// wallet does not hold into the file archive. Confirmation extends input
+// proofs from the wallet or the file archive only, so an input proved from
+// another source, such as the local universe or the caller, must reach the
+// archive before the transfer is stored. A caller-supplied proof replaces an
+// archived copy.
+func (p *ChainPorter) archiveInputProofs(ctx context.Context,
+	pkg *sendPackage) error {
+
+	var (
+		missing []*proof.AnnotatedProof
+		seen    = make(map[asset.PrevID]struct{})
+	)
+	for _, vPkt := range pkg.VirtualPackets {
+		for _, vIn := range vPkt.Inputs {
+			prevID := vIn.PrevID
+			if _, ok := seen[prevID]; ok {
+				continue
+			}
+			seen[prevID] = struct{}{}
+
+			locator, err := inputProofLocator(prevID)
+			if err != nil {
+				return err
+			}
+			blob, err := p.unarchivedInputProof(
+				ctx, locator, prevID, pkg.InputProofs,
+			)
+			if err != nil {
+				return fmt.Errorf("error fetching input proof "+
+					"%v: %w", prevID.OutPoint, err)
+			}
+			if blob == nil {
+				continue
+			}
+			missing = append(missing, &proof.AnnotatedProof{
+				Locator: locator,
+				Blob:    blob,
+			})
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+
+	vCtx := proof.VerifierCtx{
+		HeaderVerifier: tapnode.GenHeaderVerifier(
+			ctx, p.cfg.ChainBridge,
+		),
+		MerkleVerifier: proof.DefaultMerkleVerifier,
+		GroupVerifier:  p.cfg.GroupVerifier,
+		ChainLookupGen: p.cfg.ChainBridge,
+		IgnoreChecker:  p.cfg.IgnoreChecker,
+	}
+	verified, err := proof.VerifyAnnotatedProofs(ctx, vCtx, missing...)
+	if err != nil {
+		return fmt.Errorf("error verifying input proofs: %w", err)
+	}
+
+	return p.cfg.ProofWriter.ImportVerifiedProofs(ctx, false, verified...)
 }
 
 // reportProofTransfers logs a summary of the transfer outputs that require
@@ -1113,7 +1272,8 @@ func (p *ChainPorter) prelimCheckAddrParcel(addrParcel AddressParcel) error {
 // verifyVPacketsPreBroadcast performs verification checks on the given virtual
 // packets before the anchor transaction is broadcast.
 func (p *ChainPorter) verifyVPacketsPreBroadcast(ctx context.Context,
-	packets []*tappsbt.VPacket) error {
+	packets []*tappsbt.VPacket,
+	inputProofs map[asset.PrevID]proof.Blob) error {
 
 	headerVerifier := tapnode.GenHeaderVerifier(ctx, p.cfg.ChainBridge)
 	vCtx := proof.VerifierCtx{
@@ -1145,6 +1305,7 @@ func (p *ChainPorter) verifyVPacketsPreBroadcast(ctx context.Context,
 		for outIdx := range vPkt.Outputs {
 			err := p.verifyOutputProofPreBroadcast(
 				ctx, vCtx, verifier, vPkt, pktIdx, outIdx,
+				inputProofs,
 			)
 			if err != nil {
 				return fmt.Errorf("verify output proofs "+
@@ -1161,7 +1322,8 @@ func (p *ChainPorter) verifyVPacketsPreBroadcast(ctx context.Context,
 // for the final proof, since the anchor transaction is not yet confirmed.
 func (p *ChainPorter) verifyOutputProofPreBroadcast(ctx context.Context,
 	vCtx proof.VerifierCtx, verifier proof.Verifier,
-	vPkt *tappsbt.VPacket, pktIdx, outIdx int) error {
+	vPkt *tappsbt.VPacket, pktIdx, outIdx int,
+	inputProofs map[asset.PrevID]proof.Blob) error {
 
 	vOut := vPkt.Outputs[outIdx]
 	if vOut.ProofSuffix == nil {
@@ -1209,7 +1371,9 @@ func (p *ChainPorter) verifyOutputProofPreBroadcast(ctx context.Context,
 	)
 	for idx := range inputsForAsset {
 		prevID := inputsForAsset[idx]
-		inputProofFile, err := p.fetchInputProof(ctx, prevID)
+		inputProofFile, err := p.fetchInputProof(
+			ctx, prevID, inputProofs,
+		)
 		if err != nil {
 			return fmt.Errorf("error fetching input proof %d "+
 				"(vpkt_idx=%d, "+
@@ -1553,7 +1717,9 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		allPackets = append(allPackets, currentPkg.VirtualPackets...)
 		allPackets = append(allPackets, currentPkg.PassiveAssets...)
 
-		err := p.verifyVPacketsPreBroadcast(ctx, allPackets)
+		err := p.verifyVPacketsPreBroadcast(
+			ctx, allPackets, currentPkg.InputProofs,
+		)
 		if err != nil {
 			p.unlockInputs(ctx, &currentPkg)
 
@@ -1648,6 +1814,14 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		// Don't allow shutdown while we're attempting to store proofs.
 		ctx, cancel = p.CtxBlocking()
 		defer cancel()
+
+		err = p.archiveInputProofs(ctx, &currentPkg)
+		if err != nil {
+			p.unlockInputs(ctx, &currentPkg)
+
+			return nil, fmt.Errorf("unable to archive input "+
+				"proofs: %w", err)
+		}
 
 		log.Infof("Committing pending parcel to disk")
 

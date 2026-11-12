@@ -889,6 +889,14 @@
         "sign_anchor_inputs": {
           "type": "boolean",
           "description": "If set, tapd signs and finalizes the anchor inputs of this transfer that\nspend anchor outputs it owns and that have no final witness yet. All other\ninputs must already be finalized."
+        },
+        "input_proof_files": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "The proof files of asset inputs that this daemon's wallet holds no proof\nfor, such as an input whose last transitions happened in transactions\nthis daemon never saw. Each file must end in the proof of one of the\ntransfer's inputs. The daemon verifies each file and stores it in its\nproof archive, replacing any copy stored there, so it can extend the\ninput's proof once the anchor transaction confirms. A file for an input\nwhose proof the wallet holds is ignored."
         }
       }
     },

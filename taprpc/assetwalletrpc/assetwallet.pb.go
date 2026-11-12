@@ -1033,8 +1033,17 @@ type PublishAndLogRequest struct {
 	//spend anchor outputs it owns and that have no final witness yet. All other
 	//inputs must already be finalized.
 	SignAnchorInputs bool `protobuf:"varint,8,opt,name=sign_anchor_inputs,json=signAnchorInputs,proto3" json:"sign_anchor_inputs,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	//
+	//The proof files of asset inputs that this daemon's wallet holds no proof
+	//for, such as an input whose last transitions happened in transactions
+	//this daemon never saw. Each file must end in the proof of one of the
+	//transfer's inputs. The daemon verifies each file and stores it in its
+	//proof archive, replacing any copy stored there, so it can extend the
+	//input's proof once the anchor transaction confirms. A file for an input
+	//whose proof the wallet holds is ignored.
+	InputProofFiles [][]byte `protobuf:"bytes,9,rep,name=input_proof_files,json=inputProofFiles,proto3" json:"input_proof_files,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *PublishAndLogRequest) Reset() {
@@ -1121,6 +1130,13 @@ func (x *PublishAndLogRequest) GetSignAnchorInputs() bool {
 		return x.SignAnchorInputs
 	}
 	return false
+}
+
+func (x *PublishAndLogRequest) GetInputProofFiles() [][]byte {
+	if x != nil {
+		return x.InputProofFiles
+	}
+	return nil
 }
 
 type NextInternalKeyRequest struct {
@@ -2186,7 +2202,7 @@ const file_assetwalletrpc_assetwallet_proto_rawDesc = "" +
 	"\rvirtual_psbts\x18\x02 \x03(\fR\fvirtualPsbts\x12.\n" +
 	"\x13passive_asset_psbts\x18\x04 \x03(\fR\x11passiveAssetPsbts\x12.\n" +
 	"\x13change_output_index\x18\x05 \x01(\x05R\x11changeOutputIndex\x12:\n" +
-	"\x10lnd_locked_utxos\x18\x06 \x03(\v2\x10.taprpc.OutPointR\x0elndLockedUtxos\"\xf5\x02\n" +
+	"\x10lnd_locked_utxos\x18\x06 \x03(\v2\x10.taprpc.OutPointR\x0elndLockedUtxos\"\xa1\x03\n" +
 	"\x14PublishAndLogRequest\x12\x1f\n" +
 	"\vanchor_psbt\x18\x01 \x01(\fR\n" +
 	"anchorPsbt\x12#\n" +
@@ -2196,7 +2212,8 @@ const file_assetwalletrpc_assetwallet_proto_rawDesc = "" +
 	"\x10lnd_locked_utxos\x18\x05 \x03(\v2\x10.taprpc.OutPointR\x0elndLockedUtxos\x127\n" +
 	"\x18skip_anchor_tx_broadcast\x18\x06 \x01(\bR\x15skipAnchorTxBroadcast\x12\x14\n" +
 	"\x05label\x18\a \x01(\tR\x05label\x12,\n" +
-	"\x12sign_anchor_inputs\x18\b \x01(\bR\x10signAnchorInputs\"7\n" +
+	"\x12sign_anchor_inputs\x18\b \x01(\bR\x10signAnchorInputs\x12*\n" +
+	"\x11input_proof_files\x18\t \x03(\fR\x0finputProofFiles\"7\n" +
 	"\x16NextInternalKeyRequest\x12\x1d\n" +
 	"\n" +
 	"key_family\x18\x01 \x01(\rR\tkeyFamily\"S\n" +

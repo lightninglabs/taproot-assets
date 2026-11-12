@@ -3653,6 +3653,11 @@ func (r *RPCServer) PublishAndLogTransfer(ctx context.Context,
 		parcelLabel = req.Label
 	}
 
+	inputProofs, err := unmarshalInputProofFiles(req.InputProofFiles)
+	if err != nil {
+		return nil, err
+	}
+
 	// We now have everything to ship the pre-anchored parcel using the
 	// freighter. This will publish the TX, create the transfer database
 	// entries and ship the proofs to the counterparties. It'll also wait
@@ -3663,6 +3668,7 @@ func (r *RPCServer) PublishAndLogTransfer(ctx context.Context,
 			activePackets, passivePackets, anchorTx,
 			req.SkipAnchorTxBroadcast, parcelLabel,
 			fn.None[uint32](),
+			tapfreighter.WithInputProofs(inputProofs),
 		),
 	)
 	if err != nil {
@@ -3679,6 +3685,45 @@ func (r *RPCServer) PublishAndLogTransfer(ctx context.Context,
 	return &taprpc.SendAssetResponse{
 		Transfer: parcel,
 	}, nil
+}
+
+// unmarshalInputProofFiles decodes caller-supplied input proof files and keys
+// each by the input its last proof describes.
+func unmarshalInputProofFiles(
+	files [][]byte) (map[asset.PrevID]proof.Blob, error) {
+
+	if len(files) == 0 {
+		return nil, nil
+	}
+
+	inputProofs := make(map[asset.PrevID]proof.Blob, len(files))
+	for idx, blob := range files {
+		file, err := proof.DecodeFile(blob)
+		if err != nil {
+			return nil, fmt.Errorf("error decoding input proof "+
+				"file %d: %w", idx, err)
+		}
+		last, err := file.LastProof()
+		if err != nil {
+			return nil, fmt.Errorf("error reading input proof "+
+				"file %d: %w", idx, err)
+		}
+
+		prevID := asset.PrevID{
+			OutPoint: last.OutPoint(),
+			ID:       last.Asset.ID(),
+			ScriptKey: asset.ToSerialized(
+				last.Asset.ScriptKey.PubKey,
+			),
+		}
+		if _, ok := inputProofs[prevID]; ok {
+			return nil, fmt.Errorf("duplicate input proof file "+
+				"for %v", prevID.OutPoint)
+		}
+		inputProofs[prevID] = blob
+	}
+
+	return inputProofs, nil
 }
 
 // signAnchorInputs signs and finalizes the inputs of the anchor transaction

@@ -22,20 +22,49 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// externalProofSource is where the publishing wallet finds the proof file of
+// the external input.
+type externalProofSource uint8
+
+const (
+	// externalProofArchive writes the proof file into the publisher's file
+	// archive, as for a proof received out of band.
+	externalProofArchive externalProofSource = iota
+
+	// externalProofUniverse inserts each proof of the file into the
+	// publisher's local universe.
+	externalProofUniverse
+
+	// externalProofRequest supplies the proof file with the publish
+	// request.
+	externalProofRequest
+)
+
 func testPsbtExternalInput(t *harnessTest) {
-	testExternalInputConfirmation(t, false)
+	testExternalInputConfirmation(t, false, externalProofArchive)
 }
 
 func testPsbtExternalInputRestart(t *harnessTest) {
-	testExternalInputConfirmation(t, true)
+	testExternalInputConfirmation(t, true, externalProofArchive)
+}
+
+func testPsbtExternalInputUniverseProof(t *harnessTest) {
+	testExternalInputConfirmation(t, true, externalProofUniverse)
+}
+
+func testPsbtExternalInputRequestProof(t *harnessTest) {
+	testExternalInputConfirmation(t, true, externalProofRequest)
 }
 
 // testExternalInputConfirmation spends a composed output without importing it
 // into the publishing wallet. Another wallet mints the asset and hands over
 // only the proof file, so the publisher never stores the asset's metadata. The
 // restart case pays back into the publishing wallet, exercising local output
-// creation when no wallet input supplies a template.
-func testExternalInputConfirmation(t *harnessTest, restart bool) {
+// creation when no wallet input supplies a template, and restarts before the
+// anchor confirms, so confirmation reads only what the publisher stored.
+func testExternalInputConfirmation(t *harnessTest, restart bool,
+	source externalProofSource) {
+
 	ctx := context.Background()
 	alice := t.tapd
 	miner := t.lndHarness.Miner()
@@ -113,22 +142,45 @@ func testExternalInputConfirmation(t *harnessTest, restart bool) {
 	lockProof, err := decoded.LastProof()
 	require.NoError(t.t, err)
 
+	publishOpts := []PublishAndLogTransferOption{
+		withSkipAnchorTxBroadcast(),
+	}
+	switch source {
 	// The publishing wallet holds the external proof in its file archive
 	// only, as it would for a proof received out of band.
-	archive, err := proof.NewFileArchiver(filepath.Join(
-		alice.cfg.BaseDir, "data", alice.cfg.NetParams.Name,
-	))
-	require.NoError(t.t, err)
-	require.NoError(t.t, archive.ImportProofs(
-		ctx, proof.VerifierCtx{}, false, &proof.AnnotatedProof{
-			Locator: proof.Locator{
-				AssetID:   &id,
-				ScriptKey: *lockProof.Asset.ScriptKey.PubKey,
-				OutPoint:  fn.Ptr(lockProof.OutPoint()),
+	case externalProofArchive:
+		archive, err := proof.NewFileArchiver(filepath.Join(
+			alice.cfg.BaseDir, "data", alice.cfg.NetParams.Name,
+		))
+		require.NoError(t.t, err)
+		require.NoError(t.t, archive.ImportProofs(
+			ctx, proof.VerifierCtx{}, false,
+			&proof.AnnotatedProof{
+				Locator: proof.Locator{
+					AssetID: &id,
+					ScriptKey: *lockProof.Asset.
+						ScriptKey.PubKey,
+					OutPoint: fn.Ptr(lockProof.OutPoint()),
+				},
+				Blob: lockFile.RawProofFile,
 			},
-			Blob: lockFile.RawProofFile,
-		},
-	))
+		))
+
+	// The publishing wallet learns the history from its local universe
+	// only.
+	case externalProofUniverse:
+		for idx := 0; idx < decoded.NumProofs(); idx++ {
+			rawProof, err := decoded.RawProofAt(uint32(idx))
+			require.NoError(t.t, err)
+			InsertProofIntoUniverse(t.t, alice, rawProof)
+		}
+
+	// The publishing wallet receives the history with the transfer.
+	case externalProofRequest:
+		publishOpts = append(
+			publishOpts, withInputProofFiles(lockFile.RawProofFile),
+		)
+	}
 
 	assertExternalNotOwned := func() {
 		for _, includeSpent := range []bool{false, true} {
@@ -191,8 +243,7 @@ func testExternalInputConfirmation(t *harnessTest, restart bool) {
 	btcPacket.Inputs[0].FinalScriptWitness = witness.Bytes()
 	btcPacket = FinalizePacket(t.t, alice.cfg.LndNode.RPC, btcPacket)
 	published := PublishAndLogTransfer(
-		t.t, alice, btcPacket, packets, nil, committed,
-		withSkipAnchorTxBroadcast(),
+		t.t, alice, btcPacket, packets, nil, committed, publishOpts...,
 	)
 	if restart {
 		require.NoError(t.t, alice.stop(false))
