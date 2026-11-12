@@ -225,6 +225,11 @@
   decrypts but cannot process, and continues with the rest of the batch,
   as it does for a message that it cannot decrypt.
 
+* [PR#2274](https://github.com/lightninglabs/taproot-assets/pull/2274)
+  makes `AssetLeaves` reject an unspecified proof type with an error
+  instead of returning an empty leaf list. Fixes
+  [#701](https://github.com/lightninglabs/taproot-assets/issues/701).
+
 # New Features
 
 ## Functional Enhancements
