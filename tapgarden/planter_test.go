@@ -25,7 +25,6 @@ import (
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btclog/v2"
 	"github.com/davecgh/go-spew/spew"
-	"github.com/lightninglabs/lndclient"
 	tap "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -3309,7 +3308,7 @@ func signGroupKeyV1(keyDesc keychain.KeyDescriptor, gk asset.GroupKeyRevealV1,
 	genTx *wire.MsgTx, prevOut *wire.TxOut, signer asset.GenesisSigner,
 	leafToSign *psbt.TaprootTapLeafScript) (wire.TxWitness, error) {
 
-	signDesc := &lndclient.SignDescriptor{
+	signDesc := &asset.SignDescriptor{
 		KeyDesc:    keyDesc,
 		TapTweak:   gk.TapscriptRoot(),
 		Output:     prevOut,

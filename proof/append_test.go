@@ -3,6 +3,7 @@ package proof
 import (
 	"bytes"
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/btcsuite/btcd/blockchain"
@@ -152,6 +153,56 @@ func TestFinalProofSkipTimeLockCSV(t *testing.T) {
 	_, err = f.Verify(
 		context.Background(), MockVerifierCtx,
 		WithSkipTimeLockValidationForFinalProof(),
+	)
+	require.NoError(t, err)
+}
+
+// TestSkipTimeLockAdditionalInputs ensures that skipping time lock validation
+// for all proofs of a file reaches the files of additional inputs.
+func TestSkipTimeLockAdditionalInputs(t *testing.T) {
+	t.Parallel()
+
+	// The second input of the merge is a time locked asset, so its proof
+	// file is an additional input of the merge proof.
+	suffix, inputFiles := buildMergeSuffix(t, false, 500)
+	primary, err := suffix.Asset.PrimaryPrevID()
+	require.NoError(t, err)
+
+	inputs := []asset.PrevID{*primary}
+	for prevID := range inputFiles {
+		if prevID != *primary {
+			inputs = append(inputs, prevID)
+		}
+	}
+	file, _, err := AppendConfirmedSuffix(
+		suffix, &suffix.AnchorTx, suffix.BlockHeader,
+		suffix.BlockHeight, suffix.TxMerkleProof, inputs,
+		func(prevID asset.PrevID) (*File, error) {
+			return inputFiles[prevID], nil
+		},
+	)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	requireUnfinalized := func(err error) {
+		t.Helper()
+
+		var vmErr vm.Error
+		require.ErrorAs(t, err, &vmErr)
+		require.Equal(t, vm.ErrUnfinalizedAsset, vmErr.Kind)
+	}
+
+	_, err = file.Verify(ctx, MockVerifierCtx)
+	requireUnfinalized(err)
+
+	// The merge proof at the tip of the file has no time lock itself.
+	_, err = file.Verify(
+		ctx, MockVerifierCtx, WithSkipTimeLockValidationForFinalProof(),
+	)
+	requireUnfinalized(err)
+
+	_, err = file.Verify(
+		ctx, MockVerifierCtx, WithSkipTimeLockValidationForAllProofs(),
 	)
 	require.NoError(t, err)
 }
@@ -328,6 +379,99 @@ func TestVerifyProofSuffix(t *testing.T) {
 		require.Equal(t, suffix.OutPoint(), snapshot.OutPoint)
 		require.Equal(t, suffix.Asset.Amount, snapshot.Asset.Amount)
 	})
+}
+
+// TestAppendConfirmedSuffix completes an unconfirmed merge suffix into a full
+// proof file, and leaves the suffix and the input files it is given unchanged
+// whether the call succeeds or fails.
+func TestAppendConfirmedSuffix(t *testing.T) {
+	t.Parallel()
+
+	suffix, inputFiles := buildMergeSuffix(t, false)
+	primary, err := suffix.Asset.PrimaryPrevID()
+	require.NoError(t, err)
+
+	inputs := []asset.PrevID{*primary}
+	for prevID := range inputFiles {
+		if prevID != *primary {
+			inputs = append(inputs, prevID)
+		}
+	}
+	require.Len(t, inputs, 2)
+
+	fetch := func(prevID asset.PrevID) (*File, error) {
+		return inputFiles[prevID], nil
+	}
+	appendSuffix := func(s *Proof, ins []asset.PrevID,
+		fetchInput func(asset.PrevID) (*File, error)) (*File, *Proof,
+		error) {
+
+		return AppendConfirmedSuffix(
+			s, &suffix.AnchorTx, suffix.BlockHeader, 123,
+			suffix.TxMerkleProof, ins, fetchInput,
+		)
+	}
+
+	suffixBytes, err := suffix.Bytes()
+	require.NoError(t, err)
+	primaryProofs := inputFiles[*primary].NumProofs()
+	requireUnchanged := func() {
+		t.Helper()
+
+		current, err := suffix.Bytes()
+		require.NoError(t, err)
+		require.Equal(t, suffixBytes, current)
+		require.Equal(
+			t, primaryProofs, inputFiles[*primary].NumProofs(),
+		)
+	}
+
+	// The primary input is fetched last, so this fails after the
+	// additional input was attached.
+	errFetch := errors.New("fetch failed")
+	_, _, err = appendSuffix(
+		suffix, inputs, func(prevID asset.PrevID) (*File, error) {
+			if prevID == *primary {
+				return nil, errFetch
+			}
+
+			return fetch(prevID)
+		},
+	)
+	require.ErrorIs(t, err, errFetch)
+	requireUnchanged()
+
+	file, confirmed, err := appendSuffix(suffix, inputs, fetch)
+	require.NoError(t, err)
+	requireUnchanged()
+
+	require.Equal(t, primaryProofs+1, file.NumProofs())
+	last, err := file.LastProof()
+	require.NoError(t, err)
+	require.EqualValues(t, 123, last.BlockHeight)
+	require.Len(t, last.AdditionalInputs, 1)
+	require.EqualValues(t, 123, confirmed.BlockHeight)
+	require.Len(t, confirmed.AdditionalInputs, 1)
+
+	snapshot, err := file.Verify(context.Background(), MockVerifierCtx)
+	require.NoError(t, err)
+	require.Equal(t, suffix.Asset.ID(), snapshot.Asset.ID())
+	require.Equal(t, suffix.Asset.Amount, snapshot.Asset.Amount)
+
+	// The first input the asset spends must be the one the suffix
+	// extends.
+	_, _, err = appendSuffix(
+		suffix, []asset.PrevID{inputs[1], inputs[0]}, fetch,
+	)
+	require.ErrorContains(t, err, "does not match proof suffix")
+
+	// A completed proof is not a suffix.
+	_, _, err = appendSuffix(confirmed, inputs, fetch)
+	require.ErrorContains(t, err, "already carries additional inputs")
+
+	_, _, err = appendSuffix(suffix, nil, fetch)
+	require.ErrorContains(t, err, "no inputs found")
+	requireUnchanged()
 }
 
 // TestFullFileAnchorInputs checks that full-file verification binds each asset
@@ -1016,18 +1160,23 @@ func buildTransitionProofFile(t *testing.T, lockTime,
 // genesis asset is split into a transfer root and a split leaf, which are
 // then merged back into a single output by the suffix. If sharedAnchorOut is
 // true, both split outputs are committed to the same anchor output, so the
-// merge spends two asset inputs that share one Bitcoin outpoint.
-func buildMergeSuffix(t *testing.T, sharedAnchorOut bool) (*Proof,
-	map[asset.PrevID]*File) {
+// merge spends two asset inputs that share one Bitcoin outpoint. A
+// leafLockTime moves the split leaf to an asset with that lock time before
+// the merge, which then spends the time locked asset as its second input.
+func buildMergeSuffix(t *testing.T, sharedAnchorOut bool,
+	leafLockTime ...uint64) (*Proof, map[asset.PrevID]*File) {
 
-	suffix, inputFiles, _ := buildMergeSuffixWithKeys(t, sharedAnchorOut)
+	suffix, inputFiles, _ := buildMergeSuffixWithKeys(
+		t, sharedAnchorOut, leafLockTime...,
+	)
 	return suffix, inputFiles
 }
 
 // buildMergeSuffixWithKeys also returns the private key controlling each
 // input so tests can construct ownership proofs for those input states.
-func buildMergeSuffixWithKeys(t *testing.T, sharedAnchorOut bool) (*Proof,
-	map[asset.PrevID]*File, map[asset.PrevID]*btcec.PrivateKey) {
+func buildMergeSuffixWithKeys(t *testing.T, sharedAnchorOut bool,
+	leafLockTime ...uint64) (*Proof, map[asset.PrevID]*File,
+	map[asset.PrevID]*btcec.PrivateKey) {
 
 	t.Helper()
 
@@ -1260,6 +1409,16 @@ func buildMergeSuffixWithKeys(t *testing.T, sharedAnchorOut bool) (*Proof,
 		ScriptKey: asset.ToSerialized(leafScriptKey.PubKey),
 	}
 
+	if len(leafLockTime) > 0 {
+		// The time locked asset gets an anchor output of its own.
+		require.False(t, sharedAnchorOut)
+
+		leafBlob, leafPrevID, leafAsset, leafPrivKey = lockMergeInput(
+			t, leafBlob, leafPrevID, leafAsset, leafPrivKey,
+			leafLockTime[0],
+		)
+	}
+
 	mergePrivKey := test.RandPrivKey()
 	mergedAsset := genesisProof.Asset.Copy()
 	mergedAsset.Amount = amt
@@ -1350,6 +1509,97 @@ func buildMergeSuffixWithKeys(t *testing.T, sharedAnchorOut bool) (*Proof,
 		*rootPrevID: rootPrivKey,
 		*leafPrevID: leafPrivKey,
 	}
+}
+
+// lockMergeInput transfers a merge input to a time locked asset. It returns
+// the input's proof file extended by that transfer, and the previous ID,
+// asset and key that take the place of the input's.
+func lockMergeInput(t *testing.T, inputBlob Blob, inputPrevID *asset.PrevID,
+	inputAsset *asset.Asset, inputPrivKey *btcec.PrivateKey,
+	lockTime uint64) (Blob, *asset.PrevID, *asset.Asset,
+	*btcec.PrivateKey) {
+
+	t.Helper()
+
+	lockedPrivKey := test.RandPrivKey()
+	lockedAsset := inputAsset.Copy()
+	lockedAsset.SplitCommitmentRoot = nil
+	lockedAsset.LockTime = lockTime
+	lockedAsset.ScriptKey = asset.NewScriptKeyBip86(
+		test.PubToKeyDesc(lockedPrivKey.PubKey()),
+	)
+	lockedAsset.PrevWitnesses = []asset.Witness{{PrevID: inputPrevID}}
+
+	virtualTx, _, err := tapscript.VirtualTx(
+		lockedAsset, commitment.InputSet{*inputPrevID: inputAsset},
+	)
+	require.NoError(t, err)
+	lockedAsset.PrevWitnesses[0].TxWitness = genTaprootKeySpend(
+		t, *inputPrivKey, virtualTx, inputAsset, lockedAsset, 0,
+	)
+
+	assetCommitment, err := commitment.NewAssetCommitment(lockedAsset)
+	require.NoError(t, err)
+	tapCommitment, err := commitment.NewTapCommitment(nil, assetCommitment)
+	require.NoError(t, err)
+
+	internalKey := test.RandPubKey(t)
+	tapscriptRoot := tapCommitment.TapscriptRoot(nil)
+	taprootKey := txscript.ComputeTaprootOutputKey(
+		internalKey, tapscriptRoot[:],
+	)
+	lockTx := &wire.MsgTx{
+		Version: 2,
+		TxIn: []*wire.TxIn{{
+			PreviousOutPoint: inputPrevID.OutPoint,
+		}},
+		TxOut: []*wire.TxOut{{
+			PkScript: test.ComputeTaprootScript(t, taprootKey),
+			Value:    330,
+		}},
+	}
+	merkleTree := blockchain.BuildMerkleTreeStore(
+		[]*btcutil.Tx{btcutil.NewTx(lockTx)}, false,
+	)
+	file := NewEmptyFile(V0)
+	require.NoError(t, file.Decode(bytes.NewReader(inputBlob)))
+	inputProof, err := file.LastProof()
+	require.NoError(t, err)
+	inputBlockHash := inputProof.BlockHeader.BlockHash()
+	blockHeader := wire.NewBlockHeader(
+		0, &inputBlockHash, merkleTree[len(merkleTree)-1], 0, 0,
+	)
+
+	lockProof, err := CreateTransitionProof(
+		inputPrevID.OutPoint, &TransitionParams{
+			BaseProofParams: BaseProofParams{
+				Block: &wire.MsgBlock{
+					Header:       *blockHeader,
+					Transactions: []*wire.MsgTx{lockTx},
+				},
+				Tx:               lockTx,
+				TxIndex:          0,
+				OutputIndex:      0,
+				InternalKey:      internalKey,
+				TaprootAssetRoot: tapCommitment,
+			},
+			NewAsset: lockedAsset,
+		}, WithVersion(TransitionV0), WithNoSTXOProofs(),
+	)
+	require.NoError(t, err)
+
+	require.NoError(t, file.AppendProof(*lockProof))
+	var lockedBlob bytes.Buffer
+	require.NoError(t, file.Encode(&lockedBlob))
+
+	return lockedBlob.Bytes(), &asset.PrevID{
+		OutPoint: wire.OutPoint{
+			Hash:  lockTx.TxHash(),
+			Index: 0,
+		},
+		ID:        inputPrevID.ID,
+		ScriptKey: asset.ToSerialized(lockedAsset.ScriptKey.PubKey),
+	}, lockedAsset, lockedPrivKey
 }
 
 // signAssetTransfer creates a virtual transaction for an asset transfer and

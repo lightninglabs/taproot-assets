@@ -162,6 +162,22 @@ jobs:
       - name: Compile docs examples
         run: make build-docs-examples
 
+  # Build the core packages for js/wasm to catch platform specific code.
+  wasm-compile-check:
+    name: WASM compilation check
+    runs-on: ubuntu-latest
+    steps:
+      - name: git checkout
+        uses: actions/checkout@v5
+
+      - name: Setup go ${{ env.GO_VERSION }}
+        uses: actions/setup-go@v6
+        with:
+          go-version: '${{ env.GO_VERSION }}'
+
+      - name: compile core packages for js/wasm
+        run: make build-wasm
+
   # Guard sample-tapd.conf defaults against accidental drift.
   sample-conf-check:
     name: sample configuration check

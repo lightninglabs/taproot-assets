@@ -7,6 +7,7 @@ import (
 
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/asset/assetmock"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
@@ -20,7 +21,7 @@ import (
 // surface (block height, meta reveal, challenge witness, genesis reveal,
 // alt leaves) varied by rapid draws.
 func randLeafProofGen(t *rapid.T) *proof.Proof {
-	proofAsset := asset.AssetGen.Draw(t, "asset")
+	proofAsset := assetmock.AssetGen.Draw(t, "asset")
 
 	sliceGen := rapid.SliceOfN(rapid.Byte(), 32, 32)
 	witnessData := sliceGen.Draw(t, "witness_data")
@@ -45,7 +46,9 @@ func randLeafProofGen(t *rapid.T) *proof.Proof {
 		TxMerkleProof: proof.TxMerkleProof{},
 		Asset:         proofAsset,
 		InclusionProof: proof.TaprootProof{
-			InternalKey: asset.PubKeyGen.Draw(t, "internal_key"),
+			InternalKey: assetmock.PubKeyGen.Draw(
+				t, "internal_key",
+			),
 		},
 	}
 
@@ -72,7 +75,7 @@ func randLeafProofGen(t *rapid.T) *proof.Proof {
 
 	if rapid.Bool().Draw(t, "alt_leaves") {
 		altAssets := rapid.SliceOfN[asset.Asset](
-			asset.AltLeafGen(t), 1, 5,
+			assetmock.AltLeafGen(t), 1, 5,
 		).Draw(t, "alt_assets")
 		p.AltLeaves = asset.ToAltLeaves(
 			lfn.Map(altAssets, lnutils.Ptr),

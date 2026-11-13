@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/url"
-	"sync"
 	"testing"
 	"time"
 
@@ -466,102 +465,6 @@ func (m *MockProofCourierDispatcher) NewCourier(context.Context,
 
 	return m.Courier, nil
 }
-
-// MockProofCourier is a mock proof courier which stores the last proof it
-// received.
-type MockProofCourier struct {
-	sync.Mutex
-
-	currentProofs map[asset.SerializedKey]*AnnotatedProof
-
-	subscribers map[uint64]*fn.EventReceiver[fn.Event]
-}
-
-// NewMockProofCourier returns a new mock proof courier.
-func NewMockProofCourier() *MockProofCourier {
-	return &MockProofCourier{
-		currentProofs: make(map[asset.SerializedKey]*AnnotatedProof),
-	}
-}
-
-// Start starts the proof courier service.
-func (m *MockProofCourier) Start(chan error) error {
-	return nil
-}
-
-// Stop stops the proof courier service.
-func (m *MockProofCourier) Stop() error {
-	return nil
-}
-
-// DeliverProof attempts to delivery a proof to the receiver, using the
-// information in the Addr type.
-func (m *MockProofCourier) DeliverProof(_ context.Context,
-	_ Recipient, proof *AnnotatedProof, _ *SendManifest) error {
-
-	m.Lock()
-	defer m.Unlock()
-
-	m.currentProofs[asset.ToSerialized(&proof.ScriptKey)] = proof
-
-	return nil
-}
-
-// ReceiveProof attempts to obtain a proof as identified by the passed
-// locator from the source encapsulated within the specified address.
-func (m *MockProofCourier) ReceiveProof(_ context.Context,
-	_ Recipient, loc Locator) (*AnnotatedProof, error) {
-
-	m.Lock()
-	defer m.Unlock()
-
-	proof, ok := m.currentProofs[asset.ToSerialized(&loc.ScriptKey)]
-	if !ok {
-		return nil, ErrProofNotFound
-	}
-
-	return &AnnotatedProof{
-		Locator: Locator{
-			AssetID:   proof.Locator.AssetID,
-			GroupKey:  proof.Locator.GroupKey,
-			ScriptKey: proof.Locator.ScriptKey,
-			OutPoint:  proof.Locator.OutPoint,
-		},
-		Blob: proof.Blob,
-		AssetSnapshot: &AssetSnapshot{
-			Asset:             proof.AssetSnapshot.Asset,
-			OutPoint:          proof.AssetSnapshot.OutPoint,
-			AnchorBlockHash:   proof.AssetSnapshot.AnchorBlockHash,
-			AnchorBlockHeight: proof.AssetSnapshot.AnchorBlockHeight,
-			AnchorTxIndex:     proof.AssetSnapshot.AnchorTxIndex,
-			AnchorTx:          proof.AssetSnapshot.AnchorTx,
-			OutputIndex:       proof.AssetSnapshot.OutputIndex,
-			InternalKey:       proof.AssetSnapshot.InternalKey,
-			ScriptRoot:        proof.AssetSnapshot.ScriptRoot,
-			TapscriptSibling:  proof.AssetSnapshot.TapscriptSibling,
-			SplitAsset:        proof.AssetSnapshot.SplitAsset,
-			MetaReveal:        proof.AssetSnapshot.MetaReveal,
-		},
-	}, nil
-}
-
-// SetSubscribers sets the set of subscribers that will be notified
-// of proof courier related events.
-func (m *MockProofCourier) SetSubscribers(
-	subscribers map[uint64]*fn.EventReceiver[fn.Event]) {
-
-	m.Lock()
-	defer m.Unlock()
-
-	m.subscribers = subscribers
-}
-
-// Close stops the courier instance.
-func (m *MockProofCourier) Close() error {
-	return nil
-}
-
-var _ Courier = (*MockProofCourier)(nil)
 
 type ValidTestCase struct {
 	Proof    *TestProof `json:"proof"`

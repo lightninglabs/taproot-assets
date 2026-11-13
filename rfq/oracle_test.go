@@ -11,6 +11,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/internal/test/grpcmock"
 	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightninglabs/taproot-assets/rpcutils"
@@ -110,7 +111,9 @@ func validateAssetRatesRequest(
 func startBackendRPC(t *testing.T, grpcServer *grpc.Server) string {
 	server := mockRpcPriceOracleServer{}
 	priceoraclerpc.RegisterPriceOracleServer(grpcServer, &server)
-	mockAddr, cleanup, err := test.StartMockGRPCServer(t, grpcServer, false)
+	mockAddr, cleanup, err := grpcmock.StartMockGRPCServer(
+		t, grpcServer, false,
+	)
 	require.NoError(t, err)
 
 	t.Cleanup(cleanup)

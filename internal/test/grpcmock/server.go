@@ -1,4 +1,5 @@
-package test
+// Package grpcmock starts gRPC servers for tests.
+package grpcmock
 
 import (
 	"context"
@@ -8,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightningnetwork/lnd/cert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/errgroup"
@@ -15,10 +17,6 @@ import (
 )
 
 var (
-	// ListenAddrTemplate is the template for the address the mock server
-	// listens on.
-	ListenAddrTemplate = "127.0.0.1:%d"
-
 	// StartupWaitTime is the time we wait for the server to start up.
 	StartupWaitTime = 50 * time.Millisecond
 )
@@ -29,8 +27,8 @@ var (
 func StartMockGRPCServer(t *testing.T, grpcServer *grpc.Server,
 	withTLS bool) (string, func(), error) {
 
-	nextPort := NextAvailablePort()
-	listenAddr := fmt.Sprintf(ListenAddrTemplate, nextPort)
+	nextPort := test.NextAvailablePort()
+	listenAddr := fmt.Sprintf(test.ListenAddrTemplate, nextPort)
 
 	cleanup, err := StartMockGRPCServerWithAddr(
 		t, grpcServer, withTLS, listenAddr,

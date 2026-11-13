@@ -15,6 +15,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/internal/test/grpcmock"
 	"github.com/lightninglabs/taproot-assets/proof"
 	cmsg "github.com/lightninglabs/taproot-assets/tapchannelmsg"
 	mboxrpc "github.com/lightninglabs/taproot-assets/taprpc/authmailboxrpc"
@@ -721,7 +722,7 @@ func TestValidateLocalProofCourier(t *testing.T) {
 	universerpc.RegisterUniverseServer(grpcServer, &server)
 	mboxrpc.RegisterMailboxServer(grpcServer, &server)
 
-	mockServerAddr, cleanup, err := test.StartMockGRPCServer(
+	mockServerAddr, cleanup, err := grpcmock.StartMockGRPCServer(
 		t, grpcServer, true,
 	)
 	require.NoError(t, err)
@@ -784,7 +785,7 @@ func TestValidateLocalProofCourier(t *testing.T) {
 			// controller
 			ctxb := context.Background()
 			ctxb, cancel := context.WithTimeout(
-				ctxb, test.StartupWaitTime*2,
+				ctxb, grpcmock.StartupWaitTime*2,
 			)
 			defer cancel()
 

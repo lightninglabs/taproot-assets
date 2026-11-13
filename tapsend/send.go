@@ -20,7 +20,6 @@ import (
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btclog/v2"
 	"github.com/davecgh/go-spew/spew"
-	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
@@ -29,7 +28,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
-	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"golang.org/x/exp/maps"
 )
 
@@ -47,6 +45,18 @@ const (
 )
 
 var (
+	// psbtKeyTypeInputSignatureTweakSingle is the custom PSBT input key
+	// that holds a single tweak for the signing key. The value matches
+	// PsbtKeyTypeInputSignatureTweakSingle of lnd's lnwallet/btcwallet
+	// package.
+	psbtKeyTypeInputSignatureTweakSingle = []byte{0x51}
+
+	// psbtKeyTypeInputSignatureTweakDouble is the custom PSBT input key
+	// that holds a double tweak for the signing key. The value matches
+	// PsbtKeyTypeInputSignatureTweakDouble of lnd's lnwallet/btcwallet
+	// package.
+	psbtKeyTypeInputSignatureTweakDouble = []byte{0xd0}
+
 	// ErrInvalidCollectibleSplit is returned when a collectible is split
 	// into more than two outputs.
 	ErrInvalidCollectibleSplit = errors.New(
@@ -804,7 +814,7 @@ func CreateTaprootSignature(vIn *tappsbt.VInput, virtualTx *wire.MsgTx,
 
 	// Start with a default sign descriptor and the BIP-0086 sign method
 	// then adjust depending on the input parameters.
-	spendDesc := lndclient.SignDescriptor{
+	spendDesc := asset.SignDescriptor{
 		KeyDesc:    keyDesc,
 		SignMethod: input.TaprootKeySpendBIP0086SignMethod,
 		Output:     prevOut,
@@ -895,23 +905,17 @@ func CreateTaprootSignature(vIn *tappsbt.VInput, virtualTx *wire.MsgTx,
 
 // addKeyTweaks examines if there are any tweak parameters given in the
 // custom/proprietary PSBT fields and may add them to the given sign descriptor.
-func addKeyTweaks(unknowns []*psbt.Unknown, desc *lndclient.SignDescriptor) {
+func addKeyTweaks(unknowns []*psbt.Unknown, desc *asset.SignDescriptor) {
 	// There can be other custom/unknown keys in a PSBT that we just ignore.
 	// Key tweaking is optional and only one tweak (single _or_ double) can
 	// ever be applied (at least for any use cases described in the BOLT
 	// spec).
 	for _, u := range unknowns {
-		if bytes.Equal(
-			u.Key, btcwallet.PsbtKeyTypeInputSignatureTweakSingle,
-		) {
-
+		if bytes.Equal(u.Key, psbtKeyTypeInputSignatureTweakSingle) {
 			desc.SingleTweak = u.Value
 		}
 
-		if bytes.Equal(
-			u.Key, btcwallet.PsbtKeyTypeInputSignatureTweakDouble,
-		) {
-
+		if bytes.Equal(u.Key, psbtKeyTypeInputSignatureTweakDouble) {
 			doubleTweakKey, _ := btcec.PrivKeyFromBytes(u.Value)
 			desc.DoubleTweak = doubleTweakKey
 		}

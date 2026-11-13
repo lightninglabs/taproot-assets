@@ -170,7 +170,12 @@ func newTransfer(t *testing.T, addr *address.AddrWithKeyInfo,
 	outputIndex uint32) address.IncomingTransfer {
 
 	src, err := address.NewTransferFromWalletTx(
-		addr, txn, outputIndex, randOutputs(t),
+		addr, &address.WalletTx{
+			Tx:            txn.Tx,
+			Confirmations: txn.Confirmations,
+			BlockHash:     txn.BlockHash,
+			BlockHeight:   txn.BlockHeight,
+		}, outputIndex, randOutputs(t),
 	)
 	require.NoError(t, err)
 
@@ -1171,9 +1176,8 @@ func TestCompleteEventGroupedReceive(t *testing.T) {
 	require.NoError(t, addrBook.InsertAddrs(ctx, *addr))
 
 	transfer, err := address.NewTransferFromWalletTx(
-		addr, &lndclient.Transaction{
-			Tx:        anchorTx,
-			Timestamp: time.Now(),
+		addr, &address.WalletTx{
+			Tx: anchorTx,
 		}, anchorPoint.Index, outputs,
 	)
 	require.NoError(t, err)

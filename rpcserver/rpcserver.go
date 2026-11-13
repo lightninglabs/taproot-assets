@@ -118,7 +118,7 @@ const (
 
 	// proofTypeReceive is an alias for the proof type used for receiving
 	// assets.
-	proofTypeReceive = tapdevrpc.ProofTransferType_PROOF_TRANSFER_TYPE_RECEIVE
+	proofTypeReceive = tapdevrpc.ProofTransferType_PROOF_TRANSFER_TYPE_RECEIVE //nolint:lll
 
 	// maxRfqHopHints is the maximum number of RFQ quotes that may be
 	// encoded as hop hints in a bolt11 invoice.
@@ -165,7 +165,7 @@ type (
 
 	// devReceiveEventStream is a type alias for the asset receive event
 	// notification stream.
-	devReceiveEventStream = tapdevrpc.TapDev_SubscribeReceiveAssetEventNtfnsServer
+	devReceiveEventStream = tapdevrpc.TapDev_SubscribeReceiveAssetEventNtfnsServer //nolint:lll
 
 	// receiveEventStream is a type alias for the asset receive event
 	// notification stream.
@@ -177,7 +177,7 @@ type (
 
 	// receiveBackOff is a type alias for the backoff event that is sent
 	// when a proof transfer process failed and needs to re-try.
-	receiveBackoff = tapdevrpc.ReceiveAssetEvent_ProofTransferBackoffWaitEvent
+	receiveBackoff = tapdevrpc.ReceiveAssetEvent_ProofTransferBackoffWaitEvent //nolint:lll
 
 	// receiveComplete is a type alias for the complete event that is sent
 	// when an asset is received.
@@ -703,7 +703,6 @@ func (r *RPCServer) MintAsset(ctx context.Context,
 			"for decimal display %d", req.Asset.DecimalDisplay)
 
 		req.Asset.AssetMeta = &taprpc.AssetMeta{}
-
 	}
 
 	// Decimal display doesn't really make sense for collectibles.
@@ -940,7 +939,7 @@ func checkFeeRateSanity(ctx context.Context, rpcFeeRate chainfee.SatPerKWeight,
 
 	// Set the fee rate for this transaction.
 	default:
-		return fn.Ptr(chainfee.SatPerKWeight(rpcFeeRate)), nil
+		return fn.Ptr(rpcFeeRate), nil
 	}
 }
 
@@ -1596,10 +1595,11 @@ func (r *RPCServer) listBalancesByGroupKey(ctx context.Context,
 		}
 
 		groupKeyString := hex.EncodeToString(groupKey)
-		resp.AssetGroupBalances[groupKeyString] = &taprpc.AssetGroupBalance{
+		groupBalance := &taprpc.AssetGroupBalance{
 			GroupKey: groupKey,
 			Balance:  balance.Balance,
 		}
+		resp.AssetGroupBalances[groupKeyString] = groupBalance
 	}
 
 	// We will also report the number of unconfirmed transfers. This is
@@ -1648,10 +1648,11 @@ func (r *RPCServer) ListUtxos(ctx context.Context,
 
 	utxos := make(map[string]*taprpc.ManagedUtxo)
 	for _, u := range managedUtxos {
+		internalKey := u.InternalKey.PubKey.SerializeCompressed()
 		utxos[u.OutPoint.String()] = &taprpc.ManagedUtxo{
 			OutPoint:         u.OutPoint.String(),
 			AmtSat:           int64(u.OutputValue),
-			InternalKey:      u.InternalKey.PubKey.SerializeCompressed(),
+			InternalKey:      internalKey,
 			TaprootAssetRoot: u.TaprootAssetRoot,
 			MerkleRoot:       u.MerkleRoot,
 			LeaseOwner:       u.LeaseOwner[:],
@@ -2741,7 +2742,8 @@ func (r *RPCServer) AddrReceives(ctx context.Context,
 		)
 	}
 
-	if req.FilterStatus != taprpc.AddrEventStatus_ADDR_EVENT_STATUS_UNKNOWN {
+	unknownStatus := taprpc.AddrEventStatus_ADDR_EVENT_STATUS_UNKNOWN
+	if req.FilterStatus != unknownStatus {
 		status, err := unmarshalAddrEventStatus(req.FilterStatus)
 		if err != nil {
 			return nil, fmt.Errorf("error parsing status: %w", err)
@@ -3004,7 +3006,8 @@ func (r *RPCServer) SignVirtualPsbt(ctx context.Context,
 		// need to look it up in the local database, to make sure we'll
 		// be able to sign for it.
 		if scriptKey.TweakedScriptKey == nil {
-			tweakedScriptKey, err := r.cfg.AssetWallet.FetchScriptKey(
+			wallet := r.cfg.AssetWallet
+			tweakedScriptKey, err := wallet.FetchScriptKey(
 				ctx, scriptKey.PubKey,
 			)
 			if err != nil {
@@ -3307,44 +3310,10 @@ func (r *RPCServer) CommitVirtualPsbts(ctx context.Context,
 	}
 
 	// We can now update the anchor outputs as we have the final
-	// commitments.
-	outputCommitments, err := tapsend.CreateOutputCommitments(
-		allPackets, tapsend.WithSpenderLeaves(),
-	)
+	// commitments, and create the transition proof suffixes.
+	err = tapsend.CommitPackets(fundedPacket, allPackets, proofOpts...)
 	if err != nil {
-		return nil, fmt.Errorf("unable to create new output "+
-			"commitments: %w", err)
-	}
-
-	for _, vPkt := range allPackets {
-		err = tapsend.UpdateTaprootOutputKeys(
-			fundedPacket, vPkt, outputCommitments,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("error updating taproot output "+
-				"keys: %w", err)
-		}
-	}
-
-	// We're done creating the output commitments, we can now create the
-	// transition proof suffixes.
-	for idx := range allPackets {
-		vPkt := allPackets[idx]
-
-		for vOutIdx := range vPkt.Outputs {
-			proofSuffix, err := tapsend.CreateProofSuffix(
-				fundedPacket.UnsignedTx, fundedPacket.Outputs,
-				vPkt, outputCommitments, vOutIdx, allPackets,
-				proofOpts...,
-			)
-			if err != nil {
-				return nil, fmt.Errorf("unable to create "+
-					"proof suffix for output %d of vPSBT "+
-					"%d: %w", vOutIdx, idx, err)
-			}
-
-			vPkt.Outputs[vOutIdx].ProofSuffix = proofSuffix
-		}
+		return nil, err
 	}
 
 	// We can now prepare the full answer, beginning with the serialized
@@ -3508,55 +3477,7 @@ func (r *RPCServer) validateInputAssets(ctx context.Context,
 		}
 	}
 
-	// At this point all the virtual packet inputs and outputs should fully
-	// match the BTC level anchor transaction. Version 0 assets should also
-	// be signed now.
-	if err := tapsend.AssertInputAnchorsEqual(vPackets); err != nil {
-		return fmt.Errorf("input anchors don't match: %w", err)
-	}
-	if err := tapsend.AssertOutputAnchorsEqual(vPackets); err != nil {
-		return fmt.Errorf("output anchors don't match: %w", err)
-	}
-	err = tapsend.ValidateAnchorInputs(btcPkt, vPackets, purgedAssets)
-	if err != nil {
-		return fmt.Errorf("error validating anchor inputs: %w", err)
-	}
-
-	// The witness of a split only signs the split commitment root, so we
-	// make sure each split root asset is the one its split tree commits
-	// to. Otherwise a split root could be changed after signing, for
-	// example to point to another script key at the same amount.
-	if err := tapsend.ValidateSplitRootLocators(vPackets); err != nil {
-		return fmt.Errorf("error validating split roots: %w", err)
-	}
-
-	// Now that we know the packet inputs match the anchored assets, we can
-	// also check that we don't inflate or deflate the asset supply with the
-	// active and passive assets. We explicitly don't look at the pruned
-	// assets. We have already made sure that the total sum of all inputs
-	// that was committed to in the input anchor is accounted for with the
-	// active, passive and pruned assets. Now we just need to make sure the
-	// active and passive transfers don't create or destroy assets.
-	inputBalances := make(map[asset.ID]uint64)
-	outputBalances := make(map[asset.ID]uint64)
-	for _, vPkt := range vPackets {
-		for _, vIn := range vPkt.Inputs {
-			inputBalances[vIn.Asset().ID()] += vIn.Asset().Amount
-		}
-		for _, vOut := range vPkt.Outputs {
-			outputBalances[vOut.Asset.ID()] += vOut.Asset.Amount
-		}
-	}
-	for assetID, inputBalance := range inputBalances {
-		outputBalance := outputBalances[assetID]
-		if inputBalance != outputBalance {
-			return fmt.Errorf("input and output balances don't "+
-				"match for asset %x: %d != %d", assetID[:],
-				inputBalance, outputBalance)
-		}
-	}
-
-	return nil
+	return tapsend.ValidateAnchoredPackets(btcPkt, vPackets, purgedAssets)
 }
 
 // PublishAndLogTransfer accepts a fully committed and signed anchor transaction
@@ -4110,11 +4031,11 @@ func marshalAddrEventStatus(status address.Status) (taprpc.AddrEventStatus,
 
 	switch status {
 	case address.StatusTransactionDetected:
-		return taprpc.AddrEventStatus_ADDR_EVENT_STATUS_TRANSACTION_DETECTED,
+		return taprpc.AddrEventStatus_ADDR_EVENT_STATUS_TRANSACTION_DETECTED, //nolint:lll
 			nil
 
 	case address.StatusTransactionConfirmed:
-		return taprpc.AddrEventStatus_ADDR_EVENT_STATUS_TRANSACTION_CONFIRMED,
+		return taprpc.AddrEventStatus_ADDR_EVENT_STATUS_TRANSACTION_CONFIRMED, //nolint:lll
 			nil
 
 	case address.StatusProofReceived:

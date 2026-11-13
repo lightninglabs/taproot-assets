@@ -17,7 +17,6 @@ import (
 	"github.com/btcsuite/btcd/psbt/v2"
 	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
-	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
@@ -164,7 +163,7 @@ func (s keyedSigner) add(priv *btcec.PrivateKey) keychain.KeyDescriptor {
 	return test.PubToKeyDesc(priv.PubKey())
 }
 
-func (s keyedSigner) SignVirtualTx(signDesc *lndclient.SignDescriptor,
+func (s keyedSigner) SignVirtualTx(signDesc *asset.SignDescriptor,
 	tx *wire.MsgTx, prevOut *wire.TxOut) (*schnorr.Signature, error) {
 
 	priv, ok := s[[33]byte(signDesc.KeyDesc.PubKey.SerializeCompressed())]

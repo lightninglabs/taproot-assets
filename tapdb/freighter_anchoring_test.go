@@ -39,6 +39,16 @@ func blockContextFor(t *testing.T, tx *wire.MsgTx,
 	return header.BlockHash(), header, *merkle
 }
 
+// randSuffix returns a random transition proof suffix of an output asset. As
+// in a suffix the freighter creates, its previous outpoint is that of the
+// first input the asset spends.
+func randSuffix(t testing.TB, outAsset *asset.Asset) *proof.Proof {
+	suffix := randProof(t, outAsset)
+	suffix.PrevOut = outAsset.PrevWitnesses[0].PrevID.OutPoint
+
+	return suffix
+}
+
 // TestPorterAnchoringPersistence drives a transfer through the porter
 // site's persistence cycle against a real database: the phase-1
 // pending write, the rebuilt-and-applied confirmation, a re-organized
@@ -158,7 +168,7 @@ func TestPorterAnchoringPersistence(t *testing.T) {
 		PrevID:    &inputPrevID,
 		TxWitness: [][]byte{{0x01}},
 	}}
-	receiverProof := randProof(t, receiverAsset)
+	receiverProof := randSuffix(t, receiverAsset)
 	receiverProofBytes, err := receiverProof.Bytes()
 	require.NoError(t, err)
 
@@ -168,7 +178,7 @@ func TestPorterAnchoringPersistence(t *testing.T) {
 		PrevID:    &inputPrevID,
 		TxWitness: [][]byte{{0x01}},
 	}}
-	senderProof := randProof(t, senderAsset)
+	senderProof := randSuffix(t, senderAsset)
 	senderProofBytes, err := senderProof.Bytes()
 	require.NoError(t, err)
 
@@ -556,7 +566,7 @@ func TestPorterAnchoringRebuildAggregated(t *testing.T) {
 			PrevID:    &prevID,
 			TxWitness: [][]byte{{0x01}},
 		}}
-		suffix := randProof(t, outAsset)
+		suffix := randSuffix(t, outAsset)
 		suffix.InclusionProof.OutputIndex = outIndex
 		suffixBytes, err := suffix.Bytes()
 		require.NoError(t, err)
@@ -799,7 +809,7 @@ func TestPorterAnchoringApplySharedAnchorOutput(t *testing.T) {
 			PrevID:    &prevID,
 			TxWitness: [][]byte{{0x01}},
 		}}
-		suffix := randProof(t, outAsset)
+		suffix := randSuffix(t, outAsset)
 		suffix.InclusionProof.OutputIndex = 0
 		suffixBytes, err := suffix.Bytes()
 		require.NoError(t, err)
@@ -1105,7 +1115,7 @@ func TestPorterAnchoringZeroValueSweep(t *testing.T) {
 		PrevID:    &inputPrevID,
 		TxWitness: [][]byte{{0x01}},
 	}}
-	receiverProof := randProof(t, receiverAsset)
+	receiverProof := randSuffix(t, receiverAsset)
 	receiverProofBytes, err := receiverProof.Bytes()
 	require.NoError(t, err)
 
@@ -1432,7 +1442,7 @@ func buildRivalryWorld(t *testing.T, plantRival, secondInput,
 		PrevID:    &inputPrevID,
 		TxWitness: [][]byte{{0x01}},
 	}}
-	receiverProof := randProof(t, receiverAsset)
+	receiverProof := randSuffix(t, receiverAsset)
 	receiverProofBytes, err := receiverProof.Bytes()
 	require.NoError(t, err)
 
@@ -2198,7 +2208,7 @@ func TestPorterPassiveFollowsIdentity(t *testing.T) {
 				PrevID:    &inputPrevID,
 				TxWitness: [][]byte{{0x01}},
 			}}
-			suffix := randProof(t, outAsset)
+			suffix := randSuffix(t, outAsset)
 			suffixBytes, err := suffix.Bytes()
 			require.NoError(t, err)
 
@@ -2288,7 +2298,7 @@ func TestPorterPassiveFollowsIdentity(t *testing.T) {
 			PrevID:    &passiveFrom,
 			TxWitness: [][]byte{{0x03}},
 		}}
-		suffix := randProof(t, passiveOut)
+		suffix := randSuffix(t, passiveOut)
 		suffix.InclusionProof.OutputIndex = 1
 		suffixBytes, err := suffix.Bytes()
 		require.NoError(t, err)

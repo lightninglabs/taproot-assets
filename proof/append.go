@@ -548,3 +548,83 @@ func spenderInclusionProofs(rootAsset *asset.Asset,
 
 	return spenderProofs, nil
 }
+
+// AppendConfirmedSuffix completes the transition proof suffix of a transfer
+// output with the block that confirmed its anchor transaction. It returns the
+// output's full proof file and the completed proof.
+//
+// The file is that of the output's primary input with the proof appended, and
+// the files of any further inputs it spends are attached to the proof. An
+// output's inputs are picked by the witnesses of its asset, since one anchor
+// transaction can carry several independent transitions of the same asset.
+// inputs must list them in the order of the output's virtual packet inputs:
+// the first one the asset spends is taken as the primary input.
+//
+// Neither the suffix nor the files returned by fetchInput are modified, so a
+// failed call can be retried with the same arguments.
+func AppendConfirmedSuffix(suffix *Proof, anchorTx *wire.MsgTx,
+	header wire.BlockHeader, height uint32, merkle TxMerkleProof,
+	inputs []asset.PrevID,
+	fetchInput func(asset.PrevID) (*File, error)) (*File, *Proof, error) {
+
+	// A pre-broadcast suffix carries no additional inputs. They are
+	// attached here, from the input files.
+	if len(suffix.AdditionalInputs) != 0 {
+		return nil, nil, fmt.Errorf("proof suffix already carries " +
+			"additional inputs")
+	}
+
+	witnesses := suffix.Asset.Witnesses()
+	var prevIDs []asset.PrevID
+	for _, in := range inputs {
+		for _, witness := range witnesses {
+			if witness.PrevID != nil && in == *witness.PrevID {
+				prevIDs = append(prevIDs, in)
+			}
+		}
+	}
+	if len(prevIDs) == 0 {
+		return nil, nil, fmt.Errorf("no inputs found for output "+
+			"asset %v", suffix.Asset.ID())
+	}
+	if prevIDs[0].OutPoint != suffix.PrevOut {
+		return nil, nil, fmt.Errorf("primary input %v does not "+
+			"match proof suffix previous outpoint %v",
+			prevIDs[0].OutPoint, suffix.PrevOut)
+	}
+
+	// We complete a copy of the suffix, so the caller's is unchanged.
+	confirmed := *suffix
+	confirmed.AnchorTx = *anchorTx
+	confirmed.BlockHeader = header
+	confirmed.BlockHeight = height
+	confirmed.TxMerkleProof = merkle
+	confirmed.AdditionalInputs = nil
+
+	for _, prevID := range prevIDs[1:] {
+		extraFile, err := fetchInput(prevID)
+		if err != nil {
+			return nil, nil, err
+		}
+		confirmed.AdditionalInputs = append(
+			confirmed.AdditionalInputs, *extraFile,
+		)
+	}
+
+	// The fetched file may be shared, by a cache for example, so we
+	// append to a copy of it.
+	primaryFile, err := fetchInput(prevIDs[0])
+	if err != nil {
+		return nil, nil, err
+	}
+	file, err := cloneProofFile(primaryFile)
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to copy primary input "+
+			"proof: %w", err)
+	}
+	if err := file.AppendProof(confirmed); err != nil {
+		return nil, nil, fmt.Errorf("unable to append proof: %w", err)
+	}
+
+	return file, &confirmed, nil
+}

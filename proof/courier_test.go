@@ -14,6 +14,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/internal/test/grpcmock"
 	mboxrpc "github.com/lightninglabs/taproot-assets/taprpc/authmailboxrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"github.com/lightninglabs/taproot-assets/taptls"
@@ -109,7 +110,7 @@ func TestCheckUniverseRpcCourierConnection(t *testing.T) {
 	noConnectPort := port.NextAvailablePort()
 	noConnectAddr := fmt.Sprintf(test.ListenAddrTemplate, noConnectPort)
 
-	mockServerAddr, cleanup, err := test.StartMockGRPCServer(
+	mockServerAddr, cleanup, err := grpcmock.StartMockGRPCServer(
 		t, grpcServer, true,
 	)
 	require.NoError(t, err)
@@ -159,7 +160,7 @@ func TestCheckUniverseRpcCourierConnection(t *testing.T) {
 			// needs a short deadline to keep the test fast.
 			connectTimeout := testTimeout
 			if tt.courierAddr.Host == noConnectAddr {
-				connectTimeout = test.StartupWaitTime
+				connectTimeout = grpcmock.StartupWaitTime
 			}
 			ctxt, cancel := context.WithTimeout(
 				context.Background(), connectTimeout*2,
@@ -318,7 +319,7 @@ func TestUniverseRpcCourierDeliverFragmentOnce(t *testing.T) {
 	universerpc.RegisterUniverseServer(grpcServer, server)
 	mboxrpc.RegisterMailboxServer(grpcServer, server)
 
-	serverAddr, cleanup, err := test.StartMockGRPCServer(
+	serverAddr, cleanup, err := grpcmock.StartMockGRPCServer(
 		t, grpcServer, true,
 	)
 	require.NoError(t, err)
@@ -456,7 +457,7 @@ func TestUniverseRpcCourierGroupedAssetFallback(t *testing.T) {
 	server := &recordingCourierServer{}
 	universerpc.RegisterUniverseServer(grpcServer, server)
 
-	serverAddr, cleanup, err := test.StartMockGRPCServer(
+	serverAddr, cleanup, err := grpcmock.StartMockGRPCServer(
 		t, grpcServer, true,
 	)
 	require.NoError(t, err)
@@ -713,7 +714,8 @@ func TestUniverseRpcCourierGroupPublishRetry(t *testing.T) {
 				mboxrpc.RegisterMailboxServer(
 					grpcServer, server,
 				)
-				addr, cleanup, err := test.StartMockGRPCServer(
+				start := grpcmock.StartMockGRPCServer
+				addr, cleanup, err := start(
 					t, grpcServer, true,
 				)
 				require.NoError(t, err)

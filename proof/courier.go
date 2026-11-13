@@ -1950,6 +1950,106 @@ func (c *UniverseRpcCourier) Close() error {
 // proof.Courier interface.
 var _ Courier = (*UniverseRpcCourier)(nil)
 
+// MockProofCourier is the courier behind the MockCourierType address scheme.
+// It keeps the last proof delivered for each script key in memory and never
+// contacts a remote service.
+type MockProofCourier struct {
+	sync.Mutex
+
+	currentProofs map[asset.SerializedKey]*AnnotatedProof
+
+	subscribers map[uint64]*fn.EventReceiver[fn.Event]
+}
+
+// NewMockProofCourier returns a new mock proof courier.
+func NewMockProofCourier() *MockProofCourier {
+	return &MockProofCourier{
+		currentProofs: make(map[asset.SerializedKey]*AnnotatedProof),
+	}
+}
+
+// Start starts the proof courier service.
+func (m *MockProofCourier) Start(chan error) error {
+	return nil
+}
+
+// Stop stops the proof courier service.
+func (m *MockProofCourier) Stop() error {
+	return nil
+}
+
+// DeliverProof attempts to delivery a proof to the receiver, using the
+// information in the Addr type.
+func (m *MockProofCourier) DeliverProof(_ context.Context,
+	_ Recipient, proof *AnnotatedProof, _ *SendManifest) error {
+
+	m.Lock()
+	defer m.Unlock()
+
+	m.currentProofs[asset.ToSerialized(&proof.ScriptKey)] = proof
+
+	return nil
+}
+
+// ReceiveProof attempts to obtain a proof as identified by the passed
+// locator from the source encapsulated within the specified address.
+func (m *MockProofCourier) ReceiveProof(_ context.Context,
+	_ Recipient, loc Locator) (*AnnotatedProof, error) {
+
+	m.Lock()
+	defer m.Unlock()
+
+	proof, ok := m.currentProofs[asset.ToSerialized(&loc.ScriptKey)]
+	if !ok {
+		return nil, ErrProofNotFound
+	}
+	snapshot := proof.AssetSnapshot
+
+	return &AnnotatedProof{
+		Locator: Locator{
+			AssetID:   proof.Locator.AssetID,
+			GroupKey:  proof.Locator.GroupKey,
+			ScriptKey: proof.Locator.ScriptKey,
+			OutPoint:  proof.Locator.OutPoint,
+		},
+		Blob: proof.Blob,
+		AssetSnapshot: &AssetSnapshot{
+			Asset:             snapshot.Asset,
+			OutPoint:          snapshot.OutPoint,
+			AnchorBlockHash:   snapshot.AnchorBlockHash,
+			AnchorBlockHeight: snapshot.AnchorBlockHeight,
+			AnchorTxIndex:     snapshot.AnchorTxIndex,
+			AnchorTx:          snapshot.AnchorTx,
+			OutputIndex:       snapshot.OutputIndex,
+			InternalKey:       snapshot.InternalKey,
+			ScriptRoot:        snapshot.ScriptRoot,
+			TapscriptSibling:  snapshot.TapscriptSibling,
+			SplitAsset:        snapshot.SplitAsset,
+			MetaReveal:        snapshot.MetaReveal,
+		},
+	}, nil
+}
+
+// SetSubscribers sets the set of subscribers that will be notified
+// of proof courier related events.
+func (m *MockProofCourier) SetSubscribers(
+	subscribers map[uint64]*fn.EventReceiver[fn.Event]) {
+
+	m.Lock()
+	defer m.Unlock()
+
+	m.subscribers = subscribers
+}
+
+// Close stops the courier instance.
+func (m *MockProofCourier) Close() error {
+	return nil
+}
+
+// A compile-time assertion to ensure the MockProofCourier meets the
+// proof.Courier interface.
+var _ Courier = (*MockProofCourier)(nil)
+
 // TransferType is the type of proof transfer attempt. The transfer is
 // either a proof delivery to the transfer counterparty or receiving a proof
 // from the transfer counterparty. Note that the transfer counterparty is
