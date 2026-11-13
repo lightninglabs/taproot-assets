@@ -118,7 +118,7 @@ const (
 
 	// proofTypeReceive is an alias for the proof type used for receiving
 	// assets.
-	proofTypeReceive = tapdevrpc.ProofTransferType_PROOF_TRANSFER_TYPE_RECEIVE
+	proofTypeReceive = tapdevrpc.ProofTransferType_PROOF_TRANSFER_TYPE_RECEIVE //nolint:lll
 
 	// maxRfqHopHints is the maximum number of RFQ quotes that may be
 	// encoded as hop hints in a bolt11 invoice.
@@ -165,7 +165,7 @@ type (
 
 	// devReceiveEventStream is a type alias for the asset receive event
 	// notification stream.
-	devReceiveEventStream = tapdevrpc.TapDev_SubscribeReceiveAssetEventNtfnsServer
+	devReceiveEventStream = tapdevrpc.TapDev_SubscribeReceiveAssetEventNtfnsServer //nolint:lll
 
 	// receiveEventStream is a type alias for the asset receive event
 	// notification stream.
@@ -177,7 +177,7 @@ type (
 
 	// receiveBackOff is a type alias for the backoff event that is sent
 	// when a proof transfer process failed and needs to re-try.
-	receiveBackoff = tapdevrpc.ReceiveAssetEvent_ProofTransferBackoffWaitEvent
+	receiveBackoff = tapdevrpc.ReceiveAssetEvent_ProofTransferBackoffWaitEvent //nolint:lll
 
 	// receiveComplete is a type alias for the complete event that is sent
 	// when an asset is received.
@@ -703,7 +703,6 @@ func (r *RPCServer) MintAsset(ctx context.Context,
 			"for decimal display %d", req.Asset.DecimalDisplay)
 
 		req.Asset.AssetMeta = &taprpc.AssetMeta{}
-
 	}
 
 	// Decimal display doesn't really make sense for collectibles.
@@ -940,7 +939,7 @@ func checkFeeRateSanity(ctx context.Context, rpcFeeRate chainfee.SatPerKWeight,
 
 	// Set the fee rate for this transaction.
 	default:
-		return fn.Ptr(chainfee.SatPerKWeight(rpcFeeRate)), nil
+		return fn.Ptr(rpcFeeRate), nil
 	}
 }
 
@@ -1596,10 +1595,11 @@ func (r *RPCServer) listBalancesByGroupKey(ctx context.Context,
 		}
 
 		groupKeyString := hex.EncodeToString(groupKey)
-		resp.AssetGroupBalances[groupKeyString] = &taprpc.AssetGroupBalance{
+		groupBalance := &taprpc.AssetGroupBalance{
 			GroupKey: groupKey,
 			Balance:  balance.Balance,
 		}
+		resp.AssetGroupBalances[groupKeyString] = groupBalance
 	}
 
 	// We will also report the number of unconfirmed transfers. This is
@@ -1648,10 +1648,11 @@ func (r *RPCServer) ListUtxos(ctx context.Context,
 
 	utxos := make(map[string]*taprpc.ManagedUtxo)
 	for _, u := range managedUtxos {
+		internalKey := u.InternalKey.PubKey.SerializeCompressed()
 		utxos[u.OutPoint.String()] = &taprpc.ManagedUtxo{
 			OutPoint:         u.OutPoint.String(),
 			AmtSat:           int64(u.OutputValue),
-			InternalKey:      u.InternalKey.PubKey.SerializeCompressed(),
+			InternalKey:      internalKey,
 			TaprootAssetRoot: u.TaprootAssetRoot,
 			MerkleRoot:       u.MerkleRoot,
 			LeaseOwner:       u.LeaseOwner[:],
@@ -2741,7 +2742,8 @@ func (r *RPCServer) AddrReceives(ctx context.Context,
 		)
 	}
 
-	if req.FilterStatus != taprpc.AddrEventStatus_ADDR_EVENT_STATUS_UNKNOWN {
+	unknownStatus := taprpc.AddrEventStatus_ADDR_EVENT_STATUS_UNKNOWN
+	if req.FilterStatus != unknownStatus {
 		status, err := unmarshalAddrEventStatus(req.FilterStatus)
 		if err != nil {
 			return nil, fmt.Errorf("error parsing status: %w", err)
@@ -3004,7 +3006,8 @@ func (r *RPCServer) SignVirtualPsbt(ctx context.Context,
 		// need to look it up in the local database, to make sure we'll
 		// be able to sign for it.
 		if scriptKey.TweakedScriptKey == nil {
-			tweakedScriptKey, err := r.cfg.AssetWallet.FetchScriptKey(
+			wallet := r.cfg.AssetWallet
+			tweakedScriptKey, err := wallet.FetchScriptKey(
 				ctx, scriptKey.PubKey,
 			)
 			if err != nil {
@@ -4110,11 +4113,11 @@ func marshalAddrEventStatus(status address.Status) (taprpc.AddrEventStatus,
 
 	switch status {
 	case address.StatusTransactionDetected:
-		return taprpc.AddrEventStatus_ADDR_EVENT_STATUS_TRANSACTION_DETECTED,
+		return taprpc.AddrEventStatus_ADDR_EVENT_STATUS_TRANSACTION_DETECTED, //nolint:lll
 			nil
 
 	case address.StatusTransactionConfirmed:
-		return taprpc.AddrEventStatus_ADDR_EVENT_STATUS_TRANSACTION_CONFIRMED,
+		return taprpc.AddrEventStatus_ADDR_EVENT_STATUS_TRANSACTION_CONFIRMED, //nolint:lll
 			nil
 
 	case address.StatusProofReceived:
