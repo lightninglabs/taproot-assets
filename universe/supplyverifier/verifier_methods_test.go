@@ -13,7 +13,7 @@ import (
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
-	internaltest "github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/internal/test/lndmock"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapnode/tapnodemock"
@@ -76,7 +76,7 @@ func TestVerifyIgnoreLeaf(t *testing.T) {
 	tests := []struct {
 		name       string
 		setupMocks func(
-			*internaltest.MockSigner,
+			*lndmock.MockSigner,
 			*supplycommit.MockAssetLookup,
 		)
 		expectError bool
@@ -85,7 +85,7 @@ func TestVerifyIgnoreLeaf(t *testing.T) {
 		{
 			name: "signer returns wrong bytes",
 			setupMocks: func(
-				_ *internaltest.MockSigner,
+				_ *lndmock.MockSigner,
 				_ *supplycommit.MockAssetLookup,
 			) {
 			},
@@ -95,7 +95,7 @@ func TestVerifyIgnoreLeaf(t *testing.T) {
 		{
 			name: "asset lookup error",
 			setupMocks: func(
-				ms *internaltest.MockSigner,
+				ms *lndmock.MockSigner,
 				ml *supplycommit.MockAssetLookup,
 			) {
 
@@ -114,7 +114,7 @@ func TestVerifyIgnoreLeaf(t *testing.T) {
 		{
 			name: "group key mismatch",
 			setupMocks: func(
-				ms *internaltest.MockSigner,
+				ms *lndmock.MockSigner,
 				ml *supplycommit.MockAssetLookup,
 			) {
 
@@ -143,7 +143,7 @@ func TestVerifyIgnoreLeaf(t *testing.T) {
 		{
 			name: "valid ignore entry",
 			setupMocks: func(
-				ms *internaltest.MockSigner,
+				ms *lndmock.MockSigner,
 				ml *supplycommit.MockAssetLookup,
 			) {
 
@@ -161,7 +161,7 @@ func TestVerifyIgnoreLeaf(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockSigner := internaltest.NewMockSigner()
+			mockSigner := lndmock.NewMockSigner()
 			mockLookup := &supplycommit.MockAssetLookup{}
 
 			tt.setupMocks(mockSigner, mockLookup)

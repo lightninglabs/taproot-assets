@@ -8,7 +8,9 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/asset/assetmock"
 	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/internal/test/lndmock"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
 	"pgregory.net/rapid"
@@ -16,7 +18,7 @@ import (
 
 // IgnoreSigGen is a custom generator for generating valid IgnoreSig objects.
 var IgnoreSigGen = rapid.Custom(func(t *rapid.T) IgnoreSig {
-	privKey := asset.PrivKeyInnerGen(t)
+	privKey := assetmock.PrivKeyInnerGen(t)
 
 	msg := make([]byte, 32)
 	for i := range msg {
@@ -32,10 +34,12 @@ var IgnoreSigGen = rapid.Custom(func(t *rapid.T) IgnoreSig {
 })
 
 // IgnoreTupleGen is a custom generator for generating valid IgnoreTuple
-// (PrevID) objects. It reuses the NonGenesisPrevIDGen from the asset package.
+// (PrevID) objects. It reuses the NonGenesisPrevIDGen from package assetmock.
 var IgnoreTupleGen = rapid.Custom(func(t *rapid.T) IgnoreTuple {
 	return IgnoreTuple{
-		PrevID:      asset.NonGenesisPrevIDGen.Draw(t, "ignore_tuple"),
+		PrevID: assetmock.NonGenesisPrevIDGen.Draw(
+			t, "ignore_tuple",
+		),
 		Amount:      rapid.Uint64().Draw(t, "amount"),
 		BlockHeight: rapid.Uint32().Draw(t, "block_height"),
 	}
@@ -168,7 +172,7 @@ func TestGenSignedIgnore(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			mockSigner := test.NewMockSigner()
+			mockSigner := lndmock.NewMockSigner()
 			mockSigner.Signature = tc.signature
 
 			if tc.expectErr {

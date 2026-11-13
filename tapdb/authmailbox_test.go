@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/lightninglabs/taproot-assets/authmailbox"
 	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/internal/test/lndmock"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	mboxrpc "github.com/lightninglabs/taproot-assets/taprpc/authmailboxrpc"
@@ -318,7 +319,7 @@ func TestSendMessageAfterDelete(t *testing.T) {
 	ctx := context.Background()
 	mailboxStore, _ := newMailboxStore(t)
 
-	signer := test.NewMockSigner()
+	signer := lndmock.NewMockSigner()
 	signer.Signature = test.RandBytes(schnorr.SignatureSize)
 
 	srv := authmailbox.NewServer()

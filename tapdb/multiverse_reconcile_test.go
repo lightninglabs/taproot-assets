@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/asset/assetmock"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/mssmt"
@@ -248,11 +249,11 @@ func TestReconcileMultiverseSupplyTrees(t *testing.T) {
 
 	// A grouped asset with its genesis and group key on record, as the
 	// supply tree paths require.
-	groupPrivKey := asset.PrivKeyGen.Example()
+	groupPrivKey := assetmock.PrivKeyGen.Example()
 	groupPub := groupPrivKey.PubKey()
 	groupKey := &asset.GroupKey{GroupPubKey: *groupPub}
 
-	baseGenesis := asset.GenesisGen.Example()
+	baseGenesis := assetmock.GenesisGen.Example()
 	baseAssetID := baseGenesis.ID()
 	genesisPointID, err := upsertGenesisPoint(
 		ctx, uniTxer, baseGenesis.FirstPrevOut,

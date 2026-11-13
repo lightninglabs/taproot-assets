@@ -1,4 +1,7 @@
-package test
+// Package lndmock holds test doubles for lnd interfaces. They live outside of
+// package test so that importing the generic test helpers does not link
+// lndclient or lnwallet.
+package lndmock
 
 import (
 	"bytes"

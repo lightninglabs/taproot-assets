@@ -1,4 +1,6 @@
-package asset
+// Package assetmock holds the property test generators of package asset. They
+// live outside of that package so that its production builds do not link them.
+package assetmock
 
 import (
 	"crypto/sha256"
@@ -10,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
+	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -33,7 +36,7 @@ const (
 var (
 	// Simple generators.
 
-	VersionGen = rapid.SampledFrom([]Version{V0, V1})
+	VersionGen = rapid.SampledFrom([]asset.Version{asset.V0, asset.V1})
 
 	// This is used for fields that are uint64, but clamped to UINT32_MAX
 	// by other checks at runtime.
@@ -42,8 +45,8 @@ var (
 	WitnessElementGen = rapid.SliceOfN(
 		rapid.Byte(), 1, MaxTxWitnessElementSize,
 	)
-	AssetIDGen = rapid.Custom(func(t *rapid.T) ID {
-		return (ID)(HashBytesGen.Draw(t, "asset_id"))
+	AssetIDGen = rapid.Custom(func(t *rapid.T) asset.ID {
+		return (asset.ID)(HashBytesGen.Draw(t, "asset_id"))
 	})
 	OutPointGen = rapid.Make[wire.OutPoint]()
 
@@ -70,26 +73,28 @@ var (
 			PubKey:     MaybePubKeyGen.Draw(t, "pubkey"),
 		}
 	})
-	TweakedScriptKeyGen = rapid.Custom(func(t *rapid.T) TweakedScriptKey {
-		return TweakedScriptKey{
-			RawKey: KeyDescGen.Draw(t, "raw_key"),
-			Tweak:  HashBytesGen.Draw(t, "tweak"),
-			Type: ScriptKeyType(
-				rapid.Int16().Draw(t, "script_key_type"),
-			),
-		}
-	})
-	ScriptKeyGen = rapid.Custom(func(t *rapid.T) ScriptKey {
-		return ScriptKey{
+	TweakedScriptKeyGen = rapid.Custom(
+		func(t *rapid.T) asset.TweakedScriptKey {
+			return asset.TweakedScriptKey{
+				RawKey: KeyDescGen.Draw(t, "raw_key"),
+				Tweak:  HashBytesGen.Draw(t, "tweak"),
+				Type: asset.ScriptKeyType(rapid.Int16().Draw(
+					t, "script_key_type",
+				)),
+			}
+		},
+	)
+	ScriptKeyGen = rapid.Custom(func(t *rapid.T) asset.ScriptKey {
+		return asset.ScriptKey{
 			PubKey: PubKeyGen.Draw(t, "pubkey"),
 			TweakedScriptKey: rapid.Ptr(
 				TweakedScriptKeyGen, true,
 			).Draw(t, "tweaked_script_key"),
 		}
 	})
-	SerializedKeyGen = rapid.Custom(func(t *rapid.T) SerializedKey {
+	SerializedKeyGen = rapid.Custom(func(t *rapid.T) asset.SerializedKey {
 		key := PubKeyGen.Draw(t, "serialized_key")
-		return ToSerialized(key)
+		return asset.ToSerialized(key)
 	})
 
 	// Generators for nested structs.
@@ -107,16 +112,16 @@ var (
 			[]wire.TxWitness{witness, nil},
 		).Draw(t, "tx_witness")
 	})
-	NonGenesisPrevIDGen = rapid.Custom(func(t *rapid.T) PrevID {
-		return PrevID{
+	NonGenesisPrevIDGen = rapid.Custom(func(t *rapid.T) asset.PrevID {
+		return asset.PrevID{
 			OutPoint:  OutPointGen.Draw(t, "outpoint"),
 			ID:        AssetIDGen.Draw(t, "asset_id"),
 			ScriptKey: SerializedKeyGen.Draw(t, "script_key"),
 		}
 	})
-	GenesisGen = rapid.Custom(func(t *rapid.T) Genesis {
-		maxTagLength := hex.DecodedLen(MaxAssetNameLength)
-		return Genesis{
+	GenesisGen = rapid.Custom(func(t *rapid.T) asset.Genesis {
+		maxTagLength := hex.DecodedLen(asset.MaxAssetNameLength)
+		return asset.Genesis{
 			FirstPrevOut: OutPointGen.Draw(t, "first_prev_out"),
 			Tag: hex.EncodeToString(rapid.SliceOfN(
 				rapid.Byte(), maxTagLength, maxTagLength,
@@ -125,7 +130,7 @@ var (
 				t, "meta_hash",
 			),
 			OutputIndex: rapid.Uint32().Draw(t, "output_index"),
-			Type: Type(rapid.IntRange(0, 1).Draw(
+			Type: asset.Type(rapid.IntRange(0, 1).Draw(
 				t, "asset_type"),
 			),
 		}
@@ -136,14 +141,14 @@ var (
 			NonZeroUint32Gen.Draw(t, "split_root_sum"),
 		)
 	})
-	WitnessGen = rapid.Custom(func(t *rapid.T) Witness {
+	WitnessGen = rapid.Custom(func(t *rapid.T) asset.Witness {
 		randomPrevID := NonGenesisPrevIDGen.Draw(t, "prev_id")
 		// Add the Genesis PrevID as an explicit possibility.
 		prevID := rapid.SampledFrom(
-			[]*PrevID{&randomPrevID, {}},
+			[]*asset.PrevID{&randomPrevID, {}},
 		)
 
-		return Witness{
+		return asset.Witness{
 			PrevID:    prevID.Draw(t, "witness prevID"),
 			TxWitness: TxWitnessGen.Draw(t, "tx_witness"),
 			// TODO(jhb): Implement generator for split commitments
@@ -212,14 +217,14 @@ func PrivKeyInnerGen(t *rapid.T) *btcec.PrivateKey {
 }
 
 // AssetGenWithValues generates an Asset with some specific fields set.
-func AssetGenWithValues(t *rapid.T, genesis Genesis, groupKey *GroupKey,
-	scriptKey ScriptKey) *Asset {
+func AssetGenWithValues(t *rapid.T, genesis asset.Genesis,
+	groupKey *asset.GroupKey, scriptKey asset.ScriptKey) *asset.Asset {
 
 	units := NonZeroUint32Gen.Draw(t, "units")
 	switch genesis.Type {
-	case Normal:
+	case asset.Normal:
 
-	case Collectible:
+	case asset.Collectible:
 		units = 1
 
 	default:
@@ -231,7 +236,7 @@ func AssetGenWithValues(t *rapid.T, genesis Genesis, groupKey *GroupKey,
 	relocktime := rapid.Uint32().Draw(t, "relocktime")
 	prevWitness := PrevWitnessGen.Draw(t, "prev_witness")
 
-	return &Asset{
+	return &asset.Asset{
 		Version:             version,
 		Genesis:             genesis,
 		Amount:              units,
@@ -239,7 +244,7 @@ func AssetGenWithValues(t *rapid.T, genesis Genesis, groupKey *GroupKey,
 		RelativeLockTime:    uint64(relocktime),
 		PrevWitnesses:       prevWitness,
 		SplitCommitmentRoot: nil,
-		ScriptVersion:       ScriptV0,
+		ScriptVersion:       asset.ScriptV0,
 		ScriptKey:           scriptKey,
 		GroupKey:            groupKey,
 	}
@@ -247,7 +252,7 @@ func AssetGenWithValues(t *rapid.T, genesis Genesis, groupKey *GroupKey,
 
 // AssetInnerGen generates an Asset with random fields, that may also have a
 // valid group key.
-func AssetInnerGen(t *rapid.T) Asset {
+func AssetInnerGen(t *rapid.T) asset.Asset {
 	genesis := GenesisGen.Draw(t, "genesis")
 	scriptKey := ScriptKeyGen.Draw(t, "script_key")
 	protoAsset := AssetGenWithValues(t, genesis, nil, scriptKey)
@@ -255,13 +260,13 @@ func AssetInnerGen(t *rapid.T) Asset {
 	hasGroupKey := rapid.Bool().Draw(t, "has_group_key")
 	if hasGroupKey {
 		// Make the asset a genesis asset before creating the group key.
-		protoAsset.PrevWitnesses = []Witness{{
-			PrevID:          &PrevID{},
+		protoAsset.PrevWitnesses = []asset.Witness{{
+			PrevID:          &asset.PrevID{},
 			TxWitness:       nil,
 			SplitCommitment: nil,
 		}}
 		groupPriv := PrivKeyGen.Draw(t, "group_key_priv")
-		groupKey, _ := RandGroupKeyWithSigner(
+		groupKey, _ := asset.RandGroupKeyWithSigner(
 			t, groupPriv, genesis, protoAsset,
 		)
 
@@ -276,10 +281,10 @@ func AssetInnerGen(t *rapid.T) Asset {
 // AltLeafGen generates an Asset with mostly random fields. The generators for
 // specific fields choose between a random value and a known valid value for an
 // Asset that would be an AltLeaf.
-func AltLeafGen(t *rapid.T) *rapid.Generator[Asset] {
+func AltLeafGen(t *rapid.T) *rapid.Generator[asset.Asset] {
 	// Generate a group key without checking for validity.
-	groupKeyGen := rapid.Custom(func(t *rapid.T) GroupKey {
-		return GroupKey{
+	groupKeyGen := rapid.Custom(func(t *rapid.T) asset.GroupKey {
+		return asset.GroupKey{
 			RawKey:        KeyDescGen.Draw(t, "key_desc"),
 			GroupPubKey:   *PubKeyGen.Draw(t, "group_pub_key"),
 			TapscriptRoot: HashBytesGen.Draw(t, "tapscript_root"),
@@ -289,7 +294,9 @@ func AltLeafGen(t *rapid.T) *rapid.Generator[Asset] {
 	maybeGroupKeyGen := rapid.Ptr(groupKeyGen, true)
 
 	// Select between a random value and the known valid value.
-	geneses := []Genesis{GenesisGen.Draw(t, "genesis"), EmptyGenesis}
+	geneses := []asset.Genesis{
+		GenesisGen.Draw(t, "genesis"), asset.EmptyGenesis,
+	}
 	gen := rapid.SampledFrom(geneses)
 
 	Uint64Gen := rapid.OneOf(
@@ -300,12 +307,14 @@ func AltLeafGen(t *rapid.T) *rapid.Generator[Asset] {
 		test.TestVectorAllowedUnknownType: []byte("the great unknown"),
 	}
 	unknownOddGen := rapid.SampledFrom([]tlv.TypeMap{unknownOddType, nil})
-	scriptVersGen := rapid.Custom(func(t *rapid.T) ScriptVersion {
-		return ScriptVersion(rapid.Uint16().Draw(t, "script_version"))
+	scriptVersGen := rapid.Custom(func(t *rapid.T) asset.ScriptVersion {
+		return asset.ScriptVersion(
+			rapid.Uint16().Draw(t, "script_version"),
+		)
 	})
 
-	return rapid.Custom(func(t *rapid.T) Asset {
-		newLeaf := Asset{
+	return rapid.Custom(func(t *rapid.T) asset.Asset {
+		newLeaf := asset.Asset{
 			Version:          VersionGen.Draw(t, "version"),
 			Genesis:          gen.Draw(t, "genesis"),
 			Amount:           Uint64Gen.Draw(t, "amt"),

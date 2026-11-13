@@ -230,6 +230,12 @@
   anchor output of a split output commits to in
   `chain_anchor.merkle_root`.
 
+* [PR#2388](https://github.com/lightninglabs/taproot-assets/pull/2388)
+  makes the offline pre-verification pass of an asset wallet backup
+  import skip time lock validation in the proof files of additional
+  inputs as well, so it accepts an asset with a time locked input in its
+  history.
+
 # New Features
 
 ## Functional Enhancements

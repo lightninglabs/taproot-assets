@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/asset/assetmock"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/mssmt"
@@ -392,9 +393,9 @@ func (c *corruptDeltaEngine) SyncDelta(ctx context.Context,
 // deltaLeafGen generates a random universe leaf holding an ungrouped asset,
 // for insertion under an asset ID universe.
 var deltaLeafGen = rapid.Custom(func(t *rapid.T) *Leaf {
-	gen := asset.GenesisGen.Draw(t, "genesis")
-	scriptKey := asset.ScriptKeyGen.Draw(t, "script_key")
-	a := asset.AssetGenWithValues(t, gen, nil, scriptKey)
+	gen := assetmock.GenesisGen.Draw(t, "genesis")
+	scriptKey := assetmock.ScriptKeyGen.Draw(t, "script_key")
+	a := assetmock.AssetGenWithValues(t, gen, nil, scriptKey)
 	rawProof := rapid.SliceOfN(
 		rapid.Byte(), 8, 32,
 	).Draw(t, "raw_proof")
@@ -411,7 +412,7 @@ var deltaLeafGen = rapid.Custom(func(t *rapid.T) *Leaf {
 // universe identifier.
 var deltaUniIDGen = rapid.Custom(func(t *rapid.T) Identifier {
 	return Identifier{
-		AssetID: asset.AssetIDGen.Draw(t, "asset_id"),
+		AssetID: assetmock.AssetIDGen.Draw(t, "asset_id"),
 		ProofType: rapid.SampledFrom([]ProofType{
 			ProofTypeIssuance, ProofTypeTransfer,
 		}).Draw(t, "proof_type"),

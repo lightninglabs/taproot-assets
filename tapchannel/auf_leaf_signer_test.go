@@ -14,6 +14,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/internal/test/lndmock"
 	"github.com/lightninglabs/taproot-assets/proof"
 	cmsg "github.com/lightninglabs/taproot-assets/tapchannelmsg"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
@@ -62,7 +63,7 @@ func RandAuxSigJob(t *testing.T, cancelChan chan struct{},
 	commitBlob lfn.Option[[]byte], outputIdx int32) lnwallet.AuxSigJob {
 
 	keyDesc, _ := test.RandKeyDesc(t)
-	keyRing := test.RandCommitmentKeyRing(t)
+	keyRing := lndmock.RandCommitmentKeyRing(t)
 
 	return lnwallet.AuxSigJob{
 		SignDesc: input.SignDescriptor{

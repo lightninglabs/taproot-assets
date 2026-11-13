@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/asset/assetmock"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"pgregory.net/rapid"
 )
@@ -13,9 +14,9 @@ import (
 // shape that surfaces the pointer-identity SetDiff bug in practice.
 var baseLeafKeyGen = rapid.Custom(func(t *rapid.T) BaseLeafKey {
 	return BaseLeafKey{
-		OutPoint: asset.OutPointGen.Draw(t, "outpoint"),
+		OutPoint: assetmock.OutPointGen.Draw(t, "outpoint"),
 		ScriptKey: fn.Ptr(asset.NewScriptKey(
-			asset.PubKeyGen.Draw(t, "script_key"),
+			assetmock.PubKeyGen.Draw(t, "script_key"),
 		)),
 	}
 })

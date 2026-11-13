@@ -18,6 +18,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/internal/test/grpcmock"
 	"github.com/lightninglabs/taproot-assets/proof"
 	cmsg "github.com/lightninglabs/taproot-assets/tapchannelmsg"
 	"github.com/lightninglabs/taproot-assets/taprpc/universerpc"
@@ -544,7 +545,7 @@ func TestFundingProvenanceRetryBudget(t *testing.T) {
 	)
 	universerpc.RegisterUniverseServer(grpcServer, retryServer)
 
-	serverAddr, cleanup, err := test.StartMockGRPCServer(
+	serverAddr, cleanup, err := grpcmock.StartMockGRPCServer(
 		t, grpcServer, true,
 	)
 	require.NoError(t, err)
