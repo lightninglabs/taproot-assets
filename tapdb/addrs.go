@@ -840,6 +840,11 @@ func (t *TapAddressBook) GetOrCreateEvent(ctx context.Context,
 	if err != nil {
 		return nil, fmt.Errorf("error encoding outpoint: %w", err)
 	}
+	if xfer.OutputIdx >= uint32(len(xfer.Tx.TxOut)) {
+		return nil, fmt.Errorf("output index %d out of range for "+
+			"transaction %s with %d outputs", xfer.OutputIdx,
+			txHash, len(xfer.Tx.TxOut))
+	}
 	txOut := xfer.Tx.TxOut[xfer.OutputIdx]
 
 	siblingBytes, siblingHash, err := commitment.MaybeEncodeTapscriptPreimage(
