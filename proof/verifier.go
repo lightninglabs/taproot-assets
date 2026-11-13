@@ -73,6 +73,10 @@ type VerifierCtx struct {
 	// into its nested input files.
 	trustedRoot bool
 
+	// skipTimeLockValidation propagates the skip requested by
+	// WithSkipTimeLockValidationForAllProofs into nested input files.
+	skipTimeLockValidation bool
+
 	// ActivationHeight is the block height from which transition proofs
 	// must satisfy the activation rules. A confirmed proof anchored below
 	// it is exempt only if chain verification binds a non-zero claimed
@@ -107,8 +111,9 @@ type verifyOptions struct {
 	skipTimeLockValidationForFinalProof bool
 
 	// skipTimeLockValidation skips locktime checks for all proofs in a
-	// file. This is used when verifying proofs without access to the
-	// chain backend (e.g. during backup pre-verification).
+	// file and in the files of their additional inputs. This is used when
+	// verifying proofs without access to the chain backend (e.g. during
+	// backup pre-verification).
 	skipTimeLockValidation bool
 
 	// trustedRoot permits a proof file to start at a proof other than a
@@ -139,8 +144,8 @@ func WithSkipTimeLockValidationForFinalProof() VerifyOption {
 }
 
 // WithSkipTimeLockValidationForAllProofs skips locktime checks for
-// every proof in the file. Use this when verifying proofs without
-// access to the chain backend.
+// every proof in the file, and in the files of their additional inputs.
+// Use this when verifying proofs without access to the chain backend.
 func WithSkipTimeLockValidationForAllProofs() VerifyOption {
 	return func(o *verifyOptions) {
 		o.skipTimeLockValidation = true
@@ -1923,6 +1928,13 @@ func (f *File) Verify(ctx context.Context,
 	trustedRoot := verifyOpts.trustedRoot || vCtx.trustedRoot
 	vCtx.trustedRoot = trustedRoot
 
+	// The files of additional inputs are verified with vCtx, which carries
+	// the skip for all proofs into them. The final proof options apply to
+	// the tip of this file only, so they stay here.
+	skipTimeLocks := verifyOpts.skipTimeLockValidation ||
+		vCtx.skipTimeLockValidation
+	vCtx.skipTimeLockValidation = skipTimeLocks
+
 	// A proof file must contain at least one proof to establish an asset
 	// state.
 	if err := f.IsValid(); err != nil {
@@ -2011,9 +2023,7 @@ func (f *File) Verify(ctx context.Context,
 		var proofOpts []ProofVerificationOption
 
 		// Skip timelocks for all proofs if requested.
-		if verifyOpts.skipTimeLockValidation &&
-			assetUsesTimeLock(&decodedProof.Asset) {
-
+		if skipTimeLocks && assetUsesTimeLock(&decodedProof.Asset) {
 			proofOpts = append(
 				proofOpts, WithSkipTimeLockValidation(),
 			)
