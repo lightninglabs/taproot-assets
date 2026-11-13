@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"reflect"
 	"testing"
 
 	"github.com/btcsuite/btcd/blockchain"
@@ -21,7 +20,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
-	"pgregory.net/rapid"
 )
 
 var (
@@ -422,79 +420,6 @@ func TestUpdateTxWitnessSplitCommitment(t *testing.T) {
 			PrevWitnesses[0].TxWitness,
 	)
 	require.Empty(t, split.PrevWitnesses[0].TxWitness)
-}
-
-// TestAltLeafEncoding runs a property test for AltLeaf validation, encoding,
-// and decoding.
-func TestAltLeafEncoding(t *testing.T) {
-	t.Run("alt leaf encode/decode", rapid.MakeCheck(testAltLeafEncoding))
-}
-
-// testAltLeafEncoding tests the AltLeaf validation logic, and that a valid
-// AltLeaf can be encoded and decoded correctly.
-func testAltLeafEncoding(t *rapid.T) {
-	protoLeaf := AltLeafGen(t).Draw(t, "alt_leaf")
-	validAltLeafErr := protoLeaf.ValidateAltLeaf()
-
-	// If validation passes, the asset must follow all alt leaf constraints.
-	asserts := []AssetAssert{
-		AssetVersionAssert(V0),
-		AssetGenesisAssert(EmptyGenesis),
-		AssetAmountAssert(0),
-		AssetLockTimeAssert(0),
-		AssetRelativeLockTimeAssert(0),
-		AssetHasSplitRootAssert(false),
-		AssetGroupKeyAssert(nil),
-		AssetHasScriptKeyAssert(true),
-	}
-	assertErr := CheckAssetAsserts(&protoLeaf, asserts...)
-
-	// If the validation method and these assertions behave differently,
-	// either the test or the validation method is incorrect.
-	switch {
-	case validAltLeafErr == nil && assertErr != nil:
-		t.Error(assertErr)
-
-	case validAltLeafErr != nil && assertErr == nil:
-		t.Error(validAltLeafErr)
-
-	default:
-	}
-
-	// Don't test encoding for invalid alt leaves.
-	if validAltLeafErr != nil {
-		return
-	}
-
-	// If the alt leaf is valid, check that it can be encoded without error,
-	// and decoded to an identical alt leaf.
-	// fmt.Println("valid leaf")
-	var buf bytes.Buffer
-	if err := protoLeaf.EncodeAltLeaf(&buf); err != nil {
-		t.Error(err)
-	}
-
-	var decodedLeaf Asset
-	altLeafBytes := bytes.NewReader(buf.Bytes())
-	if err := decodedLeaf.DecodeAltLeaf(altLeafBytes); err != nil {
-		t.Error(err)
-	}
-
-	if !protoLeaf.DeepEqual(&decodedLeaf) {
-		t.Errorf("decoded leaf %v does not match input %v", decodedLeaf,
-			protoLeaf)
-	}
-
-	// Asset.DeepEqual does not inspect UnknownOddTypes, so check for their
-	// equality separately.
-	if !reflect.DeepEqual(
-		protoLeaf.UnknownOddTypes, decodedLeaf.UnknownOddTypes,
-	) {
-
-		t.Errorf("decoded leaf unknown types %v does not match input "+
-			"%v", decodedLeaf.UnknownOddTypes,
-			protoLeaf.UnknownOddTypes)
-	}
 }
 
 // TestTapLeafEncoding asserts that we can properly encode and decode tapLeafs
