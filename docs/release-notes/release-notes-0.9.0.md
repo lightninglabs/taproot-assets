@@ -184,6 +184,12 @@
   makes asset hold invoices created with pre-existing RFQ route hints
   carry those hints.
 
+* [PR#2384](https://github.com/lightninglabs/taproot-assets/pull/2384)
+  fixes `AddAssetBuyOrder` and `AddAssetSellOrder` returning another
+  order's quote when two orders for the same peer and asset are in
+  flight. Fixes
+  [#2302](https://github.com/lightninglabs/taproot-assets/issues/2302).
+
 - [Universe servers no longer reject supply commitments that carry
   burns](https://github.com/lightninglabs/taproot-assets/pull/2331). A
   burn leaf's proof is a bare state transition, with no provenance for the
