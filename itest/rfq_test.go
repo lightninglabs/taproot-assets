@@ -721,8 +721,20 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 		_, ok := event.Event.(*rfqrpc.RfqEvent_AcceptHtlc)
 		require.True(t.t, ok, "unexpected event: %v", event)
 	}, rfqTimeout)
-	invoice = ts.CarolLnd.RPC.LookupInvoice(addInvoiceResp.RHash)
-	require.Equal(t.t, lnrpc.Invoice_SETTLED, invoice.State)
+	// Confirm that Carol receives the lightning payment from Alice via
+	// Bob. The payment is reported as succeeded once the HTLC is settled,
+	// while the invoice settles with the next invoice database write, so
+	// we wait for it.
+	err = wait.NoError(func() error {
+		invoice = ts.CarolLnd.RPC.LookupInvoice(addInvoiceResp.RHash)
+		if invoice.State != lnrpc.Invoice_SETTLED {
+			return fmt.Errorf("invoice state is %v, want %v",
+				invoice.State, lnrpc.Invoice_SETTLED)
+		}
+
+		return nil
+	}, defaultWaitTimeout)
+	require.NoError(t.t, err)
 
 	// Close event notification streams.
 	require.NoError(t.t, aliceEventNtfns.CloseSend())
