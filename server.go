@@ -1394,6 +1394,25 @@ func (s *Server) AuxCloseOutputs(
 	return s.cfg.AuxChanCloser.AuxCloseOutputs(desc)
 }
 
+// AuxCloseTemplate returns the set of close outputs every close transaction
+// of an RBF co-op close negotiation carries, along with the sort of those
+// transactions.
+//
+// NOTE: This method is part of the types.AuxChanCloser interface.
+func (s *Server) AuxCloseTemplate(
+	desc types.AuxCloseTemplateDesc) (
+	lfn.Option[chancloser.AuxCloseOutputs], error) {
+
+	srvrLog.Tracef("AuxCloseTemplate called, desc=%v",
+		lnutils.SpewLogClosure(desc))
+
+	if err := s.waitForReady(); err != nil {
+		return lfn.None[chancloser.AuxCloseOutputs](), err
+	}
+
+	return s.cfg.AuxChanCloser.AuxCloseTemplate(desc)
+}
+
 // ShutdownBlob returns the set of custom records that should be included in
 // the shutdown message.
 //
@@ -1428,6 +1447,23 @@ func (s *Server) FinalizeClose(desc types.AuxCloseDesc,
 	}
 
 	return s.cfg.AuxChanCloser.FinalizeClose(desc, closeTx)
+}
+
+// SupportsRbfClose returns true if the channel can be closed with lnd's RBF
+// co-op close flow with the given peer.
+//
+// NOTE: This method is part of the chancloser.AuxChanCloser interface.
+func (s *Server) SupportsRbfClose(chanID lnwire.ChannelID,
+	peer route.Vertex) bool {
+
+	srvrLog.Tracef("SupportsRbfClose called, chanID=%v, peer=%x", chanID,
+		peer[:])
+
+	if err := s.waitForReady(); err != nil {
+		return false
+	}
+
+	return s.cfg.AuxChanCloser.SupportsRbfClose(chanID, peer)
 }
 
 // ResolveContract attempts to obtain a resolution blob for the specified
