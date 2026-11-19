@@ -196,6 +196,25 @@ INSERT INTO asset_groups (
     DO UPDATE SET genesis_point_id = EXCLUDED.genesis_point_id
 RETURNING group_id;
 
+-- name: UpsertAssetGroupKeyFull :one
+INSERT INTO asset_groups (
+    version, tweaked_group_key, tapscript_root, internal_key_id,
+    genesis_point_id, custom_subtree_root_id
+) VALUES (
+    $1, $2, $3, $4, $5, $6
+) ON CONFLICT (tweaked_group_key)
+    -- The caller knows the group's raw key, so it also knows the version and
+    -- roots the tweaked key is derived from. Replace whatever an earlier
+    -- import of a reissuance stored, which had none of that and used the
+    -- tweaked key in place of the raw key.
+    DO UPDATE SET
+        version = EXCLUDED.version,
+        tapscript_root = EXCLUDED.tapscript_root,
+        internal_key_id = EXCLUDED.internal_key_id,
+        genesis_point_id = EXCLUDED.genesis_point_id,
+        custom_subtree_root_id = EXCLUDED.custom_subtree_root_id
+RETURNING group_id;
+
 -- name: UpsertAssetGroupWitness :one
 INSERT INTO asset_group_witnesses (
     witness_stack, gen_asset_id, group_key_id
@@ -325,6 +344,16 @@ SET spent = TRUE
 WHERE asset_id = (SELECT asset_id FROM target_asset)
 RETURNING assets.asset_id;
 
+-- name: SetAssetSpentByID :exec
+-- Marks one asset row spent by its primary key. Used by abandonment
+-- compensation for a passive holding whose restored anchor outpoint
+-- the foreclosing transaction consumed: the holding's provenance is
+-- intact but the outpoint belongs to someone else, so it must not
+-- count toward balances or coin selection.
+UPDATE assets
+SET spent = TRUE
+WHERE asset_id = @asset_id;
+
 -- name: QueryAssetBalancesByAsset :many
 SELECT
     genesis_info_view.asset_id, SUM(amount) balance,
@@ -428,6 +457,22 @@ WHERE (
 -- Sort and limit to return the genesis ID for initial genesis of the group.
 ORDER BY key_group_info_view.witness_id
 LIMIT 1;
+
+-- name: FetchGroupWitnessesByGroupKey :many
+SELECT
+    key_group_info_view.version AS version,
+    key_group_info_view.gen_asset_id AS gen_asset_id,
+    key_group_info_view.raw_key AS raw_key,
+    key_group_info_view.key_index AS key_index,
+    key_group_info_view.key_family AS key_family,
+    key_group_info_view.tapscript_root AS tapscript_root,
+    key_group_info_view.witness_stack AS witness_stack,
+    key_group_info_view.custom_subtree_root AS custom_subtree_root
+FROM key_group_info_view
+WHERE (
+    key_group_info_view.tweaked_group_key = @group_key
+)
+ORDER BY key_group_info_view.witness_id;
 
 -- name: FetchGroupByGenesis :one
 SELECT
@@ -685,6 +730,34 @@ FROM managed_utxos utxos
 JOIN internal_keys keys
     ON utxos.internal_key_id = keys.key_id;
 
+-- name: FetchOrphanManagedUTXOs :many
+SELECT
+    utxos.*,
+    keys.*,
+    MAX(CASE
+        WHEN COALESCE(script_keys.key_type, 0) = @unknown_key_type
+            OR script_keys.key_type = @burn_key_type
+        THEN 1 ELSE 0
+    END) = 1 AS needs_asset_validation
+FROM managed_utxos utxos
+JOIN internal_keys keys
+    ON utxos.internal_key_id = keys.key_id
+JOIN assets
+    ON assets.anchor_utxo_id = utxos.utxo_id
+JOIN script_keys
+    ON assets.script_key_id = script_keys.script_key_id
+GROUP BY utxos.utxo_id, keys.key_id
+HAVING SUM(CASE
+    WHEN COALESCE(script_keys.key_type, 0) = @unknown_key_type
+        OR script_keys.key_type = @burn_key_type
+        OR (
+            script_keys.key_type = @tombstone_key_type
+            AND script_keys.tweaked_script_key = @nums_key
+            AND assets.amount = 0
+        )
+    THEN 0 ELSE 1
+END) = 0;
+
 -- name: AnchorPendingAssets :exec
 WITH assets_to_update AS (
     SELECT script_key_id
@@ -800,12 +873,97 @@ SELECT asset_id
 
 -- name: UpsertAssetProofByID :exec
 INSERT INTO asset_proofs (
-    asset_id, proof_file
+    asset_id, proof_file, provenance_indexed
 ) VALUES (
-    @asset_id, @proof_file
+    @asset_id, @proof_file, FALSE
 ) ON CONFLICT (asset_id)
     -- This is not a NOP, we always overwrite the proof with the new one.
-    DO UPDATE SET proof_file = EXCLUDED.proof_file;
+    DO UPDATE SET proof_file = EXCLUDED.proof_file,
+                  provenance_indexed = FALSE;
+
+-- name: FetchAssetProofID :one
+SELECT proof_id
+FROM asset_proofs
+WHERE asset_id = @asset_id;
+
+-- name: FetchAssetProofFileByProofID :one
+SELECT proof_file
+FROM asset_proofs
+WHERE proof_id = @proof_id;
+
+-- name: DeleteAssetProofAnchors :exec
+DELETE FROM asset_proof_anchors
+WHERE proof_id = @proof_id;
+
+-- name: InsertAssetProofAnchor :exec
+INSERT INTO asset_proof_anchors (
+    proof_id, anchor_txid
+) VALUES (
+    @proof_id, @anchor_txid
+) ON CONFLICT (proof_id, anchor_txid) DO NOTHING;
+
+-- name: MarkAssetProofProvenanceIndexed :exec
+UPDATE asset_proofs
+SET provenance_indexed = TRUE
+WHERE proof_id = @proof_id;
+
+-- name: FetchAssetProofsByAnchorTx :many
+SELECT asset_proofs.proof_id, asset_proofs.asset_id,
+       asset_proofs.proof_file, genesis_assets.asset_id AS genesis_asset_id,
+       script_keys.tweaked_script_key, managed_utxos.outpoint
+FROM asset_proof_anchors
+JOIN asset_proofs
+    ON asset_proofs.proof_id = asset_proof_anchors.proof_id
+JOIN assets
+    ON assets.asset_id = asset_proofs.asset_id
+JOIN genesis_assets
+    ON genesis_assets.gen_asset_id = assets.genesis_id
+JOIN script_keys
+    ON script_keys.script_key_id = assets.script_key_id
+JOIN managed_utxos
+    ON managed_utxos.utxo_id = assets.anchor_utxo_id
+WHERE asset_proof_anchors.anchor_txid = @anchor_txid
+  AND asset_proofs.provenance_indexed = TRUE
+ORDER BY asset_proofs.proof_id;
+
+-- name: FetchUnindexedAssetProofs :many
+SELECT proof_id, asset_id, proof_file
+FROM asset_proofs
+WHERE provenance_indexed = FALSE
+  AND proof_id > @after_proof_id
+ORDER BY proof_id
+LIMIT @row_limit;
+
+-- name: ProofAnchorSiteOwnership :one
+-- Classify local subsystem state staked on one proof transition. Mint and
+-- porter rows require their own compensation. An address-event reference is
+-- independently receive-owned, including for a self-send that is also owned
+-- by the porter.
+SELECT
+    EXISTS (
+        SELECT 1
+        FROM asset_minting_batches batches
+        JOIN genesis_points points
+          ON points.genesis_id = batches.genesis_id
+        JOIN chain_txns txns
+          ON txns.txn_id = points.anchor_tx_id
+        WHERE txns.txid = @anchor_txid
+    ) AS mint_owned,
+    EXISTS (
+        SELECT 1
+        FROM asset_transfers transfers
+        JOIN chain_txns txns
+          ON txns.txn_id = transfers.anchor_txn_id
+        WHERE txns.txid = @anchor_txid
+          AND transfers.abandoned = FALSE
+    ) AS porter_owned,
+    EXISTS (
+        SELECT 1
+        FROM addr_event_proofs event_proofs
+        JOIN asset_proof_anchors anchors
+          ON anchors.proof_id = event_proofs.asset_proof_id
+        WHERE anchors.anchor_txid = @anchor_txid
+    ) AS receive_owned;
 
 -- name: FetchAssetProofs :many
 WITH asset_info AS (
@@ -818,6 +976,20 @@ SELECT asset_info.tweaked_script_key AS script_key, asset_proofs.proof_file
 FROM asset_proofs
 JOIN asset_info
     ON asset_info.asset_id = asset_proofs.asset_id;
+
+-- name: FetchAssetProofsForAdoption :many
+SELECT asset_proofs.proof_file
+FROM asset_proofs
+JOIN assets
+    ON assets.asset_id = asset_proofs.asset_id
+LEFT JOIN managed_utxos
+    ON managed_utxos.utxo_id = assets.anchor_utxo_id
+LEFT JOIN chain_txns
+    ON chain_txns.txn_id = managed_utxos.txn_id
+WHERE chain_txns.block_height IS NULL
+   OR chain_txns.block_height = 0
+   OR chain_txns.block_height >= @min_block_height
+ORDER BY asset_proofs.proof_id;
 
 -- name: FetchAssetProofsSizes :many
 SELECT script_keys.tweaked_script_key AS script_key, 
@@ -1154,11 +1326,11 @@ VALUES (
     sqlc.narg('spent_by')
 )
 ON CONFLICT(outpoint) DO UPDATE SET
+    -- Proof replay can update discovery metadata but cannot undo a spend.
     group_key            = EXCLUDED.group_key,
     taproot_internal_key = EXCLUDED.taproot_internal_key,
     outpoint             = EXCLUDED.outpoint,
-    chain_txn_db_id      = EXCLUDED.chain_txn_db_id,
-    spent_by             = EXCLUDED.spent_by
+    chain_txn_db_id      = EXCLUDED.chain_txn_db_id
 RETURNING id;
 
 -- name: UpsertMintSupplyPreCommit :one
@@ -1225,3 +1397,51 @@ WHERE (
     (taproot_internal_keys.raw_key = sqlc.narg('taproot_internal_key_raw') OR sqlc.narg('taproot_internal_key_raw') IS NULL)
 )
 ORDER BY precommits.id ASC;
+
+-- name: SetAssetUnspent :one
+-- The inverse of SetAssetSpent, applied when the transfer that spent
+-- the asset is abandoned and nothing else consumed its anchor input
+-- on the surviving chain.
+--
+-- Two claimants can contradict that premise. A rival local transfer
+-- may have confirmed against the same outpoint — the sweeper's fee
+-- bump composes a replacement form — and only the losing form is
+-- abandoned; the surviving-claimant test below guards that case, the
+-- same test UnsupersedeSafeTransfers applies. Or the foreclosing
+-- transaction itself consumed the outpoint (a third party, routine
+-- for tapchannel triggers): that transaction is not a local transfer
+-- and is invisible here, so the caller must not invoke this query
+-- for inputs the foreclosure consumed. The abandoned transfer's own
+-- confirmation is withdrawn before this runs, so it cannot answer
+-- for itself.
+WITH target_asset(asset_id) AS (
+    SELECT assets.asset_id
+    FROM assets
+    JOIN script_keys
+      ON assets.script_key_id = script_keys.script_key_id
+    JOIN genesis_assets
+      ON assets.genesis_id = genesis_assets.gen_asset_id
+    JOIN managed_utxos utxos
+         ON assets.anchor_utxo_id = utxos.utxo_id AND
+            (utxos.outpoint = sqlc.narg('anchor_point') OR
+             sqlc.narg('anchor_point') IS NULL)
+    WHERE script_keys.tweaked_script_key = @script_key
+     AND genesis_assets.asset_id = @gen_asset_id
+)
+UPDATE assets
+SET spent = FALSE
+WHERE asset_id = (SELECT asset_id FROM target_asset)
+  AND NOT EXISTS (
+      SELECT 1
+      FROM asset_transfer_inputs claimant_in
+      JOIN asset_transfers claimant
+        ON claimant.id = claimant_in.transfer_id
+      JOIN chain_txns claimant_txn
+        ON claimant_txn.txn_id = claimant.anchor_txn_id
+      WHERE claimant_in.script_key = @script_key
+        AND claimant_in.asset_id = @gen_asset_id
+        AND (claimant_in.anchor_point = sqlc.narg('anchor_point') OR
+             sqlc.narg('anchor_point') IS NULL)
+        AND claimant_txn.block_hash IS NOT NULL
+  )
+RETURNING assets.asset_id;

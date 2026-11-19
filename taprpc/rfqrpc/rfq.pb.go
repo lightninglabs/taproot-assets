@@ -692,8 +692,14 @@ type AddAssetSellOrderRequest struct {
 	// partial fill >= min threshold. FOK requires the rate to support
 	// the full max amount.
 	ExecutionPolicy ExecutionPolicy `protobuf:"varint,10,opt,name=execution_policy,json=executionPolicy,proto3,enum=rfqrpc.ExecutionPolicy" json:"execution_policy,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// The optional msat amount that is actually intended to be swapped,
+	// excluding any routing fee budget. If set, must be less than or equal
+	// to payment_max_amt. This value is forwarded to the price oracle and the
+	// peer to give context on the real payment size. A value of 0 means
+	// unset (units: millisats).
+	PaymentSwapAmt uint64 `protobuf:"varint,11,opt,name=payment_swap_amt,json=paymentSwapAmt,proto3" json:"payment_swap_amt,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *AddAssetSellOrderRequest) Reset() {
@@ -794,6 +800,13 @@ func (x *AddAssetSellOrderRequest) GetExecutionPolicy() ExecutionPolicy {
 		return x.ExecutionPolicy
 	}
 	return ExecutionPolicy_EXECUTION_POLICY_IOC
+}
+
+func (x *AddAssetSellOrderRequest) GetPaymentSwapAmt() uint64 {
+	if x != nil {
+		return x.PaymentSwapAmt
+	}
+	return 0
 }
 
 type AddAssetSellOrderResponse struct {
@@ -2304,7 +2317,7 @@ const file_rfqrpc_rfq_proto_rawDesc = "" +
 	"\rinvalid_quote\x18\x02 \x01(\v2\x1c.rfqrpc.InvalidQuoteResponseH\x00R\finvalidQuote\x12F\n" +
 	"\x0erejected_quote\x18\x03 \x01(\v2\x1d.rfqrpc.RejectedQuoteResponseH\x00R\rrejectedQuoteB\n" +
 	"\n" +
-	"\bresponse\"\x96\x04\n" +
+	"\bresponse\"\xc0\x04\n" +
 	"\x18AddAssetSellOrderRequest\x12?\n" +
 	"\x0fasset_specifier\x18\x01 \x01(\v2\x16.rfqrpc.AssetSpecifierR\x0eassetSpecifier\x12&\n" +
 	"\x0fpayment_max_amt\x18\x02 \x01(\x04R\rpaymentMaxAmt\x12\x16\n" +
@@ -2317,7 +2330,8 @@ const file_rfqrpc_rfq_proto_rawDesc = "" +
 	"\x0fpayment_min_amt\x18\b \x01(\x04H\x00R\rpaymentMinAmt\x88\x01\x01\x12<\n" +
 	"\x10asset_rate_limit\x18\t \x01(\v2\x12.rfqrpc.FixedPointR\x0eassetRateLimit\x12B\n" +
 	"\x10execution_policy\x18\n" +
-	" \x01(\x0e2\x17.rfqrpc.ExecutionPolicyR\x0fexecutionPolicyB\x12\n" +
+	" \x01(\x0e2\x17.rfqrpc.ExecutionPolicyR\x0fexecutionPolicy\x12(\n" +
+	"\x10payment_swap_amt\x18\v \x01(\x04R\x0epaymentSwapAmtB\x12\n" +
 	"\x10_payment_min_amt\"\xfc\x01\n" +
 	"\x19AddAssetSellOrderResponse\x12F\n" +
 	"\x0eaccepted_quote\x18\x01 \x01(\v2\x1d.rfqrpc.PeerAcceptedSellQuoteH\x00R\racceptedQuote\x12C\n" +

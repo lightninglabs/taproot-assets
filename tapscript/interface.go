@@ -3,7 +3,6 @@ package tapscript
 import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/wire/v2"
-	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 )
@@ -34,6 +33,6 @@ type WitnessValidator interface {
 type Signer interface {
 	// SignVirtualTx generates a signature according to the passed signing
 	// descriptor and TX.
-	SignVirtualTx(signDesc *lndclient.SignDescriptor, tx *wire.MsgTx,
+	SignVirtualTx(signDesc *asset.SignDescriptor, tx *wire.MsgTx,
 		prevOut *wire.TxOut) (*schnorr.Signature, error)
 }

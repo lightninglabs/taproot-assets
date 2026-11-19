@@ -13,6 +13,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightninglabs/taproot-assets/rpcutils"
 	pilotrpc "github.com/lightninglabs/taproot-assets/taprpc/portfoliopilotrpc"
+	"github.com/lightninglabs/taproot-assets/taptls"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"google.golang.org/grpc"
@@ -68,7 +69,7 @@ type RpcPortfolioPilot struct {
 // NewRpcPortfolioPilot creates a new RPC portfolio pilot handle given the
 // address of the portfolio pilot RPC server. An optional macaroon dial option
 // can be provided for authentication with the pilot server.
-func NewRpcPortfolioPilot(addrStr string, tlsConfig *TLSConfig,
+func NewRpcPortfolioPilot(addrStr string, tlsPolicy taptls.Policy,
 	macaroonOpt fn.Option[grpc.DialOption]) (*RpcPortfolioPilot, error) {
 
 	addr, err := ParsePortfolioPilotAddress(addrStr)
@@ -77,15 +78,8 @@ func NewRpcPortfolioPilot(addrStr string, tlsConfig *TLSConfig,
 			err)
 	}
 
-	// Create transport credentials and dial options from the supplied TLS
-	// config.
-	transportCredentials, err := configureTransportCredentials(tlsConfig)
-	if err != nil {
-		return nil, err
-	}
-
 	dialOpts := []grpc.DialOption{
-		grpc.WithTransportCredentials(transportCredentials),
+		tlsPolicy.DialOption(),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
 			Time:                30 * time.Second,
 			Timeout:             20 * time.Second,
@@ -413,12 +407,15 @@ func rpcMarshalQueryAssetRatesRequest(query AssetRateQuery) (
 
 	rpcSpecifier :=
 		rpcMarshalPortfolioAssetSpecifier(query.AssetSpecifier)
+	paymentAmount := query.PaymentAmount.UnwrapOr(0)
+	paymentSwapAmount := query.PaymentSwapAmount.UnwrapOr(0)
 	return &pilotrpc.QueryAssetRatesRequest{
 		AssetSpecifier:      rpcSpecifier,
 		Direction:           rpcDirection,
 		Intent:              rpcIntent,
 		AssetAmount:         query.AssetAmount.UnwrapOr(0),
-		PaymentAmount:       uint64(query.PaymentAmount.UnwrapOr(0)),
+		PaymentAmount:       uint64(paymentAmount),
+		PaymentSwapAmount:   uint64(paymentSwapAmount),
 		AssetRateHint:       rpcRateHint,
 		PriceOracleMetadata: query.OracleMetadata.UnwrapOr(""),
 		PeerId:              peerID,
@@ -522,6 +519,7 @@ func rpcMarshalSellRequest(
 		PriceOracleMetadata: req.PriceOracleMetadata,
 		PeerId:              peer[:],
 		PaymentMinAmount:    paymentMinAmt,
+		PaymentSwapAmount:   uint64(req.PaymentSwapAmt.UnwrapOr(0)),
 		AssetRateLimit:      rpcRateLimit,
 		ExecutionPolicy: marshalExecutionPolicy(
 			req.ExecutionPolicy,

@@ -20,17 +20,19 @@ const _ = grpc.SupportPackageIsVersion7
 type TapDevClient interface {
 	// Deprecated: Do not use.
 	// tapcli: `dev importproof`
-	// Deprecated, use the new taprpc.RegisterTransfer RPC instead! ImportProof
-	// attempts to import a proof file into the daemon. If successful,
-	// a new asset will be inserted on disk, spendable using the specified target
-	// script key, and internal key.
-	// NOTE: This RPC will be removed with the next major release.
+	//Deprecated, use the new taprpc.RegisterTransfer RPC instead! ImportProof
+	//attempts to import a proof file into the daemon. If successful,
+	//a new asset will be inserted on disk, spendable using the specified target
+	//script key, and internal key.
+	//NOTE: This RPC will be removed with the next major release.
 	ImportProof(ctx context.Context, in *ImportProofRequest, opts ...grpc.CallOption) (*ImportProofResponse, error)
-	// SubscribeSendAssetEventNtfns registers a subscription to the event
-	// notification stream which relates to the asset sending process.
+	//
+	//SubscribeSendAssetEventNtfns registers a subscription to the event
+	//notification stream which relates to the asset sending process.
 	SubscribeSendAssetEventNtfns(ctx context.Context, in *SubscribeSendAssetEventNtfnsRequest, opts ...grpc.CallOption) (TapDev_SubscribeSendAssetEventNtfnsClient, error)
-	// SubscribeReceiveAssetEventNtfns registers a subscription to the event
-	// notification stream which relates to the asset receive process.
+	//
+	//SubscribeReceiveAssetEventNtfns registers a subscription to the event
+	//notification stream which relates to the asset receive process.
 	SubscribeReceiveAssetEventNtfns(ctx context.Context, in *SubscribeReceiveAssetEventNtfnsRequest, opts ...grpc.CallOption) (TapDev_SubscribeReceiveAssetEventNtfnsClient, error)
 }
 
@@ -122,17 +124,19 @@ func (x *tapDevSubscribeReceiveAssetEventNtfnsClient) Recv() (*ReceiveAssetEvent
 type TapDevServer interface {
 	// Deprecated: Do not use.
 	// tapcli: `dev importproof`
-	// Deprecated, use the new taprpc.RegisterTransfer RPC instead! ImportProof
-	// attempts to import a proof file into the daemon. If successful,
-	// a new asset will be inserted on disk, spendable using the specified target
-	// script key, and internal key.
-	// NOTE: This RPC will be removed with the next major release.
+	//Deprecated, use the new taprpc.RegisterTransfer RPC instead! ImportProof
+	//attempts to import a proof file into the daemon. If successful,
+	//a new asset will be inserted on disk, spendable using the specified target
+	//script key, and internal key.
+	//NOTE: This RPC will be removed with the next major release.
 	ImportProof(context.Context, *ImportProofRequest) (*ImportProofResponse, error)
-	// SubscribeSendAssetEventNtfns registers a subscription to the event
-	// notification stream which relates to the asset sending process.
+	//
+	//SubscribeSendAssetEventNtfns registers a subscription to the event
+	//notification stream which relates to the asset sending process.
 	SubscribeSendAssetEventNtfns(*SubscribeSendAssetEventNtfnsRequest, TapDev_SubscribeSendAssetEventNtfnsServer) error
-	// SubscribeReceiveAssetEventNtfns registers a subscription to the event
-	// notification stream which relates to the asset receive process.
+	//
+	//SubscribeReceiveAssetEventNtfns registers a subscription to the event
+	//notification stream which relates to the asset receive process.
 	SubscribeReceiveAssetEventNtfns(*SubscribeReceiveAssetEventNtfnsRequest, TapDev_SubscribeReceiveAssetEventNtfnsServer) error
 	mustEmbedUnimplementedTapDevServer()
 }

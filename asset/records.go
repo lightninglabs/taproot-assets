@@ -231,19 +231,8 @@ func NewLeafRelativeLockTimeRecord(relativeLockTime *uint64) tlv.Record {
 func NewLeafPrevWitnessRecord(prevWitnesses *[]Witness,
 	encodeType EncodeType) tlv.Record {
 
-	recordSize := func() uint64 {
-		var (
-			b   bytes.Buffer
-			buf [8]byte
-		)
-		witnessEncoder := WitnessEncoderWithType(encodeType)
-		if err := witnessEncoder(&b, prevWitnesses, &buf); err != nil {
-			panic(err)
-		}
-		return uint64(len(b.Bytes()))
-	}
-	return tlv.MakeDynamicRecord(
-		LeafPrevWitness, prevWitnesses, recordSize,
+	return EncodeOnceRecord(
+		LeafPrevWitness, prevWitnesses,
 		WitnessEncoderWithType(encodeType), WitnessDecoder,
 	)
 }
@@ -300,17 +289,9 @@ func NewWitnessTxWitnessRecord(witness *wire.TxWitness) tlv.Record {
 }
 
 func NewWitnessSplitCommitmentRecord(commitment **SplitCommitment) tlv.Record {
-	recordSize := func() uint64 {
-		var buf bytes.Buffer
-		err := SplitCommitmentEncoder(&buf, commitment, &[8]byte{})
-		if err != nil {
-			panic(err)
-		}
-		return uint64(buf.Len())
-	}
-	return tlv.MakeDynamicRecord(
-		WitnessSplitCommitment, commitment, recordSize,
-		SplitCommitmentEncoder, SplitCommitmentDecoder,
+	return EncodeOnceRecord(
+		WitnessSplitCommitment, commitment, SplitCommitmentEncoder,
+		SplitCommitmentDecoder,
 	)
 }
 

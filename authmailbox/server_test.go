@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/internal/test/lndmock"
 	"github.com/lightninglabs/taproot-assets/proof"
 	mboxrpc "github.com/lightninglabs/taproot-assets/taprpc/authmailboxrpc"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
@@ -125,7 +126,7 @@ func newRemoveTestServer(t *testing.T) (*Server, *MockMsgStore,
 	store := NewMockStore()
 	ctx := context.Background()
 
-	signer := test.NewMockSigner()
+	signer := lndmock.NewMockSigner()
 	signer.Signature = test.RandBytes(schnorr.SignatureSize)
 
 	receiverA := test.RandPubKey(t)
@@ -178,7 +179,7 @@ func TestRemoveMessageValid(t *testing.T) {
 
 	// The mock signer's VerifyMessage returns true when the signature
 	// equals signer.Signature. Grab it for our request.
-	sig := srv.cfg.Signer.(*test.MockSigner).Signature
+	sig := srv.cfg.Signer.(*lndmock.MockSigner).Signature
 	receiverA, _ := store.FetchMessage(ctx, idsA[0])
 	receiverABytes := receiverA.ReceiverKey.SerializeCompressed()
 
@@ -214,7 +215,7 @@ func TestRemoveMessageWrongReceiver(t *testing.T) {
 	srv, store, _, idsB := newRemoveTestServer(t)
 	ctx := context.Background()
 
-	sig := srv.cfg.Signer.(*test.MockSigner).Signature
+	sig := srv.cfg.Signer.(*lndmock.MockSigner).Signature
 
 	// Try to remove receiverB's messages using receiverA's identity.
 	receiverA, _ := store.FetchMessage(ctx, 1) // idsA[0] == 1
@@ -247,7 +248,7 @@ func TestRemoveMessageNonExistent(t *testing.T) {
 	srv, store, idsA, _ := newRemoveTestServer(t)
 	ctx := context.Background()
 
-	sig := srv.cfg.Signer.(*test.MockSigner).Signature
+	sig := srv.cfg.Signer.(*lndmock.MockSigner).Signature
 	receiverA, _ := store.FetchMessage(ctx, idsA[0])
 	receiverABytes := receiverA.ReceiverKey.SerializeCompressed()
 
@@ -344,7 +345,7 @@ func TestRemoveMessageIdempotent(t *testing.T) {
 	srv, store, idsA, _ := newRemoveTestServer(t)
 	ctx := context.Background()
 
-	sig := srv.cfg.Signer.(*test.MockSigner).Signature
+	sig := srv.cfg.Signer.(*lndmock.MockSigner).Signature
 	receiverA, _ := store.FetchMessage(ctx, idsA[0])
 	receiverABytes := receiverA.ReceiverKey.SerializeCompressed()
 

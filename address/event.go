@@ -10,7 +10,6 @@ import (
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
-	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -203,12 +202,30 @@ type IncomingTransfer struct {
 	Outputs map[asset.ID]AssetOutput
 }
 
+// WalletTx is an on-chain transaction as reported by the wallet that detected
+// it.
+type WalletTx struct {
+	// Tx is the on-chain transaction.
+	Tx *wire.MsgTx
+
+	// Confirmations is the number of confirmations the transaction has.
+	Confirmations int32
+
+	// BlockHash is the hex encoded hash of the block that contains the
+	// transaction. It is only read for a confirmed transaction.
+	BlockHash string
+
+	// BlockHeight is the height of the block that contains the
+	// transaction.
+	BlockHeight int32
+}
+
 // NewTransferFromWalletTx creates a new IncomingTransfer from a wallet
 // transaction and the address that was used to receive the assets. This can
 // only be used for V0 and V1 addresses.
-func NewTransferFromWalletTx(addr *AddrWithKeyInfo,
-	walletTx *lndclient.Transaction, outputIdx uint32,
-	outputs map[asset.ID]AssetOutput) (IncomingTransfer, error) {
+func NewTransferFromWalletTx(addr *AddrWithKeyInfo, walletTx *WalletTx,
+	outputIdx uint32, outputs map[asset.ID]AssetOutput) (IncomingTransfer,
+	error) {
 
 	var empty IncomingTransfer
 	if addr.Version > V1 {

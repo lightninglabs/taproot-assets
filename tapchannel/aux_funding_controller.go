@@ -33,6 +33,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapnode"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/tapsend"
+	"github.com/lightninglabs/taproot-assets/taptls"
 	"github.com/lightninglabs/taproot-assets/vm"
 	"github.com/lightningnetwork/lnd/channeldb"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
@@ -44,6 +45,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/msgmux"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"golang.org/x/sync/errgroup"
 )
 
 const (
@@ -59,6 +61,18 @@ const (
 	// time out an attempt to connect to a proof courier when checking the
 	// configured address.
 	proofCourierCheckTimeout = time.Second * 30
+
+	// fundingProvenanceIdleTimeout is the maximum amount of time funding
+	// provenance validation may spend without fetching or verifying another
+	// proof step. This leaves enough time for a second query after the
+	// Universe courier's default retry delay.
+	fundingProvenanceIdleTimeout = 2 *
+		proof.DefaultProofTransferInitialBackoff
+
+	// fundingProvenanceMaxTimeout bounds the total amount of time channel
+	// activation may spend validating funding input provenance, even if a
+	// hostile proof source keeps producing new proof steps.
+	fundingProvenanceMaxTimeout = 10 * time.Minute
 
 	// maxNumAssetIDs is the maximum number of fungible asset pieces (asset
 	// IDs) that can be committed to a single channel. The number needs to
@@ -136,6 +150,10 @@ type PeerMessenger interface {
 
 // ErrNoPeer is returned when a peer can't be found.
 var ErrNoPeer = errors.New("peer not found")
+
+var errFundingProvenanceIdle = errors.New(
+	"funding input provenance validation made no progress",
+)
 
 // FeatureBitVerifer is an interface that allows us to verify that a peer has a
 // given feature bit set.
@@ -287,6 +305,14 @@ type FundingControllerCfg struct {
 	// DefaultCourierAddr is the default address the funding controller uses
 	// to deliver the funding output proofs to the channel peer.
 	DefaultCourierAddr *url.URL
+
+	// UniverseTLS is the TLS policy for connections to the default proof
+	// courier.
+	UniverseTLS taptls.Policy
+
+	// ProofFetcher is used to fetch the complete provenance proof files for
+	// channel funding inputs before an inbound channel is activated.
+	ProofFetcher proof.CourierDispatch
 
 	// AssetSyncer is used to ensure that we've already verified the asset
 	// genesis for any assets used within channels.
@@ -492,7 +518,7 @@ type pendingAssetFunding struct {
 
 	initiator bool
 
-	stxo bool
+	stxoFeatures STXOFeatures
 
 	amt uint64
 
@@ -550,7 +576,7 @@ func (p *pendingAssetFunding) assetOutputs() []*cmsg.AssetOutput {
 
 // addToFundingCommitment adds a new asset to the funding commitment.
 func (p *pendingAssetFunding) addToFundingCommitment(a *asset.Asset,
-	stxo bool) error {
+	stxoFeatures STXOFeatures) error {
 
 	newCommitment, err := commitment.FromAssets(
 		fn.Ptr(commitment.TapCommitmentV2), a,
@@ -561,10 +587,21 @@ func (p *pendingAssetFunding) addToFundingCommitment(a *asset.Asset,
 
 	// If our peer supports STXO we go ahead and append the
 	// appropriate alt leaves to the VOutput.
-	if stxo {
+	if stxoFeatures.STXO {
 		altLeaves, err := asset.CollectSTXO(a)
 		if err != nil {
 			return err
+		}
+
+		// If our peer supports the spender leaves as well, they are
+		// committed to next to the STXOs.
+		if stxoFeatures.Spender {
+			spenderLeaves, err := asset.CollectSpenders(a)
+			if err != nil {
+				return err
+			}
+
+			altLeaves = append(altLeaves, spenderLeaves...)
 		}
 
 		err = newCommitment.MergeAltLeaves(altLeaves)
@@ -572,7 +609,7 @@ func (p *pendingAssetFunding) addToFundingCommitment(a *asset.Asset,
 			return err
 		}
 
-		p.stxo = stxo
+		p.stxoFeatures = stxoFeatures
 	}
 
 	newCommitment, err = commitment.TrimSplitWitnesses(
@@ -701,7 +738,7 @@ func newCommitBlobAndLeaves(pendingFunding *pendingAssetFunding,
 	lndOpenChan lnwallet.AuxChanState, assetOpenChan *cmsg.OpenChannel,
 	keyRing lntypes.Dual[lnwallet.CommitmentKeyRing],
 	whoseCommit lntypes.ChannelParty,
-	stxo bool) ([]byte, lnwallet.CommitAuxLeaves,
+	stxoFeatures STXOFeatures) ([]byte, lnwallet.CommitAuxLeaves,
 	error) {
 
 	chanAssets := assetOpenChan.FundedAssets.Val.Outputs
@@ -765,7 +802,7 @@ func newCommitBlobAndLeaves(pendingFunding *pendingAssetFunding,
 	// needs the sum of the remote+local assets, so we'll populate that.
 	fakePrevState := cmsg.NewCommitment(
 		localAssets, remoteAssets, nil, nil, lnwallet.CommitAuxLeaves{},
-		stxo,
+		stxoFeatures.STXO, stxoFeatures.Spender,
 	)
 
 	// Just like above, we don't have a real HTLC view here, so we'll pass
@@ -778,7 +815,7 @@ func newCommitBlobAndLeaves(pendingFunding *pendingAssetFunding,
 		fakePrevState, lndOpenChan, assetOpenChan, whoseCommit,
 		localSatBalance, remoteSatBalance, fakeView,
 		pendingFunding.chainParams, keyRing.GetForParty(whoseCommit),
-		stxo,
+		stxoFeatures,
 	)
 	if err != nil {
 		return nil, lnwallet.CommitAuxLeaves{}, err
@@ -821,14 +858,14 @@ func (p *pendingAssetFunding) toAuxFundingDesc(req *bindFundingReq,
 	// This will be the information for the very first state (state 0).
 	localCommitBlob, localAuxLeaves, err := newCommitBlobAndLeaves(
 		p, req.openChan, openChanDesc, req.keyRing, lntypes.Local,
-		p.stxo,
+		p.stxoFeatures,
 	)
 	if err != nil {
 		return nil, err
 	}
 	remoteCommitBlob, remoteAuxLeaves, err := newCommitBlobAndLeaves(
 		p, req.openChan, openChanDesc, req.keyRing, lntypes.Remote,
-		p.stxo,
+		p.stxoFeatures,
 	)
 	if err != nil {
 		return nil, err
@@ -1353,14 +1390,12 @@ func isFundingOutput(vOut *tappsbt.VOutput) bool {
 // complete, but unsigned PSBT packet that can be used to create out asset
 // channel.
 func (f *FundingController) anchorVPackets(fundedPkt *tapsend.FundedPsbt,
-	allPackets []*tappsbt.VPacket, stxo bool) ([]*proof.Proof, error) {
+	allPackets []*tappsbt.VPacket,
+	stxoFeatures STXOFeatures) ([]*proof.Proof, error) {
 
 	log.Infof("Anchoring funding vPackets to funding PSBT")
 
-	var opts []tapsend.OutputCommitmentOption
-	if !stxo {
-		opts = append(opts, tapsend.WithNoSTXOProofs())
-	}
+	opts := stxoFeatures.CommitOpts()
 
 	// Given the set of vPackets we've created, we'll now merge them all to
 	// create a map from output index to final tap commitment.
@@ -1394,10 +1429,7 @@ func (f *FundingController) anchorVPackets(fundedPkt *tapsend.FundedPsbt,
 	for idx := range allPackets {
 		vPkt := allPackets[idx]
 
-		var opts []proof.GenOption
-		if !stxo {
-			opts = append(opts, proof.WithNoSTXOProofs())
-		}
+		opts := stxoFeatures.ProofOpts()
 
 		for vOutIdx := range vPkt.Outputs {
 			proofSuffix, err := tapsend.CreateProofSuffix(
@@ -1493,7 +1525,7 @@ func (f *FundingController) sendAssetFundingCreated(ctx context.Context,
 func (f *FundingController) completeChannelFunding(ctx context.Context,
 	fundingState *pendingAssetFunding,
 	fundedVpkt *tapfreighter.FundedVPacket,
-	stxoEnabled bool) (*wire.OutPoint, error) {
+	stxoFeatures STXOFeatures) (*wire.OutPoint, error) {
 
 	log.Debugf("Finalizing funding vPackets and PSBT...")
 
@@ -1604,7 +1636,7 @@ func (f *FundingController) completeChannelFunding(ctx context.Context,
 	// PSBT. This'll update all the pkScripts for our funding output and
 	// change.
 	fundingOutputProofs, err := f.anchorVPackets(
-		finalFundedPsbt, signedPkts, stxoEnabled,
+		finalFundedPsbt, signedPkts, stxoFeatures,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to anchor vPackets: %w", err)
@@ -1894,13 +1926,13 @@ func (f *FundingController) processFundingMsg(ctx context.Context,
 			route.Vertex(msg.PeerPub.SerializeCompressed()),
 		)
 
-		supportSTXO := features.HasFeature(tapfeatures.STXOOptional)
+		stxoFeatures := NewSTXOFeatures(features)
 
 		// If we reached this point, then the asset output and all
 		// inputs are valid, so we'll store the funding asset
 		// commitment.
 		err = assetFunding.addToFundingCommitment(
-			&assetProof.AssetOutput.Val, supportSTXO,
+			&assetProof.AssetOutput.Val, stxoFeatures,
 		)
 		if err != nil {
 			return tempPID, fmt.Errorf("unable to create "+
@@ -2140,9 +2172,9 @@ func (f *FundingController) processFundingReq(fundingFlows fundingFlowIndex,
 		route.Vertex(fundReq.PeerPub.SerializeCompressed()),
 	)
 
-	supportSTXO := features.HasFeature(tapfeatures.STXOOptional)
+	stxoFeatures := NewSTXOFeatures(features)
 
-	fundingState.stxo = supportSTXO
+	fundingState.stxoFeatures = stxoFeatures
 
 	// Now that we know the final funding asset root along with the splits,
 	// we can derive the tapscript root that'll be used alongside the
@@ -2156,7 +2188,7 @@ func (f *FundingController) processFundingReq(fundingFlows fundingFlowIndex,
 		}
 
 		err = fundingState.addToFundingCommitment(
-			fundingOut.Asset.Copy(), supportSTXO,
+			fundingOut.Asset.Copy(), stxoFeatures,
 		)
 		if err != nil {
 			return fmt.Errorf("unable to add asset to funding "+
@@ -2222,7 +2254,7 @@ func (f *FundingController) processFundingReq(fundingFlows fundingFlowIndex,
 		}
 
 		chanPoint, err := f.completeChannelFunding(
-			fundReq.ctx, fundingState, fundingVpkt, supportSTXO,
+			fundReq.ctx, fundingState, fundingVpkt, stxoFeatures,
 		)
 		if err != nil {
 			// If anything went wrong during the funding process,
@@ -2892,9 +2924,204 @@ func (f *FundingController) validateConfirmedFunding(ctx context.Context,
 		return err
 	}
 
+	// Ownership proofs exchanged during channel negotiation only establish
+	// control of the claimed current asset states. Before the channel is
+	// activated, fetch the complete proof file for every funding input and
+	// verify each history back to genesis. Validation uses an inactivity
+	// timeout that renews as proofs are fetched and verified, plus a hard
+	// upper bound for the full operation.
+	provenanceCtx, progress, cancel := contextWithProgressDeadline(
+		ctx, fundingProvenanceIdleTimeout, fundingProvenanceMaxTimeout,
+	)
+	defer cancel()
+	provenanceCtx = proof.WithProgressCallback(provenanceCtx, progress)
+
+	_, err = f.validateFundingInputProvenance(
+		provenanceCtx, chanAssetState.Assets(),
+	)
+	if err != nil {
+		cause := context.Cause(provenanceCtx)
+		if cause != nil && !errors.Is(cause, context.Canceled) {
+			err = cause
+		}
+
+		return fmt.Errorf("verify funding input provenance: %w", err)
+	}
+
+	if cause := context.Cause(provenanceCtx); cause != nil {
+		return cause
+	}
+
 	f.validatedFundingsMtx.Lock()
 	f.validatedFundings[channel.FundingOutpoint] = struct{}{}
 	f.validatedFundingsMtx.Unlock()
+
+	return nil
+}
+
+// validateFundingInputProvenance fetches and fully verifies every proof file
+// consumed by the channel funding outputs. A proof file used here must
+// establish provenance from genesis. Standalone ownership proofs are not a
+// valid trust root for channel activation.
+func (f *FundingController) validateFundingInputProvenance(
+	ctx context.Context,
+	outputs []*cmsg.AssetOutput) ([][]proof.File, error) {
+
+	vCtx := f.proofVerifierCtx()
+	vCtx.HeaderVerifier = tapnode.GenHeaderVerifier(
+		ctx, f.cfg.ChainBridge,
+	)
+
+	return verifyFundingInputProvenance(
+		ctx, outputs, f.cfg.DefaultCourierAddr,
+		f.cfg.ProofFetcher,
+		vCtx,
+	)
+}
+
+// contextWithProgressDeadline cancels an operation after an idle interval and
+// also enforces a hard upper bound. Calling progress renews only the idle
+// interval.
+func contextWithProgressDeadline(parent context.Context, idleTimeout,
+	maxTimeout time.Duration) (
+	context.Context, func(), context.CancelFunc) {
+
+	maxCtx, maxCancel := context.WithTimeout(parent, maxTimeout)
+	ctx, cancelCause := context.WithCancelCause(maxCtx)
+	timer := time.AfterFunc(idleTimeout, func() {
+		cancelCause(errFundingProvenanceIdle)
+	})
+
+	progress := func() {
+		if ctx.Err() != nil {
+			return
+		}
+
+		timer.Reset(idleTimeout)
+	}
+	cancel := func() {
+		timer.Stop()
+		cancelCause(context.Canceled)
+		maxCancel()
+	}
+
+	return ctx, progress, cancel
+}
+
+// verifyFundingInputProvenance fetches and fully verifies every proof file
+// consumed by the channel funding outputs. Its explicit dependencies keep the
+// channel activation trust boundary independently testable.
+func verifyFundingInputProvenance(ctx context.Context,
+	outputs []*cmsg.AssetOutput, courierAddr *url.URL,
+	proofFetcher proof.CourierDispatch,
+	vCtx proof.VerifierCtx) ([][]proof.File, error) {
+
+	if courierAddr == nil {
+		return nil, fmt.Errorf("proof courier address is missing")
+	}
+	if proofFetcher == nil {
+		return nil, fmt.Errorf("proof fetcher is missing")
+	}
+
+	verifiedInputFiles := make([][]proof.File, len(outputs))
+	group, groupCtx := errgroup.WithContext(ctx)
+	group.SetLimit(maxNumAssetIDs)
+	for outputIdx := range outputs {
+		outputIdx := outputIdx
+		output := outputs[outputIdx]
+		group.Go(func() error {
+			if output == nil {
+				return fmt.Errorf("nil funding output %d",
+					outputIdx)
+			}
+
+			inputFiles, err := fetchInputProofFiles(
+				groupCtx, &output.Proof.Val, courierAddr,
+				proofFetcher,
+			)
+			if err != nil {
+				return fmt.Errorf("fetch funding output %d "+
+					"input proofs: %w", outputIdx, err)
+			}
+
+			for inputIdx := range inputFiles {
+				inputFile := &inputFiles[inputIdx]
+				err := validateProvenanceFile(
+					groupCtx, inputFile,
+				)
+				if err != nil {
+					return fmt.Errorf("output %d input "+
+						"proof %d does not establish "+
+						"provenance: %w", outputIdx,
+						inputIdx, err)
+				}
+
+				_, err = inputFile.Verify(groupCtx, vCtx)
+				if err != nil {
+					return fmt.Errorf("output %d input "+
+						"proof %d is invalid: %w",
+						outputIdx, inputIdx, err)
+				}
+			}
+
+			verifiedInputFiles[outputIdx] = inputFiles
+
+			return nil
+		})
+	}
+
+	if err := group.Wait(); err != nil {
+		return nil, err
+	}
+
+	return verifiedInputFiles, nil
+}
+
+// validateProvenanceFile checks the trust boundary of a full proof file and
+// each nested additional input file. A challenge witness proves current key
+// control, not provenance, so it is never accepted in a file used to activate
+// a channel.
+func validateProvenanceFile(ctx context.Context, proofFile *proof.File) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	if proofFile == nil {
+		return fmt.Errorf("proof file is nil")
+	}
+	if err := proofFile.IsValid(); err != nil {
+		return err
+	}
+
+	for proofIdx := 0; proofIdx < proofFile.NumProofs(); proofIdx++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		p, err := proofFile.ProofAt(uint32(proofIdx))
+		if err != nil {
+			return fmt.Errorf("decode proof %d: %w", proofIdx, err)
+		}
+		if proofIdx == 0 && !p.Asset.IsGenesisAsset() {
+			return fmt.Errorf("file does not start at genesis")
+		}
+		if len(p.ChallengeWitness) != 0 {
+			return fmt.Errorf("proof %d contains an "+
+				"ownership challenge", proofIdx)
+		}
+
+		for inputIdx := range p.AdditionalInputs {
+			err := validateProvenanceFile(
+				ctx, &p.AdditionalInputs[inputIdx],
+			)
+			if err != nil {
+				return fmt.Errorf("proof %d additional "+
+					"input %d: %w", proofIdx, inputIdx, err)
+			}
+		}
+
+		proof.ReportProgress(ctx)
+	}
 
 	return nil
 }
@@ -3035,7 +3262,7 @@ func validateConfirmedFundingProofs(channel lnwallet.AuxChanState,
 func checkFundingCommitmentRoot(outputs []*cmsg.AssetOutput,
 	expectedRoot chainhash.Hash) error {
 
-	rebuild := func(stxo bool) (chainhash.Hash, error) {
+	rebuild := func(stxoFeatures STXOFeatures) (chainhash.Hash, error) {
 		var zero chainhash.Hash
 		rebuilt := &pendingAssetFunding{}
 		for idx, output := range outputs {
@@ -3046,7 +3273,7 @@ func checkFundingCommitmentRoot(outputs []*cmsg.AssetOutput,
 
 			fundingAsset := output.Proof.Val.Asset.Copy()
 			err := rebuilt.addToFundingCommitment(
-				fundingAsset, stxo,
+				fundingAsset, stxoFeatures,
 			)
 			if err != nil {
 				return zero, fmt.Errorf("unable to rebuild "+
@@ -3057,23 +3284,21 @@ func checkFundingCommitmentRoot(outputs []*cmsg.AssetOutput,
 		return rebuilt.fundingAssetCommitment.TapscriptRoot(nil), nil
 	}
 
-	// The channel blob does not record whether STXO alt leaves were used
-	// during funding, so either variant reproducing the on chain root is
-	// accepted.
-	rootNoStxo, err := rebuild(false)
-	if err != nil {
-		return err
+	// The channel blob does not record which alt leaves were used during
+	// funding, so any variant reproducing the on chain root is accepted.
+	variants := []STXOFeatures{
+		{},
+		{STXO: true},
+		{STXO: true, Spender: true},
 	}
-	if rootNoStxo == expectedRoot {
-		return nil
-	}
-
-	rootStxo, err := rebuild(true)
-	if err != nil {
-		return err
-	}
-	if rootStxo == expectedRoot {
-		return nil
+	for _, variant := range variants {
+		root, err := rebuild(variant)
+		if err != nil {
+			return err
+		}
+		if root == expectedRoot {
+			return nil
+		}
 	}
 
 	return fmt.Errorf("funding outputs do not reproduce the channel " +
@@ -3104,8 +3329,27 @@ func (f *FundingController) validateWitness(outAsset asset.Asset,
 	}
 
 	newAsset := &outAsset
+	var splitAssets []*commitment.SplitAsset
 	if outAsset.HasSplitCommitmentWitness() {
 		newAsset = &outAsset.PrevWitnesses[0].SplitCommitment.RootAsset
+
+		// If the funding output is the result of a split, we also
+		// validate the split leaf itself against the split commitment
+		// root of the embedded root asset. This binds the claimed
+		// amount of the funding output to the split tree, whose sum
+		// the VM checks against the sum of the inputs. The funding
+		// output is always anchored at the funding output index.
+		//
+		// NOTE: The amount of the split's root asset cannot be
+		// validated here, as this message doesn't carry the root
+		// locator's inclusion proof into the split tree. That binding
+		// is established when the funding output proof suffixes are
+		// verified in validateFundingProofs, which runs the full proof
+		// verification, including the root locator proof check.
+		splitAssets = append(splitAssets, &commitment.SplitAsset{
+			Asset:       outAsset,
+			OutputIndex: FundingOutputIndex,
+		})
 	}
 
 	// We create a file out of the input proofs, even if they aren't a chain
@@ -3122,7 +3366,7 @@ func (f *FundingController) validateWitness(outAsset asset.Asset,
 	// transition for the asset funding output.
 	chainLookup := f.cfg.ChainBridge.GenFileChainLookup(proofFile)
 	verifyOpt := vm.WithChainLookup(chainLookup)
-	engine, err := vm.New(newAsset, nil, prevAssets, verifyOpt)
+	engine, err := vm.New(newAsset, splitAssets, prevAssets, verifyOpt)
 	if err != nil {
 		return fmt.Errorf("unable to create VM: %w", err)
 	}
@@ -3165,7 +3409,7 @@ func (f *FundingController) validateLocalProofCourier(
 	}
 
 	return proof.CheckUniverseRpcCourierConnection(
-		ctx, proofCourierCheckTimeout, courierURL,
+		ctx, proofCourierCheckTimeout, f.cfg.UniverseTLS, courierURL,
 	)
 }
 

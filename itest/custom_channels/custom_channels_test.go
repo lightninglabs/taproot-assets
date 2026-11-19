@@ -36,6 +36,18 @@ var testCases = []*ccTestCase{
 		test: testCustomChannelsForceClose,
 	},
 	{
+		name: "immediate close",
+		test: testCustomChannelsImmediateClose,
+	},
+	{
+		name: "force close sweep reorg",
+		test: testCustomChannelsForceCloseSweepReorg,
+	},
+	{
+		name: "funding reorg",
+		test: testCustomChannelsFundingReorg,
+	},
+	{
 		name: "group tranches force close",
 		test: testCustomChannelsGroupTranchesForceClose,
 	},
@@ -92,12 +104,20 @@ var testCases = []*ccTestCase{
 		test: testCustomChannelsMultiRFQ,
 	},
 	{
+		name: "hold invoice route hints",
+		test: testCustomChannelsHoldInvoiceRouteHints,
+	},
+	{
 		name: "oracle pricing",
 		test: testCustomChannelsOraclePricing,
 	},
 	{
 		name: "invoice quote expiry mismatch",
 		test: testCustomChannelsInvoiceQuoteExpiryMismatch,
+	},
+	{
+		name: "hold invoice cltv",
+		test: testCustomChannelsHoldInvoiceCLTV,
 	},
 	{
 		name: "limit constraints",

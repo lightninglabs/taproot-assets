@@ -21,8 +21,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
-	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
-	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/constraints"
 )
@@ -143,19 +141,6 @@ func RandPubKey(t testing.TB) *btcec.PublicKey {
 	return SchnorrPubKey(t, RandPrivKey())
 }
 
-func RandCommitmentKeyRing(t *testing.T) lnwallet.CommitmentKeyRing {
-	return lnwallet.CommitmentKeyRing{
-		CommitPoint:         RandPubKey(t),
-		LocalCommitKeyTweak: RandBytes(32),
-		LocalHtlcKeyTweak:   RandBytes(32),
-		LocalHtlcKey:        RandPubKey(t),
-		RemoteHtlcKey:       RandPubKey(t),
-		ToLocalKey:          RandPubKey(t),
-		ToRemoteKey:         RandPubKey(t),
-		RevocationKey:       RandPubKey(t),
-	}
-}
-
 func RandBytes(num int) []byte {
 	randLock.Lock()
 	defer randLock.Unlock()
@@ -168,23 +153,6 @@ func RandBytes(num int) []byte {
 func PubToKeyDesc(p *btcec.PublicKey) keychain.KeyDescriptor {
 	return keychain.KeyDescriptor{
 		PubKey: p,
-	}
-}
-
-func ParseRPCKeyDescriptor(t testing.TB,
-	rpcDesc *signrpc.KeyDescriptor) keychain.KeyDescriptor {
-
-	pubKey, err := btcec.ParsePubKey(rpcDesc.RawKeyBytes)
-	require.NoError(t, err)
-
-	require.NotNil(t, rpcDesc.KeyLoc)
-
-	return keychain.KeyDescriptor{
-		KeyLocator: keychain.KeyLocator{
-			Family: keychain.KeyFamily(rpcDesc.KeyLoc.KeyFamily),
-			Index:  uint32(rpcDesc.KeyLoc.KeyIndex),
-		},
-		PubKey: pubKey,
 	}
 }
 

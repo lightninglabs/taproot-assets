@@ -19,6 +19,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/tapnode"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightninglabs/taproot-assets/universe"
@@ -820,12 +821,13 @@ type StateMachineStore interface {
 	InsertPendingUpdate(context.Context, asset.Specifier,
 		SupplyUpdateEvent) error
 
-	// InsertSignedCommitTx will associated a new signed commitment
-	// anchor transaction with the current active supply commitment state
-	// transition. This'll update the existing funded txn with a signed
-	// copy. Finally the state of the  supply commit state transition will
-	// transition to CommitBroadcastState.
-	InsertSignedCommitTx(context.Context, asset.Specifier,
+	// ApplyCommitTxStake associates a new signed commitment anchor
+	// transaction with the current active supply commitment state
+	// transition and moves the durable state to CommitBroadcastState.
+	// It runs inside the re-org watcher's registration transaction so
+	// the signed commitment transaction and the anchoring staked on
+	// it commit together.
+	ApplyCommitTxStake(context.Context, *sqlc.Queries, asset.Specifier,
 		SupplyCommitTxn) error
 
 	// CommitState is used to commit the state of the state machine to then
@@ -917,6 +919,16 @@ type Environment struct {
 
 	// KeyRing is the main key ring interface used to manage keys.
 	KeyRing KeyRing
+
+	// AnchoringWatcher is the re-org watcher a signed commitment is
+	// staked on as a speculative anchoring. The machine defers
+	// finalization until the watcher reports the commit transaction
+	// buried.
+	AnchoringWatcher AnchoringRegistrar
+
+	// AnchoringThreshold is the depth at which the commitment is
+	// act-confirmed (buried).
+	AnchoringThreshold uint32
 
 	// Chain is our access to the current main chain.
 	//

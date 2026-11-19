@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/asset/assetmock"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
@@ -26,18 +27,18 @@ import (
 )
 
 func randRapidLeafKey(t *rapid.T) universe.UniqueLeafKey { //nolint:unused
-	scriptKey := asset.ScriptKeyGen.Draw(t, "script_key")
+	scriptKey := assetmock.ScriptKeyGen.Draw(t, "script_key")
 	return universe.AssetLeafKey{
 		BaseLeafKey: universe.BaseLeafKey{
-			OutPoint:  asset.OutPointGen.Draw(t, "outpoint"),
+			OutPoint:  assetmock.OutPointGen.Draw(t, "outpoint"),
 			ScriptKey: &scriptKey,
 		},
-		AssetID: asset.AssetIDGen.Draw(t, "asset_id"),
+		AssetID: assetmock.AssetIDGen.Draw(t, "asset_id"),
 	}
 }
 
 func randProofGen(t *rapid.T, argAsset *asset.Asset) *proof.Proof {
-	proofAsset := asset.AssetGen.Draw(t, "asset")
+	proofAsset := assetmock.AssetGen.Draw(t, "asset")
 	if argAsset != nil {
 		proofAsset = *argAsset
 	}
@@ -49,7 +50,7 @@ func randProofGen(t *rapid.T, argAsset *asset.Asset) *proof.Proof {
 	pkScript := sliceGen.Draw(t, "pk_script")
 
 	altAssets := rapid.SliceOfN[asset.Asset](
-		asset.AltLeafGen(t), 1, 5,
+		assetmock.AltLeafGen(t), 1, 5,
 	).Draw(t, "alt_leaves")
 
 	return &proof.Proof{
@@ -70,7 +71,9 @@ func randProofGen(t *rapid.T, argAsset *asset.Asset) *proof.Proof {
 		TxMerkleProof: proof.TxMerkleProof{},
 		Asset:         proofAsset,
 		InclusionProof: proof.TaprootProof{
-			InternalKey: asset.PubKeyGen.Draw(t, "internal_key"),
+			InternalKey: assetmock.PubKeyGen.Draw(
+				t, "internal_key",
+			),
 		},
 		AltLeaves: asset.ToAltLeaves(
 			lfn.Map(altAssets, lnutils.Ptr),
@@ -105,7 +108,9 @@ func randMintingLeafGen(t *rapid.T, assetGen asset.Genesis,
 		} else {
 			// Generate a witness since the proof asset didn't have
 			// one.
-			witness = asset.TxWitnessGen.Draw(t, "group_witness")
+			witness = assetmock.TxWitnessGen.Draw(
+				t, "group_witness",
+			)
 
 			randProof.Asset.PrevWitnesses = []asset.Witness{{
 				PrevID:    &asset.PrevID{},
@@ -140,7 +145,7 @@ func randMintEventGen(groupPubKey *btcec.PublicKey,
 ) *rapid.Generator[supplycommit.SupplyUpdateEvent] {
 
 	return rapid.Custom(func(t *rapid.T) supplycommit.SupplyUpdateEvent {
-		mintGenesis := asset.GenesisGen.Draw(t, "genesis")
+		mintGenesis := assetmock.GenesisGen.Draw(t, "genesis")
 		mintLeaf := randMintingLeafGen(t, mintGenesis, groupPubKey)
 
 		var p proof.Proof
@@ -162,7 +167,7 @@ func randMintEventGen(groupPubKey *btcec.PublicKey,
 }
 
 func burnAssetGen(t *rapid.T) *asset.Asset {
-	a := asset.AssetGen.Draw(t, "asset")
+	a := assetmock.AssetGen.Draw(t, "asset")
 
 	// Make sure it has two prev witness fields to ensure it isn't mistaken
 	// as a genesis asset.
@@ -172,7 +177,7 @@ func burnAssetGen(t *rapid.T) *asset.Asset {
 	)
 
 	// Assign a non-zero PrevID that doesn't look like a genesis asset.
-	nonZeroPrevID := asset.NonGenesisPrevIDGen.Draw(t, "burn_prev_id")
+	nonZeroPrevID := assetmock.NonGenesisPrevIDGen.Draw(t, "burn_prev_id")
 	a.PrevWitnesses[0].PrevID = &nonZeroPrevID
 
 	a.ScriptKey = asset.NewScriptKey(
@@ -233,13 +238,13 @@ func randBurnEventGen(baseGenesis asset.Genesis, groupKey *asset.GroupKey,
 func randIgnoreTupleGen(t *rapid.T,
 	db BatchedUniverseTree) universe.SignedIgnoreTuple {
 
-	scriptKey := asset.ScriptKeyGen.Draw(t, "script_key")
+	scriptKey := assetmock.ScriptKeyGen.Draw(t, "script_key")
 
 	ctx := context.Background()
 
-	op := asset.OutPointGen.Draw(t, "outpoint")
+	op := assetmock.OutPointGen.Draw(t, "outpoint")
 
-	genesis := asset.GenesisGen.Draw(t, "genesis")
+	genesis := assetmock.GenesisGen.Draw(t, "genesis")
 
 	assetID := genesis.ID()
 
@@ -332,7 +337,7 @@ func setupSupplyTreeTestForProps(t *testing.T) (*SupplyTreeStore,
 	ctx := context.Background()
 
 	// Generate a random group key for testing.
-	groupPrivKey := asset.PrivKeyGen.Example()
+	groupPrivKey := assetmock.PrivKeyGen.Example()
 	require.NotNil(t, groupPrivKey)
 
 	groupPub := groupPrivKey.PubKey()
@@ -340,7 +345,7 @@ func setupSupplyTreeTestForProps(t *testing.T) (*SupplyTreeStore,
 		GroupPubKey: *groupPub,
 	}
 
-	baseGenesis := asset.GenesisGen.Example()
+	baseGenesis := assetmock.GenesisGen.Example()
 
 	// Create a base genesis and insert it. This will be referenced by
 	// burn/ignore events.

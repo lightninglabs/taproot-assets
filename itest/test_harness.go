@@ -81,6 +81,10 @@ type testCase struct {
 	name             string
 	test             func(t *harnessTest)
 	proofCourierType proof.CourierType
+
+	// reOrgSafeDepth, if non-zero, overrides the itest default burial
+	// depth of 1 for the test's primary tapd node.
+	reOrgSafeDepth int32
 }
 
 // harnessTest wraps a regular testing.T providing enhanced error detection
@@ -108,6 +112,10 @@ type harnessTest struct {
 
 	tapd *tapdHarness
 
+	// nodes indexes every tapd harness the test run created, by RPC
+	// host, so helpers can reach a node's federation members.
+	nodes map[string]*tapdHarness
+
 	logWriter *build.RotatingLogWriter
 	logMgr    *build.SubLoggerManager
 
@@ -126,6 +134,7 @@ func (h *harnessTest) newHarnessTest(t *testing.T, net *lntest.HarnessTest,
 		lndHarness:     net,
 		universeServer: universeServer,
 		tapd:           tapd,
+		nodes:          h.nodes,
 		logWriter:      h.logWriter,
 		logMgr:         h.logMgr,
 		interceptor:    h.interceptor,
@@ -274,7 +283,7 @@ func (h *harnessTest) addFederationServer(host string, target *tapdHarness) {
 // to each other through an in-memory gRPC connection.
 func setupHarnesses(t *testing.T, ht *harnessTest,
 	lndHarness *lntest.HarnessTest, uniServerLndHarness *node.HarnessNode,
-	proofCourierType proof.CourierType) (*tapdHarness,
+	proofCourierType proof.CourierType, reOrgSafeDepth int32) (*tapdHarness,
 	*universeServerHarness, proof.CourierHarness) {
 
 	// Create a new universe server harness and start it.
@@ -360,6 +369,7 @@ func setupHarnesses(t *testing.T, ht *harnessTest,
 	tapdHarness := setupTapdHarness(
 		t, ht, alice, universeServer, func(params *tapdHarnessParams) {
 			params.proofCourier = proofCourier
+			params.reOrgSafeDepth = reOrgSafeDepth
 		},
 	)
 	return tapdHarness, universeServer, proofCourier
@@ -409,6 +419,10 @@ type tapdHarnessParams struct {
 	// should be added as a federation server or not.
 	noDefaultUniverseSync bool
 
+	// reOrgSafeDepth, if non-zero, overrides the itest default burial
+	// depth of 1.
+	reOrgSafeDepth int32
+
 	// sqliteDatabaseFilePath is the path to the SQLite database file to
 	// use.
 	sqliteDatabaseFilePath *string
@@ -435,6 +449,15 @@ type tapdHarnessParams struct {
 	// baseDir, if set, is the tapd data directory to use instead of a
 	// fresh temporary one. This restarts a tapd on existing data.
 	baseDir string
+
+	// strictUniverseTLS indicates whether the node verifies the
+	// certificates of universe servers, proof couriers and auth
+	// mailboxes.
+	strictUniverseTLS bool
+
+	// universeTLSPins maps a host to the path of the only certificate the
+	// node trusts for it.
+	universeTLSPins map[string]string
 }
 
 // Option is a tapd harness option.
@@ -486,6 +509,16 @@ func WithSweepOrphanUtxos() Option {
 	}
 }
 
+// WithStrictUniverseTLS makes the tapd harness verify the certificates of
+// universe servers, proof couriers and auth mailboxes, trusting only the given
+// certificates (host to certificate path) for their hosts.
+func WithStrictUniverseTLS(pins map[string]string) Option {
+	return func(th *tapdHarnessParams) {
+		th.strictUniverseTLS = true
+		th.universeTLSPins = pins
+	}
+}
+
 // WithBaseDir makes the tapd harness reuse the given data directory instead
 // of creating a fresh one, so a node can be restarted on existing data.
 func WithBaseDir(dir string) Option {
@@ -530,6 +563,9 @@ func setupTapdHarness(t *testing.T, ht *harnessTest,
 		ho.portfolioPilotAddress = params.portfolioPilotAddress
 		ho.sendPriceHint = params.sendPriceHint
 		ho.disableSweepOrphanUtxos = !params.sweepOrphanUtxos
+		ho.reOrgSafeDepth = params.reOrgSafeDepth
+		ho.strictUniverseTLS = params.strictUniverseTLS
+		ho.universeTLSPins = params.universeTLSPins
 	}
 
 	tapdCfg := tapdConfig{

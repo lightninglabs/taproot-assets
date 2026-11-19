@@ -3,6 +3,7 @@ package integration
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	taprootassets "github.com/lightninglabs/taproot-assets"
 	"github.com/lightningnetwork/lnd"
@@ -81,8 +82,7 @@ func EnsureRequiredCustomMessages(customMsgs []uint16) []uint16 {
 	}
 
 	// Copy the input so we never mutate the caller's backing array.
-	result := make([]uint16, len(customMsgs))
-	copy(result, customMsgs)
+	result := slices.Clone(customMsgs)
 
 	for _, required := range requiredMsgs {
 		found := false

@@ -15,8 +15,12 @@ restore from it. The binary format and the update mechanism are documented in
 The file holds one entry per confirmed, unspent asset output the wallet
 controls. Each entry contains the asset itself, the anchor outpoint, the key
 derivation paths for the script key and the anchor internal key, and a compact
-copy of the proof chain. That is everything a fresh `tapd` needs to recognise
-the output as its own, verify its history and spend it.
+copy of the proof chain. For a grouped asset the entry also describes the asset
+group: the genesis of the asset that created the group and the parameters the
+group key is derived from. Only that first asset's proof carries a group key
+reveal, so a wallet holding later tranches of the group could not learn the
+group from its proofs alone. That is everything a fresh `tapd` needs to
+recognise the output as its own, verify its history and spend it.
 
 The file does **not** cover:
 

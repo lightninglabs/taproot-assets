@@ -168,6 +168,14 @@ type harnessOpts struct {
 	// universe syncer cache.
 	disableSyncCache bool
 
+	// reOrgSafeDepth is the burial depth the node considers a
+	// transaction safely buried at. Itests default to 1 so act-gated
+	// behavior (universe publish, supply commits) fires at the first
+	// confirmation, matching the block counts the tests mine; the
+	// re-org tests override it so burial certification stays deeper
+	// than the re-orgs they generate.
+	reOrgSafeDepth int32
+
 	// sendPriceHint indicates whether the tapd should send price hints from
 	// the local oracle to the counterparty when requesting a quote.
 	sendPriceHint bool
@@ -185,6 +193,15 @@ type harnessOpts struct {
 
 	// mboxCleanupInterval if set, configures the mailbox cleanup interval.
 	mboxCleanupInterval *time.Duration
+
+	// strictUniverseTLS indicates whether the node verifies the
+	// certificates of universe servers, proof couriers and auth
+	// mailboxes. If false, verification is disabled.
+	strictUniverseTLS bool
+
+	// universeTLSPins maps a host to the path of the only certificate the
+	// node trusts for it. Only used if strictUniverseTLS is set.
+	universeTLSPins map[string]string
 }
 
 type harnessOption func(*harnessOpts)
@@ -278,6 +295,14 @@ func newTapdHarness(t *testing.T, ht *harnessTest, cfg tapdConfig,
 		"--logging.file.max-file-size=999",
 	}
 
+	reOrgSafeDepth := int32(1)
+	if opts.reOrgSafeDepth > 0 {
+		reOrgSafeDepth = opts.reOrgSafeDepth
+	}
+	args = append(args, fmt.Sprintf(
+		"--reorgsafedepth=%d", reOrgSafeDepth,
+	))
+
 	// Resolve the proof courier address.
 	proofCourierAddr := ""
 	switch typedProofCourier := (opts.proofCourier).(type) {
@@ -300,6 +325,17 @@ func newTapdHarness(t *testing.T, ht *harnessTest, cfg tapdConfig,
 		args = append(args, "--proofcourieraddr="+proofCourierAddr)
 	}
 	ht.t.Logf("Using proof courier address: %v", proofCourierAddr)
+
+	// Universe server, proof courier and auth mailbox certificate
+	// verification.
+	if !opts.strictUniverseTLS {
+		args = append(args, "--universe.tls.insecure")
+	}
+	for host, certPath := range opts.universeTLSPins {
+		args = append(args, fmt.Sprintf(
+			"--universe.tls.pin=%s=%s", host, certPath,
+		))
+	}
 
 	// Configure proof courier backoff settings. Store on harness for
 	// test access.
@@ -484,7 +520,7 @@ func newTapdHarness(t *testing.T, ht *harnessTest, cfg tapdConfig,
 		cfg.BaseDir, "data", cfg.NetParams.Name, "admin.macaroon",
 	)
 
-	return &tapdHarness{
+	harness := &tapdHarness{
 		cfg:                   &cfg,
 		cliArgs:               args,
 		rpcListenAddr:         rpcListenAddr,
@@ -494,7 +530,12 @@ func newTapdHarness(t *testing.T, ht *harnessTest, cfg tapdConfig,
 		hashmailBackoffCfg:    hashmailBackoffCfg,
 		universeRpcBackoffCfg: universeRpcBackoffCfg,
 		ht:                    ht,
-	}, nil
+	}
+	if ht != nil && ht.nodes != nil {
+		ht.nodes[rpcListenAddr] = harness
+	}
+
+	return harness, nil
 }
 
 // ExecTapCLI uses the CLI parser to invoke the specified tapd harness via RPC,

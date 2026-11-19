@@ -2,6 +2,7 @@ package rfq
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"sync"
 	"sync/atomic"
@@ -14,6 +15,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightningnetwork/lnd/graph/db/models"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/stretchr/testify/require"
@@ -228,6 +230,98 @@ func TestPolicyAccountingIdempotent(t *testing.T) {
 	})
 }
 
+// TestAssetSalePolicyRejectsUnderpayment verifies that the incoming BTC HTLC
+// covers the asset value requested by the outgoing leg before the outgoing
+// wire amount is replaced with the asset channel's dust amount.
+func TestAssetSalePolicyRejectsUnderpayment(t *testing.T) {
+	t.Parallel()
+
+	spec := asset.NewSpecifierFromId(asset.ID{0x01})
+	peer := route.Vertex{0x0A}
+	rate := rfqmsg.NewAssetRate(
+		rfqmath.NewBigIntFixedPoint(100, 0),
+		time.Now().Add(time.Hour),
+	)
+	buyReq := &rfqmsg.BuyRequest{
+		Peer:           peer,
+		AssetSpecifier: spec,
+		AssetMaxAmt:    100,
+	}
+	policy := NewAssetSalePolicy(rfqmsg.BuyAccept{
+		Peer:      peer,
+		Request:   *buyReq,
+		AssetRate: rate,
+	}, false, nil)
+
+	scid := lnwire.NewShortChanIDFromInt(
+		uint64(policy.AcceptedQuoteId.Scid()),
+	)
+	htlc := lndclient.InterceptedHtlc{
+		IncomingCircuitKey: testCircuitKey(1),
+		OutgoingChannelID:  scid,
+		AmountInMsat:       1_000_000,
+		AmountOutMsat:      500_000_000,
+	}
+
+	err := policy.CheckHtlcCompliance(context.Background(), htlc, nil)
+	require.ErrorContains(t, err, "incoming amount is less")
+	require.Zero(t, policy.CurrentAmountMsat)
+
+	htlc.IncomingCircuitKey = testCircuitKey(2)
+	htlc.AmountInMsat = htlc.AmountOutMsat + 1000
+	require.NoError(t, policy.CheckHtlcCompliance(
+		context.Background(), htlc, nil,
+	))
+	require.Equal(t, htlc.AmountOutMsat, policy.CurrentAmountMsat)
+}
+
+// TestAssetForwardPolicyUsesIncomingAssetValue verifies that the outgoing sale
+// half of an asset-to-asset forward uses the value proven by the incoming asset
+// records instead of comparing the asset channel's dust wire amount.
+func TestAssetForwardPolicyUsesIncomingAssetValue(t *testing.T) {
+	t.Parallel()
+
+	assetID := asset.ID{0x01}
+	incoming := testPurchasePolicy(t, assetID)
+
+	rfqID, err := rfqmsg.NewID()
+	require.NoError(t, err)
+	peer := route.Vertex{0x0A}
+	outgoing := NewAssetSalePolicy(rfqmsg.BuyAccept{
+		Peer: peer,
+		Request: rfqmsg.BuyRequest{
+			Peer:           peer,
+			AssetSpecifier: asset.NewSpecifierFromId(assetID),
+			AssetMaxAmt:    100,
+		},
+		AssetRate: rfqmsg.NewAssetRate(
+			rfqmath.NewBigIntFixedPoint(100, 0),
+			time.Now().Add(time.Hour),
+		),
+		ID: rfqID,
+	}, false, nil)
+
+	forward, err := NewAssetForwardPolicy(incoming, outgoing)
+	require.NoError(t, err)
+
+	htlc := testPurchaseHtlc(
+		t, incoming, 1234, rfqmsg.NewAssetBalance(assetID, 1),
+	)
+	htlc.OutgoingChannelID = lnwire.NewShortChanIDFromInt(
+		uint64(outgoing.AcceptedQuoteId.Scid()),
+	)
+	require.Less(t, htlc.AmountInMsat, htlc.AmountOutMsat)
+
+	specifierChecker := func(_ context.Context, _ asset.Specifier,
+		_ asset.ID) (bool, error) {
+
+		return true, nil
+	}
+	require.NoError(t, forward.CheckHtlcCompliance(
+		context.Background(), htlc, specifierChecker,
+	))
+}
+
 // TestAssetSalePolicyConcurrentHtlcCap tests that concurrently accepted
 // HTLCs referencing the same asset sale policy never exceed the policy's
 // agreed maximum amount, even though the HTLC interceptor invokes the
@@ -291,6 +385,7 @@ func TestAssetSalePolicyConcurrentHtlcCap(t *testing.T) {
 				OutgoingChannelID: lnwire.NewShortChanIDFromInt(
 					uint64(policy.AcceptedQuoteId.Scid()),
 				),
+				AmountInMsat:  capMsat,
 				AmountOutMsat: capMsat,
 			}
 
@@ -517,4 +612,187 @@ func TestGenerateInterceptorResponseOverflow(t *testing.T) {
 			require.NotZero(t, resp.IncomingAmount)
 		})
 	}
+}
+
+// mockForwardStore is a minimal ForwardStore implementation that only serves
+// settled fill lookups.
+type mockForwardStore struct {
+	settledFill map[rfqmsg.ID]uint64
+	err         error
+}
+
+func (m *mockForwardStore) UpsertForward(context.Context, ForwardInput) error {
+	return nil
+}
+
+func (m *mockForwardStore) PendingForwards(
+	context.Context) ([]ForwardInput, error) {
+
+	return nil, nil
+}
+
+func (m *mockForwardStore) QueryForwardsWithCount(context.Context,
+	QueryForwardsParams) ([]ForwardingEvent, int64, error) {
+
+	return nil, 0, nil
+}
+
+func (m *mockForwardStore) SettledFillByRfqID(
+	context.Context) (map[rfqmsg.ID]uint64, error) {
+
+	return m.settledFill, m.err
+}
+
+// TestRestoreSettledFill tests that restoreSettledFill applies the persisted
+// settled fill to restored policies, so that settled quote capacity stays
+// consumed across a restart.
+func TestRestoreSettledFill(t *testing.T) {
+	t.Parallel()
+
+	// Rate of 100 asset units per BTC, so 1 unit = 1e9 msat. The quote cap
+	// is 100 units, hence the policy max is 1e11 msat.
+	const unitMsat = lnwire.MilliSatoshi(1_000_000_000)
+
+	spec := asset.NewSpecifierFromId(asset.ID{0x01})
+	peer := route.Vertex{0x0A}
+	rate := rfqmsg.NewAssetRate(
+		rfqmath.NewBigIntFixedPoint(100, 0),
+		time.Now().Add(time.Hour),
+	)
+
+	buyReq := &rfqmsg.BuyRequest{
+		Peer:           peer,
+		AssetSpecifier: spec,
+		AssetMaxAmt:    100,
+	}
+	accept := rfqmsg.BuyAccept{
+		Peer:      peer,
+		Request:   *buyReq,
+		AssetRate: rate,
+	}
+
+	policy := NewAssetSalePolicy(accept, false, nil)
+
+	// 80 units (8e10 msat) settled before the restart.
+	settledFill := map[rfqmsg.ID]uint64{
+		policy.RfqID(): uint64(80 * unitMsat),
+		// An entry for an unknown RFQ ID must be ignored.
+		{0xFF}: uint64(50 * unitMsat),
+	}
+
+	handler, err := NewOrderHandler(OrderHandlerCfg{
+		ForwardStore: &mockForwardStore{settledFill: settledFill},
+	})
+	require.NoError(t, err)
+
+	handler.policies.Store(policy.AcceptedQuoteId.Scid(), policy)
+
+	ctx := context.Background()
+	require.NoError(t, handler.restoreSettledFill(ctx))
+
+	scid := lnwire.NewShortChanIDFromInt(
+		uint64(policy.AcceptedQuoteId.Scid()),
+	)
+
+	// A new 80-unit HTLC must be rejected: only 20 units of lifetime
+	// capacity remain.
+	require.Error(t, policy.CheckHtlcCompliance(
+		ctx, capTestHtlc(scid, 1, 80), nil,
+	))
+
+	// A 20-unit HTLC must still be accepted.
+	require.NoError(t, policy.CheckHtlcCompliance(
+		ctx, capTestHtlc(scid, 2, 20), nil,
+	))
+
+	// An error from the forward store must be propagated.
+	handler, err = NewOrderHandler(OrderHandlerCfg{
+		ForwardStore: &mockForwardStore{err: fmt.Errorf("db error")},
+	})
+	require.NoError(t, err)
+	require.ErrorContains(
+		t, handler.restoreSettledFill(ctx), "db error",
+	)
+
+	// A nil forward store (forwarding event logging disabled) must be a
+	// no-op.
+	handler, err = NewOrderHandler(OrderHandlerCfg{})
+	require.NoError(t, err)
+	require.NoError(t, handler.restoreSettledFill(ctx))
+}
+
+// TestAssetSalePolicyRejectsNonBtcHtlc verifies that a standalone sale
+// policy rejects incoming HTLCs that do not pay in BTC: HTLCs flagged
+// no-op (lnd returns their BTC value to the sender at settle) and HTLCs
+// carrying asset records (asset-denominated input the sale never
+// validated). Regression test for TA-042.
+func TestAssetSalePolicyRejectsNonBtcHtlc(t *testing.T) {
+	t.Parallel()
+
+	spec := asset.NewSpecifierFromId(asset.ID{0x01})
+	peer := route.Vertex{0x0A}
+	rate := rfqmsg.NewAssetRate(
+		rfqmath.NewBigIntFixedPoint(100, 0),
+		time.Now().Add(time.Hour),
+	)
+	buyReq := &rfqmsg.BuyRequest{
+		Peer:           peer,
+		AssetSpecifier: spec,
+		AssetMaxAmt:    100,
+	}
+	policy := NewAssetSalePolicy(rfqmsg.BuyAccept{
+		Peer:      peer,
+		Request:   *buyReq,
+		AssetRate: rate,
+	}, false, nil)
+
+	scid := lnwire.NewShortChanIDFromInt(
+		uint64(policy.AcceptedQuoteId.Scid()),
+	)
+
+	// Case 1: the incoming HTLC carries only the no-op flag. lnd will
+	// convert the add to a NoOpAdd and credit the amount back to the
+	// sender at settle (lnwallet entryTypeForHtlc/evaluateNoOpHtlc), so
+	// the sale must reject it.
+	noopTLV := uint64(lnwallet.NoOpHtlcTLVEntry.TypeVal())
+	htlc := lndclient.InterceptedHtlc{
+		IncomingCircuitKey: testCircuitKey(1),
+		OutgoingChannelID:  scid,
+		AmountInMsat:       500_000_000,
+		AmountOutMsat:      500_000_000,
+		InWireCustomRecords: map[uint64][]byte{
+			noopTLV: {},
+		},
+	}
+
+	err := policy.CheckHtlcCompliance(context.Background(), htlc, nil)
+	require.ErrorContains(t, err, "no-op")
+	require.Zero(t, policy.CurrentAmountMsat)
+
+	// Case 2: the incoming HTLC carries asset records instead of BTC
+	// value. The equal-amount msat check passes, but the sale must
+	// reject the asset-denominated input.
+	assetRecords := rfqmsg.NewHtlc(
+		[]*rfqmsg.AssetBalance{
+			rfqmsg.NewAssetBalance(asset.ID{0x02}, 1),
+		},
+		fn.Some(policy.AcceptedQuoteId), fn.None[[]rfqmsg.ID](),
+	)
+	customRecords, err := lnwire.ParseCustomRecords(assetRecords.Bytes())
+	require.NoError(t, err)
+
+	htlc.IncomingCircuitKey = testCircuitKey(2)
+	htlc.InWireCustomRecords = customRecords
+
+	err = policy.CheckHtlcCompliance(context.Background(), htlc, nil)
+	require.ErrorContains(t, err, "asset records")
+	require.Zero(t, policy.CurrentAmountMsat)
+
+	// A plain BTC-paying HTLC without custom records must still pass.
+	htlc.IncomingCircuitKey = testCircuitKey(3)
+	htlc.InWireCustomRecords = nil
+	require.NoError(t, policy.CheckHtlcCompliance(
+		context.Background(), htlc, nil,
+	))
+	require.Equal(t, htlc.AmountOutMsat, policy.CurrentAmountMsat)
 }

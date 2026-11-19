@@ -460,7 +460,8 @@ func TestStrippedEncodeRecordsSync(t *testing.T) {
 		GroupKeyReveal: asset.NewGroupKeyRevealV0(
 			asset.ToSerialized(test.RandPubKey(t)), nil,
 		),
-		AltLeaves: []asset.AltLeaf[asset.Asset]{altLeaf},
+		AltLeaves:        []asset.AltLeaf[asset.Asset]{altLeaf},
+		RootLocatorProof: &commitmentProof.AssetProof.Proof,
 	}
 
 	// Get types from the full EncodeRecords.

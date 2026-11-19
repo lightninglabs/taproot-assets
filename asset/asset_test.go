@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"reflect"
 	"testing"
 
 	"github.com/btcsuite/btcd/blockchain"
@@ -21,7 +20,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
-	"pgregory.net/rapid"
 )
 
 var (
@@ -424,79 +422,6 @@ func TestUpdateTxWitnessSplitCommitment(t *testing.T) {
 	require.Empty(t, split.PrevWitnesses[0].TxWitness)
 }
 
-// TestAltLeafEncoding runs a property test for AltLeaf validation, encoding,
-// and decoding.
-func TestAltLeafEncoding(t *testing.T) {
-	t.Run("alt leaf encode/decode", rapid.MakeCheck(testAltLeafEncoding))
-}
-
-// testAltLeafEncoding tests the AltLeaf validation logic, and that a valid
-// AltLeaf can be encoded and decoded correctly.
-func testAltLeafEncoding(t *rapid.T) {
-	protoLeaf := AltLeafGen(t).Draw(t, "alt_leaf")
-	validAltLeafErr := protoLeaf.ValidateAltLeaf()
-
-	// If validation passes, the asset must follow all alt leaf constraints.
-	asserts := []AssetAssert{
-		AssetVersionAssert(V0),
-		AssetGenesisAssert(EmptyGenesis),
-		AssetAmountAssert(0),
-		AssetLockTimeAssert(0),
-		AssetRelativeLockTimeAssert(0),
-		AssetHasSplitRootAssert(false),
-		AssetGroupKeyAssert(nil),
-		AssetHasScriptKeyAssert(true),
-	}
-	assertErr := CheckAssetAsserts(&protoLeaf, asserts...)
-
-	// If the validation method and these assertions behave differently,
-	// either the test or the validation method is incorrect.
-	switch {
-	case validAltLeafErr == nil && assertErr != nil:
-		t.Error(assertErr)
-
-	case validAltLeafErr != nil && assertErr == nil:
-		t.Error(validAltLeafErr)
-
-	default:
-	}
-
-	// Don't test encoding for invalid alt leaves.
-	if validAltLeafErr != nil {
-		return
-	}
-
-	// If the alt leaf is valid, check that it can be encoded without error,
-	// and decoded to an identical alt leaf.
-	// fmt.Println("valid leaf")
-	var buf bytes.Buffer
-	if err := protoLeaf.EncodeAltLeaf(&buf); err != nil {
-		t.Error(err)
-	}
-
-	var decodedLeaf Asset
-	altLeafBytes := bytes.NewReader(buf.Bytes())
-	if err := decodedLeaf.DecodeAltLeaf(altLeafBytes); err != nil {
-		t.Error(err)
-	}
-
-	if !protoLeaf.DeepEqual(&decodedLeaf) {
-		t.Errorf("decoded leaf %v does not match input %v", decodedLeaf,
-			protoLeaf)
-	}
-
-	// Asset.DeepEqual does not inspect UnknownOddTypes, so check for their
-	// equality separately.
-	if !reflect.DeepEqual(
-		protoLeaf.UnknownOddTypes, decodedLeaf.UnknownOddTypes,
-	) {
-
-		t.Errorf("decoded leaf unknown types %v does not match input "+
-			"%v", decodedLeaf.UnknownOddTypes,
-			protoLeaf.UnknownOddTypes)
-	}
-}
-
 // TestTapLeafEncoding asserts that we can properly encode and decode tapLeafs
 // through their TLV serialization, and that invalid tapLeafs are rejected.
 func TestTapLeafEncoding(t *testing.T) {
@@ -720,6 +645,25 @@ func TestAssetType(t *testing.T) {
 	collectible, err := New(collectibleGen, 1, 0, 0, scriptKey, nil)
 	require.NoError(t, err)
 	require.EqualValues(t, 1, collectible.Amount)
+	require.NoError(t, collectible.Validate())
+
+	// Decoded assets do not pass through New, so Validate enforces the
+	// same issuance invariant.
+	collectible.Amount = 2
+	err = collectible.Validate()
+	wantErr := "amount must be 1 for genesis asset of type Collectible"
+	require.ErrorContains(
+		t, err, wantErr,
+	)
+
+	normal.Genesis.Type = Type(2)
+	require.ErrorContains(t, normal.Validate(), "unknown asset type: 2")
+
+	normal.Genesis.Type = Normal
+	normal.ScriptVersion = ScriptVersion(1)
+	require.ErrorContains(
+		t, normal.Validate(), "unknown asset script version: 1",
+	)
 }
 
 // TestAssetID makes sure that the asset ID is derived correctly.
@@ -814,6 +758,25 @@ func TestAssetWitnesses(t *testing.T) {
 	require.Nil(t, possibleSig)
 }
 
+// TestWitnessDeepEqualTxWitness tests that witnesses are compared by the
+// content of their witness stacks.
+func TestWitnessDeepEqualTxWitness(t *testing.T) {
+	t.Parallel()
+
+	equal := func(a, b wire.TxWitness) bool {
+		wa := &Witness{TxWitness: a}
+		wb := &Witness{TxWitness: b}
+
+		return wa.DeepEqual(false, wb)
+	}
+
+	require.True(t, equal(nil, wire.TxWitness{}))
+	require.True(t, equal(wire.TxWitness{nil}, wire.TxWitness{{}}))
+	require.True(t, equal(wire.TxWitness{{1}}, wire.TxWitness{{1}}))
+	require.False(t, equal(wire.TxWitness{{1}}, wire.TxWitness{{2}}))
+	require.False(t, equal(nil, wire.TxWitness{nil}))
+}
+
 // TestUnknownVersion tests that an asset of an unknown version is rejected
 // before being inserted into an MS-SMT.
 func TestUnknownVersion(t *testing.T) {
@@ -868,6 +831,18 @@ func TestUnknownVersion(t *testing.T) {
 }
 
 func FuzzAssetDecode(f *testing.F) {
+	var validAsset bytes.Buffer
+	if err := testRootAsset.Encode(&validAsset); err != nil {
+		f.Fatalf("unable to encode valid asset seed: %v", err)
+	}
+
+	f.Add([]byte{})
+	f.Add(validAsset.Bytes())
+	f.Add([]byte("0\xff00000000"))
+	f.Add([]byte{
+		0x01, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+	})
+
 	f.Fuzz(func(t *testing.T, data []byte) {
 		r := bytes.NewReader(data)
 		a := &Asset{}
@@ -1047,6 +1022,25 @@ func TestCopySpendTemplate(t *testing.T) {
 	newAsset.LockTime = 0
 
 	require.True(t, newAsset.DeepEqual(spendTemplate))
+}
+
+// TestCopyGroupKey tests that a copied asset carries every field of its group
+// key, including the version and custom subtree root of a version 1 key.
+func TestCopyGroupKey(t *testing.T) {
+	t.Parallel()
+
+	newAsset := RandAsset(t, Normal)
+	require.NotNil(t, newAsset.GroupKey)
+	newAsset.GroupKey.Version = GroupKeyV1
+	newAsset.GroupKey.CustomTapscriptRoot = fn.Some(test.RandHash())
+
+	assetCopy := newAsset.Copy()
+	require.Equal(t, newAsset.GroupKey, assetCopy.GroupKey)
+	require.NotSame(t, newAsset.GroupKey, assetCopy.GroupKey)
+
+	// An asset without a group key copies to one without a group key.
+	newAsset.GroupKey = nil
+	require.Nil(t, newAsset.Copy().GroupKey)
 }
 
 // TestExternalKeyPubKey tests that the public key can be derived from an

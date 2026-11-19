@@ -19,39 +19,39 @@ const _ = grpc.SupportPackageIsVersion7
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type MintClient interface {
 	// tapcli: `assets mint`
-	// MintAsset will attempt to mint the set of assets (async by default to
-	// ensure proper batching) specified in the request. The pending batch is
-	// returned that shows the other pending assets that are part of the next
-	// batch. This call will block until the operation succeeds (asset is staged
-	// in the batch) or fails.
+	//MintAsset will attempt to mint the set of assets (async by default to
+	//ensure proper batching) specified in the request. The pending batch is
+	//returned that shows the other pending assets that are part of the next
+	//batch. This call will block until the operation succeeds (asset is staged
+	//in the batch) or fails.
 	MintAsset(ctx context.Context, in *MintAssetRequest, opts ...grpc.CallOption) (*MintAssetResponse, error)
 	// tapcli `assets mint fund`
-	// FundBatch will attempt to fund the current pending batch with a genesis
-	// input, or create a new funded batch if no batch exists yet. This RPC is only
-	// needed if a custom witness is needed to finalize the batch. Otherwise,
-	// FinalizeBatch can be called directly.
+	//FundBatch will attempt to fund the current pending batch with a genesis
+	//input, or create a new funded batch if no batch exists yet. This RPC is only
+	//needed if a custom witness is needed to finalize the batch. Otherwise,
+	//FinalizeBatch can be called directly.
 	FundBatch(ctx context.Context, in *FundBatchRequest, opts ...grpc.CallOption) (*FundBatchResponse, error)
 	// tapcli `assets mint seal`
-	// SealBatch will attempt to seal the current pending batch by creating and
-	// validating asset group witness for all assets in the batch. If a witness
-	// is not provided, a signature will be derived to serve as the witness. This
-	// RPC is only needed if any assets in the batch have a custom asset group key
-	// that require an external signer. Otherwise, FinalizeBatch can be called
-	// directly.
+	//SealBatch will attempt to seal the current pending batch by creating and
+	//validating asset group witness for all assets in the batch. If a witness
+	//is not provided, a signature will be derived to serve as the witness. This
+	//RPC is only needed if any assets in the batch have a custom asset group key
+	//that require an external signer. Otherwise, FinalizeBatch can be called
+	//directly.
 	SealBatch(ctx context.Context, in *SealBatchRequest, opts ...grpc.CallOption) (*SealBatchResponse, error)
 	// tapcli: `assets mint finalize`
-	// FinalizeBatch will attempt to finalize the current pending batch.
+	//FinalizeBatch will attempt to finalize the current pending batch.
 	FinalizeBatch(ctx context.Context, in *FinalizeBatchRequest, opts ...grpc.CallOption) (*FinalizeBatchResponse, error)
 	// tapcli: `assets mint cancel`
-	// CancelBatch will attempt to cancel the current pending batch.
+	//CancelBatch will attempt to cancel the current pending batch.
 	CancelBatch(ctx context.Context, in *CancelBatchRequest, opts ...grpc.CallOption) (*CancelBatchResponse, error)
 	// tapcli: `assets mint batches`
-	// ListBatches lists the set of batches submitted to the daemon, including
-	// pending and cancelled batches.
+	//ListBatches lists the set of batches submitted to the daemon, including
+	//pending and cancelled batches.
 	ListBatches(ctx context.Context, in *ListBatchRequest, opts ...grpc.CallOption) (*ListBatchResponse, error)
 	// tapcli: `events mint`
-	// SubscribeMintEvents allows a caller to subscribe to mint events for asset
-	// creation batches.
+	//SubscribeMintEvents allows a caller to subscribe to mint events for asset
+	//creation batches.
 	SubscribeMintEvents(ctx context.Context, in *SubscribeMintEventsRequest, opts ...grpc.CallOption) (Mint_SubscribeMintEventsClient, error)
 }
 
@@ -154,39 +154,39 @@ func (x *mintSubscribeMintEventsClient) Recv() (*MintEvent, error) {
 // for forward compatibility
 type MintServer interface {
 	// tapcli: `assets mint`
-	// MintAsset will attempt to mint the set of assets (async by default to
-	// ensure proper batching) specified in the request. The pending batch is
-	// returned that shows the other pending assets that are part of the next
-	// batch. This call will block until the operation succeeds (asset is staged
-	// in the batch) or fails.
+	//MintAsset will attempt to mint the set of assets (async by default to
+	//ensure proper batching) specified in the request. The pending batch is
+	//returned that shows the other pending assets that are part of the next
+	//batch. This call will block until the operation succeeds (asset is staged
+	//in the batch) or fails.
 	MintAsset(context.Context, *MintAssetRequest) (*MintAssetResponse, error)
 	// tapcli `assets mint fund`
-	// FundBatch will attempt to fund the current pending batch with a genesis
-	// input, or create a new funded batch if no batch exists yet. This RPC is only
-	// needed if a custom witness is needed to finalize the batch. Otherwise,
-	// FinalizeBatch can be called directly.
+	//FundBatch will attempt to fund the current pending batch with a genesis
+	//input, or create a new funded batch if no batch exists yet. This RPC is only
+	//needed if a custom witness is needed to finalize the batch. Otherwise,
+	//FinalizeBatch can be called directly.
 	FundBatch(context.Context, *FundBatchRequest) (*FundBatchResponse, error)
 	// tapcli `assets mint seal`
-	// SealBatch will attempt to seal the current pending batch by creating and
-	// validating asset group witness for all assets in the batch. If a witness
-	// is not provided, a signature will be derived to serve as the witness. This
-	// RPC is only needed if any assets in the batch have a custom asset group key
-	// that require an external signer. Otherwise, FinalizeBatch can be called
-	// directly.
+	//SealBatch will attempt to seal the current pending batch by creating and
+	//validating asset group witness for all assets in the batch. If a witness
+	//is not provided, a signature will be derived to serve as the witness. This
+	//RPC is only needed if any assets in the batch have a custom asset group key
+	//that require an external signer. Otherwise, FinalizeBatch can be called
+	//directly.
 	SealBatch(context.Context, *SealBatchRequest) (*SealBatchResponse, error)
 	// tapcli: `assets mint finalize`
-	// FinalizeBatch will attempt to finalize the current pending batch.
+	//FinalizeBatch will attempt to finalize the current pending batch.
 	FinalizeBatch(context.Context, *FinalizeBatchRequest) (*FinalizeBatchResponse, error)
 	// tapcli: `assets mint cancel`
-	// CancelBatch will attempt to cancel the current pending batch.
+	//CancelBatch will attempt to cancel the current pending batch.
 	CancelBatch(context.Context, *CancelBatchRequest) (*CancelBatchResponse, error)
 	// tapcli: `assets mint batches`
-	// ListBatches lists the set of batches submitted to the daemon, including
-	// pending and cancelled batches.
+	//ListBatches lists the set of batches submitted to the daemon, including
+	//pending and cancelled batches.
 	ListBatches(context.Context, *ListBatchRequest) (*ListBatchResponse, error)
 	// tapcli: `events mint`
-	// SubscribeMintEvents allows a caller to subscribe to mint events for asset
-	// creation batches.
+	//SubscribeMintEvents allows a caller to subscribe to mint events for asset
+	//creation batches.
 	SubscribeMintEvents(*SubscribeMintEventsRequest, Mint_SubscribeMintEventsServer) error
 	mustEmbedUnimplementedMintServer()
 }

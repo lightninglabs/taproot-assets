@@ -66,12 +66,12 @@ func buildCompatBinary(t *testing.T, version string) string {
 	return binaryPath
 }
 
-// TestBackwardsCompatChannels runs a single, lean custom channel scenario with one
-// node (Charlie) running an older release binary and the other (Dave) running
-// the current build, for each historical version in compatVersions. It is gated
-// behind the `itest` build tag and intended to run only on release branches or
-// via manual dispatch, so we deliberately keep it to one scenario to avoid
-// inflating CI runtime with version-multiplied test cases.
+// TestBackwardsCompatChannels runs a single, lean custom channel scenario with
+// one node (Charlie) running an older release binary and the other (Dave)
+// running the current build, for each historical version in compatVersions. It
+// is gated behind the `itest` build tag and intended to run only on release
+// branches or via manual dispatch, so we deliberately keep it to one scenario
+// to avoid inflating CI runtime with version-multiplied test cases.
 func TestBackwardsCompatChannels(t *testing.T) {
 	if len(compatVersions) == 0 {
 		t.Skip("no compat versions configured")
@@ -85,15 +85,29 @@ func TestBackwardsCompatChannels(t *testing.T) {
 	}
 }
 
-// runCompatScenario stands up the shared test infrastructure (miner, chain
-// backend, fee service and network harness) for a single historical version and
-// then runs the cooperative-close compat scenario against it.
+// runCompatScenario runs the cooperative-close compat scenario against a single
+// historical version.
 func runCompatScenario(t *testing.T, version string) {
 	t.Helper()
 
 	// Build or retrieve the old binary that Charlie will run.
 	oldBinary := buildCompatBinary(t, version)
 	t.Logf("Using compat binary for %s: %s", version, oldBinary)
+
+	runWithCompatHarness(t, func(ctx context.Context,
+		net *itest.IntegratedNetworkHarness, ht *ccHarnessTest) {
+
+		runBackwardsCompatLifecycle(ctx, net, ht, oldBinary, version)
+	})
+}
+
+// runWithCompatHarness stands up the shared test infrastructure (miner, chain
+// backend, fee service and network harness) and runs the given scenario
+// against it.
+func runWithCompatHarness(t *testing.T, scenario func(context.Context,
+	*itest.IntegratedNetworkHarness, *ccHarnessTest)) {
+
+	t.Helper()
 
 	lntest.MaxBlocksMinedPerTest = 250
 
@@ -148,7 +162,7 @@ func runCompatScenario(t *testing.T, version string) {
 	ctxt, cancelScenario := context.WithTimeout(ctx, 15*time.Minute)
 	defer cancelScenario()
 
-	runBackwardsCompatLifecycle(ctxt, net, ht, oldBinary, version)
+	scenario(ctxt, net, ht)
 }
 
 // runBackwardsCompatLifecycle exercises the core lifecycle of an asset channel
@@ -190,8 +204,8 @@ func runBackwardsCompatLifecycle(ctx context.Context,
 	connectAllNodes(t.t, net, nodes)
 	fundAllNodes(t.t, net, nodes)
 
-	// Sanity check: Charlie really is running the pinned historical version,
-	// and Dave is running a different (current) build.
+	// Sanity check: Charlie really is running the pinned historical
+	// version, and Dave is running a different (current) build.
 	charlieInfo, err := asTapd(charlie).GetInfo(
 		ctx, &taprpc.GetInfoRequest{},
 	)
@@ -326,9 +340,9 @@ func runBackwardsCompatLifecycle(ctx context.Context,
 
 	mineBlocks(t, net, 6, 1)
 
-	// Dave already synced the asset genesis from Charlie in cycle 1, and the
-	// new channel's funding proof is delivered via the proof courier during
-	// funding, so no additional universe sync is needed here.
+	// Dave already synced the asset genesis from Charlie in cycle 1, and
+	// the new channel's funding proof is delivered via the proof courier
+	// during funding, so no additional universe sync is needed here.
 	require.NoError(t.t, net.AssertNodeKnown(charlie, dave))
 	require.NoError(t.t, net.AssertNodeKnown(dave, charlie))
 	assertAssetChan(
@@ -376,9 +390,9 @@ func runBackwardsCompatLifecycle(ctx context.Context,
 	daveSweepTxHash := daveSweepBlocks[0].Transactions[1].TxHash()
 	locateAssetTransfers(t.t, dave, daveSweepTxHash)
 
-	// Charlie's to-local output is CSV-delayed; mine the delay, then confirm
-	// his sweep.
-	mineBlocks(t, net, 4, 0)
+	// Charlie's to-local output is CSV-delayed; mine to its maturity, then
+	// confirm his sweep.
+	mineBlocks(t, net, 2, 0)
 	_, err = waitForNTxsInMempool(net.Miner, 1, ccShortTimeout)
 	require.NoError(t.t, err)
 	mineBlocks(t, net, 1, 0)

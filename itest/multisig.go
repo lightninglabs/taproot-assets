@@ -15,7 +15,6 @@ import (
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
-	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/cmd/commands"
 	"github.com/lightninglabs/taproot-assets/commitment"
@@ -395,6 +394,12 @@ func withTransitionProofVersion(
 	}
 }
 
+func withSkipFunding() commitVirtualPsbtsOption {
+	return func(request *wrpc.CommitVirtualPsbtsRequest) {
+		request.SkipFunding = true
+	}
+}
+
 func CommitVirtualPsbts(t *testing.T, funder commands.RpcClientsBundle,
 	packet *psbt.Packet, activePackets []*tappsbt.VPacket,
 	passivePackets []*tappsbt.VPacket,
@@ -528,6 +533,14 @@ type publishAndLogTransferOptions struct {
 
 	// expectedErr is the expected error when calling PublishAndLogTransfer.
 	expectedErr string
+
+	// signAnchorInputs indicates whether tapd should sign the anchor
+	// inputs it owns.
+	signAnchorInputs bool
+
+	// inputProofFiles are the proof files of inputs tapd holds no proof
+	// for.
+	inputProofFiles [][]byte
 }
 
 // defaultPublishAndLogTransferOptions returns the default options for
@@ -560,6 +573,22 @@ func withExpectedErr(expectedErr string) PublishAndLogTransferOption {
 	}
 }
 
+// withSignAnchorInputs is an option for PublishAndLogTransfer that asks tapd
+// to sign the anchor inputs it owns.
+func withSignAnchorInputs() PublishAndLogTransferOption {
+	return func(opts *publishAndLogTransferOptions) {
+		opts.signAnchorInputs = true
+	}
+}
+
+// withInputProofFiles is an option for PublishAndLogTransfer that supplies
+// the proof files of inputs tapd holds no proof for.
+func withInputProofFiles(files ...[]byte) PublishAndLogTransferOption {
+	return func(opts *publishAndLogTransferOptions) {
+		opts.inputProofFiles = files
+	}
+}
+
 // PublishAndLogTransfer is a helper function that invokes the
 // PublishAndLogTransfer RPC endpoint on the specified tapd node. This endpoint
 // performs a pre-anchored transfer.
@@ -589,6 +618,8 @@ func PublishAndLogTransfer(t *testing.T, tapd commands.RpcClientsBundle,
 		LndLockedUtxos:        commitResp.LndLockedUtxos,
 		SkipAnchorTxBroadcast: options.skipAnchorTxBroadcast,
 		Label:                 options.label,
+		SignAnchorInputs:      options.signAnchorInputs,
+		InputProofFiles:       options.inputProofFiles,
 	}
 
 	for idx := range activeAssets {
@@ -748,7 +779,7 @@ func (m *muSig2PartialSigner) ValidateWitnesses(*asset.Asset,
 	return nil
 }
 
-func (m *muSig2PartialSigner) SignVirtualTx(_ *lndclient.SignDescriptor,
+func (m *muSig2PartialSigner) SignVirtualTx(_ *asset.SignDescriptor,
 	tx *wire.MsgTx, prevOut *wire.TxOut) (*schnorr.Signature, error) {
 
 	prevOutputFetcher := txscript.NewCannedPrevOutputFetcher(

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/taptls"
 )
 
 // noopTransferLog is a no-op implementation of proof.TransferLog used when
@@ -28,10 +29,10 @@ func (n *noopTransferLog) QueryProofTransferLog(context.Context,
 
 // fetchProofFromUniverse tries each federation URL in order to fetch a
 // complete proof file for the given asset backup. It constructs a
-// proof.Locator from the backup's fields, creates a universe RPC courier,
-// and calls ReceiveProof which internally uses FetchProofProvenance to walk
-// the full proof chain from tip back to genesis.
-func fetchProofFromUniverse(ctx context.Context,
+// proof.Locator from the backup's fields, creates a universe RPC courier
+// under the given TLS policy, and calls ReceiveProof which internally uses
+// FetchProofProvenance to walk the full proof chain from tip back to genesis.
+func fetchProofFromUniverse(ctx context.Context, tlsPolicy taptls.Policy,
 	fedURLs []string, ab *AssetBackup,
 	archive proof.Archiver) ([]byte, error) {
 
@@ -68,7 +69,7 @@ func fetchProofFromUniverse(ctx context.Context,
 		}
 
 		courier, err := proof.NewUniverseRpcCourier(
-			ctx, courierCfg, &noopTransferLog{},
+			ctx, courierCfg, tlsPolicy, &noopTransferLog{},
 			archive, addr, false,
 		)
 		if err != nil {

@@ -21,6 +21,8 @@ import (
 	"github.com/lightninglabs/taproot-assets/internal/ecies"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapnode"
+	"github.com/lightninglabs/taproot-assets/tapreorg"
+	"github.com/lightninglabs/taproot-assets/taptls"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -212,19 +214,40 @@ type Config struct {
 	// mailbox service.
 	MboxBackoffCfg *proof.BackoffCfg
 
-	// MboxInsecure indicates whether the auth mailbox service should be
-	// accessed over an insecure connection (without TLS). This is only used
-	// for testing.
-	MboxInsecure bool
+	// MboxTLS is the TLS policy for connections to the auth mailbox
+	// service.
+	MboxTLS taptls.Policy
 
 	// ProofRetrievalDelay is the time duration the custodian waits having
 	// identified an asset transfer on-chain and before retrieving the
 	// corresponding proof via the proof courier service.
 	ProofRetrievalDelay time.Duration
 
-	// ProofWatcher is used to watch new proofs for their anchor transaction
-	// to be confirmed safely with a minimum number of confirmations.
-	ProofWatcher proof.Watcher
+	// AnchoringWatcher is the re-org watcher the custodian registers
+	// received transfers with as speculative anchorings; received
+	// state converges through the watcher's registry.
+	AnchoringWatcher tapreorg.Registrar
+
+	// AnchoringLog is the transaction-scoped persistence surface the
+	// receive site drives from its watcher handlers.
+	AnchoringLog ReceiveAnchoringLog
+
+	// ProofAdoptionLog enumerates proofs written before atomic staking
+	// existed and classifies local subsystem ownership of their anchors.
+	ProofAdoptionLog ProofAdoptionLog
+
+	// AnchoringThreshold is the confirmation depth at which the
+	// receive side considers a transfer act-confirmed (buried).
+	AnchoringThreshold uint32
+
+	// ProofFiles is the proof-file mirror, written for the proofs a
+	// stake imported once its transaction commits; the mirror-sync
+	// effect the receive site enqueues repairs a write that is lost.
+	ProofFiles VerifiedProofWriter
+
+	// ProofVerifier verifies received proof files before they are
+	// staked. Nil selects the base verifier.
+	ProofVerifier proof.Verifier
 
 	// IgnoreChecker is an optional function that can be used to check if
 	// a proof should be ignored.
@@ -311,8 +334,7 @@ func NewCustodian(cfg *Config) *Custodian {
 		mboxSubscriptions: mbox.NewMultiSubscription(
 			// nolint:lll
 			mbox.ClientConfig{
-				Insecure:           cfg.MboxInsecure,
-				SkipTlsVerify:      !cfg.MboxInsecure,
+				TLS:                cfg.MboxTLS,
 				Signer:             cfg.Signer,
 				MinBackoff:         mboxBackoffCfg.InitialBackoff,
 				MaxBackoff:         mboxBackoffCfg.MaxBackoff,
@@ -752,8 +774,8 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 				prevStatus := event.Status
 
 				xfer, err := address.NewTransferFromWalletTx(
-					event.Addr, walletTx, uint32(idx),
-					sendOutputs,
+					event.Addr, addrWalletTx(walletTx),
+					uint32(idx), sendOutputs,
 				)
 				if err != nil {
 					errEvent := NewAssetReceiveErrorEvent(
@@ -959,17 +981,15 @@ func (c *Custodian) receiveProof(addr *address.Tap, op wire.OutPoint,
 	ctx, cancel = c.CtxBlocking()
 	defer cancel()
 
-	err = c.cfg.ProofArchive.ImportProofs(
-		ctx, c.verifierCtx(ctx), false, addrProof,
-	)
+	err = c.StakeReceive(ctx, addrProof)
 	if err != nil {
 		return fmt.Errorf("unable to import proofs script_key=%x, "+
 			"asset_id=%x: %w", scriptKeyBytes, assetID[:], err)
 	}
 
-	// The proof is now verified and in our local archive. We will now
-	// finalize handling the proof like we would with any other newly
-	// received proof.
+	// The proof is now verified and in custody. We will now finalize
+	// handling the proof like we would with any other newly received
+	// proof.
 	c.proofSubscription.NewItemCreated.ChanIn() <- addrProof.Blob
 
 	return nil
@@ -1057,7 +1077,7 @@ func (c *Custodian) mapToTapAddr(walletTx *lndclient.Transaction,
 	}
 
 	xfer, err := address.NewTransferFromWalletTx(
-		addr, walletTx, outputIdx, sendOutputs,
+		addr, addrWalletTx(walletTx), outputIdx, sendOutputs,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error creating event source: %w", err)
@@ -1156,7 +1176,8 @@ func (c *Custodian) importAddrToWallet(ctx context.Context,
 
 // handleMailboxMessages processes the received mailbox messages and attempts
 // to decrypt them. If successful, it will then attempt to receive proofs for
-// the contained SendFragment messages using the proof courier service.
+// the contained SendFragment messages using the proof courier service. A
+// message that can't be decrypted or processed is skipped.
 func (c *Custodian) handleMailboxMessages(msgs *mbox.ReceivedMessages) error {
 	ctx, cancel := c.WithCtxQuitNoTimeout()
 	defer cancel()
@@ -1176,6 +1197,7 @@ func (c *Custodian) handleMailboxMessages(msgs *mbox.ReceivedMessages) error {
 	}
 
 	var maxMsgBlockHeight uint32
+msgLoop:
 	for _, mboxMsg := range msgs.Messages {
 		// Decrypt the mailbox message using the receiver's key.
 		log.Debugf("Decrypting mailbox message with ID %d for %x",
@@ -1212,8 +1234,10 @@ func (c *Custodian) handleMailboxMessages(msgs *mbox.ReceivedMessages) error {
 				)
 				c.publishSubscriberStatusEvent(errEvent)
 
-				return fmt.Errorf("unable to derive script "+
-					"key for asset: %w", err)
+				log.Errorf("Unable to derive script key for "+
+					"asset: %v", err)
+
+				continue msgLoop
 			}
 
 			err = c.cfg.AddrBook.InsertScriptKey(
@@ -1226,8 +1250,10 @@ func (c *Custodian) handleMailboxMessages(msgs *mbox.ReceivedMessages) error {
 				)
 				c.publishSubscriberStatusEvent(errEvent)
 
-				return fmt.Errorf("unable to insert script "+
-					"key into address book: %w", err)
+				log.Errorf("Unable to insert script key into "+
+					"address book: %v", err)
+
+				continue msgLoop
 			}
 
 			log.Tracef("Expecting to fetch proof for outpoint %s "+
@@ -1251,6 +1277,42 @@ func (c *Custodian) handleMailboxMessages(msgs *mbox.ReceivedMessages) error {
 				"but was already fully processed previously, "+
 				"skipping", event.Outpoint)
 
+			// The message has served its purpose, so we remove
+			// it from the server, as we do after receiving its
+			// proofs. This is best-effort as well.
+			msgID := mboxMsg.MessageId
+			serverURL := tapAddr.ProofCourierAddr
+			c.Goroutine(func() error {
+				_, err := c.removeMailboxMessages(
+					serverURL, receiver, []uint64{msgID},
+				)
+
+				return err
+			}, func(err error) {
+				log.Warnf("Error removing mailbox message: %v",
+					err)
+			})
+
+			continue
+		}
+
+		// The block mentioned in the fragment must be on chain at the
+		// fragment's block height.
+		err = c.cfg.ChainBridge.VerifyBlock(
+			ctx, fragment.BlockHeader, fragment.BlockHeight,
+		)
+		if err != nil {
+			c.publishSubscriberStatusEvent(
+				NewAssetReceiveErrorEvent(
+					err, *tapAddr.Tap, op,
+					0, address.StatusTransactionDetected,
+				),
+			)
+
+			log.Errorf("Unable to verify block %s at height %d: "+
+				"%v", fragment.BlockHeader.BlockHash(),
+				fragment.BlockHeight, err)
+
 			continue
 		}
 
@@ -1267,8 +1329,10 @@ func (c *Custodian) handleMailboxMessages(msgs *mbox.ReceivedMessages) error {
 				),
 			)
 
-			return fmt.Errorf("unable to fetch block %s: %w",
+			log.Errorf("Unable to fetch block %s: %v",
 				fragment.BlockHeader.BlockHash(), err)
+
+			continue
 		}
 
 		eventSrc, err := address.NewTransferFromFragment(
@@ -1282,8 +1346,10 @@ func (c *Custodian) handleMailboxMessages(msgs *mbox.ReceivedMessages) error {
 				),
 			)
 
-			return fmt.Errorf("error creating event source from "+
-				"fragment: %w", err)
+			log.Errorf("Unable to create event source from "+
+				"fragment: %v", err)
+
+			continue
 		}
 
 		// We have all the information we need to create a new address
@@ -1302,7 +1368,9 @@ func (c *Custodian) handleMailboxMessages(msgs *mbox.ReceivedMessages) error {
 				),
 			)
 
-			return fmt.Errorf("error creating event: %w", err)
+			log.Errorf("Unable to create event: %v", err)
+
+			continue
 		}
 
 		// Let's update our cache of ongoing events.
@@ -1516,7 +1584,7 @@ func (c *Custodian) checkProofAvailable(event *address.Event) (bool, error) {
 	// The proof might be an old state, let's make sure it matches our event
 	// before marking the inbound asset transfer as complete.
 	if AddrMatchesAsset(event.Addr, &lastProof.Asset) {
-		return true, c.setReceiveCompleted(event, file)
+		return true, c.setReceiveCompleted(event, blob)
 	}
 
 	return false, nil
@@ -1664,7 +1732,7 @@ func (c *Custodian) mapProofToEvent(p proof.Blob) error {
 		// database. Therefore, all we need to do is update the
 		// state of the address event to mark it as completed
 		// successfully.
-		err = c.setReceiveCompleted(event, file)
+		err = c.setReceiveCompleted(event, proofBlob)
 		if err != nil {
 			c.publishSubscriberStatusEvent(
 				NewAssetReceiveErrorEvent(
@@ -1693,12 +1761,12 @@ func (c *Custodian) assertProofInLocalArchive(p *proof.AnnotatedProof) error {
 	}
 
 	// We don't have the proof yet, or not in all backends, so we
-	// need to import it now.
+	// need to import it now — unless the anchoring watcher has
+	// abandoned the receive it attests, in which case the copy we
+	// hold outlived the compensation and must not re-materialize
+	// what it withdrew.
 	if !haveProof {
-		err = c.cfg.ProofArchive.ImportProofs(
-			ctxt, c.verifierCtx(ctxt), false, p,
-		)
-		if err != nil {
+		if err := c.StakeReceive(ctxt, p); err != nil {
 			return fmt.Errorf("error importing proof file into "+
 				"main archive: %w", err)
 		}
@@ -1709,29 +1777,42 @@ func (c *Custodian) assertProofInLocalArchive(p *proof.AnnotatedProof) error {
 
 // setReceiveCompleted updates the address event in the database to mark it as
 // completed successfully and to link it to the proof we received.
+//
+// Recovery invariant. The proof import and the registration commit
+// together (StakeReceive), so the receiver never holds an asset the
+// watcher does not: the only window left is between that transaction
+// and CompleteEvent, and the custodian's startup path recovers it —
+// the address event stays at its pre-Completed status, inspectWalletTx
+// re-drives the pipeline for its wallet transaction, and the flow
+// lands back here. StakeReceive tolerates the repeat (a held proof is
+// not imported twice, a registered anchoring attaches) and
+// CompleteEvent is the final act that closes the resume window.
 func (c *Custodian) setReceiveCompleted(event *address.Event,
-	proofFile *proof.File) error {
-
-	// The proof is created after a single confirmation. To make sure we
-	// notice if the anchor transaction is re-organized out of the chain, we
-	// give all the not-yet-sufficiently-buried proofs in the received proof
-	// file to the re-org watcher and replace the updated proof in the local
-	// proof archive if a re-org happens. The sender will do the same, so no
-	// re-send of the proof is necessary.
-	err := c.cfg.ProofWatcher.MaybeWatch(
-		proofFile, c.cfg.ProofWatcher.DefaultUpdateCallback(),
-	)
-	if err != nil {
-		return fmt.Errorf("error watching received proof: %w", err)
-	}
+	proofBlob proof.Blob) error {
 
 	// Let's not be interrupted by a shutdown.
 	ctxt, cancel := c.CtxBlocking()
 	defer cancel()
 
+	// The proof is created after a single confirmation. To make sure we
+	// notice if the anchor transaction is re-organized out of the chain,
+	// the receive stakes its state on the re-org watcher as a
+	// speculative anchoring; its handlers converge received state to
+	// whatever the chain answers. A file that cannot be staked — its
+	// tip lacks block context and it has no trigger to watch — is
+	// refused rather than held: the receiver never keeps an asset
+	// nothing watches.
+	err := c.StakeReceive(ctxt, &proof.AnnotatedProof{Blob: proofBlob})
+	if err != nil {
+		return fmt.Errorf("error staking received proof: %w", err)
+	}
+
 	// Do we have all proofs for all outputs of the event? If not, then we
 	// can't complete the event yet. We'll be called again here with more
-	// proofs once the sender sends them to us.
+	// proofs once the sender sends them to us. The database is the
+	// authority on what the receive holds — the proof-file mirror
+	// trails it through the outbox, and a mirror still catching up
+	// must not hold the event back.
 	for assetID, output := range event.Outputs {
 		loc := proof.Locator{
 			AssetID:   &assetID,
@@ -1739,7 +1820,9 @@ func (c *Custodian) setReceiveCompleted(event *address.Event,
 			ScriptKey: *output.ScriptKey.PubKey,
 			OutPoint:  &event.Outpoint,
 		}
-		haveProof, err := c.cfg.ProofArchive.HasProof(ctxt, loc)
+		haveProof, err := c.cfg.AnchoringLog.HasReceivedProof(
+			ctxt, loc,
+		)
 		if err != nil {
 			return fmt.Errorf("error checking if proof is "+
 				"available for asset %s: %w", assetID, err)
@@ -1849,6 +1932,17 @@ func (c *Custodian) RemoveSubscriber(
 	return nil
 }
 
+// addrWalletTx extracts the fields of a wallet transaction that an incoming
+// address transfer is created from.
+func addrWalletTx(tx *lndclient.Transaction) *address.WalletTx {
+	return &address.WalletTx{
+		Tx:            tx.Tx,
+		Confirmations: tx.Confirmations,
+		BlockHash:     tx.BlockHash,
+		BlockHeight:   tx.BlockHeight,
+	}
+}
+
 // hasWalletTaprootOutput returns true if one of the outputs of the given
 // transaction is recognized by the wallet as belonging to us and is a Taproot
 // output.
@@ -1922,14 +2016,19 @@ func EventMatchesProof(event *address.Event, p *proof.Proof) bool {
 }
 
 // verifierCtx returns a verifier context that can be used to verify proofs.
-func (c *Custodian) verifierCtx(ctx context.Context) proof.VerifierCtx {
+func (c *Custodian) verifierCtx(ctx context.Context,
+	groupVerifier proof.GroupVerifier) proof.VerifierCtx {
+
 	headerVerifier := tapnode.GenHeaderVerifier(ctx, c.cfg.ChainBridge)
 	merkleVerifier := proof.DefaultMerkleVerifier
+	if groupVerifier == nil {
+		groupVerifier = c.cfg.GroupVerifier
+	}
 
 	return proof.VerifierCtx{
 		HeaderVerifier: headerVerifier,
 		MerkleVerifier: merkleVerifier,
-		GroupVerifier:  c.cfg.GroupVerifier,
+		GroupVerifier:  groupVerifier,
 		ChainLookupGen: c.cfg.ChainBridge,
 		IgnoreChecker:  c.cfg.IgnoreChecker,
 	}

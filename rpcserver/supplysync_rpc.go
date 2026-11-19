@@ -10,8 +10,10 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/rpcutils"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
+	"github.com/lightninglabs/taproot-assets/taptls"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
 	"github.com/lightninglabs/taproot-assets/universe/supplyverifier"
@@ -28,11 +30,11 @@ type RpcSupplySync struct {
 }
 
 // NewRpcSupplySync creates a new RpcSupplySync instance that dials out to
-// the target remote universe server address.
-func NewRpcSupplySync(
+// the target remote universe server address under the given TLS policy.
+func NewRpcSupplySync(tlsPolicy taptls.Policy,
 	serverAddr universe.ServerAddr) (supplyverifier.UniverseClient, error) {
 
-	conn, err := ConnectUniverse(serverAddr)
+	conn, err := ConnectUniverse(tlsPolicy, serverAddr)
 	if err != nil {
 		return nil, fmt.Errorf("unable to connect to universe RPC "+
 			"server: %w", err)
@@ -43,9 +45,6 @@ func NewRpcSupplySync(
 		conn:       conn,
 	}, nil
 }
-
-// Ensure NewRpcSupplySync is of type UniverseClientFactory.
-var _ supplyverifier.UniverseClientFactory = NewRpcSupplySync
 
 // InsertSupplyCommit inserts a supply commitment for a specific asset
 // group into the remote universe server.
@@ -250,6 +249,74 @@ func (r *RpcSupplySync) FetchSupplyCommit(ctx context.Context,
 		rootCommitment.SupplyRoot.NodeHash())
 
 	return result, nil
+}
+
+// InsertProof inserts a single issuance or transfer proof into the remote
+// universe server.
+func (r *RpcSupplySync) InsertProof(ctx context.Context,
+	p *proof.Proof) error {
+
+	rawProof, err := p.Bytes()
+	if err != nil {
+		return fmt.Errorf("unable to encode proof: %w", err)
+	}
+
+	var groupKeyBytes []byte
+	if p.Asset.GroupKey != nil {
+		groupKey := p.Asset.GroupKey.GroupPubKey
+		groupKeyBytes = groupKey.SerializeCompressed()
+	}
+
+	assetID := p.Asset.ID()
+	_, err = r.conn.InsertProof(ctx, &unirpc.AssetProof{
+		Key: &unirpc.UniverseKey{
+			Id: rpcutils.MarshalUniverseID(
+				assetID[:], groupKeyBytes,
+			),
+			LeafKey: rpcutils.MarshalAssetKey(
+				p.OutPoint(), p.Asset.ScriptKey.PubKey,
+			),
+		},
+		AssetLeaf: &unirpc.AssetLeaf{
+			Proof: rawProof,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("unable to insert proof: %w", err)
+	}
+
+	return nil
+}
+
+// FetchProof fetches the single issuance or transfer proof at the given
+// locator from the remote universe server.
+func (r *RpcSupplySync) FetchProof(ctx context.Context,
+	loc proof.Locator) (proof.Blob, error) {
+
+	if loc.AssetID == nil || loc.OutPoint == nil {
+		return nil, fmt.Errorf("proof locator must specify asset ID " +
+			"and outpoint")
+	}
+
+	var groupKeyBytes []byte
+	if loc.GroupKey != nil {
+		groupKeyBytes = loc.GroupKey.SerializeCompressed()
+	}
+
+	resp, err := r.conn.QueryProof(ctx, &unirpc.UniverseKey{
+		Id: rpcutils.MarshalUniverseID(loc.AssetID[:], groupKeyBytes),
+		LeafKey: rpcutils.MarshalAssetKey(
+			*loc.OutPoint, &loc.ScriptKey,
+		),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("unable to query proof: %w", err)
+	}
+	if resp.AssetLeaf == nil {
+		return nil, fmt.Errorf("universe returned no asset leaf")
+	}
+
+	return resp.AssetLeaf.Proof, nil
 }
 
 // Close closes the RPC connection to the universe server.

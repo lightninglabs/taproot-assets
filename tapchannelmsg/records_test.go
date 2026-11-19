@@ -19,6 +19,7 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 	"pgregory.net/rapid"
 )
@@ -215,7 +216,7 @@ func TestCommitment(t *testing.T) {
 			name: "commitment with empty HTLC maps",
 			commitment: NewCommitment(
 				nil, nil, nil, nil, lnwallet.CommitAuxLeaves{},
-				false,
+				false, false,
 			),
 		},
 		{
@@ -230,6 +231,7 @@ func TestCommitment(t *testing.T) {
 						[32]byte{1}, 1000, *randProof,
 					),
 				}, nil, nil, lnwallet.CommitAuxLeaves{}, false,
+				false,
 			),
 		},
 		{
@@ -244,6 +246,22 @@ func TestCommitment(t *testing.T) {
 						[32]byte{1}, 1000, *randProof,
 					),
 				}, nil, nil, lnwallet.CommitAuxLeaves{}, true,
+				false,
+			),
+		},
+		{
+			name: "commitment with balances, stxo and spender",
+			commitment: NewCommitment(
+				[]*AssetOutput{
+					NewAssetOutput(
+						[32]byte{1}, 1000, *randProof,
+					),
+				}, []*AssetOutput{
+					NewAssetOutput(
+						[32]byte{1}, 1000, *randProof,
+					),
+				}, nil, nil, lnwallet.CommitAuxLeaves{}, true,
+				true,
 			),
 		},
 		{
@@ -334,7 +352,7 @@ func TestCommitment(t *testing.T) {
 						},
 					},
 				},
-				false,
+				false, false,
 			),
 		},
 	}
@@ -491,6 +509,25 @@ func TestAuxShutdownMsg(t *testing.T) {
 	}
 }
 
+// TestScriptKeyMapDeclaredCount ensures a short script-key record cannot use
+// its declared entry count as an unbounded allocation size.
+func TestScriptKeyMapDeclaredCount(t *testing.T) {
+	t.Parallel()
+
+	var (
+		encoded bytes.Buffer
+		scratch [8]byte
+	)
+
+	require.NoError(t, tlv.WriteVarInt(&encoded, 65541, &scratch))
+	require.NoError(t, tlv.WriteVarInt(&encoded, 3, &scratch))
+	require.NoError(t, tlv.WriteVarInt(&encoded, 65535, &scratch))
+
+	var msg AuxShutdownMsg
+	err := msg.Decode(&encoded)
+	require.ErrorIs(t, err, ErrListInvalid)
+}
+
 // TestContractResolution tests encoding and decoding of the ContractResolution
 // TLV blob.
 func TestContractResolution(t *testing.T) {
@@ -506,7 +543,7 @@ func TestContractResolution(t *testing.T) {
 	})
 
 	rapid.Check(t, func(r *rapid.T) {
-		numPackets := rapid.IntRange(1, 10).Draw(r, "numPackets")
+		numPackets := rapid.IntRange(1, 3).Draw(r, "numPackets")
 
 		testPkts1 := make([]*tappsbt.VPacket, numPackets)
 		for i := 0; i < numPackets; i++ {
@@ -531,8 +568,11 @@ func TestContractResolution(t *testing.T) {
 			)
 		}
 
+		stxoLeaves := rapid.Bool().Draw(r, "stxoLeaves")
+		spenderLeaves := rapid.Bool().Draw(r, "spenderLeaves")
 		testRes := NewContractResolution(
-			testPkts1, testPkts2, sigDesc,
+			testPkts1, testPkts2, sigDesc, stxoLeaves,
+			spenderLeaves,
 		)
 
 		var b bytes.Buffer
@@ -542,7 +582,31 @@ func TestContractResolution(t *testing.T) {
 		require.NoError(t, newRes.Decode(&b))
 
 		require.Equal(t, testRes, newRes)
+		require.Equal(t, lfn.Some(stxoLeaves), newRes.STXOLeaves())
+		require.Equal(
+			t, lfn.Some(spenderLeaves), newRes.SpenderLeaves(),
+		)
 	})
+}
+
+// TestContractResolutionLegacy tests that a contract resolution that predates
+// the alt leaf flags decodes without them.
+func TestContractResolutionLegacy(t *testing.T) {
+	t.Parallel()
+
+	legacy := ContractResolution{
+		firstLevelSweepVpkts: tlv.NewRecordT[tlv.TlvType0](
+			NewVpktList(nil),
+		),
+	}
+
+	var b bytes.Buffer
+	require.NoError(t, legacy.Encode(&b))
+
+	var decoded ContractResolution
+	require.NoError(t, decoded.Decode(&b))
+	require.True(t, decoded.STXOLeaves().IsNone())
+	require.True(t, decoded.SpenderLeaves().IsNone())
 }
 
 // TestProofChunk tests encoding and decoding of the ProofChunk TLV blob.

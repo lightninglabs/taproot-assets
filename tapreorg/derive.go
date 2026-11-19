@@ -96,8 +96,7 @@ type ChainView struct {
 
 // DerivePhase computes an anchoring's phase as a pure, total function
 // of its chain view. Every possible view maps to a phase, so there is
-// no state of the world the registry cannot represent. Withdrawn is
-// never derived: it is site-initiated, not chain-derived.
+// no state of the world the registry cannot represent.
 //
 // Act-tier phases derive exclusively from notifier certifications
 // (the ActCertified flags): the notifier fires a threshold-depth

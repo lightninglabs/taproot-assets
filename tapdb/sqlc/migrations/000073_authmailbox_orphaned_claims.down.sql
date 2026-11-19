@@ -1,0 +1,2 @@
+-- The claims dropped by the up migration had no message left to restore them
+-- from, and the schema is unchanged.

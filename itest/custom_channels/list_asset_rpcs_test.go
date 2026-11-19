@@ -236,6 +236,9 @@ func testCustomChannelsListInvoicesAndPayments(_ context.Context,
 		t.t, alice, bob, canceledInvoice.payReq, assetID,
 		withFailure(lnrpc.Payment_IN_FLIGHT, failureNone),
 	)
+	assertInvoiceState(
+		t.t, bob, canceledInvoice.payAddr, lnrpc.Invoice_ACCEPTED,
+	)
 
 	canceledHash := canceledInvoice.preimage.Hash()
 	_, err = bob.InvoicesClient.CancelInvoice(
@@ -268,6 +271,9 @@ func testCustomChannelsListInvoicesAndPayments(_ context.Context,
 		withFailure(lnrpc.Payment_IN_FLIGHT, failureNone),
 	)
 	require.NotZero(t.t, settledHodlUnits)
+	assertInvoiceState(
+		t.t, bob, settledHodlInvoice.payAddr, lnrpc.Invoice_ACCEPTED,
+	)
 
 	settledHodlHash := settledHodlInvoice.preimage.Hash()
 	_, err = bob.InvoicesClient.SettleInvoice(

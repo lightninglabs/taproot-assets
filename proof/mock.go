@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/url"
-	"sync"
 	"testing"
 	"time"
 
@@ -25,6 +24,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	mboxrpc "github.com/lightninglabs/taproot-assets/taprpc/authmailboxrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/universerpc"
+	"github.com/lightninglabs/taproot-assets/tapscript"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnutils"
@@ -466,102 +466,6 @@ func (m *MockProofCourierDispatcher) NewCourier(context.Context,
 	return m.Courier, nil
 }
 
-// MockProofCourier is a mock proof courier which stores the last proof it
-// received.
-type MockProofCourier struct {
-	sync.Mutex
-
-	currentProofs map[asset.SerializedKey]*AnnotatedProof
-
-	subscribers map[uint64]*fn.EventReceiver[fn.Event]
-}
-
-// NewMockProofCourier returns a new mock proof courier.
-func NewMockProofCourier() *MockProofCourier {
-	return &MockProofCourier{
-		currentProofs: make(map[asset.SerializedKey]*AnnotatedProof),
-	}
-}
-
-// Start starts the proof courier service.
-func (m *MockProofCourier) Start(chan error) error {
-	return nil
-}
-
-// Stop stops the proof courier service.
-func (m *MockProofCourier) Stop() error {
-	return nil
-}
-
-// DeliverProof attempts to delivery a proof to the receiver, using the
-// information in the Addr type.
-func (m *MockProofCourier) DeliverProof(_ context.Context,
-	_ Recipient, proof *AnnotatedProof, _ *SendManifest) error {
-
-	m.Lock()
-	defer m.Unlock()
-
-	m.currentProofs[asset.ToSerialized(&proof.ScriptKey)] = proof
-
-	return nil
-}
-
-// ReceiveProof attempts to obtain a proof as identified by the passed
-// locator from the source encapsulated within the specified address.
-func (m *MockProofCourier) ReceiveProof(_ context.Context,
-	_ Recipient, loc Locator) (*AnnotatedProof, error) {
-
-	m.Lock()
-	defer m.Unlock()
-
-	proof, ok := m.currentProofs[asset.ToSerialized(&loc.ScriptKey)]
-	if !ok {
-		return nil, ErrProofNotFound
-	}
-
-	return &AnnotatedProof{
-		Locator: Locator{
-			AssetID:   proof.Locator.AssetID,
-			GroupKey:  proof.Locator.GroupKey,
-			ScriptKey: proof.Locator.ScriptKey,
-			OutPoint:  proof.Locator.OutPoint,
-		},
-		Blob: proof.Blob,
-		AssetSnapshot: &AssetSnapshot{
-			Asset:             proof.AssetSnapshot.Asset,
-			OutPoint:          proof.AssetSnapshot.OutPoint,
-			AnchorBlockHash:   proof.AssetSnapshot.AnchorBlockHash,
-			AnchorBlockHeight: proof.AssetSnapshot.AnchorBlockHeight,
-			AnchorTxIndex:     proof.AssetSnapshot.AnchorTxIndex,
-			AnchorTx:          proof.AssetSnapshot.AnchorTx,
-			OutputIndex:       proof.AssetSnapshot.OutputIndex,
-			InternalKey:       proof.AssetSnapshot.InternalKey,
-			ScriptRoot:        proof.AssetSnapshot.ScriptRoot,
-			TapscriptSibling:  proof.AssetSnapshot.TapscriptSibling,
-			SplitAsset:        proof.AssetSnapshot.SplitAsset,
-			MetaReveal:        proof.AssetSnapshot.MetaReveal,
-		},
-	}, nil
-}
-
-// SetSubscribers sets the set of subscribers that will be notified
-// of proof courier related events.
-func (m *MockProofCourier) SetSubscribers(
-	subscribers map[uint64]*fn.EventReceiver[fn.Event]) {
-
-	m.Lock()
-	defer m.Unlock()
-
-	m.subscribers = subscribers
-}
-
-// Close stops the courier instance.
-func (m *MockProofCourier) Close() error {
-	return nil
-}
-
-var _ Courier = (*MockProofCourier)(nil)
-
 type ValidTestCase struct {
 	Proof    *TestProof `json:"proof"`
 	Expected string     `json:"expected"`
@@ -881,6 +785,7 @@ func NewTestFromCommitmentProof(t testing.TB,
 			t, p.TapSiblingPreimage,
 		),
 		STXOProofs:      NewTestFromSTXOProofs(t, p),
+		SpenderProofs:   NewTestFromSpenderProofs(t, p),
 		UnknownOddTypes: p.UnknownOddTypes,
 	}
 }
@@ -898,11 +803,29 @@ func NewTestFromSTXOProofs(t testing.TB,
 	return &stxoProofs
 }
 
+func NewTestFromSpenderProofs(t testing.TB,
+	p *CommitmentProof) *map[string]commitment.TestProof {
+
+	t.Helper()
+
+	if len(p.SpenderProofs) == 0 {
+		return nil
+	}
+
+	spenderProofs := make(map[string]commitment.TestProof)
+	for key, proof := range p.SpenderProofs {
+		keyHex := hex.EncodeToString(key[:])
+		spenderProofs[keyHex] = *commitment.NewTestFromProof(t, &proof)
+	}
+	return &spenderProofs
+}
+
 // nolint: lll
 type TestCommitmentProof struct {
 	Proof            *commitment.TestProof            `json:"proof"`
 	TapscriptSibling string                           `json:"tapscript_sibling"`
 	STXOProofs       *map[string]commitment.TestProof `json:"stxo_proofs"`
+	SpenderProofs    *map[string]commitment.TestProof `json:"spender_proofs,omitempty"`
 	UnknownOddTypes  tlv.TypeMap                      `json:"unknown_odd_types"`
 }
 
@@ -929,6 +852,18 @@ func (tcp *TestCommitmentProof) ToCommitmentProof(
 
 	if len(stxoProofs) > 0 {
 		cp.STXOProofs = stxoProofs
+	}
+
+	if tcp.SpenderProofs != nil {
+		cp.SpenderProofs = make(
+			map[asset.SerializedKey]commitment.Proof,
+		)
+		for key, proof := range *tcp.SpenderProofs {
+			keyBytes, err := hex.DecodeString(key)
+			require.NoError(t, err)
+			key := asset.SerializedKey(keyBytes)
+			cp.SpenderProofs[key] = *proof.ToProof(t)
+		}
 	}
 
 	return cp
@@ -1344,3 +1279,204 @@ type GroupRevealMutator func(asset.GroupKeyReveal)
 
 // GenRevealMutator mutates the genesis reveal of a fixture proof.
 type GenRevealMutator func(*asset.Genesis) *asset.Genesis
+
+// RandAnchoredGenesisProof issues a grouped asset and places its genesis
+// transaction on the caller's chain: anchor receives the transaction and
+// returns the block that confirms it and that block's height, so the proof
+// describes a chain the caller controls. The issuer's script key is returned
+// so the asset can be spent on.
+func RandAnchoredGenesisProof(t testing.TB,
+	anchor func(tx *wire.MsgTx) (*wire.MsgBlock, uint32)) (Proof,
+	*btcec.PrivateKey) {
+
+	t.Helper()
+
+	amt := uint64(100)
+	genesisProof, issuerPrivKey := RandGenesisProofWithKey(
+		t, asset.Normal, &amt, nil, true, nil, nil, nil, nil, asset.V0,
+	)
+	block, height := anchor(&genesisProof.AnchorTx)
+	stampAnchorBlock(t, &genesisProof, block, height)
+
+	return genesisProof, issuerPrivKey
+}
+
+// AppendRandTransfer extends a proof file with a full-value transfer of its
+// tip asset to a fresh BIP-86 key, signed by the holder's script key and
+// anchored on the caller's chain the same way as RandAnchoredGenesisProof.
+// It returns the recipient's key descriptor and private key, so the asset
+// can be carried on, and the outpoint it now sits at.
+func AppendRandTransfer(t testing.TB, file *File,
+	senderPrivKey *btcec.PrivateKey,
+	anchor func(tx *wire.MsgTx) (*wire.MsgBlock, uint32)) (
+	keychain.KeyDescriptor, *btcec.PrivateKey, wire.OutPoint) {
+
+	return appendRandTransfer(t, file, senderPrivKey, anchor, nil)
+}
+
+// AppendRandTransferWithRelativeLockTime is the same as AppendRandTransfer,
+// but sets the new asset's relative lock time before signing the transfer.
+func AppendRandTransferWithRelativeLockTime(t testing.TB, file *File,
+	senderPrivKey *btcec.PrivateKey, relativeLockTime uint64,
+	anchor func(tx *wire.MsgTx) (*wire.MsgBlock, uint32)) (
+	keychain.KeyDescriptor, *btcec.PrivateKey, wire.OutPoint) {
+
+	return appendRandTransfer(
+		t, file, senderPrivKey, anchor, &relativeLockTime,
+	)
+}
+
+func appendRandTransfer(t testing.TB, file *File,
+	senderPrivKey *btcec.PrivateKey,
+	anchor func(tx *wire.MsgTx) (*wire.MsgBlock, uint32),
+	relativeLockTime *uint64) (keychain.KeyDescriptor, *btcec.PrivateKey,
+	wire.OutPoint) {
+
+	t.Helper()
+
+	prevProof, err := file.LastProof()
+	require.NoError(t, err)
+
+	recipientPrivKey := test.RandPrivKey()
+	recipientKeyDesc := test.PubToKeyDesc(recipientPrivKey.PubKey())
+	newAsset := *prevProof.Asset.Copy()
+	newAsset.ScriptKey = asset.NewScriptKeyBip86(recipientKeyDesc)
+	if relativeLockTime != nil {
+		newAsset.RelativeLockTime = *relativeLockTime
+	}
+
+	// The holder signs the transfer with its script key.
+	prevOut := wire.OutPoint{
+		Hash:  prevProof.AnchorTx.TxHash(),
+		Index: prevProof.InclusionProof.OutputIndex,
+	}
+	prevID := &asset.PrevID{
+		OutPoint: prevOut,
+		ID:       prevProof.Asset.ID(),
+		ScriptKey: asset.ToSerialized(
+			prevProof.Asset.ScriptKey.PubKey,
+		),
+	}
+	newAsset.PrevWitnesses = []asset.Witness{{PrevID: prevID}}
+	virtualTx, _, err := tapscript.VirtualTx(
+		&newAsset, commitment.InputSet{*prevID: &prevProof.Asset},
+	)
+	require.NoError(t, err)
+	virtualTxCopy := asset.VirtualTxWithInput(
+		virtualTx, newAsset.LockTime, newAsset.RelativeLockTime, 0, nil,
+	)
+	sigHash, err := tapscript.InputKeySpendSigHash(
+		virtualTxCopy, &prevProof.Asset, &newAsset, 0,
+		txscript.SigHashDefault,
+	)
+	require.NoError(t, err)
+	sig, err := schnorr.Sign(
+		txscript.TweakTaprootPrivKey(*senderPrivKey, nil), sigHash,
+	)
+	require.NoError(t, err)
+	newAsset.PrevWitnesses[0].TxWitness = wire.TxWitness{sig.Serialize()}
+
+	// The anchor output commits to the transferred asset and to the
+	// spent input's STXO leaf.
+	assetCommitment, err := commitment.NewAssetCommitment(&newAsset)
+	require.NoError(t, err)
+	tapCommitment, err := commitment.NewTapCommitment(
+		nil, assetCommitment,
+	)
+	require.NoError(t, err)
+	stxoAsset, err := asset.MakeSpentAsset(newAsset.PrevWitnesses[0])
+	require.NoError(t, err)
+	require.NoError(t, tapCommitment.MergeAltLeaves(
+		asset.ToAltLeaves([]*asset.Asset{stxoAsset}),
+	))
+
+	internalKey := test.SchnorrPubKey(t, recipientPrivKey)
+	tapscriptRoot := tapCommitment.TapscriptRoot(nil)
+	taprootKey := txscript.ComputeTaprootOutputKey(
+		internalKey, tapscriptRoot[:],
+	)
+	anchorTx := &wire.MsgTx{
+		Version: 2,
+		TxIn:    []*wire.TxIn{{PreviousOutPoint: prevOut}},
+		TxOut: []*wire.TxOut{{
+			PkScript: test.ComputeTaprootScript(t, taprootKey),
+			Value:    330,
+		}},
+	}
+	block, height := anchor(anchorTx)
+	txIndex := blockTxIndex(t, block, anchorTx)
+
+	transitionProof, err := CreateTransitionProof(
+		prevOut, &TransitionParams{
+			BaseProofParams: BaseProofParams{
+				Block:            block,
+				BlockHeight:      height,
+				Tx:               anchorTx,
+				TxIndex:          txIndex,
+				OutputIndex:      0,
+				InternalKey:      internalKey,
+				TaprootAssetRoot: tapCommitment,
+			},
+			NewAsset: &newAsset,
+		}, WithVersion(TransitionV1),
+	)
+	require.NoError(t, err)
+	require.NoError(t, file.AppendProof(*transitionProof))
+
+	return recipientKeyDesc, recipientPrivKey,
+		wire.OutPoint{Hash: anchorTx.TxHash()}
+}
+
+// RandTransferProofFile builds a proof file that verifies under the default
+// merkle verifier: a grouped genesis and a full-value transfer of the issued
+// asset to a fresh key, both anchored on the caller's chain. The recipient's
+// key descriptor and the transfer's anchor outpoint are returned for callers
+// that need to claim the asset.
+func RandTransferProofFile(t testing.TB,
+	anchor func(tx *wire.MsgTx) (*wire.MsgBlock, uint32)) (*File,
+	keychain.KeyDescriptor, wire.OutPoint) {
+
+	t.Helper()
+
+	genesisProof, issuerPrivKey := RandAnchoredGenesisProof(t, anchor)
+	file := NewEmptyFile(V0)
+	require.NoError(t, file.AppendProof(genesisProof))
+	recipientKeyDesc, _, anchorOut := AppendRandTransfer(
+		t, file, issuerPrivKey, anchor,
+	)
+
+	return file, recipientKeyDesc, anchorOut
+}
+
+// stampAnchorBlock gives a proof the block context of the block the caller
+// confirmed its anchor transaction in.
+func stampAnchorBlock(t testing.TB, p *Proof, block *wire.MsgBlock,
+	height uint32) {
+
+	t.Helper()
+
+	merkle, err := NewTxMerkleProof(
+		block.Transactions, blockTxIndex(t, block, &p.AnchorTx),
+	)
+	require.NoError(t, err)
+
+	p.BlockHeader = block.Header
+	p.BlockHeight = height
+	p.TxMerkleProof = *merkle
+}
+
+// blockTxIndex locates a transaction in a block.
+func blockTxIndex(t testing.TB, block *wire.MsgBlock, tx *wire.MsgTx) int {
+	t.Helper()
+
+	txid := tx.TxHash()
+	for idx := range block.Transactions {
+		if block.Transactions[idx].TxHash() == txid {
+			return idx
+		}
+	}
+
+	require.Failf(t, "transaction not in block", "%v", txid)
+
+	return 0
+}

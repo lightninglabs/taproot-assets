@@ -9,12 +9,19 @@ import (
 	"testing"
 
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/maps"
 )
+
+// RandTapCommitVersion randomly returns either no commitment version or
+// TapCommitmentV2.
+func RandTapCommitVersion() *TapCommitmentVersion {
+	return test.RandFlip(nil, fn.Ptr(TapCommitmentV2))
+}
 
 // RandSplitCommit creates a random split commitment for testing.
 func RandSplitCommit(t testing.TB, a asset.Asset) *asset.SplitCommitment {

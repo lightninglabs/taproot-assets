@@ -56,23 +56,28 @@ func (m *memBlobStore) DeleteAuxCloseBlob(_ context.Context,
 }
 
 // TestSQLAuxCloseStoreRoundTrip verifies that a persistedCloseInfo survives
-// a Put/Get round-trip through SQLAuxCloseStore byte-for-byte. The
-// supportSTXO flag is exercised in both states to catch an "always write
-// the same byte" regression in the encoder.
+// a Put/Get round-trip through SQLAuxCloseStore byte-for-byte. The STXO
+// features are exercised in every state to catch an "always write the same
+// byte" regression in the encoder.
 func TestSQLAuxCloseStoreRoundTrip(t *testing.T) {
 	t.Parallel()
 
-	for _, supportSTXO := range []bool{true, false} {
-		supportSTXO := supportSTXO
-		name := fmt.Sprintf("supportSTXO=%v", supportSTXO)
+	allFeatures := []STXOFeatures{
+		{},
+		{STXO: true},
+		{STXO: true, Spender: true},
+	}
+	for _, stxoFeatures := range allFeatures {
+		stxoFeatures := stxoFeatures
+		name := fmt.Sprintf("stxoFeatures=%+v", stxoFeatures)
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			testSQLAuxCloseStoreRoundTrip(t, supportSTXO)
+			testSQLAuxCloseStoreRoundTrip(t, stxoFeatures)
 		})
 	}
 }
 
-func testSQLAuxCloseStoreRoundTrip(t *testing.T, supportSTXO bool) {
+func testSQLAuxCloseStoreRoundTrip(t *testing.T, stxoFeatures STXOFeatures) {
 	store := NewSQLAuxCloseStore(newMemBlobStore(), errBlobMissing)
 	ctx := context.Background()
 
@@ -94,8 +99,8 @@ func testSQLAuxCloseStoreRoundTrip(t *testing.T, supportSTXO bool) {
 				internalKey: test.RandPubKey(t),
 			},
 		},
-		closeFee:    12345,
-		supportSTXO: supportSTXO,
+		closeFee:     12345,
+		stxoFeatures: stxoFeatures,
 	}
 
 	chanPoint := wire.OutPoint{
@@ -128,7 +133,7 @@ func requirePersistedCloseInfoEqual(t *testing.T,
 	t.Helper()
 
 	require.Equal(t, want.closeFee, got.closeFee)
-	require.Equal(t, want.supportSTXO, got.supportSTXO)
+	require.Equal(t, want.stxoFeatures, got.stxoFeatures)
 	require.Len(t, got.vPackets, len(want.vPackets))
 	require.Len(t, got.pristineVPackets, len(want.pristineVPackets))
 	require.Len(t, got.noAssetAllocs, len(want.noAssetAllocs))

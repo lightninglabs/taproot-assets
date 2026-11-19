@@ -155,6 +155,20 @@ func (s *SimpleSyncer) SyncUniverseDelta(ctx context.Context,
 			if !insertFilter(item.ID) {
 				continue
 			}
+
+			// A grouped asset can only be inserted under its group
+			// key, so an item holding one in an asset ID universe
+			// is skipped.
+			if item.ID.GroupKey == nil &&
+				item.Leaf.Asset.GroupKey != nil {
+
+				log.Warnf("Delta item (seq=%d) skipped: "+
+					"grouped asset in UniverseRoot(%v)",
+					item.Seq, item.ID.String())
+
+				continue
+			}
+
 			if _, isTainted := tainted[idKey]; isTainted {
 				continue
 			}

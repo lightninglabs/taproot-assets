@@ -25,6 +25,11 @@ var (
 	// previous supply commitment, but it is not found in the database.
 	ErrPrevCommitmentNotFound = fmt.Errorf("previous supply commitment " +
 		"not found")
+
+	// ErrBurnProvenance is returned when no provenance source yields a
+	// proof file that a burn leaf's proof verifies against.
+	ErrBurnProvenance = fmt.Errorf("no provenance source verifies the " +
+		"burn proof")
 )
 
 // SupplyCommitView is an interface that is used to look up supply commitments
@@ -130,6 +135,16 @@ type Environment struct {
 	// allows the peer node to submit the new commitment to the universe
 	// server and for it to be available for retrieval.
 	SpendSyncDelay time.Duration
+
+	// MaxSyncRetries bounds the number of fast in-place retries a
+	// spend-triggered sync spends re-pulling a supply commitment that
+	// is not yet available, with SpendSyncDelay between attempts. Once
+	// exhausted, the machine re-arms one retry round per further
+	// confirmation of the spending transaction instead — the issuer
+	// act-gates publication on a burial depth the verifier cannot
+	// know — and reports the failure only past the chain notifier's
+	// depth ceiling.
+	MaxSyncRetries int
 
 	// ErrChan is the channel that is used to send errors to the caller.
 	ErrChan chan<- error

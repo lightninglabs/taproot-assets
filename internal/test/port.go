@@ -24,6 +24,10 @@ const (
 )
 
 var (
+	// ListenAddrTemplate is the template for the address a test server
+	// listens on.
+	ListenAddrTemplate = "127.0.0.1:%d"
+
 	portFileMutex sync.Mutex
 )
 

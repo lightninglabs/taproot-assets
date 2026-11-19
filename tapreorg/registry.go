@@ -14,13 +14,17 @@ var (
 	// not resolve to a registry row.
 	ErrAnchoringNotFound = errors.New("anchoring not found")
 
-	// ErrLiveDependents is returned when a withdrawal is attempted
-	// on an anchoring that live anchorings still depend on.
-	ErrLiveDependents = errors.New("anchoring has live dependents")
-
 	// ErrTerminalPhase is returned when an operation requires a
 	// live anchoring but the anchoring is terminal.
 	ErrTerminalPhase = errors.New("anchoring is terminal")
+
+	// ErrAnchoringAbandoned is returned when a registration whose
+	// phase-1 write is its own (Phase1OnAttach) attaches to an
+	// anchoring that is abandoned: the stake would materialize
+	// state the site's compensation has withdrawn, only for the
+	// attach's re-delivery to withdraw it again inside the same
+	// transaction while the caller believes it committed.
+	ErrAnchoringAbandoned = errors.New("anchoring is abandoned")
 
 	// ErrIncompleteSpend is returned when a satisfying candidate's
 	// transaction does not spend the anchoring's entire trigger
@@ -36,6 +40,19 @@ var (
 	// simply rescans.
 	ErrStaleDelivery = errors.New("sensed phase changed; " +
 		"delivery is stale")
+
+	// ErrEffectNotReady is returned by an effect handler whose
+	// inputs the owning subsystem has not materialized yet: the
+	// effect was enqueued by a delivery that ran ahead of the work
+	// it emits. The dispatcher leaves such an effect pending as it
+	// is, with no failure recorded and no backoff, and runs it again
+	// on the next outbox pass: the next scan, or the kick the owning
+	// subsystem gives once the inputs exist.
+	ErrEffectNotReady = errors.New("effect inputs not ready")
+
+	// ErrEmptyRegistrationBatch is returned when a caller attempts to
+	// register no anchoring specifications.
+	ErrEmptyRegistrationBatch = errors.New("registration batch is empty")
 )
 
 // DependencyEdge records that a child anchoring's trigger outpoints
@@ -72,11 +89,48 @@ type StoredEffect struct {
 	Attempts uint32
 }
 
+// ReconcileFunc runs inside the registration transaction whenever
+// the state a caller materialized before registering must be brought
+// onto an anchoring's delivered phase: when Register finds the spec's
+// (site, match key) identity already registered, and when a seeded
+// registration is born delivered. It receives the anchoring as
+// assembled on the registration transaction — for an attach, before
+// the trigger union, with the trigger outpoints the union added; for
+// a seeded birth, with the seed as its only candidate and no added
+// triggers — and runs atomically with the registration, so what it
+// reconciles cannot race a concurrent phase delivery.
+type ReconcileFunc func(ctx context.Context, tx RegistryTx,
+	anchoring *Anchoring, addedTriggers []TriggerOutPoint) error
+
+// BatchPhase1Func materializes one speculative state change for a set of
+// registrations. The identifiers correspond to the requests in order. The
+// function runs once, after every registration row exists, on the same
+// transaction that owns those rows.
+type BatchPhase1Func func(ctx context.Context, tx RegistryTx,
+	ids []AnchoringID) error
+
+// RegistrationRequest couples one durable registration specification to the
+// reconciliation needed when it attaches or carries a seed. A batch shares
+// one phase-1 write but retains request-specific reconciliation.
+type RegistrationRequest struct {
+	Spec      RegistrationSpec
+	Reconcile ReconcileFunc
+}
+
 // Registry is the durable store of anchorings: the watcher's source
 // of truth. Implemented by tapdb, over the same database every site's
 // state lives in — which is what makes the transactional coupling of
 // registry advances and site handlers possible.
 type Registry interface {
+	// RegisterBatch registers every request and runs phase1 exactly once,
+	// after all registry rows exist. The rows, trigger unions, dependency
+	// edges, phase-1 write and request-specific reconciliations commit or
+	// roll back as one transaction. Returned identifiers preserve request
+	// order and may repeat when requests share an identity.
+	RegisterBatch(ctx context.Context, requests []RegistrationRequest,
+		createdHeight uint32, phase1 BatchPhase1Func) (
+		[]AnchoringID, error)
+
 	// Register inserts the anchoring (phase Unwitnessed, delivered
 	// Unwitnessed) at the given best height, derives its
 	// dependency edges from live anchorings with a recorded
@@ -94,10 +148,34 @@ type Registry interface {
 	// never confirms in that form derives no edge — but then the
 	// child's trigger outpoints never exist on chain either, so no
 	// chain outcome is being missed.
+	//
+	// Registration is idempotent per (site, match key): an
+	// existing anchoring with the spec's identity is attached to
+	// rather than inserted. The phase-1 write does not run in that
+	// case — the original registration's already did. Instead,
+	// trigger outpoints the existing set lacks are unioned in with
+	// their dependency edges (refused if a recorded satisfying
+	// candidate would no longer spend the whole set), and the
+	// reconcile callback, when non-nil, runs in the same
+	// transaction as the lookup that found the anchoring: the
+	// caller's chance to reconcile late-attaching state against
+	// what has already been delivered, without racing a concurrent
+	// delivery.
+	//
+	// A registration carrying a seed candidate is born delivered:
+	// the phase the seed derives (Witnessed at the seed's
+	// location) is stamped sensed and delivered in the registration
+	// transaction, after the phase-1 write, and the reconcile
+	// callback runs against the seeded anchoring so the caller's
+	// materialized state lands on that phase at once. Should the
+	// seed's location have gone stale by then, the sensor's
+	// adoption-time verification downgrades it through the ordinary
+	// delivery path.
 	Register(ctx context.Context, spec RegistrationSpec,
 		createdHeight uint32,
 		phase1 func(context.Context, RegistryTx,
-			AnchoringID) error) (AnchoringID, error)
+			AnchoringID) error,
+		reconcile ReconcileFunc) (AnchoringID, error)
 
 	// GetAnchoring fetches an anchoring with its chain view.
 	GetAnchoring(ctx context.Context,
@@ -106,6 +184,16 @@ type Registry interface {
 	// LiveAnchorings returns all anchorings in a non-terminal
 	// phase, with their chain views.
 	LiveAnchorings(ctx context.Context) ([]*Anchoring, error)
+
+	// AllAnchorings returns every anchoring, live and settled.
+	AllAnchorings(ctx context.Context) ([]*Anchoring, error)
+
+	// LookupByMatchKey returns the site's anchoring with the given
+	// match key, or (nil, nil) if none exists. The registry
+	// enforces (site_id, match_key) uniqueness on non-null keys,
+	// so this is O(1) via index.
+	LookupByMatchKey(ctx context.Context, site SiteID,
+		matchKey []byte) (*Anchoring, error)
 
 	// ChainView assembles the anchoring's chain view: its
 	// candidate spends plus its strongest staged foreclosure.
@@ -163,14 +251,6 @@ type Registry interface {
 	// next-attempt time has passed.
 	PendingDeliveries(ctx context.Context,
 		now time.Time) ([]*Anchoring, error)
-
-	// Withdraw runs the site's withdrawal write and moves the
-	// anchoring to Withdrawn in one transaction. It refuses when
-	// live anchorings still depend on this one
-	// (ErrLiveDependents), and when the anchoring is already
-	// terminal (ErrTerminalPhase).
-	Withdraw(ctx context.Context, id AnchoringID,
-		onWithdraw func(context.Context, RegistryTx) error) error
 
 	// DependencyEdges returns the edges from live children to the
 	// given parent.

@@ -593,34 +593,16 @@ type BroadcastEvent struct {
 // eventSealed is a special method that is used to seal the interface.
 func (b *BroadcastEvent) eventSealed() {}
 
-// ConfEvent is a special event sent once our latest commitment transaction
-// confirms on chain.
-type ConfEvent struct {
-	// BlockHeight is the height of the block in which the transaction was
-	// confirmed within.
-	BlockHeight uint32
-
-	// TxIndex is the index within the block of the ultimate confirmed
-	// transaction.
-	TxIndex uint32
-
-	// Tx is the transaction for which the notification was requested for.
-	Tx *wire.MsgTx
-
-	// Block is the block that contains the transaction referenced above.
-	Block *wire.MsgBlock
-}
-
-// eventSealed is a special method that is used to seal the interface.
-func (c *ConfEvent) eventSealed() {}
-
-// CommitBroadcastState is the state of the state machine we'll transitions
-// to once we've signed the transaction. In this state, we'll broadcast the
-// transaction, then wait for a confirmation event.
+// CommitBroadcastState is the state the machine rests in once the
+// commitment transaction is signed: the transaction is broadcast and
+// staked on the re-org watcher, which finalizes the pending transition
+// in its delivery transaction at burial. A tick re-derives the
+// machine's position from the durable record.
 //
 // State transitions:
 //   - BroadcastEvent -> CommitBroadcastState
-//   - ConfEvent -> DefaultState
+//   - CommitTickEvent -> CommitBroadcastState | DefaultState |
+//     UpdatesPendingState (adopting the record the watcher advanced)
 type CommitBroadcastState struct {
 	// SupplyTransition holds all the information about the current state
 	// transition, including old/new trees and commitments.
@@ -640,39 +622,6 @@ func (c *CommitBroadcastState) String() string {
 	return "CommitBroadcastState"
 }
 
-// FinalizeEvent is a special event that is used to trigger the finalization of
-// the state update.
-type FinalizeEvent struct {
-}
-
-// eventSealed is a special method that is used to seal the interface.
-func (f *FinalizeEvent) eventSealed() {}
-
-// CommitFinalizeState is the final state of the state machine. In this state
-// we'll update the state info on disk, swap in our in-memory tree with the new
-// we've had in memory, then transition back to the DefaultState.
-//
-// State transitions:
-//   - ConfEvent -> DefaultState
-type CommitFinalizeState struct {
-	// SupplyTransition holds all the information about the current state
-	// transition, including old/new trees and commitments.
-	SupplyTransition SupplyStateTransition
-}
-
-// stateSealed is a special method that is used to seal the interface.
-func (c *CommitFinalizeState) stateSealed() {}
-
-// IsTerminal returns true if the target state is a terminal state.
-func (c *CommitFinalizeState) IsTerminal() bool {
-	return true
-}
-
-// String returns the name of the state.
-func (c *CommitFinalizeState) String() string {
-	return "CommitFinalizeState"
-}
-
 // SpendEvent is sent in response to an intent be notified of a spend of an
 // outpoint.
 type SpendEvent struct {
@@ -690,10 +639,6 @@ func (s *SpendEvent) eventSealed() {}
 // SpendMapper is a type used to map the generic spend event to one specific to
 // this package.
 type SpendMapper = protofsm.SpendMapper[Event]
-
-// ConfMapper is a type used to map the generic confirmation event to one
-// specific to this package.
-type ConfMapper = protofsm.ConfMapper[ConfEvent]
 
 func SpendMapperFunc(spendEvent *chainntnfs.SpendDetail) Event {
 	return &SpendEvent{

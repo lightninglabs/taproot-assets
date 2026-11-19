@@ -32,6 +32,12 @@ var (
 	ErrStxoInputProofMissing = errors.New(
 		"missing STXO input proof for Taproot Asset commitment",
 	)
+
+	// ErrSpenderProofMissing is returned when a proof carries spender
+	// proofs, but not for every input of the transfer.
+	ErrSpenderProofMissing = errors.New(
+		"missing spender proof for Taproot Asset commitment",
+	)
 )
 
 // CommitmentProof represents a full commitment proof for an asset. It can
@@ -45,12 +51,24 @@ type CommitmentProof struct {
 	// at the tapscript root of the expected output.
 	TapSiblingPreimage *commitment.TapscriptPreimage
 
-	// STXOProofs is a list of proofs that either prove the spend of the
-	// inputs as referenced in the asset's previous witnesses' prevIDs when
-	// this is in an inclusion proof, or the non-spend of an input if this
-	// is in an exclusion proof. Only the root assets in a transfer (so no
-	// minted or split assets) will have STXO inclusion or exclusion proofs.
+	// STXOProofs is a list of proofs for the STXOs of the inputs spent by
+	// a transfer, as referenced by the prevIDs in the previous witnesses
+	// of the transfer's root asset. They prove the spend of the inputs if
+	// this is the proof for the anchor output of the root asset, or the
+	// non-spend of the inputs if this is the proof for any other output.
+	// A split asset carries the STXO proofs of its root asset, so the
+	// proof for its own anchor output proves non-spend, unless that output
+	// also commits to the root asset. Minted assets have no STXO proofs.
 	STXOProofs map[asset.SerializedKey]commitment.Proof
+
+	// SpenderProofs is a list of proofs for the spender leaves of the
+	// inputs spent by a transfer, keyed by the script keys of the leaves.
+	// They prove that the anchor output of the transfer's root asset names
+	// the root asset as the spender of each of its inputs. Only the proof
+	// for the anchor output of the root asset carries them: the
+	// InclusionProof of a root asset, or the SplitRootProof of a split
+	// asset.
+	SpenderProofs map[asset.SerializedKey]commitment.Proof
 
 	// UnknownOddTypes is a map of unknown odd types that were encountered
 	// during decoding. This map is used to preserve unknown types that we
@@ -76,6 +94,11 @@ func (p CommitmentProof) EncodeRecords() []tlv.Record {
 			&p.STXOProofs,
 		))
 	}
+	if len(p.SpenderProofs) > 0 {
+		records = append(records, CommitmentProofSpenderProofsRecord(
+			&p.SpenderProofs,
+		))
+	}
 
 	// Add any unknown odd types that were encountered during decoding.
 	return asset.CombineRecords(records, p.UnknownOddTypes)
@@ -91,6 +114,7 @@ func (p *CommitmentProof) DecodeRecords() []tlv.Record {
 	return append(
 		records,
 		CommitmentProofSTXOProofsRecord(&p.STXOProofs),
+		CommitmentProofSpenderProofsRecord(&p.SpenderProofs),
 	)
 }
 
@@ -426,7 +450,9 @@ func (p TaprootProof) DeriveByAssetExclusion(assetCommitmentKey,
 	default:
 		log.Tracef("Deriving commitment by asset exclusion")
 		tapCommitment, err = p.CommitmentProof.
-			DeriveByAssetExclusion(assetCommitmentKey)
+			DeriveByAssetExclusion(
+				assetCommitmentKey, tapCommitmentKey,
+			)
 	}
 	if err != nil {
 		return nil, err

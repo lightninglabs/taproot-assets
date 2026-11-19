@@ -80,6 +80,12 @@ type UpsertAssetStore interface {
 	UpsertAssetGroupKey(ctx context.Context, arg AssetGroupKey) (int64,
 		error)
 
+	// UpsertAssetGroupKeyFull inserts a new or updates an existing group
+	// key on disk, replacing all of its fields. Used when the raw key of
+	// the group is known.
+	UpsertAssetGroupKeyFull(ctx context.Context,
+		arg AssetGroupKeyFull) (int64, error)
+
 	// QueryAssets fetches a filtered set of fully confirmed assets.
 	QueryAssets(context.Context, QueryAssetFilters) ([]ConfirmedAsset,
 		error)
@@ -399,15 +405,28 @@ func upsertGroupKey(ctx context.Context, groupKey *asset.GroupKey,
 			"root: %w", err)
 	}
 
-	// Upsert the group key itself.
-	groupID, err := q.UpsertAssetGroupKey(ctx, AssetGroupKey{
+	// Upsert the group key itself. A caller that knows the raw key of the
+	// group, because it minted the group or saw the group anchor's key
+	// reveal, also knows the version and roots. Such a call replaces the
+	// row a reissuance proof may have created earlier with the tweaked key
+	// standing in for the raw key and the derivation parameters unknown.
+	// Without the raw key we only ever fill in the genesis point.
+	groupRow := AssetGroupKey{
 		Version:             int32(groupKey.Version),
 		TweakedGroupKey:     tweakedKeyBytes,
 		TapscriptRoot:       groupKey.TapscriptRoot,
 		InternalKeyID:       keyID,
 		GenesisPointID:      genesisPointID,
 		CustomSubtreeRootID: rootID,
-	})
+	}
+	var groupID int64
+	if groupKey.RawKey.PubKey != nil {
+		groupID, err = q.UpsertAssetGroupKeyFull(
+			ctx, AssetGroupKeyFull(groupRow),
+		)
+	} else {
+		groupID, err = q.UpsertAssetGroupKey(ctx, groupRow)
+	}
 	if err != nil {
 		return nullID, fmt.Errorf("%w: %w", ErrUpsertGroupKey, err)
 	}
@@ -657,6 +676,13 @@ type GroupStore interface {
 	// a matching group key.
 	FetchGroupByGroupKey(ctx context.Context,
 		groupKey []byte) (sqlc.FetchGroupByGroupKeyRow, error)
+
+	// FetchGroupWitnessesByGroupKey fetches the group information for
+	// every genesis that was minted into the asset group with a matching
+	// group key, oldest witness first.
+	FetchGroupWitnessesByGroupKey(ctx context.Context,
+		groupKey []byte) ([]sqlc.FetchGroupWitnessesByGroupKeyRow,
+		error)
 }
 
 // fetchGroupByGenesis fetches the asset group created by the genesis referenced
@@ -695,23 +721,27 @@ func fetchGroupByGenesis(ctx context.Context, q GroupStore,
 
 // fetchGroupByGroupKey fetches the asset group with a matching tweaked key,
 // including the genesis information used to create the group.
+//
+// The group anchor is the genesis whose asset ID the tweaked key is derived
+// from. When the raw key of the group is known, it is picked by re-deriving
+// the key for each genesis minted into the group, so it does not matter in
+// which order the group's proofs reached the database. Without the raw key the
+// oldest genesis is assumed to be the anchor, as before.
 func fetchGroupByGroupKey(ctx context.Context, q GroupStore,
 	tweakedKey *btcec.PublicKey) (*asset.AssetGroup, error) {
 
 	groupKeyQuery := tweakedKey.SerializeCompressed()
-	groupInfo, err := q.FetchGroupByGroupKey(ctx, groupKeyQuery[:])
-	switch {
-	case errors.Is(err, sql.ErrNoRows):
-		return nil, address.ErrAssetGroupUnknown
-	case err != nil:
+	rows, err := q.FetchGroupWitnessesByGroupKey(ctx, groupKeyQuery[:])
+	if err != nil {
 		return nil, err
 	}
-
-	groupGenesis, err := fetchGenesis(ctx, q, groupInfo.GenAssetID)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrGroupGenesisInfo, err)
+	if len(rows) == 0 {
+		return nil, address.ErrAssetGroupUnknown
 	}
 
+	// The group key columns are the same on every row, the rows only
+	// differ in the genesis and witness.
+	groupInfo := rows[0]
 	groupKey, err := parseGroupKeyInfo(
 		groupInfo.Version, groupKeyQuery, groupInfo.RawKey,
 		groupInfo.WitnessStack, groupInfo.TapscriptRoot,
@@ -722,6 +752,60 @@ func fetchGroupByGroupKey(ctx context.Context, q GroupStore,
 		return nil, err
 	}
 
+	groupGenesis, err := fetchGenesis(ctx, q, groupInfo.GenAssetID)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrGroupGenesisInfo, err)
+	}
+
+	// A group first learned from a reissuance has the tweaked key stored
+	// in place of the raw key. Nothing can be derived from that, so the
+	// oldest genesis stands.
+	rawKeyKnown := !groupKey.RawKey.PubKey.IsEqual(tweakedKey)
+	if !rawKeyKnown || len(rows) == 1 {
+		return &asset.AssetGroup{
+			Genesis:  &groupGenesis,
+			GroupKey: groupKey,
+		}, nil
+	}
+
+	for _, row := range rows {
+		gen := groupGenesis
+		if row.GenAssetID != groupInfo.GenAssetID {
+			gen, err = fetchGenesis(ctx, q, row.GenAssetID)
+			if err != nil {
+				return nil, fmt.Errorf("%w: %w",
+					ErrGroupGenesisInfo, err)
+			}
+		}
+
+		isAnchor, err := groupKey.IsGroupAnchor(gen.ID())
+		if err != nil {
+			return nil, fmt.Errorf("unable to check group "+
+				"anchor: %w", err)
+		}
+		if !isAnchor {
+			continue
+		}
+
+		// The witness of the anchor is the one that authorised the
+		// group's creation.
+		anchorKey := *groupKey
+		if len(row.WitnessStack) != 0 {
+			anchorKey.Witness, err = asset.ParseGroupWitness(
+				row.WitnessStack,
+			)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		return &asset.AssetGroup{
+			Genesis:  &gen,
+			GroupKey: &anchorKey,
+		}, nil
+	}
+
+	// None of the known geneses derives the key, keep the oldest one.
 	return &asset.AssetGroup{
 		Genesis:  &groupGenesis,
 		GroupKey: groupKey,

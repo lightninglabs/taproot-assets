@@ -1,4 +1,4 @@
-FROM golang:1.26.3-bookworm@sha256:386d475a660466863d9f8c766fec64d7fdad3edac2c6a05020c09534d71edb4b
+FROM golang:1.27.3-bookworm@sha256:5c3e9b43cfd3bb95c7937462e29d87ada57b481a96fa23ad0eb61778d7a00110
 
 LABEL maintainer="Olaoluwa Osuntokun <laolu@lightning.engineering>"
 

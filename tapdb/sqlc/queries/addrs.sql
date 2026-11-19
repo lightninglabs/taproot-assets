@@ -240,3 +240,39 @@ JOIN chain_txns
 JOIN addrs
     ON addr_events.addr_id = addrs.id
 WHERE addrs.version = $1;
+
+-- name: ResetAddrEventsByAnchorTx :execrows
+-- The receive-side inverse of event completion: the anchor
+-- transaction the events were keyed to was decided against by the
+-- chain, so the events return to the given (pre-completion) status.
+-- Their expected-output rows (addr_event_outputs) stand: they
+-- describe the address's expectation, not materialized state.
+UPDATE addr_events
+SET status = @new_status
+WHERE chain_txn_id IN (
+    SELECT txn_id FROM chain_txns WHERE txid = @txid
+);
+
+-- name: DeleteAddrEventProofsByAnchorTx :execrows
+-- The events' materialized custody references. On abandonment the
+-- proof and asset rows they point at are deleted, so the references
+-- must go first; the events themselves and their expected-output
+-- rows stand.
+DELETE FROM addr_event_proofs
+WHERE addr_event_id IN (
+    SELECT id FROM addr_events
+    WHERE chain_txn_id IN (
+        SELECT txn_id FROM chain_txns WHERE txid = @txid
+    )
+);
+
+-- name: DeleteAddrEventProofsByAssetID :execrows
+-- One asset's materialized custody reference. A self-send stakes the
+-- same asset row from two sites: the porter materialized it as a
+-- transfer output and the receive took custody of it. Whichever
+-- compensates first deletes the row, so it must shed the reference
+-- pointing at it — addr_event_proofs.asset_id_fk is unconstrained by
+-- ON DELETE, and would otherwise fail the delivery transaction. The
+-- event itself is left for the receive's compensation to reset.
+DELETE FROM addr_event_proofs
+WHERE asset_id_fk = @asset_id;

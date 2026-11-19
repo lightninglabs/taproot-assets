@@ -1,19 +1,28 @@
 -- Phase codes mirror tapreorg.PhaseCode: 0 unwitnessed, 1 witnessed,
--- 2 conflicted, 3 buried, 4 abandoned, 5 withdrawn. Codes >= 3 are
+-- 2 conflicted, 3 buried, 4 abandoned. Codes >= 3 are
 -- terminal. Verdict codes mirror tapreorg.Verdict: 0 satisfies, 1
 -- foreign. The literals below must stay in sync with those enums.
 
 -- name: InsertReorgAnchoring :one
 INSERT INTO reorg_anchorings (
     site_id, threshold, match_version, match_data, payload_version,
-    payload_data, created_height, phase_code, phase_evidence,
+    payload_data, match_key, created_height, phase_code, phase_evidence,
     delivered_code, delivered_evidence, next_delivery_at
 ) VALUES (
     @site_id, @threshold, @match_version, @match_data, @payload_version,
-    @payload_data, @created_height, @phase_code, @phase_evidence,
-    @delivered_code, @delivered_evidence, 0
+    @payload_data, @match_key, @created_height, @phase_code,
+    @phase_evidence, @delivered_code, @delivered_evidence, 0
 )
 RETURNING id;
+
+-- name: LookupReorgAnchoringByMatchKey :one
+-- Returns the anchoring row for (site_id, match_key), or no rows if
+-- none exists. The unique partial index makes this O(1); it is the
+-- production shape of "does this site already have an anchoring for
+-- this identity?"
+SELECT *
+FROM reorg_anchorings
+WHERE site_id = @site_id AND match_key = @match_key;
 
 -- name: InsertReorgTriggerOutpoint :exec
 INSERT INTO reorg_trigger_outpoints (
@@ -46,6 +55,11 @@ FROM reorg_anchorings
 WHERE phase_code < 3
 ORDER BY id;
 
+-- name: ListReorgAnchorings :many
+SELECT *
+FROM reorg_anchorings
+ORDER BY id;
+
 -- name: ListReorgAnchoringSummariesPage :many
 -- The observability surface's list query: a pure row projection with
 -- an aggregated candidate count — no per-row follow-up queries and
@@ -57,7 +71,7 @@ SELECT
     a.id, a.site_id, a.threshold, a.created_height, a.phase_code,
     a.phase_evidence, a.delivered_code, a.delivered_evidence,
     a.witness_txid, a.stuck, a.delivery_attempts,
-    a.last_delivery_error, a.terminal_at,
+    a.last_delivery_error, a.terminal_at, a.match_key,
     (
         SELECT COUNT(*)
         FROM reorg_candidate_spends c
@@ -140,8 +154,8 @@ DO UPDATE SET
 -- resets with it; a systematically failing handler re-sticks after
 -- the usual number of attempts. Terminal phases are absorbing at the
 -- row level: a write racing another writer's terminal transition
--- (a site-initiated withdrawal, most likely) matches no rows, and
--- the caller observes the refusal via the row count.
+-- matches no rows, and the caller observes the refusal via the row
+-- count.
 UPDATE reorg_anchorings
 SET phase_code = @phase_code,
     phase_evidence = @phase_evidence,
@@ -255,14 +269,6 @@ SET foreclosing_evidence = NULL,
 WHERE child_id = @child_id
   AND parent_id = @parent_id
   AND foreclosing_act_certified = FALSE;
-
--- name: CountLiveReorgDependents :one
-SELECT COUNT(*)
-FROM reorg_dependencies d
-JOIN reorg_anchorings child
-  ON child.id = d.child_id
-WHERE d.parent_id = @parent_id
-  AND child.phase_code < 3;
 
 -- name: InsertReorgEffect :one
 INSERT INTO reorg_outbox (

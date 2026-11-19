@@ -3,6 +3,7 @@ package tapchannel
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"sync"
@@ -56,6 +57,10 @@ type AuxChanCloserCfg struct {
 	// ProofArchive is used to store import funding output proofs.
 	ProofArchive proof.Archiver
 
+	// AnchoringRegistrar imports funding proofs together with their re-org
+	// protection.
+	AnchoringRegistrar ReceiveAnchoringRegistrar
+
 	// HeaderVerifier is used to verify headers in a proof.
 	HeaderVerifier proof.HeaderVerifier
 
@@ -101,11 +106,11 @@ type assetCloseInfo struct {
 	// closeFee is the fee that was paid to close the channel.
 	closeFee int64
 
-	// supportSTXO is the channel's STXO feature flag at AuxCloseOutputs
-	// time. We pin it here so that FinalizeClose can take the same
+	// stxoFeatures are the channel's STXO features at AuxCloseOutputs
+	// time. We pin them here so that FinalizeClose can take the same
 	// branch even after a restart wipes the in-memory feature map on
 	// AuxChannelNegotiator.
-	supportSTXO bool
+	stxoFeatures STXOFeatures
 }
 
 // AuxChanCloser is used to implement asset-aware co-op close for channels.
@@ -587,12 +592,8 @@ func (a *AuxChanCloser) AuxCloseOutputs(
 	features := a.cfg.AuxChanNegotiator.GetChannelFeatures(
 		lnwire.NewChanIDFromOutPoint(desc.ChanPoint),
 	)
-	supportSTXO := features.HasFeature(tapfeatures.STXOOptional)
-
-	var opts []tapsend.OutputCommitmentOption
-	if !supportSTXO {
-		opts = append(opts, tapsend.WithNoSTXOProofs())
-	}
+	stxoFeatures := NewSTXOFeatures(features)
+	opts := stxoFeatures.CommitOpts()
 
 	// With the outputs prepared, we can now create the set of output
 	// commitments, then with the output index locations known, we can set
@@ -617,7 +618,7 @@ func (a *AuxChanCloser) AuxCloseOutputs(
 		vPackets:          vPackets,
 		outputCommitments: outCommitments,
 		closeFee:          int64(desc.CloseFee),
-		supportSTXO:       supportSTXO,
+		stxoFeatures:      stxoFeatures,
 	}
 
 	// Mirror the in-memory entry to disk so a tapd restart between now
@@ -634,7 +635,7 @@ func (a *AuxChanCloser) AuxCloseOutputs(
 				pristineVPackets: pristineVPackets,
 				noAssetAllocs:    noAssets,
 				closeFee:         int64(desc.CloseFee),
-				supportSTXO:      supportSTXO,
+				stxoFeatures:     stxoFeatures,
 			},
 		)
 		cancel()
@@ -869,12 +870,10 @@ func (a *AuxChanCloser) recoverCloseInfo(
 		return nil, fmt.Errorf("sign commit virtual packets: %w", err)
 	}
 
-	// Use the STXO flag captured at AuxCloseOutputs time, not whatever
-	// the (in-memory, post-restart-empty) negotiator currently reports.
-	var opts []tapsend.OutputCommitmentOption
-	if !saved.supportSTXO {
-		opts = append(opts, tapsend.WithNoSTXOProofs())
-	}
+	// Use the STXO features captured at AuxCloseOutputs time, not
+	// whatever the (in-memory, post-restart-empty) negotiator currently
+	// reports.
+	opts := saved.stxoFeatures.CommitOpts()
 
 	outCommitments, err := tapsend.CreateOutputCommitments(
 		saved.pristineVPackets, opts...,
@@ -888,7 +887,7 @@ func (a *AuxChanCloser) recoverCloseInfo(
 		vPackets:          saved.vPackets,
 		outputCommitments: outCommitments,
 		closeFee:          saved.closeFee,
-		supportSTXO:       saved.supportSTXO,
+		stxoFeatures:      saved.stxoFeatures,
 	}, nil
 }
 
@@ -944,15 +943,13 @@ func (a *AuxChanCloser) FinalizeClose(desc types.AuxCloseDesc,
 				return &a.Proof.Val
 			},
 		)
-		vCtx := proof.VerifierCtx{
-			HeaderVerifier: a.cfg.HeaderVerifier,
-			MerkleVerifier: proof.DefaultMerkleVerifier,
-			GroupVerifier:  a.cfg.GroupVerifier,
-			ChainLookupGen: a.cfg.ChainBridge,
-			IgnoreChecker:  a.cfg.IgnoreChecker,
-		}
-		ctx, cancel := a.WithCtxQuitNoTimeout()
-		defer cancel()
+		quitCtx, quitCancel := a.WithCtxQuitNoTimeout()
+		defer quitCancel()
+		ctx, progress, cancel := contextWithProgressDeadline(
+			quitCtx, fundingProvenanceIdleTimeout,
+			fundingProvenanceMaxTimeout,
+		)
+		ctx = proof.WithProgressCallback(ctx, progress)
 
 		a.Wg.Add(1)
 		defer a.Wg.Done()
@@ -960,11 +957,23 @@ func (a *AuxChanCloser) FinalizeClose(desc types.AuxCloseDesc,
 		err = importOutputProofs(
 			ctx, desc.ShortChanID, fundingInputProofs,
 			a.cfg.DefaultCourierAddr, a.cfg.ProofFetcher,
-			a.cfg.ChainBridge, vCtx, a.cfg.ProofArchive,
+			a.cfg.ChainBridge, a.cfg.ProofArchive,
+			a.cfg.AnchoringRegistrar,
 		)
+		cause := context.Cause(ctx)
+		cancel()
 		if err != nil {
+			if cause != nil && !errors.Is(cause, context.Canceled) {
+				return fmt.Errorf("unable to import output "+
+					"proofs: %w", cause)
+			}
+
 			return fmt.Errorf("unable to import output "+
 				"proofs: %w", err)
+		}
+		if cause != nil {
+			return fmt.Errorf("unable to import output proofs: %w",
+				cause)
 		}
 	}
 
@@ -981,14 +990,11 @@ func (a *AuxChanCloser) FinalizeClose(desc types.AuxCloseDesc,
 				closeInfo.allocations,
 			)
 
-			// Prefer the STXO flag pinned on closeInfo at
+			// Prefer the STXO features pinned on closeInfo at
 			// AuxCloseOutputs time over a fresh negotiator
 			// query: after a restart the in-memory feature map
 			// is empty and would silently flip the proof shape.
-			var opts []proof.GenOption
-			if !closeInfo.supportSTXO {
-				opts = append(opts, proof.WithNoSTXOProofs())
-			}
+			opts := closeInfo.stxoFeatures.ProofOpts()
 
 			proofSuffix, err := tapsend.CreateProofSuffixCustom(
 				closeTx, vPkt, closeInfo.outputCommitments,

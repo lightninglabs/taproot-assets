@@ -20,12 +20,6 @@ type MintProofPublisher interface {
 	// or retry semantics it requires.
 	PublishMintBatch(ctx context.Context,
 		params MintBatchPublishParams) error
-
-	// PublishMintProofUpdates publishes proof updates emitted after a
-	// chain re-org affected previously-minted assets. Each proof is the
-	// updated, fully-encoded minting proof.
-	PublishMintProofUpdates(ctx context.Context,
-		proofs []*proof.Proof) error
 }
 
 // MintBatchPublishParams carries the data needed by a MintProofPublisher
@@ -47,3 +41,19 @@ type MintBatchPublishParams struct {
 	// genesis transaction.
 	AnchorOutIdx uint32
 }
+
+// NoOpMintProofPublisher is a publisher that does nothing. It is
+// intended for tests and configurations that have no universe to ship
+// proofs to.
+type NoOpMintProofPublisher struct{}
+
+// PublishMintBatch is a no-op.
+func (NoOpMintProofPublisher) PublishMintBatch(_ context.Context,
+	_ MintBatchPublishParams) error {
+
+	return nil
+}
+
+// Compile-time assertion that NoOpMintProofPublisher implements the
+// MintProofPublisher interface.
+var _ MintProofPublisher = NoOpMintProofPublisher{}

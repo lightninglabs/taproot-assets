@@ -408,7 +408,8 @@ ORDER BY
     CASE WHEN sqlc.narg('sort_by') = 'total_supply' AND sqlc.narg('sort_direction') = 0 THEN
              asset_info.supply END ASC ,
     CASE WHEN sqlc.narg('sort_by') = 'total_supply' AND sqlc.narg('sort_direction') = 1 THEN
-             asset_info.supply END DESC
+             asset_info.supply END DESC,
+    asset_info.asset_id ASC
 LIMIT @num_limit OFFSET @num_offset;
 
 -- name: QueryAssetStatsPerDaySqlite :many

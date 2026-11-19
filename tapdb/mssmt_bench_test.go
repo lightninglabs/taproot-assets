@@ -126,3 +126,90 @@ func BenchmarkTreeInsertMany(b *testing.B) {
 			})
 	}
 }
+
+// benchProve reads the root of the tree in the given namespace alongside a
+// MerkleProof for key.
+func benchProve(ctx context.Context, db BaseUniverseStore, ns string,
+	key [32]byte) (*mssmt.Proof, *mssmt.BranchNode, error) {
+
+	tree := mssmt.NewCompactedTree(newTreeStoreWrapperTx(db, ns))
+
+	root, err := tree.Root(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	proof, err := tree.MerkleProof(ctx, key)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return proof, root, nil
+}
+
+// BenchmarkTreeMerkleProof times a single MerkleProof against a populated,
+// DB-backed CompactedTree. Proof generation walks one GetChildren query per
+// level from the root, so its cost should track the depth of the tree, not
+// its size; comparing tree sizes exposes any per-level query whose work
+// grows with the subtree beneath the node.
+func BenchmarkTreeMerkleProof(b *testing.B) {
+	ctx := context.Background()
+
+	for _, size := range []int{1_000, 10_000, 100_000} {
+		b.Run(fmt.Sprintf("leaves=%d", size), func(b *testing.B) {
+			leaves := benchRandLeaves(size)
+			keys := make([][32]byte, 0, size)
+			for k := range leaves {
+				keys = append(keys, k)
+			}
+
+			const ns = "proof"
+			txer := newBenchUniverseTxer(b)
+			writeTx := BaseUniverseStoreOptions{}
+			err := txer.ExecTx(
+				ctx, &writeTx,
+				func(db BaseUniverseStore) error {
+					return benchInsertMany(
+						ctx, db, ns, leaves,
+					)
+				},
+			)
+			require.NoError(b, err)
+
+			readTx := NewBaseUniverseReadTx()
+			prove := func(key [32]byte) (*mssmt.Proof,
+				*mssmt.BranchNode) {
+
+				var (
+					proof *mssmt.Proof
+					root  *mssmt.BranchNode
+				)
+				err := txer.ExecTx(
+					ctx, &readTx,
+					func(db BaseUniverseStore) error {
+						var err error
+						proof, root, err = benchProve(
+							ctx, db, ns, key,
+						)
+						return err
+					},
+				)
+				require.NoError(b, err)
+
+				return proof, root
+			}
+
+			// Check that the proofs being timed are valid.
+			proof, root := prove(keys[0])
+			require.True(b, mssmt.VerifyMerkleProof(
+				keys[0], leaves[keys[0]], proof, root,
+			))
+
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				prove(keys[i%len(keys)])
+			}
+		})
+	}
+}

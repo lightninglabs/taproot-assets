@@ -85,22 +85,6 @@ func (q *Queries) CountLiveReorgAnchoringsByPhase(ctx context.Context) ([]CountL
 	return items, nil
 }
 
-const CountLiveReorgDependents = `-- name: CountLiveReorgDependents :one
-SELECT COUNT(*)
-FROM reorg_dependencies d
-JOIN reorg_anchorings child
-  ON child.id = d.child_id
-WHERE d.parent_id = $1
-  AND child.phase_code < 3
-`
-
-func (q *Queries) CountLiveReorgDependents(ctx context.Context, parentID int64) (int64, error) {
-	row := q.db.QueryRowContext(ctx, CountLiveReorgDependents, parentID)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
-}
-
 const CountStuckReorgAnchorings = `-- name: CountStuckReorgAnchorings :one
 SELECT COUNT(*)
 FROM reorg_anchorings
@@ -196,7 +180,7 @@ func (q *Queries) FetchLiveReorgParentsByCandidate(ctx context.Context, spenderT
 }
 
 const FetchReorgAnchoring = `-- name: FetchReorgAnchoring :one
-SELECT id, site_id, threshold, match_version, match_data, payload_version, payload_data, created_height, phase_code, phase_evidence, delivered_code, delivered_evidence, witness_txid, stuck, delivery_attempts, last_delivery_error, next_delivery_at, terminal_at
+SELECT id, site_id, threshold, match_version, match_data, payload_version, payload_data, created_height, phase_code, phase_evidence, delivered_code, delivered_evidence, witness_txid, stuck, delivery_attempts, last_delivery_error, next_delivery_at, terminal_at, match_key
 FROM reorg_anchorings
 WHERE id = $1
 `
@@ -223,6 +207,7 @@ func (q *Queries) FetchReorgAnchoring(ctx context.Context, id int64) (ReorgAncho
 		&i.LastDeliveryError,
 		&i.NextDeliveryAt,
 		&i.TerminalAt,
+		&i.MatchKey,
 	)
 	return i, err
 }
@@ -391,12 +376,12 @@ const InsertReorgAnchoring = `-- name: InsertReorgAnchoring :one
 
 INSERT INTO reorg_anchorings (
     site_id, threshold, match_version, match_data, payload_version,
-    payload_data, created_height, phase_code, phase_evidence,
+    payload_data, match_key, created_height, phase_code, phase_evidence,
     delivered_code, delivered_evidence, next_delivery_at
 ) VALUES (
     $1, $2, $3, $4, $5,
     $6, $7, $8, $9,
-    $10, $11, 0
+    $10, $11, $12, 0
 )
 RETURNING id
 `
@@ -408,6 +393,7 @@ type InsertReorgAnchoringParams struct {
 	MatchData         []byte
 	PayloadVersion    int16
 	PayloadData       []byte
+	MatchKey          []byte
 	CreatedHeight     int32
 	PhaseCode         int16
 	PhaseEvidence     []byte
@@ -416,7 +402,7 @@ type InsertReorgAnchoringParams struct {
 }
 
 // Phase codes mirror tapreorg.PhaseCode: 0 unwitnessed, 1 witnessed,
-// 2 conflicted, 3 buried, 4 abandoned, 5 withdrawn. Codes >= 3 are
+// 2 conflicted, 3 buried, 4 abandoned. Codes >= 3 are
 // terminal. Verdict codes mirror tapreorg.Verdict: 0 satisfies, 1
 // foreign. The literals below must stay in sync with those enums.
 func (q *Queries) InsertReorgAnchoring(ctx context.Context, arg InsertReorgAnchoringParams) (int64, error) {
@@ -427,6 +413,7 @@ func (q *Queries) InsertReorgAnchoring(ctx context.Context, arg InsertReorgAncho
 		arg.MatchData,
 		arg.PayloadVersion,
 		arg.PayloadData,
+		arg.MatchKey,
 		arg.CreatedHeight,
 		arg.PhaseCode,
 		arg.PhaseEvidence,
@@ -499,7 +486,7 @@ func (q *Queries) InsertReorgTriggerOutpoint(ctx context.Context, arg InsertReor
 }
 
 const ListLiveReorgAnchorings = `-- name: ListLiveReorgAnchorings :many
-SELECT id, site_id, threshold, match_version, match_data, payload_version, payload_data, created_height, phase_code, phase_evidence, delivered_code, delivered_evidence, witness_txid, stuck, delivery_attempts, last_delivery_error, next_delivery_at, terminal_at
+SELECT id, site_id, threshold, match_version, match_data, payload_version, payload_data, created_height, phase_code, phase_evidence, delivered_code, delivered_evidence, witness_txid, stuck, delivery_attempts, last_delivery_error, next_delivery_at, terminal_at, match_key
 FROM reorg_anchorings
 WHERE phase_code < 3
 ORDER BY id
@@ -533,6 +520,7 @@ func (q *Queries) ListLiveReorgAnchorings(ctx context.Context) ([]ReorgAnchoring
 			&i.LastDeliveryError,
 			&i.NextDeliveryAt,
 			&i.TerminalAt,
+			&i.MatchKey,
 		); err != nil {
 			return nil, err
 		}
@@ -552,7 +540,7 @@ SELECT
     a.id, a.site_id, a.threshold, a.created_height, a.phase_code,
     a.phase_evidence, a.delivered_code, a.delivered_evidence,
     a.witness_txid, a.stuck, a.delivery_attempts,
-    a.last_delivery_error, a.terminal_at,
+    a.last_delivery_error, a.terminal_at, a.match_key,
     (
         SELECT COUNT(*)
         FROM reorg_candidate_spends c
@@ -589,6 +577,7 @@ type ListReorgAnchoringSummariesPageRow struct {
 	DeliveryAttempts  int32
 	LastDeliveryError sql.NullString
 	TerminalAt        sql.NullInt64
+	MatchKey          []byte
 	NumCandidates     int64
 }
 
@@ -627,6 +616,7 @@ func (q *Queries) ListReorgAnchoringSummariesPage(ctx context.Context, arg ListR
 			&i.DeliveryAttempts,
 			&i.LastDeliveryError,
 			&i.TerminalAt,
+			&i.MatchKey,
 			&i.NumCandidates,
 		); err != nil {
 			return nil, err
@@ -642,8 +632,57 @@ func (q *Queries) ListReorgAnchoringSummariesPage(ctx context.Context, arg ListR
 	return items, nil
 }
 
+const ListReorgAnchorings = `-- name: ListReorgAnchorings :many
+SELECT id, site_id, threshold, match_version, match_data, payload_version, payload_data, created_height, phase_code, phase_evidence, delivered_code, delivered_evidence, witness_txid, stuck, delivery_attempts, last_delivery_error, next_delivery_at, terminal_at, match_key
+FROM reorg_anchorings
+ORDER BY id
+`
+
+func (q *Queries) ListReorgAnchorings(ctx context.Context) ([]ReorgAnchoring, error) {
+	rows, err := q.db.QueryContext(ctx, ListReorgAnchorings)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ReorgAnchoring
+	for rows.Next() {
+		var i ReorgAnchoring
+		if err := rows.Scan(
+			&i.ID,
+			&i.SiteID,
+			&i.Threshold,
+			&i.MatchVersion,
+			&i.MatchData,
+			&i.PayloadVersion,
+			&i.PayloadData,
+			&i.CreatedHeight,
+			&i.PhaseCode,
+			&i.PhaseEvidence,
+			&i.DeliveredCode,
+			&i.DeliveredEvidence,
+			&i.WitnessTxid,
+			&i.Stuck,
+			&i.DeliveryAttempts,
+			&i.LastDeliveryError,
+			&i.NextDeliveryAt,
+			&i.TerminalAt,
+			&i.MatchKey,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const ListReorgPendingDeliveries = `-- name: ListReorgPendingDeliveries :many
-SELECT id, site_id, threshold, match_version, match_data, payload_version, payload_data, created_height, phase_code, phase_evidence, delivered_code, delivered_evidence, witness_txid, stuck, delivery_attempts, last_delivery_error, next_delivery_at, terminal_at
+SELECT id, site_id, threshold, match_version, match_data, payload_version, payload_data, created_height, phase_code, phase_evidence, delivered_code, delivered_evidence, witness_txid, stuck, delivery_attempts, last_delivery_error, next_delivery_at, terminal_at, match_key
 FROM reorg_anchorings
 WHERE (phase_code != delivered_code
        OR phase_evidence != delivered_evidence)
@@ -679,6 +718,7 @@ func (q *Queries) ListReorgPendingDeliveries(ctx context.Context, now int64) ([]
 			&i.LastDeliveryError,
 			&i.NextDeliveryAt,
 			&i.TerminalAt,
+			&i.MatchKey,
 		); err != nil {
 			return nil, err
 		}
@@ -739,6 +779,48 @@ func (q *Queries) ListReorgPendingEffects(ctx context.Context, arg ListReorgPend
 		return nil, err
 	}
 	return items, nil
+}
+
+const LookupReorgAnchoringByMatchKey = `-- name: LookupReorgAnchoringByMatchKey :one
+SELECT id, site_id, threshold, match_version, match_data, payload_version, payload_data, created_height, phase_code, phase_evidence, delivered_code, delivered_evidence, witness_txid, stuck, delivery_attempts, last_delivery_error, next_delivery_at, terminal_at, match_key
+FROM reorg_anchorings
+WHERE site_id = $1 AND match_key = $2
+`
+
+type LookupReorgAnchoringByMatchKeyParams struct {
+	SiteID   string
+	MatchKey []byte
+}
+
+// Returns the anchoring row for (site_id, match_key), or no rows if
+// none exists. The unique partial index makes this O(1); it is the
+// production shape of "does this site already have an anchoring for
+// this identity?"
+func (q *Queries) LookupReorgAnchoringByMatchKey(ctx context.Context, arg LookupReorgAnchoringByMatchKeyParams) (ReorgAnchoring, error) {
+	row := q.db.QueryRowContext(ctx, LookupReorgAnchoringByMatchKey, arg.SiteID, arg.MatchKey)
+	var i ReorgAnchoring
+	err := row.Scan(
+		&i.ID,
+		&i.SiteID,
+		&i.Threshold,
+		&i.MatchVersion,
+		&i.MatchData,
+		&i.PayloadVersion,
+		&i.PayloadData,
+		&i.CreatedHeight,
+		&i.PhaseCode,
+		&i.PhaseEvidence,
+		&i.DeliveredCode,
+		&i.DeliveredEvidence,
+		&i.WitnessTxid,
+		&i.Stuck,
+		&i.DeliveryAttempts,
+		&i.LastDeliveryError,
+		&i.NextDeliveryAt,
+		&i.TerminalAt,
+		&i.MatchKey,
+	)
+	return i, err
 }
 
 const MarkReorgAnchoringDelivered = `-- name: MarkReorgAnchoringDelivered :exec
@@ -856,8 +938,8 @@ type SetReorgAnchoringPhaseParams struct {
 // resets with it; a systematically failing handler re-sticks after
 // the usual number of attempts. Terminal phases are absorbing at the
 // row level: a write racing another writer's terminal transition
-// (a site-initiated withdrawal, most likely) matches no rows, and
-// the caller observes the refusal via the row count.
+// matches no rows, and the caller observes the refusal via the row
+// count.
 func (q *Queries) SetReorgAnchoringPhase(ctx context.Context, arg SetReorgAnchoringPhaseParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, SetReorgAnchoringPhase,
 		arg.PhaseCode,

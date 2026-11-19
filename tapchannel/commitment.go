@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"sort"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
@@ -517,8 +518,9 @@ func GenerateCommitmentAllocations(prevState *cmsg.Commitment,
 	whoseCommit lntypes.ChannelParty, ourBalance,
 	theirBalance lnwire.MilliSatoshi, originalView lnwallet.AuxHtlcView,
 	chainParams *address.ChainParams,
-	keys lnwallet.CommitmentKeyRing, stxo bool) ([]*tapsend.Allocation,
-	*cmsg.Commitment, error) {
+	keys lnwallet.CommitmentKeyRing,
+	stxoFeatures STXOFeatures) ([]*tapsend.Allocation, *cmsg.Commitment,
+	error) {
 
 	log.Tracef("Generating allocations, whoseCommit=%v, ourBalance=%d, "+
 		"theirBalance=%d", whoseCommit, ourBalance, theirBalance)
@@ -544,6 +546,59 @@ func GenerateCommitmentAllocations(prevState *cmsg.Commitment,
 	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to compute view: %w", err)
+	}
+
+	// The asset IDs declared on the HTLCs in the view are chosen by
+	// whoever authored the HTLC, but the commitment math is sum-only: it
+	// never checks the declared IDs against the channel's holdings. Reject
+	// any HTLC that declares an asset this channel neither was funded with
+	// nor currently holds, otherwise a routing node could be made to
+	// forward a valuable asset over an outgoing channel while the
+	// incoming channel only ever held a cheap one.
+	//
+	// HTLCs paid against a group-specified quote are exempt from the ID
+	// check: the interceptor writes the serialized group key into the
+	// balance record as a placeholder (the real asset is picked from the
+	// channel's holdings later), and the group was already validated
+	// against the quote's specifier at admission. Only the placeholder of
+	// the channel's own funding group is allowed, so a group of an asset
+	// this channel never held is still rejected.
+	allowedAssets := fn.NewSet[asset.ID](fn.Map(
+		chanAssetState.FundedAssets.Val.Outputs,
+		func(o *cmsg.AssetOutput) asset.ID {
+			return o.AssetID.Val
+		},
+	)...)
+	for _, outputs := range []cmsg.AssetOutputListRecord{
+		prevState.LocalAssets.Val, prevState.RemoteAssets.Val,
+	} {
+		for _, output := range outputs.Outputs {
+			allowedAssets.Add(output.AssetID.Val)
+		}
+	}
+	chanAssetState.GroupKey.ValOpt().WhenSome(
+		func(groupKey *btcec.PublicKey) {
+			allowedAssets.Add(asset.ID(
+				schnorr.SerializePubKey(groupKey),
+			))
+		},
+	)
+	for _, updates := range [][]*DecodedDescriptor{
+		filteredView.OurUpdates, filteredView.TheirUpdates,
+	} {
+		for _, htlc := range updates {
+			for _, balance := range htlc.AssetBalances {
+				assetID := balance.AssetID.Val
+				if !allowedAssets.Contains(assetID) {
+					return nil, nil, fmt.Errorf(
+						"HTLC declares asset ID %x "+
+							"which this channel "+
+							"does not hold",
+						balance.AssetID.Val,
+					)
+				}
+			}
+		}
 	}
 
 	dustLimit := chanState.LocalChanCfg.DustLimit
@@ -609,15 +664,8 @@ func GenerateCommitmentAllocations(prevState *cmsg.Commitment,
 			"packets: %w", err)
 	}
 
-	var (
-		opts      []tapsend.OutputCommitmentOption
-		proofOpts []proof.GenOption
-	)
-
-	if !stxo {
-		opts = append(opts, tapsend.WithNoSTXOProofs())
-		proofOpts = append(proofOpts, proof.WithNoSTXOProofs())
-	}
+	opts := stxoFeatures.CommitOpts()
+	proofOpts := stxoFeatures.ProofOpts()
 
 	outCommitments, err := tapsend.CreateOutputCommitments(
 		vPackets, opts...,
@@ -671,7 +719,9 @@ func GenerateCommitmentAllocations(prevState *cmsg.Commitment,
 	// Next, we can convert the allocations to auxiliary leaves and from
 	// those construct our Commitment struct that will in the end also hold
 	// our proof suffixes.
-	newCommitment, err := ToCommitment(allocations, vPackets, stxo)
+	newCommitment, err := ToCommitment(
+		allocations, vPackets, stxoFeatures,
+	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to convert to commitment: "+
 			"%w", err)
@@ -1175,7 +1225,8 @@ func LeavesFromTapscriptScriptTree(
 
 // ToCommitment converts the allocations to a Commitment struct.
 func ToCommitment(allocations []*tapsend.Allocation,
-	vPackets []*tappsbt.VPacket, stxo bool) (*cmsg.Commitment, error) {
+	vPackets []*tappsbt.VPacket,
+	stxoFeatures STXOFeatures) (*cmsg.Commitment, error) {
 
 	var (
 		localAssets   []*cmsg.AssetOutput
@@ -1298,7 +1349,7 @@ func ToCommitment(allocations []*tapsend.Allocation,
 
 	return cmsg.NewCommitment(
 		localAssets, remoteAssets, outgoingHtlcs, incomingHtlcs,
-		auxLeaves, stxo,
+		auxLeaves, stxoFeatures.STXO, stxoFeatures.Spender,
 	), nil
 }
 
@@ -1462,7 +1513,8 @@ func CreateSecondLevelHtlcTx(chanState lnwallet.AuxChanState,
 	commitTx *wire.MsgTx, htlcAmt btcutil.Amount,
 	keys lnwallet.CommitmentKeyRing, chainParams *address.ChainParams,
 	htlcOutputs []*cmsg.AssetOutput, htlcTimeout fn.Option[uint32],
-	htlcIndex uint64, stxo bool) (input.AuxTapLeaf, error) {
+	htlcIndex uint64, stxoFeatures STXOFeatures) (input.AuxTapLeaf,
+	error) {
 
 	none := input.NoneTapLeaf()
 
@@ -1475,10 +1527,7 @@ func CreateSecondLevelHtlcTx(chanState lnwallet.AuxChanState,
 			"packets: %w", err)
 	}
 
-	var opts []tapsend.OutputCommitmentOption
-	if !stxo {
-		opts = append(opts, tapsend.WithNoSTXOProofs())
-	}
+	opts := stxoFeatures.CommitOpts()
 
 	outCommitments, err := tapsend.CreateOutputCommitments(
 		vPackets, opts...,
@@ -1760,9 +1809,15 @@ func InPlaceCustomCommitSort(tx *wire.MsgTx, cltvs []uint32,
 	tx.TxOut = make([]*wire.TxOut, len(tx.TxOut))
 	newCltvs := make([]uint32, len(cltvs))
 
+	// Each allocation is matched to at most one output.
+	used := make([]bool, len(allocations))
 	for i, original := range txOutOriginal {
 		var allocation *tapsend.Allocation
-		for _, a := range allocations {
+		for j, a := range allocations {
+			if used[j] {
+				continue
+			}
+
 			match, err := a.MatchesOutput(
 				original.PkScript, original.Value, cltvs[i],
 				htlcIndexes[i],
@@ -1774,6 +1829,7 @@ func InPlaceCustomCommitSort(tx *wire.MsgTx, cltvs []uint32,
 
 			if match {
 				allocation = a
+				used[j] = true
 				break
 			}
 		}
@@ -1795,6 +1851,10 @@ func InPlaceCustomCommitSort(tx *wire.MsgTx, cltvs []uint32,
 		if newOrder >= uint32(len(tx.TxOut)) {
 			return fmt.Errorf("order index %d out of bounds "+
 				"(num_tx_out=%d)", newOrder, len(tx.TxOut))
+		}
+
+		if tx.TxOut[newOrder] != nil {
+			return fmt.Errorf("duplicate order index %d", newOrder)
 		}
 
 		tx.TxOut[newOrder] = &wire.TxOut{

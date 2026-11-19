@@ -46,6 +46,11 @@ var (
 	// ErrMessageNotFound is returned when a message with the given ID or
 	// outpoint cannot be found in the mailbox.
 	ErrMessageNotFound = fmt.Errorf("message not found")
+
+	// ErrEmptyPayload is returned when a message without a payload is
+	// sent or stored. A stored message's payload is only ever empty once
+	// its receiver has deleted it.
+	ErrEmptyPayload = fmt.Errorf("empty payload")
 )
 
 // Message represents a message in the mailbox.
@@ -128,7 +133,8 @@ type MsgStore interface {
 	// StoreMessage stores a message in the mailbox, referencing the claimed
 	// outpoint of the transaction that was used to prove the message's
 	// authenticity. If a message with the same outpoint already exists,
-	// it returns proof.ErrTxMerkleProofExists.
+	// it returns proof.ErrTxMerkleProofExists. If the message has no
+	// payload, it returns ErrEmptyPayload.
 	StoreMessage(ctx context.Context, proof proof.TxProof,
 		msg *Message) (uint64, error)
 
@@ -136,9 +142,10 @@ type MsgStore interface {
 	FetchMessage(ctx context.Context, id uint64) (*Message, error)
 
 	// FetchMessageByOutPoint retrieves a message from the mailbox by its
-	// claimed outpoint of the TX proof that was used to send it. If no
-	// message with the given outpoint exists, it returns
-	// ErrMessageNotFound.
+	// claimed outpoint of the TX proof that was used to send it. A message
+	// that its receiver has deleted is still returned, with an empty
+	// payload, for as long as its outpoint is claimed. If no message with
+	// the given outpoint exists, it returns ErrMessageNotFound.
 	FetchMessageByOutPoint(ctx context.Context,
 		claimedOp wire.OutPoint) (*Message, error)
 
@@ -163,7 +170,8 @@ type MsgStore interface {
 
 	// DeleteByMessageID deletes a message by its ID, but only if it
 	// belongs to the specified receiver. Returns true if a message was
-	// actually deleted.
+	// actually deleted. The deleted message is no longer delivered or
+	// counted, but remains visible to FetchMessageByOutPoint.
 	DeleteByMessageID(ctx context.Context, msgID uint64,
 		receiverKey []byte) (bool, error)
 }

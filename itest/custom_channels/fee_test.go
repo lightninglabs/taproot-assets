@@ -199,11 +199,14 @@ func testCustomChannelsCoopCloseFeeBaseline(ctx context.Context,
 		auxTxOut, _ := findTxOut(t, closeTx, localAuxOut.PkScript)
 		require.LessOrEqual(t, auxTxOut.Value, int64(1000))
 
-		_, _ = findTxOut(t, closeTx, closeUpdate.LocalCloseOutput.PkScript)
+		_, _ = findTxOut(
+			t, closeTx, closeUpdate.LocalCloseOutput.PkScript,
+		)
 	}
 
 	closeAssetChannelWithFeeAndAssert(
 		t, net, charlie, dave, chanPoint, closeFeeRateSatPerVbyte,
-		[][]byte{assetID}, nil, charlie, feeBaselineCoOpCloseBalanceCheck,
+		[][]byte{assetID}, nil, charlie,
+		feeBaselineCoOpCloseBalanceCheck,
 	)
 }

@@ -383,6 +383,7 @@ type updaterHarness struct {
 	swapper  *mockSwapper
 	deriver  *mockKeyDeriver
 	lookup   *mockKeyLookup
+	groups   *mockGroupLookup
 }
 
 func newUpdaterHarness(t *testing.T) *updaterHarness {
@@ -396,6 +397,7 @@ func newUpdaterHarness(t *testing.T) *updaterHarness {
 		swapper:  newMockSwapper(),
 		deriver:  newMockKeyDeriver(t),
 		lookup:   &mockKeyLookup{},
+		groups:   &mockGroupLookup{err: address.ErrAssetGroupUnknown},
 	}
 
 	updater, err := NewUpdater(h.config())
@@ -411,6 +413,7 @@ func (h *updaterHarness) config() *UpdaterConfig {
 		LookupSpent:   h.source.lookupSpent,
 		ProofArchive:  h.archive,
 		KeyLookup:     h.lookup,
+		GroupLookup:   h.groups,
 		ProofNotifier: h.notifier,
 		EventNotifiers: []EventNotifier{
 			h.minter, h.porter,
@@ -650,6 +653,49 @@ func TestUpdaterAddAndRemove(t *testing.T) {
 	h.source.remove(a2.ChainAsset)
 	h.notifier.notify(t)
 	assertEntries(t, h.waitWrite())
+}
+
+// TestUpdaterCompletesGroupInfo asserts that an entry of a grouped leaf
+// written while the wallet could not describe the group is completed once
+// the group becomes known, and left alone while it stays unknown.
+func TestUpdaterCompletesGroupInfo(t *testing.T) {
+	t.Parallel()
+
+	h := newUpdaterHarness(t)
+	group := newTestGroup(t, asset.GroupKeyV1, noRoot)
+
+	// A reissued leaf: it belongs to the group but its own genesis is not
+	// the group anchor.
+	a1 := h.newAsset()
+	a1.Asset.GroupKey = &asset.GroupKey{
+		GroupPubKey: group.GroupKey.GroupPubKey,
+	}
+	h.source.add(a1.ChainAsset)
+	h.start()
+
+	// The group is unknown, the entry is written without group info.
+	wb := h.waitWrite()
+	assertEntries(t, wb, a1)
+	require.Nil(t, wb.Assets[0].GroupKeyInfo)
+
+	// While the group stays unknown, nothing changes and the file is not
+	// rewritten.
+	h.notifier.notify(t)
+	h.assertNoWrite()
+
+	// Once the wallet knows the group, the next reconcile completes the
+	// entry even though the leaf itself did not change.
+	h.groups.set(group, nil)
+	h.notifier.notify(t)
+	wb = h.waitWrite()
+	assertEntries(t, wb, a1)
+	require.Equal(
+		t, newTestGroupKeyBackup(group), wb.Assets[0].GroupKeyInfo,
+	)
+
+	// And it is not rebuilt again afterwards.
+	h.notifier.notify(t)
+	h.assertNoWrite()
 }
 
 // TestUpdaterDebounce asserts that a burst of notifications results in a

@@ -1464,6 +1464,7 @@ func TestMigration65BackfillSupplyUpdateEventKeys(t *testing.T) {
 		require.NoError(t, preRows.Scan(&typeID, &data, &key))
 		require.Nil(t, key, "event_key must be NULL pre-backfill")
 	}
+	require.NoError(t, preRows.Err())
 	require.NoError(t, preRows.Close())
 
 	// Advance to latest -- the programmatic migration at 65 runs the
@@ -1495,6 +1496,7 @@ func TestMigration65BackfillSupplyUpdateEventKeys(t *testing.T) {
 		require.Len(t, key, 32)
 		seen++
 	}
+	require.NoError(t, postRows.Err())
 	require.NoError(t, postRows.Close())
 	require.Equal(t, len(seeds), seen)
 }
@@ -1951,7 +1953,147 @@ func TestMigration65BackfillPagesLargeTables(t *testing.T) {
 			t, supplyUpdateEventKey(groupKey, 0, data), key,
 		)
 	}
+	require.NoError(t, rows.Err())
 	require.NoError(t, rows.Close())
+}
+
+// TestMigration72BackfillsProofProvenance exercises the real upgrade boundary:
+// migration 71 has created an empty reverse index, a legacy/raw write leaves
+// its row unindexed, and migration 72 derives the index before startup.
+func TestMigration72BackfillsProofProvenance(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db := NewTestDBWithVersion(t, 71)
+	_, assetStore := newAssetStoreFromDB(db.BaseDB)
+
+	assetGen := newAssetGenerator(t, 1, 1)
+	assetGen.genAssets(t, assetStore, []assetDesc{{
+		assetGen:    assetGen.assetGens[0],
+		anchorPoint: assetGen.anchorPoints[0],
+		amt:         10,
+	}})
+
+	var (
+		assetID int64
+		blob    []byte
+	)
+	err := db.QueryRowContext(
+		ctx, "SELECT asset_id, proof_file FROM asset_proofs LIMIT 1",
+	).Scan(&assetID, &blob)
+	require.NoError(t, err)
+
+	// Mimic a proof written by a pre-index binary after migration 71's
+	// schema exists but before its provenance has been derived.
+	require.NoError(t, db.UpsertAssetProofByID(ctx, ProofUpdateByID{
+		AssetID:   assetID,
+		ProofFile: blob,
+	}))
+	unindexed, err := db.FetchUnindexedAssetProofs(
+		ctx, sqlc.FetchUnindexedAssetProofsParams{RowLimit: 10},
+	)
+	require.NoError(t, err)
+	require.Len(t, unindexed, 1)
+
+	err = db.ExecuteMigrations(TargetLatest, WithProgrammaticMigrations(
+		makeProgrammaticMigrations(db, programmaticMigrations, true),
+	))
+	require.NoError(t, err)
+
+	unindexed, err = db.FetchUnindexedAssetProofs(
+		ctx, sqlc.FetchUnindexedAssetProofsParams{RowLimit: 10},
+	)
+	require.NoError(t, err)
+	require.Empty(t, unindexed)
+
+	var anchorCount int
+	require.NoError(t, db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM asset_proof_anchors
+	`).Scan(&anchorCount))
+	require.Positive(t, anchorCount)
+}
+
+// TestMigration72SkipsUndecodableProofs tests that migration 72 leaves a
+// legacy proof blob it can't decode unindexed, and still indexes the blobs
+// that follow it.
+func TestMigration72SkipsUndecodableProofs(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db := NewTestDBWithVersion(t, 71)
+	_, assetStore := newAssetStoreFromDB(db.BaseDB)
+
+	assetGen := newAssetGenerator(t, 2, 1)
+	assetGen.genAssets(t, assetStore, []assetDesc{{
+		assetGen:    assetGen.assetGens[0],
+		anchorPoint: assetGen.anchorPoints[0],
+		amt:         10,
+	}, {
+		assetGen:    assetGen.assetGens[1],
+		anchorPoint: assetGen.anchorPoints[1],
+		amt:         10,
+	}})
+
+	type storedProof struct {
+		proofID int64
+		assetID int64
+		blob    []byte
+	}
+	rows, err := db.QueryContext(ctx, `
+		SELECT proof_id, asset_id, proof_file
+		FROM asset_proofs
+		ORDER BY proof_id
+	`)
+	require.NoError(t, err)
+	defer rows.Close()
+
+	var stored []storedProof
+	for rows.Next() {
+		var p storedProof
+		require.NoError(t, rows.Scan(&p.proofID, &p.assetID, &p.blob))
+		stored = append(stored, p)
+	}
+	require.NoError(t, rows.Err())
+	require.Len(t, stored, 2)
+
+	// Mimic two proofs written by a pre-index binary, the first of which
+	// is truncated, over the empty index migration 71 creates.
+	_, err = db.ExecContext(ctx, "DELETE FROM asset_proof_anchors")
+	require.NoError(t, err)
+
+	bad, good := stored[0], stored[1]
+	require.NoError(t, db.UpsertAssetProofByID(ctx, ProofUpdateByID{
+		AssetID:   bad.assetID,
+		ProofFile: bad.blob[:len(bad.blob)/2],
+	}))
+	require.NoError(t, db.UpsertAssetProofByID(ctx, ProofUpdateByID{
+		AssetID:   good.assetID,
+		ProofFile: good.blob,
+	}))
+
+	err = db.ExecuteMigrations(TargetLatest, WithProgrammaticMigrations(
+		makeProgrammaticMigrations(db, programmaticMigrations, true),
+	))
+	require.NoError(t, err)
+
+	unindexed, err := db.FetchUnindexedAssetProofs(
+		ctx, sqlc.FetchUnindexedAssetProofsParams{RowLimit: 10},
+	)
+	require.NoError(t, err)
+	require.Len(t, unindexed, 1)
+	require.Equal(t, bad.proofID, unindexed[0].ProofID)
+
+	anchorCount := func(proofID int64) int {
+		var count int
+		require.NoError(t, db.QueryRowContext(ctx, `
+			SELECT COUNT(*) FROM asset_proof_anchors
+			WHERE proof_id = $1
+		`, proofID).Scan(&count))
+
+		return count
+	}
+	require.Zero(t, anchorCount(bad.proofID))
+	require.Positive(t, anchorCount(good.proofID))
 }
 
 // TestMigration61CancelsDuplicatePreBroadcastBatches verifies that the
@@ -2229,4 +2371,61 @@ X'0303030303030303030303030303030303030303030303030303030303030303',
 	require.NoError(t, err)
 	require.EqualValues(t, 5, preProofs)
 	require.EqualValues(t, 2, preSyncs)
+}
+
+// TestMigration73DropsOrphanedMailboxClaims makes sure that migration 73
+// drops the mailbox outpoint claims whose message row was deleted, and keeps
+// those that still have one.
+func TestMigration73DropsOrphanedMailboxClaims(t *testing.T) {
+	ctx := context.Background()
+
+	db := NewTestDBWithVersion(t, 72)
+
+	// Two claimed outpoints, of which only the first still has its
+	// message.
+	_, err := db.ExecContext(ctx, transformByteLiterals(t, db.BaseDB, `
+	  INSERT INTO tx_proof_claimed_outpoints (
+	      outpoint, block_hash, block_height, internal_key
+	  ) VALUES (
+	    X'01', X'aa', 100,
+X'020000000000000000000000000000000000000000000000000000000000000001'
+	  ), (
+	    X'02', X'aa', 100,
+X'020000000000000000000000000000000000000000000000000000000000000002'
+	  );
+
+	  INSERT INTO authmailbox_messages (
+	      id, claimed_outpoint, receiver_key, encrypted_payload,
+	      arrival_timestamp
+	  ) VALUES (
+	    1, X'01',
+X'030000000000000000000000000000000000000000000000000000000000000003',
+	    X'ff', 1704067200
+	  );
+	`))
+	require.NoError(t, err)
+
+	require.NoError(t, db.ExecuteMigrations(TargetLatest))
+
+	var outpoints [][]byte
+	rows, err := db.QueryContext(ctx, `
+		SELECT outpoint FROM tx_proof_claimed_outpoints
+	`)
+	require.NoError(t, err)
+	defer rows.Close()
+
+	for rows.Next() {
+		var op []byte
+		require.NoError(t, rows.Scan(&op))
+		outpoints = append(outpoints, op)
+	}
+	require.NoError(t, rows.Err())
+	require.Equal(t, [][]byte{{0x01}}, outpoints)
+
+	var messages int64
+	err = db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM authmailbox_messages
+	`).Scan(&messages)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, messages)
 }

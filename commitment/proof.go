@@ -15,6 +15,11 @@ var (
 	// ErrMissingAssetProof is an error returned when attempting to derive a
 	// TapCommitment and an AssetProof is required but missing.
 	ErrMissingAssetProof = errors.New("missing asset proof")
+
+	// ErrTapKeyMismatch is an error returned when the tap key of an
+	// AssetProof differs from the tap commitment key of the asset under
+	// proof.
+	ErrTapKeyMismatch = errors.New("asset proof tap key mismatch")
 )
 
 // AssetProof is the proof used along with an asset leaf to arrive at the root
@@ -161,6 +166,12 @@ func (p Proof) DeriveByAssetInclusion(asset *asset.Asset) (*TapCommitment,
 		return nil, ErrMissingAssetProof
 	}
 
+	// The asset proof must speak of the asset commitment that the asset
+	// belongs to.
+	if p.AssetProof.TapKey != asset.TapCommitmentKey() {
+		return nil, ErrTapKeyMismatch
+	}
+
 	// Use the asset proof to arrive at the asset commitment included within
 	// the Taproot Asset commitment.
 	assetCommitmentLeaf, err := asset.Leaf()
@@ -196,7 +207,7 @@ func (p Proof) DeriveByAssetInclusion(asset *asset.Asset) (*TapCommitment,
 
 	return NewTapCommitmentWithRoot(
 		p.TaprootAssetProof.Version, tapProofRoot,
-	), nil
+	)
 }
 
 // DeriveByAssetExclusion derives the Taproot Asset commitment excluding the
@@ -205,11 +216,17 @@ func (p Proof) DeriveByAssetInclusion(asset *asset.Asset) (*TapCommitment,
 // MS-SMT, also known as the AssetCommitment. With the AssetCommitment obtained,
 // the TaprootAssetProof is used to prove that the AssetCommitment exists within
 // the outer MS-SMT, also known as the TapCommitment.
-func (p Proof) DeriveByAssetExclusion(assetCommitmentKey [32]byte) (
-	*TapCommitment, error) {
+func (p Proof) DeriveByAssetExclusion(assetCommitmentKey,
+	tapCommitmentKey [32]byte) (*TapCommitment, error) {
 
 	if p.AssetProof == nil {
 		return nil, ErrMissingAssetProof
+	}
+
+	// The asset proof must speak of the asset commitment that the asset
+	// would belong to.
+	if p.AssetProof.TapKey != tapCommitmentKey {
+		return nil, ErrTapKeyMismatch
 	}
 
 	// Use the asset proof to arrive at the asset commitment included within
@@ -239,7 +256,7 @@ func (p Proof) DeriveByAssetExclusion(assetCommitmentKey [32]byte) (
 	}
 	return NewTapCommitmentWithRoot(
 		p.TaprootAssetProof.Version, tapProofRoot,
-	), nil
+	)
 }
 
 // DeriveByAssetCommitmentExclusion derives the Taproot Asset commitment
@@ -266,5 +283,5 @@ func (p Proof) DeriveByAssetCommitmentExclusion(tapCommitmentKey [32]byte) (
 	}
 	return NewTapCommitmentWithRoot(
 		p.TaprootAssetProof.Version, tapProofRoot,
-	), nil
+	)
 }

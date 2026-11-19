@@ -211,12 +211,15 @@ func TestSellRequestWireRoundtripProperty(t *testing.T) {
 		execPolicy := optionalExecutionPolicyGen().Draw(
 			t, "execPolicy",
 		)
+		swapAmt := optionalMsatGen(maxAmt).Draw(
+			t, "swapAmt",
+		)
 
 		req, err := NewSellRequest(
 			peer, spec,
 			lnwire.MilliSatoshi(maxAmt), minAmt,
 			rateLimit, fn.None[AssetRate](), "",
-			execPolicy,
+			execPolicy, swapAmt,
 		)
 		require.NoError(t, err)
 
@@ -248,6 +251,9 @@ func TestSellRequestWireRoundtripProperty(t *testing.T) {
 		)
 		requireOptExecPolicyEq(
 			t, execPolicy, decoded.ExecutionPolicy,
+		)
+		requireOptMsatEq(
+			t, swapAmt, decoded.PaymentSwapAmt,
 		)
 	})
 }
@@ -518,6 +524,7 @@ func TestRateBoundEnforcementProperty(t *testing.T) {
 				fn.Some(limit),
 				fn.None[AssetRate](), "",
 				fn.None[ExecutionPolicy](),
+				fn.None[lnwire.MilliSatoshi](),
 			)
 			require.NoError(t, err)
 

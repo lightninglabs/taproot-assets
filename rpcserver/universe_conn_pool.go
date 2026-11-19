@@ -4,6 +4,7 @@ import (
 	"errors"
 	"sync"
 
+	"github.com/lightninglabs/taproot-assets/taptls"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"google.golang.org/grpc/connectivity"
 )
@@ -59,10 +60,14 @@ type UniverseConnPool struct {
 }
 
 // NewUniverseConnPool constructs an empty pool that dials with
-// ConnectUniverse. The pool is ready to hand out connections
-// immediately; nothing is dialed up-front.
-func NewUniverseConnPool() *UniverseConnPool {
-	return newUniverseConnPool(ConnectUniverse)
+// ConnectUniverse under the given TLS policy. The pool is ready to
+// hand out connections immediately; nothing is dialed up-front.
+func NewUniverseConnPool(tlsPolicy taptls.Policy) *UniverseConnPool {
+	return newUniverseConnPool(
+		func(addr universe.ServerAddr) (*universeClientConn, error) {
+			return ConnectUniverse(tlsPolicy, addr)
+		},
+	)
 }
 
 // newUniverseConnPool is the package-private constructor used by tests

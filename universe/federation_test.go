@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -212,5 +213,120 @@ func TestFederationPushPendingMultiverse(t *testing.T) {
 			t.Fatal("caller was not served the upsert error")
 		}
 		require.Zero(t, remote.numPushed())
+	})
+}
+
+// hangingRegistrar stands in for a federation member that accepts every
+// push and never answers: each upsert blocks until its context ends.
+type hangingRegistrar struct {
+	mu       sync.Mutex
+	attempts int
+}
+
+func (r *hangingRegistrar) UpsertProofLeaf(ctx context.Context, _ Identifier,
+	_ LeafKey, _ *Leaf) (*Proof, error) {
+
+	r.mu.Lock()
+	r.attempts++
+	r.mu.Unlock()
+
+	<-ctx.Done()
+
+	return nil, ctx.Err()
+}
+
+func (r *hangingRegistrar) Close() error { return nil }
+
+func (r *hangingRegistrar) numAttempts() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return r.attempts
+}
+
+// newStuckMemberEnvoy wires an envoy whose federation has one member
+// that never answers and one that records what it receives, with the
+// per-push deadline shortened to keep the test quick.
+func newStuckMemberEnvoy(stuck *hangingRegistrar,
+	live *recordingRegistrar) *FederationEnvoy {
+
+	stuckAddr := NewServerAddr(1, "stuck:10029")
+	liveAddr := NewServerAddr(2, "live:10029")
+	envoy := NewFederationEnvoy(FederationConfig{
+		LocalRegistrar: &errRegistrar{},
+		FederationDB: &staticServerDB{
+			servers: []ServerAddr{stuckAddr, liveAddr},
+		},
+		NewRemoteRegistrar: func(addr ServerAddr) (Registrar, error) {
+			if addr.HostStr() == stuckAddr.HostStr() {
+				return stuck, nil
+			}
+
+			return live, nil
+		},
+	})
+	envoy.DefaultTimeout = 50 * time.Millisecond
+
+	return envoy
+}
+
+// TestFederationPushStuckMember asserts that a federation member which
+// accepts pushes and never answers costs the envoy a bounded wait: every
+// push carries its own deadline, and a batch drops the member after the
+// first expired push instead of paying the deadline once per leaf. The
+// healthy member receives everything either way.
+func TestFederationPushStuckMember(t *testing.T) {
+	t.Parallel()
+
+	t.Run("batch", func(t *testing.T) {
+		t.Parallel()
+
+		stuck, live := &hangingRegistrar{}, &recordingRegistrar{}
+		envoy := newStuckMemberEnvoy(stuck, live)
+
+		const numLeaves = 4
+		batch := make([]*Item, numLeaves)
+		for i := range batch {
+			batch[i] = &Item{
+				ID:   randIdentifier(),
+				Key:  BaseLeafKey{},
+				Leaf: &Leaf{},
+			}
+		}
+		pushReq := &FederationProofBatchPushReq{
+			Batch: batch,
+			resp:  make(chan struct{}, 1),
+			err:   make(chan error, 1),
+		}
+
+		start := time.Now()
+		require.NoError(t, envoy.handleBatchPushRequest(pushReq))
+		require.Less(t, time.Since(start), time.Second)
+		require.Equal(
+			t, 1, stuck.numAttempts(),
+			"batch kept pushing to a member that missed a deadline",
+		)
+		require.Equal(t, numLeaves, live.numPushed())
+	})
+
+	t.Run("single", func(t *testing.T) {
+		t.Parallel()
+
+		stuck, live := &hangingRegistrar{}, &recordingRegistrar{}
+		envoy := newStuckMemberEnvoy(stuck, live)
+
+		pushReq := &FederationPushReq{
+			ID:   randIdentifier(),
+			Key:  BaseLeafKey{},
+			Leaf: &Leaf{},
+			resp: make(chan *Proof, 1),
+			err:  make(chan error, 1),
+		}
+
+		start := time.Now()
+		require.NoError(t, envoy.handlePushRequest(pushReq))
+		require.Less(t, time.Since(start), time.Second)
+		require.Equal(t, 1, stuck.numAttempts())
+		require.Equal(t, 1, live.numPushed())
 	})
 }

@@ -23,6 +23,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapnode"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
+	"github.com/lightninglabs/taproot-assets/tapreorg"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
@@ -77,15 +78,34 @@ type GardenKit struct {
 	// ProofFiles stores the set of flat proof files.
 	ProofFiles proof.Archiver
 
+	// ProofArchive is the read surface for dispatching a buried
+	// batch's emissions: it includes the database proof store, whose
+	// proofs the re-org watcher's site handlers re-stamp on
+	// re-confirmation. The flat-file mirror alone can go stale across
+	// a re-org.
+	ProofArchive proof.Archiver
+
+	// AnchoringWatcher is the re-org watcher batches register their
+	// genesis transactions with as speculative anchorings. When set,
+	// confirmation flows through the watcher's registry instead of a
+	// cultivator-owned subscription, and universe publication plus
+	// supply-commit events are act-gated on burial. Implemented by
+	// the watcher; unit tests use tapreorg.MockRegistrar.
+	AnchoringWatcher tapreorg.Registrar
+
+	// MintAnchoringLog is the transaction-scoped persistence surface
+	// the mint site drives from its watcher handlers.
+	MintAnchoringLog MintAnchoringLog
+
+	// AnchoringThreshold is the confirmation depth at which a batch
+	// is act-confirmed (buried).
+	AnchoringThreshold uint32
+
 	// MintProofPublisher ships freshly-minted (or re-organized) proofs
 	// to a downstream distributor (e.g. a local/remote universe). If
 	// nil, no proofs are published; the cultivator's local archival
 	// path is unaffected.
 	MintProofPublisher MintProofPublisher
-
-	// ProofWatcher is used to watch new proofs for their anchor transaction
-	// to be confirmed safely with a minimum number of confirmations.
-	ProofWatcher proof.Watcher
 
 	// IgnoreChecker is an optional function that can be used to check if
 	// a proof should be ignored.
@@ -375,6 +395,10 @@ type ChainPlanter struct {
 	// progress the batch through the final phases.
 	cultivators map[BatchKey]*Cultivator
 
+	// waiters tracks the cultivators waiting on anchoring outcomes,
+	// nudged by the re-org watcher's delivery listener.
+	waiters *tapreorg.DeliveryWaiters
+
 	// completionSignals is a channel used to allow the cultivators to
 	// signal that the batch is fully final, allowing garbage collection of
 	// any relevant resources.
@@ -402,6 +426,7 @@ func NewChainPlanter(cfg PlanterConfig) *ChainPlanter {
 	return &ChainPlanter{
 		cfg:         cfg,
 		cultivators: make(map[BatchKey]*Cultivator),
+		waiters:     tapreorg.NewDeliveryWaiters(),
 		// Buffer size 1 is a fast path only: it lets a single
 		// cultivator that finishes while the gardener is inside a
 		// stateReq closure hand off its signal inline. Exit never
@@ -482,10 +507,10 @@ func (c *ChainPlanter) newCultivatorForBatch(batch *MintingBatch,
 				}
 			}()
 		},
-		CancelReqChan:       make(chan cancelReq, 1),
-		UpdateMintingProofs: c.updateMintingProofs,
-		PublishMintEvent:    c.publishSubscriberEvent,
-		ErrChan:             c.cfg.ErrChan,
+		CancelReqChan:    make(chan cancelReq, 1),
+		PublishMintEvent: c.publishSubscriberEvent,
+		ErrChan:          c.cfg.ErrChan,
+		AnchoringWaiters: c.waiters,
 	}
 	if feeRate != nil {
 		batchConfig.BatchFeeRate = feeRate
@@ -665,6 +690,32 @@ func (c *ChainPlanter) Start() error {
 
 			log.Infof("Launching Cultivator(%x)", batchKey)
 			cultivator := c.newCultivatorForBatch(batch, nil)
+			if batch.State() == BatchStateConfirmed {
+				signedTx, err := psbt.Extract(
+					batch.GenesisPacket.Pkt,
+				)
+				if err != nil {
+					startErr = fmt.Errorf(
+						"unable to extract "+
+							"legacy confirmed "+
+							"batch "+
+							"transaction: %w", err,
+					)
+					return
+				}
+
+				err = cultivator.registerMintAnchoring(
+					ctx, signedTx,
+				)
+				if err != nil {
+					startErr = fmt.Errorf(
+						"unable to adopt "+
+							"legacy confirmed "+
+							"batch: %w", err,
+					)
+					return
+				}
+			}
 			if err := cultivator.Start(); err != nil {
 				startErr = err
 				return
@@ -3310,69 +3361,6 @@ func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 	return nil
 }
 
-// updateMintingProofs is called by the re-org watcher when it detects a re-org
-// and has updated the minting proofs. This cannot be done by the cultivator
-// itself, because its job is already done at the point that a re-org can happen
-// (the batch is finalized after a single confirmation).
-func (c *ChainPlanter) updateMintingProofs(proofs []*proof.Proof) error {
-	ctx, cancel := c.WithCtxQuitNoTimeout()
-	defer cancel()
-
-	// This is a bit of a hacky part. If we have a chain of transactions
-	// that were re-organized, we can't verify the whole chain until all of
-	// the transactions were confirmed and all proofs were updated with the
-	// new blocks and merkle roots. So we'll skip the verification here
-	// since we don't know if the whole chain has been updated yet (the
-	// confirmations might come in out of order).
-	// TODO(guggero): Find a better way to do this.
-	vCtx := c.verifierCtx(ctx)
-	vCtx.HeaderVerifier = func(wire.BlockHeader, uint32) error {
-		return nil
-	}
-
-	for idx := range proofs {
-		p := proofs[idx]
-
-		existingProofs, err := c.cfg.ProofUpdates.FetchProofs(
-			ctx, p.Asset.ID(),
-		)
-		if err != nil {
-			return fmt.Errorf("unable to fetch proofs: %w", err)
-		}
-
-		updatedProofs, err := proof.ReplaceProofInFiles(
-			p, existingProofs,
-		)
-		if err != nil {
-			return fmt.Errorf("unable to update minted proofs: %w",
-				err)
-		}
-
-		if len(updatedProofs) > 0 {
-			err = c.cfg.ProofUpdates.ImportProofs(
-				ctx, vCtx, true, updatedProofs...,
-			)
-			if err != nil {
-				return fmt.Errorf("unable to import updated "+
-					"minted proofs: %w", err)
-			}
-		}
-	}
-
-	if c.cfg.MintProofPublisher == nil {
-		return nil
-	}
-
-	if err := c.cfg.MintProofPublisher.PublishMintProofUpdates(
-		ctx, proofs,
-	); err != nil {
-		return fmt.Errorf("unable to publish minting proof "+
-			"updates: %w", err)
-	}
-
-	return nil
-}
-
 // QueueNewSeedling attempts to queue a new seedling request (the intent for
 // New asset creation or ongoing issuance) to the ChainPlanter. A channel is
 // returned where future updates will be sent over. If an error is returned no
@@ -3439,21 +3427,6 @@ func (c *ChainPlanter) publishSubscriberEvent(event fn.Event) {
 
 	for _, sub := range c.subscribers {
 		sub.NewItemCreated.ChanIn() <- event
-	}
-}
-
-// verifierCtx returns a verifier context that can be used to verify proofs.
-func (c *ChainPlanter) verifierCtx(ctx context.Context) proof.VerifierCtx {
-	headerVerifier := tapnode.GenHeaderVerifier(ctx, c.cfg.ChainBridge)
-	merkleVerifier := proof.DefaultMerkleVerifier
-	groupVerifier := tapnode.GenGroupVerifier(ctx, c.cfg.MintingRefs)
-
-	return proof.VerifierCtx{
-		HeaderVerifier: headerVerifier,
-		MerkleVerifier: merkleVerifier,
-		GroupVerifier:  groupVerifier,
-		ChainLookupGen: c.cfg.ChainBridge,
-		IgnoreChecker:  c.cfg.IgnoreChecker,
 	}
 }
 

@@ -523,7 +523,12 @@ func TestImportAssetProof(t *testing.T) {
 
 	// We'll now attempt to overwrite the proof with one that has different
 	// block information (simulating a re-org).
-	updatedBlob := bytes.Repeat([]byte{0x77}, 100)
+	var updatedProof proof.Proof
+	err = updatedProof.Decode(bytes.NewReader(initialBlob))
+	require.NoError(t, err)
+	updatedProof.BlockHeader.Nonce++
+	updatedBlob, err := updatedProof.Bytes()
+	require.NoError(t, err)
 
 	testProof.AnchorBlockHash = chainhash.Hash{12, 34, 56}
 	testProof.AnchorBlockHeight = 1234
@@ -581,7 +586,9 @@ func TestImportAssetProof(t *testing.T) {
 	}
 	testProof.AssetSnapshot.AnchorTx = newChainTx
 	testProof.AssetSnapshot.OutPoint = newOutpoint
-	testProof.Blob = []byte("new proof")
+	updatedProof.AnchorTx = *newChainTx
+	testProof.Blob, err = updatedProof.Bytes()
+	require.NoError(t, err)
 
 	require.NoError(t, assetStore.ImportProofs(
 		ctxb, proof.MockVerifierCtx, false, testProof,
@@ -2142,6 +2149,13 @@ func TestAssetExportLog(t *testing.T) {
 	require.Len(t, utxos, 1)
 	require.Equal(t, assetGen.anchorPoints[0], utxos[0].OutPoint)
 
+	utxo, err := assetsStore.FetchManagedUTXO(ctx, assetGen.anchorPoints[0])
+	require.NoError(t, err)
+	require.Equal(t, utxos[0], utxo)
+
+	_, err = assetsStore.FetchManagedUTXO(ctx, assetGen.anchorPoints[1])
+	require.ErrorIs(t, err, sql.ErrNoRows)
+
 	newAnchorTx := wire.NewMsgTx(2)
 	newAnchorTx.AddTxIn(&wire.TxIn{})
 	newAnchorTx.TxIn[0].SignatureScript = []byte{}
@@ -2399,6 +2413,12 @@ func TestAssetExportLog(t *testing.T) {
 	require.Len(t, parcels, 1)
 	require.Equal(t, spendDelta, parcels[0])
 
+	// Startup adoption reads confirmed parcels only, so the pending
+	// parcel is not returned even at a floor of zero.
+	adoptable, err := assetsStore.ParcelsForAdoption(ctx, 0)
+	require.NoError(t, err)
+	require.Empty(t, adoptable)
+
 	// With the asset delta committed and verified, we'll now mark the
 	// delta as being confirmed on chain.
 	fakeBlockHash := chainhash.Hash(sha256.Sum256([]byte("fake")))
@@ -2423,6 +2443,21 @@ func TestAssetExportLog(t *testing.T) {
 	spendDelta.AnchorTxBlockHash = fn.Some(fakeBlockHash)
 	spendDelta.AnchorTxBlockHeight = uint32(blockHeight)
 	require.Equal(t, spendDelta, parcels[0])
+
+	// Once confirmed, adoption returns the parcel for any floor at or
+	// below its height and excludes it past that.
+	adoptable, err = assetsStore.ParcelsForAdoption(
+		ctx, uint32(blockHeight),
+	)
+	require.NoError(t, err)
+	require.Len(t, adoptable, 1)
+	require.Equal(t, spendDelta, adoptable[0])
+
+	adoptable, err = assetsStore.ParcelsForAdoption(
+		ctx, uint32(blockHeight)+1,
+	)
+	require.NoError(t, err)
+	require.Empty(t, adoptable)
 
 	// We'll now fetch all the assets to verify that they were updated
 	// properly on disk.
@@ -3982,6 +4017,42 @@ func TestRestoreGroupWitness(t *testing.T) {
 	err = restoreGroupWitness(transferredAsset, proofBuf.Bytes())
 	require.NoError(t, err)
 	require.Equal(t, expectedWitness, transferredAsset.GroupKey.Witness)
+
+	// The genesis proof of a group anchor carries the group key reveal.
+	// The raw key, version and roots of the group are taken from it, so
+	// the wallet can re-derive the group later.
+	internalKey := test.RandPubKey(t)
+	customRoot := fn.Some(chainhash.Hash(test.RandBytes(32)))
+	reveal, err := asset.NewGroupKeyRevealV1(
+		asset.PedersenVersion, *internalKey,
+		genesisProof.Asset.Genesis.ID(), customRoot,
+	)
+	require.NoError(t, err)
+	genesisProof.GroupKeyReveal = &reveal
+
+	proofFile, err = proof.NewFile(proof.V0, genesisProof)
+	require.NoError(t, err)
+	proofBuf.Reset()
+	require.NoError(t, proofFile.Encode(&proofBuf))
+
+	transferredAsset = genesisProof.Asset.Copy()
+	transferredAsset.GroupKey.Witness = nil
+	transferredAsset.PrevWitnesses = []asset.Witness{{}}
+
+	err = restoreGroupWitness(transferredAsset, proofBuf.Bytes())
+	require.NoError(t, err)
+	require.Equal(t, expectedWitness, transferredAsset.GroupKey.Witness)
+	require.True(t, transferredAsset.GroupKey.RawKey.PubKey.IsEqual(
+		internalKey,
+	))
+	require.Equal(t, asset.GroupKeyV1, transferredAsset.GroupKey.Version)
+	require.Equal(
+		t, customRoot, transferredAsset.GroupKey.CustomTapscriptRoot,
+	)
+	require.Equal(
+		t, reveal.TapscriptRoot(),
+		transferredAsset.GroupKey.TapscriptRoot,
+	)
 }
 
 // TestFetchOrphanUTXOs tests that FetchOrphanUTXOs:
@@ -3991,14 +4062,16 @@ func TestFetchOrphanUTXOs(t *testing.T) {
 	t.Parallel()
 
 	testCases := []struct {
-		name          string
-		utxosToInsert [][2]int32
-		expectedCount int
-		checkFunc     func(t *testing.T,
+		name           string
+		utxosToInsert  [][2]int32
+		unknownKeyType bool
+		expectedCount  int
+		checkFunc      func(t *testing.T,
 			orphans []*tapfreighter.ZeroValueInput)
 	}{
 		{
-			name: "filters missing signing info",
+			name:           "filters missing signing info",
+			unknownKeyType: true,
 			utxosToInsert: [][2]int32{
 				{212, 5}, // Valid signing info.
 				{0, 0},   // Missing signing info.
@@ -4125,6 +4198,7 @@ func TestFetchOrphanUTXOs(t *testing.T) {
 				insertOrphanUTXO(
 					t, ctx, db, assetsStore,
 					keyInfo[0], keyInfo[1],
+					tc.unknownKeyType,
 				)
 			}
 
@@ -4141,10 +4215,134 @@ func TestFetchOrphanUTXOs(t *testing.T) {
 	}
 }
 
+// TestFetchOrphanUTXOsSkipsFundedAnchors verifies that funded anchors are
+// filtered before their assets are materialized.
+func TestFetchOrphanUTXOsSkipsFundedAnchors(t *testing.T) {
+	t.Parallel()
+
+	const numAssets = 64
+
+	db := NewTestDB(t)
+	_, assetsStore := newAssetStoreFromDB(db.BaseDB)
+	assetGen := newAssetGenerator(t, numAssets, 1)
+	descs := make([]assetDesc, numAssets)
+	for i := range descs {
+		descs[i] = assetDesc{
+			assetGen:    assetGen.assetGens[i],
+			anchorPoint: assetGen.anchorPoints[i],
+			amt:         1,
+			noGroupKey:  true,
+		}
+	}
+	assetGen.genAssets(t, assetsStore, descs)
+
+	ctx := context.Background()
+	_, err := db.ExecContext(ctx, `
+		UPDATE internal_keys
+		SET key_family = 1, key_index = 1
+		WHERE key_id IN (
+			SELECT internal_key_id FROM managed_utxos
+		)`,
+	)
+	require.NoError(t, err)
+
+	_, err = db.ExecContext(
+		ctx, `
+			UPDATE script_keys
+			SET tweaked_script_key = $1
+			WHERE script_key_id = (
+				SELECT MIN(script_key_id) FROM script_keys
+			)`,
+		make([]byte, 33),
+	)
+	require.NoError(t, err)
+
+	orphans, err := assetsStore.FetchOrphanUTXOs(ctx)
+	require.NoError(t, err)
+	require.Empty(t, orphans)
+}
+
+// TestFetchOrphanUTXOsRejectsMisclassifiedBurn verifies that a script key's
+// burn classification alone cannot make a funded asset eligible for sweeping.
+func TestFetchOrphanUTXOsRejectsMisclassifiedBurn(t *testing.T) {
+	t.Parallel()
+
+	db := NewTestDB(t)
+	_, assetsStore := newAssetStoreFromDB(db.BaseDB)
+	assetGen := newAssetGenerator(t, 1, 1)
+	assetGen.genAssets(t, assetsStore, []assetDesc{{
+		assetGen:    assetGen.assetGens[0],
+		anchorPoint: assetGen.anchorPoints[0],
+		amt:         1,
+		noGroupKey:  true,
+	}})
+
+	ctx := context.Background()
+	_, err := db.ExecContext(ctx, `
+		UPDATE internal_keys
+		SET key_family = 1, key_index = 1
+		WHERE key_id IN (
+			SELECT internal_key_id FROM managed_utxos
+		)`,
+	)
+	require.NoError(t, err)
+
+	_, err = db.ExecContext(
+		ctx, `
+			UPDATE script_keys
+			SET key_type = $1
+			WHERE script_key_id IN (
+				SELECT script_key_id FROM assets
+			)`,
+		sqlInt16(asset.ScriptKeyBurn),
+	)
+	require.NoError(t, err)
+
+	orphans, err := assetsStore.FetchOrphanUTXOs(ctx)
+	require.NoError(t, err)
+	require.Empty(t, orphans)
+}
+
+// TestFetchOrphanUTXOsRejectsMisclassifiedTombstone verifies that a
+// tombstone-classified asset must also use the NUMS script key.
+func TestFetchOrphanUTXOsRejectsMisclassifiedTombstone(t *testing.T) {
+	t.Parallel()
+
+	db := NewTestDB(t)
+	_, assetsStore := newAssetStoreFromDB(db.BaseDB)
+	ctx := context.Background()
+	outpoint := insertOrphanUTXO(
+		t, ctx, db, assetsStore, 1, 1, false,
+	)
+	outpointBytes, err := encodeOutpoint(outpoint)
+	require.NoError(t, err)
+
+	_, err = db.ExecContext(
+		ctx, `
+			UPDATE script_keys
+			SET tweaked_script_key = $1
+			WHERE script_key_id IN (
+				SELECT assets.script_key_id
+				FROM assets
+				JOIN managed_utxos
+					ON assets.anchor_utxo_id =
+						managed_utxos.utxo_id
+				WHERE managed_utxos.outpoint = $2
+			)`,
+		test.RandPubKey(t).SerializeCompressed(), outpointBytes,
+	)
+	require.NoError(t, err)
+
+	orphans, err := assetsStore.FetchOrphanUTXOs(ctx)
+	require.NoError(t, err)
+	require.Empty(t, orphans)
+}
+
 // insertOrphanUTXO inserts a managed UTXO with a tombstone asset and the
 // specified KeyFamily and KeyIndex values for the internal key.
 func insertOrphanUTXO(t *testing.T, ctx context.Context, db sqlc.Querier,
-	assetsStore *AssetStore, keyFamily, keyIndex int32) wire.OutPoint {
+	assetsStore *AssetStore, keyFamily, keyIndex int32,
+	unknownKeyType bool) wire.OutPoint {
 
 	internalKey := test.RandPubKey(t)
 
@@ -4240,5 +4438,140 @@ func insertOrphanUTXO(t *testing.T, ctx context.Context, db sqlc.Querier,
 	)
 	require.NoError(t, err)
 
+	if !unknownKeyType {
+		dbKey, err := db.FetchScriptKeyByTweakedKey(
+			ctx, asset.NUMSCompressedKey[:],
+		)
+		require.NoError(t, err)
+
+		_, err = db.UpsertScriptKey(ctx, sqlc.UpsertScriptKeyParams{
+			InternalKeyID:    dbKey.ScriptKey.InternalKeyID,
+			TweakedScriptKey: asset.NUMSCompressedKey[:],
+			KeyType:          sqlInt16(asset.ScriptKeyTombstone),
+		})
+		require.NoError(t, err)
+	}
+
 	return outpoint
+}
+
+// TestAssetGroupKeyRepair asserts that a group first stored from a
+// reissuance proof, which knows neither the raw key nor the derivation
+// parameters of the group, is completed once the group anchor's key reveal
+// is stored, and that a V1 reveal keeps its version and custom subtree root.
+func TestAssetGroupKeyRepair(t *testing.T) {
+	t.Parallel()
+
+	_, _, db := newAssetStore(t)
+	ctx := context.Background()
+
+	// The geneses are stored without meta, so their IDs read back the
+	// same as they were inserted.
+	anchorGen := asset.RandGenesis(t, asset.Normal)
+	anchorGen.MetaHash = [asset.MetaHashLen]byte{}
+	anchorID := anchorGen.ID()
+	internalKey := test.RandPubKey(t)
+	customRoot := fn.Some(chainhash.Hash(test.RandBytes(32)))
+
+	reveal, err := asset.NewGroupKeyRevealV1(
+		asset.PedersenVersion, *internalKey, anchorID, customRoot,
+	)
+	require.NoError(t, err)
+	groupPubKey, err := reveal.GroupPubKey(anchorID)
+	require.NoError(t, err)
+
+	// A reissuance into the group arrives first. Its proof carries the
+	// tweaked key and a witness only.
+	reissueGen := asset.RandGenesis(t, asset.Normal)
+	reissueGen.MetaHash = [asset.MetaHashLen]byte{}
+	reissuePointID, err := upsertGenesisPoint(
+		ctx, db, reissueGen.FirstPrevOut,
+	)
+	require.NoError(t, err)
+	reissueAssetID, err := upsertGenesis(
+		ctx, db, reissuePointID, reissueGen,
+	)
+	require.NoError(t, err)
+
+	_, err = upsertGroupKey(ctx, &asset.GroupKey{
+		GroupPubKey: *groupPubKey,
+		Witness:     wire.TxWitness{test.RandBytes(64)},
+	}, db, reissuePointID, reissueAssetID)
+	require.NoError(t, err)
+
+	// The stored group is incomplete: the tweaked key stands in for the
+	// raw key, the version and roots are unknown, and the reissuance
+	// passes for the group's genesis.
+	stored, err := fetchGroupByGroupKey(ctx, db, groupPubKey)
+	require.NoError(t, err)
+	require.Equal(t, reissueGen.ID(), stored.Genesis.ID())
+	require.True(t, stored.GroupKey.RawKey.PubKey.IsEqual(groupPubKey))
+	require.Equal(t, asset.GroupKeyV0, stored.GroupKey.Version)
+	require.Empty(t, stored.GroupKey.TapscriptRoot)
+
+	// Now the group anchor's genesis proof is ingested, the way a
+	// universe sync does it, with the derivation parameters taken from the
+	// key reveal.
+	anchorGroupKey := &asset.GroupKey{
+		GroupPubKey: *groupPubKey,
+		Witness:     wire.TxWitness{test.RandBytes(64)},
+	}
+	require.NoError(t, applyGroupKeyReveal(anchorGroupKey, &reveal))
+	require.Equal(t, asset.GroupKeyV1, anchorGroupKey.Version)
+	require.Equal(t, customRoot, anchorGroupKey.CustomTapscriptRoot)
+	require.True(t, anchorGroupKey.RawKey.PubKey.IsEqual(internalKey))
+
+	anchorPointID, err := upsertGenesisPoint(
+		ctx, db, anchorGen.FirstPrevOut,
+	)
+	require.NoError(t, err)
+	anchorAssetID, err := upsertGenesis(ctx, db, anchorPointID, anchorGen)
+	require.NoError(t, err)
+	_, err = upsertGroupKey(
+		ctx, anchorGroupKey, db, anchorPointID, anchorAssetID,
+	)
+	require.NoError(t, err)
+
+	// The row was repaired in place and now re-derives the group key. The
+	// genesis reported for the group is the anchor's, even though the
+	// reissuance's witness was stored first.
+	repaired, err := fetchGroupByGroupKey(ctx, db, groupPubKey)
+	require.NoError(t, err)
+	require.Equal(t, anchorID, repaired.Genesis.ID())
+	require.Equal(t, anchorGroupKey.Witness, repaired.GroupKey.Witness)
+	require.True(t, repaired.GroupKey.RawKey.PubKey.IsEqual(internalKey))
+	require.Equal(t, asset.GroupKeyV1, repaired.GroupKey.Version)
+	require.Equal(t, customRoot, repaired.GroupKey.CustomTapscriptRoot)
+	require.Equal(
+		t, reveal.TapscriptRoot(), repaired.GroupKey.TapscriptRoot,
+	)
+
+	rederived, err := asset.NewGroupKeyReveal(*repaired.GroupKey, anchorID)
+	require.NoError(t, err)
+	rederivedKey, err := rederived.GroupPubKey(anchorID)
+	require.NoError(t, err)
+	require.True(t, rederivedKey.IsEqual(groupPubKey))
+
+	// A later reissuance without the raw key does not undo the repair.
+	_, err = upsertGroupKey(ctx, &asset.GroupKey{
+		GroupPubKey: *groupPubKey,
+		Witness:     wire.TxWitness{test.RandBytes(64)},
+	}, db, reissuePointID, reissueAssetID)
+	require.NoError(t, err)
+
+	kept, err := fetchGroupByGroupKey(ctx, db, groupPubKey)
+	require.NoError(t, err)
+	require.True(t, kept.GroupKey.RawKey.PubKey.IsEqual(internalKey))
+	require.Equal(t, asset.GroupKeyV1, kept.GroupKey.Version)
+	require.Equal(t, anchorID, kept.Genesis.ID())
+
+	// A V0 reveal leaves the version alone.
+	v0Key := &asset.GroupKey{GroupPubKey: *groupPubKey}
+	v0Reveal := asset.NewGroupKeyRevealV0(
+		asset.ToSerialized(internalKey), test.RandBytes(32),
+	)
+	require.NoError(t, applyGroupKeyReveal(v0Key, v0Reveal))
+	require.Equal(t, asset.GroupKeyV0, v0Key.Version)
+	require.True(t, v0Key.CustomTapscriptRoot.IsNone())
+	require.Equal(t, v0Reveal.TapscriptRoot(), v0Key.TapscriptRoot)
 }

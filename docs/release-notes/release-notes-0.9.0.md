@@ -21,6 +21,40 @@
 
 # Bug Fixes
 
+- [Taproot Assets daemons now disable MPTCP listeners by
+  default](https://github.com/lightninglabs/taproot-assets/pull/2370), restoring
+  plain TCP as the default transport and mitigating the demonstrated
+  CVE-2026-98432 exploit path on vulnerable Linux kernels. Existing binaries
+  can apply the same mitigation with `GODEBUG=multipathtcp=0` and a restart;
+  upgrading to a patched kernel is still required to fix the underlying
+  vulnerability. Operators can explicitly opt in with
+  `GODEBUG=multipathtcp=1`.
+
+- [The asset-aware `ListInvoices`, `ListPayments` and the matching subscription
+  RPCs no longer trigger a universe federation sync on every
+  call](https://github.com/lightninglabs/taproot-assets/pull/2379) for grouped
+  assets. The group key placeholder carried by group-key HTLCs was treated as
+  an unknown tranche ID and bootstrapped from the federation, which blocked
+  the RPC on the slowest federation server and returned an empty `group_key`.
+  The placeholder is now resolved from the local database, and the group key
+  enrichment of these RPCs never reaches the network anymore: an asset this
+  node has never seen is returned without a group key.
+
+- [Asset hold invoices now preserve the requested final CLTV
+  delta](https://github.com/lightninglabs/taproot-assets/pull/2360) instead of
+  always using LND's default. A zero value still uses the configured default,
+  and LND rejects values outside its supported range.
+
+- [Confirm custom-anchor transfers spending external assets](https://github.com/lightninglabs/taproot-assets/pull/2353)
+  using their archived proofs, including after restart. External inputs remain
+  outside the wallet; only locally controlled outputs are added to its holdings.
+
+- [Confirm transfers whose input proofs come from the local
+  universe](https://github.com/lightninglabs/taproot-assets/pull/2386). tapd
+  copies an input proof it holds in neither its wallet nor its proof archive
+  into the archive before it stores the transfer, so confirmation can extend
+  every input proof the pre-broadcast check accepted.
+
 - [Importing an asset wallet
   backup](https://github.com/lightninglabs/taproot-assets/pull/2277) into a
   node whose database was wiped but whose proofs directory survived no longer
@@ -29,6 +63,14 @@
   received on V2 addresses (unique Pedersen script keys) stay visible and
   spendable after a restore instead of being filed as external script path
   keys.
+
+- [Backup entries of grouped assets now record the asset
+  group](https://github.com/lightninglabs/taproot-assets/pull/2298) (the
+  group anchor's genesis and the group key parameters), and the import makes
+  the recorded groups known to the wallet before verifying any proof. Assets
+  minted into an existing group carry no group key reveal in their proofs, so
+  a restore onto a fresh node previously skipped every such asset with `group
+  key not known` while the import still reported success.
 
 * [PR#2190](https://github.com/lightninglabs/taproot-assets/pull/2190)
   fixes a bug that could cause minted assets to commit to the wrong
@@ -42,30 +84,6 @@
   recently created one are automatically cancelled. A new
   `--repair.cancel-duplicate-batches` startup flag applies the same
   repair on demand.
-
-* [PR#2228](https://github.com/lightninglabs/taproot-assets/pull/2228)
-  fixes `VerifyProof` failing the whole RPC for an invalid proof when
-  decoding the last proof requires unknown asset metadata; it now
-  returns `valid=false` as documented.
-
-* [PR#2231](https://github.com/lightninglabs/taproot-assets/pull/2231)
-  fixes a bug in which ListPayments returned every Lightning payment, aux
-  or otherwise. Non-asset payments are now excluded, as are the
-  same payments in SubscribePayments and TrackPayment.
-
-* [PR#2232](https://github.com/lightninglabs/taproot-assets/pull/2232)
-  fixes a bug in which accepting an RFQ quote could shut down the daemon
-  if the channel selected as the SCID alias base had not negotiated
-  the `option_scid_alias` feature.
-
-* [PR#2235](https://github.com/lightninglabs/taproot-assets/pull/2235)
-  fixes a bug in which a forwarded HTLC that ends up being resolved on
-  chain could shut down the daemon, and prevent it from starting again,
-  because `lnd` rejects any resolution the HTLC interceptor sends for
-  such an HTLC. It also makes the RFQ order handler act on final HTLC
-  events, which `lnd` sends without an event type and which were
-  therefore dropped, and makes the quote accounting idempotent for HTLCs
-  that `lnd` offers more than once.
 
 * [PR#2247](https://github.com/lightninglabs/taproot-assets/pull/2247)
   fixes several latent bugs in asset minting. Note for operators:
@@ -122,22 +140,101 @@
   long-running node the series steps down. The per-day `sync_events`
   series is unchanged and still reflects sync traffic volume.
 
-* [PR#2267](https://github.com/lightninglabs/taproot-assets/pull/2267)
-  rejects a negative `expiry` when adding a Taproot Asset channel
-  invoice. A negative expiry previously skipped the default and was
-  passed through to lnd, which treated it as unset and applied its own
-  86400 second default instead of returning an error. Fixes
-  [#2261](https://github.com/lightninglabs/taproot-assets/issues/2261).
+* [PR#2323](https://github.com/lightninglabs/taproot-assets/pull/2323)
+  fixes a bug in which a batch minting the anchor of a version 1 asset
+  group, such as one with an external group key, never finished if the
+  daemon restarted after the batch was committed but before it
+  confirmed. The group key read back from disk lacked its version and
+  custom tapscript root, so building the anchor's minting proof failed
+  with `group key reveal doesn't match group key` on every retry.
 
-* [PR#2283](https://github.com/lightninglabs/taproot-assets/pull/2283)
-  fixes force-close resolution of an asset channel whose resolved
-  commitment output holds no assets, as when the whole asset balance
-  sits with the remote party. The aux sweeper tried to build sweep
-  packets from an empty input set, failed with `no inputs provided`,
-  and lnd treated that as a hard error, leaving the channel in
-  `pending_force_closing` and re-running the failing resolution on
-  every block. The sweeper now returns an empty resolution for such
-  outputs, so lnd sweeps them as plain BTC outputs.
+* [PR#2334](https://github.com/lightninglabs/taproot-assets/pull/2334)
+  makes the auth mailbox answer a resent message with its original ID even
+  after the receiver has removed it. Removing a message deleted its row but
+  kept the claim on its outpoint, so a sender retrying after delivery was
+  refused with `tx merkle proof already exists`. As the proof courier resends
+  its send fragment before every proof upload, such a sender retried forever.
+  Removing a message now only discards its payload. Database migration 73
+  drops the outpoint claims already left without a message, so senders stuck
+  this way succeed on their next retry. Senders now send the fragment once,
+  after uploading all the proofs it announces, and receivers also remove a
+  message for a transfer they already completed instead of leaving it on the
+  server. No operator action is required.
+
+* [PR#2327](https://github.com/lightninglabs/taproot-assets/pull/2327)
+  fixes the check of an asset's relative lock time against an input
+  whose proof carries no block height. Measured from the resulting zero
+  height, a block-based relative lock was satisfied at any height. The
+  input's height now comes from the local asset store when its proof
+  carries none, and a relative lock on an input of unknown height is
+  rejected.
+
+* [PR#2329](https://github.com/lightninglabs/taproot-assets/pull/2329)
+  fixes asset channel force-close sweeps that combine pre-signed
+  second-level HTLC claims with direct asset sweeps, or that claim
+  several HTLCs via pre-signed transactions without a change output.
+  The aux sweeper assumed a fixed layout for the sweep transaction lnd
+  builds, so the asset proofs it produced failed verification, the
+  sweep was never broadcast, and lnd retried it on every block, which
+  could let an HTLC claim miss its deadline. Output positions are now
+  derived from the final sweep transaction. Fixes
+  [#2205](https://github.com/lightninglabs/taproot-assets/issues/2205).
+
+* [PR#2362](https://github.com/lightninglabs/taproot-assets/pull/2362)
+  makes asset hold invoices created with pre-existing RFQ route hints
+  carry those hints.
+
+- [Universe servers no longer reject supply commitments that carry
+  burns](https://github.com/lightninglabs/taproot-assets/pull/2331). A
+  burn leaf's proof is a bare state transition, with no provenance for the
+  input it consumes, and was verified as if it were self-contained, so
+  every such commitment failed with `missing asset input(s)` and the group
+  stopped publishing supply commitments. The verifier now checks the burn
+  against its input's provenance: a universe server takes it from its own
+  universe, and a node syncing supply commitments from the servers it pulls
+  from. The issuer publishes that provenance to each server before pushing
+  the commitment. A server accepts a commitment burning an output whose
+  provenance it doesn't already hold only if it allows proof inserts, via
+  `--universe.sync-all-assets` or `tapcli universe federation config`.
+
+* [PR#2355](https://github.com/lightninglabs/taproot-assets/pull/2355)
+  fixes Let's Encrypt mode (`--letsencryptdomain`). The REST proxy
+  connects to the RPC server with the Let's Encrypt domain as the TLS
+  server name. Certificates and the ACME account are stored in
+  `--letsencryptdir` (default: `letsencrypt` in the tapd directory),
+  and certificates are obtained and renewed with the HTTP challenge on
+  `--letsencryptlisten` or, if that fails, the TLS-ALPN challenge on
+  port 443 of the same IP address. Data that an earlier release stored in
+  certmagic's default directory (`$XDG_DATA_HOME/certmagic`, or
+  `~/.local/share/certmagic`) is not read; tapd obtains a new
+  certificate on its first start unless the contents of that directory
+  are moved into `--letsencryptdir`.
+
+* [PR#2340](https://github.com/lightninglabs/taproot-assets/pull/2340)
+  makes a V1 group key reveal decode from its own record only, and
+  refuse unknown even types within it. Records that follow the reveal in
+  a proof are no longer consumed by it. Asset witnesses also compare by
+  the content of their witness stacks, so nil and empty stacks and
+  elements compare equal. The proof provenance backfill run during the
+  database upgrade logs and skips any stored proof it can't decode.
+
+* [PR#2367](https://github.com/lightninglabs/taproot-assets/pull/2367)
+  makes the custodian check that the block a V2 address send fragment
+  names is on chain at the fragment's block height, and reject the
+  fragment otherwise. The custodian also skips a mailbox message that it
+  decrypts but cannot process, and continues with the rest of the batch,
+  as it does for a message that it cannot decrypt.
+
+* [PR#2387](https://github.com/lightninglabs/taproot-assets/pull/2387)
+  makes `DecodeProof` and `VerifyProof` report the merkle root that the
+  anchor output of a split output commits to in
+  `chain_anchor.merkle_root`.
+
+* [PR#2388](https://github.com/lightninglabs/taproot-assets/pull/2388)
+  makes the offline pre-verification pass of an asset wallet backup
+  import skip time lock validation in the proof files of additional
+  inputs as well, so it accepts an asset with a time locked input in its
+  history.
 
 # New Features
 
@@ -148,10 +245,34 @@
   act of staking local state on a chain outcome as a durable
   "anchoring", senses the chain into per-anchoring evidence, derives
   phases from that evidence, and converges the owning subsystem
-  through handlers that run atomically with the registry advance. It
-  runs alongside the existing re-org watcher; no subsystem registers
-  anchorings with it yet, so no existing flow changes behaviour in
-  this release.
+  through handlers that run atomically with the registry advance.
+
+* [PR#2287](https://github.com/lightninglabs/taproot-assets/pull/2287)
+  moves the transfer, receive, minting, auxiliary-sweep, and
+  supply-commit paths onto the watcher: each registers its
+  chain-dependent state as an anchoring and converges it from the
+  phases the watcher delivers.
+  When a shallow re-org removes a transaction, the watcher withdraws
+  its confirmation state and refreshes the stored chain and proof
+  context when it reconfirms. If a competing transaction reaches the
+  configured re-org-safe depth, the watcher abandons the original
+  anchoring and compensates the local state tied to the losing
+  transaction.
+
+  A received proof is imported and registered with the watcher in one
+  transaction, so the receiver never holds an asset the watcher does
+  not: a registration that fails rolls the import back with it. The
+  receive's triggers are derived from the anchor transaction's own
+  inputs, so a verified proof file cannot be refused, and a file that
+  cannot be watched at all is rejected rather than imported.
+
+  Irreversible effects now wait until the winning transaction reaches
+  `--reorgsafedepth`. These include mint universe publication, mint
+  and burn supply-update events, and supply-commit finalization and
+  publication. The default is six confirmations, or 120 on testnet
+  unless overridden. Operators should therefore expect new issuance
+  and supply updates to become externally visible only after that
+  threshold; lowering it reduces the corresponding re-org protection.
 
 - [`tapd` now keeps an encrypted asset wallet backup
   file](https://github.com/lightninglabs/taproot-assets/pull/2277)
@@ -176,6 +297,11 @@
   default, 1000 at most). A new Prometheus collector exports live
   anchorings by site and phase, plus stuck and lagging deliveries
   counted over live and terminal anchorings alike.
+
+* The `Anchoring` message of `ListAnchorings` gains a `stuck_reason`
+  field carrying the last delivery error once the anchoring is
+  flagged stuck, so an operator can see why delivery keeps failing
+  without reading the daemon's log.
 
 ## tapcli Additions
 
@@ -216,9 +342,43 @@
 
 ## RPC Updates
 
-* [PR#2226](https://github.com/lightninglabs/taproot-assets/pull/2226)
-  lets `CommitVirtualPsbts` select the transition proof version and adds
-  BIP-371 tapscript sibling exclusion proofs for version 1 proofs.
+* [PR#2287](https://github.com/lightninglabs/taproot-assets/pull/2287)
+  makes `RegisterTransfer` safe to retry. It previously failed with
+  "proof already exists for this transfer" when the proof was already
+  in the local archive, which left no way to re-drive a call that had
+  imported the proof but failed before registering the transfer with
+  the re-org watcher. The RPC now imports the proof and registers the
+  transfer in one transaction: a failed call leaves nothing behind, and
+  a repeated call finds the proof held, imports nothing twice, and
+  attaches to the existing registration. A proof file the watcher
+  cannot stake is rejected.
+
+* [PR#2375](https://github.com/lightninglabs/taproot-assets/pull/2375)
+  adds a `payment_asset_swap_amount` field to the price oracle's
+  `QueryAssetRatesRequest`. It carries the amount that is actually
+  intended to be swapped, excluding the routing fee budget that
+  `payment_asset_max_amount` still includes, so an oracle can tell the
+  invoice amount from the fee limit. The amount is set from the new
+  `payment_swap_amt` field of `AddAssetSellOrder` (populated with the
+  invoice amount by `SendPayment`), forwarded to the counterparty in
+  the RFQ sell request and exposed to external portfolio pilots as
+  `payment_swap_amount`. Zero means unset everywhere and the existing
+  fields are unchanged.
+
+* [PR#2383](https://github.com/lightninglabs/taproot-assets/pull/2383)
+  adds a `sign_anchor_inputs` flag to `PublishAndLogTransfer`. With the
+  flag set, tapd signs and finalizes the anchor inputs of the transfer
+  that spend anchor outputs it owns, so a caller that funds the anchor
+  transaction itself only signs its own inputs. Every other input must
+  already be finalized.
+
+* [PR#2386](https://github.com/lightninglabs/taproot-assets/pull/2386)
+  adds an `input_proof_files` field to `PublishAndLogTransfer`. A caller
+  spending an input whose last transitions tapd never saw supplies the
+  input's proof file with the transfer. tapd verifies it with the transfer
+  and stores it in its proof archive, replacing any older copy, so the
+  transfer confirms without the proof being imported into the wallet or the
+  universe.
 
 ## tapcli Updates
 
@@ -238,18 +398,31 @@
   server before forcing a full enumeration sync as an audit (default:
   24h).
 
-- The new `--disable-anchoring-watcher` flag disables the anchoring
-  watcher service, serving as a kill switch while no subsystem yet
-  registers anchorings with it. The registry's read surfaces (the
-  `ListAnchorings` RPC and the Prometheus collector) stay available
-  with the watcher disabled.
+- The `--disable-anchoring-watcher` flag is removed along with the
+  legacy proof watcher it fell back to: every chain-dependent path now
+  runs through the anchoring watcher only. A configuration file that
+  still carries the flag is refused at startup as an unknown option;
+  delete the line before upgrading.
+
+- [PR#2287](https://github.com/lightninglabs/taproot-assets/pull/2287)
+  validates `--reorgsafedepth` at startup. It must be at least
+  one and at most 144, the chain notifier's maximum confirmation
+  depth, since the depth doubles as every anchoring's confirmation
+  threshold. A larger value previously passed startup and then failed
+  every registration after its transaction had already broadcast.
+  Nodes configured above 144 will refuse to start; lower the value
+  before upgrading.
+
+- [The new `--universe.tls.*`
+  flags](https://github.com/lightninglabs/taproot-assets/pull/2355)
+  configure TLS for connections to universe servers, proof couriers and
+  auth mailboxes. `--universe.tls.pin=host=path` trusts only the
+  certificate at `path` for `host`, `--universe.tls.insecurehost=host`
+  disables certificate verification for `host`, and
+  `--universe.tls.insecure` disables it for all hosts. Each of the first
+  two can be given multiple times.
 
 ## Code Health
-
-* [PR#2245](https://github.com/lightninglabs/taproot-assets/pull/2245)
-  bumps `google.golang.org/grpc` from v1.82.1 to v1.83.1 in the main,
-  `taprpc`, and basic price oracle example modules, mirroring the bump
-  done in `lnd`.
 
 ## Breaking Changes
 
@@ -263,6 +436,31 @@
   wrapper, and `PendingAssetGroup`'s embedded `asset.GroupKeyRequest`
   and `asset.GroupVirtualTx` are now the named fields `KeyRequest`
   and `VirtualTx`.
+
+* The `--disable-anchoring-watcher` flag is removed. The supply-commit
+  state machine loses its finalize state: rows persisted in that state
+  by an earlier release load as the broadcast state, whose resume path
+  re-derives what it needs from the durable record, so no migration is
+  required.
+
+* The legacy proof watcher is deleted from the exported Go API:
+  `proof.Watcher` and `proof.UpdateCallback`, `tapreorg.LegacyWatcher`
+  with `LegacyConfig` and `NewLegacyWatcher`, the
+  `tapconfig.Config.ReOrgWatcher` field, and `tapgarden.MockProofWatcher`
+  are gone.
+
+* [Connections to universe servers, proof couriers and auth
+  mailboxes](https://github.com/lightninglabs/taproot-assets/pull/2355)
+  verify the server certificate against the system roots by default.
+  A server with a self-signed certificate requires a
+  `--universe.tls.pin` or `--universe.tls.insecurehost` entry on the
+  connecting node. `NewAddr` logs a warning when the host of the
+  proof courier has a pin or a verification exception on the node. In
+  the exported Go API, `rfq.TLSConfig` is replaced by `taptls.Policy`,
+  which the universe, courier, mailbox, price oracle and portfolio
+  pilot dial functions take as a parameter. `authmailbox.ClientConfig`
+  replaces `Insecure`, `SkipTlsVerify` and `TLSPathServer` with `TLS`,
+  and `tapcustody.Config` replaces `MboxInsecure` with `MboxTLS`.
 
 ## Performance Improvements
 
@@ -301,7 +499,39 @@
 
 ## Testing
 
+* [PR#2177](https://github.com/lightninglabs/taproot-assets/pull/2177)
+  adds an integration test that force closes an asset channel right after
+  the funding transaction confirms, before any commitment update, and
+  asserts the swept assets remain spendable.
+
 ## Database
+
+* [PR#2287](https://github.com/lightninglabs/taproot-assets/pull/2287)
+  adds database migration 69, an opaque per-site match key and a
+  unique partial index on the anchoring registry. This lets subsystems recover
+  their anchorings by transaction identity across every phase without
+  scanning the registry history. Existing rows retain a null key and
+  remain valid; no backfill or operator action is required.
+
+* [PR#2287](https://github.com/lightninglabs/taproot-assets/pull/2287)
+  adds database migration 70, an `abandoned` column on
+  `asset_transfers` recording that a transfer was superseded because
+  a buried foreign transaction claimed its inputs, as opposed to
+  losing a race against a rival local form. Only the latter is
+  revivable when the winning transfer is itself abandoned. The two
+  were previously indistinguishable, so abandoning one transfer could
+  revive a permanently dead sibling that shared an input, which was
+  then resumed at startup and rebroadcast an anchor that can never
+  confirm. Existing rows default to `false`; no backfill or operator
+  action is required.
+
+* [PR#2315](https://github.com/lightninglabs/taproot-assets/pull/2315)
+  updates the SQLite driver to v1.59.0, embedding SQLite 3.53.4, which
+  fixes the WAL-reset data-corruption bug affecting SQLite versions
+  through 3.51.2 when concurrent connections write and checkpoint a
+  WAL-mode database, and updates the PostgreSQL driver to v5.11.0,
+  bringing in its security hardening and correctness fixes. No migration
+  or operator action is required.
 
 ## Code Health
 
@@ -320,6 +550,22 @@
   state machine. The group-verifier generators similarly move out of
   `tapgarden` into `tapnode`, alongside the rest of the
   proof-verifier code.
+
+* [The new `taptls`
+  package](https://github.com/lightninglabs/taproot-assets/pull/2355)
+  builds the transport credentials of all outbound gRPC connections to
+  universe servers, proof couriers, auth mailboxes, price oracles and
+  portfolio pilots. The gosec G402 check is enabled.
+
+* [PR#2387](https://github.com/lightninglabs/taproot-assets/pull/2387)
+  moves the validation and commit sequence of `CommitVirtualPsbts` into
+  `tapsend`, and the assembly of confirmed proof files into `proof`, so
+  that an application embedding these packages seals transfers with the
+  code tapd runs. Virtual transaction signers take an
+  `asset.SignDescriptor`, and `asset`, `tapscript`, `tapsend` and
+  `address` no longer import `lndclient` directly. The new
+  `make build-wasm` target and CI job compile the core packages for
+  js/wasm.
 
 ## Tooling and Documentation
 

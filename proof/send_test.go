@@ -2,6 +2,8 @@ package proof
 
 import (
 	"bytes"
+	"io"
+	"slices"
 	"testing"
 	"time"
 
@@ -87,5 +89,52 @@ func TestSendFragmentEncodeDecode(t *testing.T) {
 			// Verify the decoded fragment matches the original.
 			require.Equal(t, tt.fragment, decodedFragment)
 		})
+	}
+}
+
+// TestSendOutputsEncoderKeyOrder tests that the outputs of a send fragment are
+// encoded sorted by their asset ID, whatever the iteration order of the map.
+func TestSendOutputsEncoderKeyOrder(t *testing.T) {
+	t.Parallel()
+
+	const numOutputs = 4
+	outputs := make(map[asset.ID]SendOutput, numOutputs)
+	for i := range numOutputs {
+		outputs[asset.RandID(t)] = SendOutput{
+			AssetVersion: asset.V1,
+			Amount:       uint64(i + 1),
+			ScriptKey:    asset.SerializedKey{0x02, byte(i)},
+		}
+	}
+
+	byID := func(a, b asset.ID) int {
+		return bytes.Compare(a[:], b[:])
+	}
+
+	// A single encoding may be sorted by chance, so we encode the outputs
+	// several times.
+	var buf [8]byte
+	for range 10 {
+		var b bytes.Buffer
+		err := SendOutputsEncoder(&b, &outputs, &buf)
+		require.NoError(t, err)
+
+		numIDs, err := tlv.ReadVarInt(&b, &buf)
+		require.NoError(t, err)
+		require.EqualValues(t, numOutputs, numIDs)
+
+		ids := make([]asset.ID, numIDs)
+		for i := range ids {
+			_, err := io.ReadFull(&b, ids[i][:])
+			require.NoError(t, err)
+
+			var output SendOutput
+			err = SendOutputDecoder(&b, &output, &buf)
+			require.NoError(t, err)
+			require.Equal(t, outputs[ids[i]], output)
+		}
+		require.Zero(t, b.Len())
+
+		require.True(t, slices.IsSortedFunc(ids, byID))
 	}
 }

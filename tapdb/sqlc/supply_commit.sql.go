@@ -20,6 +20,16 @@ func (q *Queries) DeleteSupplyCommitTransition(ctx context.Context, transitionID
 	return err
 }
 
+const DeleteSupplyCommitment = `-- name: DeleteSupplyCommitment :exec
+DELETE FROM supply_commitments
+WHERE commit_id = $1
+`
+
+func (q *Queries) DeleteSupplyCommitment(ctx context.Context, commitID int64) error {
+	_, err := q.db.ExecContext(ctx, DeleteSupplyCommitment, commitID)
+	return err
+}
+
 const DeleteSupplyUpdateEvent = `-- name: DeleteSupplyUpdateEvent :exec
 DELETE FROM supply_update_events
 WHERE event_id = $1
@@ -202,6 +212,8 @@ LEFT JOIN supply_commitments sc ON mac.spent_by = sc.commit_id
 LEFT JOIN chain_txns commit_txn ON sc.chain_txn_id = commit_txn.txn_id
 WHERE
     mac.group_key = $1 AND
+    -- BatchStateSeedlingCancelled (6) and BatchStateSproutCancelled (7).
+    amb.batch_state NOT IN (6, 7) AND
     (mac.spent_by IS NULL OR commit_txn.block_hash IS NULL)
 `
 
@@ -216,6 +228,13 @@ type FetchUnspentMintSupplyPreCommitsRow struct {
 // Fetch unspent supply pre-commitment outputs. Each pre-commitment output
 // comes from a mint anchor transaction and relates to an asset issuance
 // where the local node acted as the issuer.
+//
+// Cancelled batches are excluded. A batch whose genesis transaction lost
+// to a buried conflicting spender is cancelled by the mint site's
+// abandonment, but its pre-commitment row survives to keep the
+// issuance record. That outpoint does not exist on the surviving
+// chain, so offering it here would build a commitment transaction that
+// can never be broadcast, and whose own anchoring would never witness.
 func (q *Queries) FetchUnspentMintSupplyPreCommits(ctx context.Context, groupKey []byte) ([]FetchUnspentMintSupplyPreCommitsRow, error) {
 	rows, err := q.db.QueryContext(ctx, FetchUnspentMintSupplyPreCommits, groupKey)
 	if err != nil {
@@ -752,6 +771,32 @@ func (q *Queries) QuerySupplyCommitStateMachine(ctx context.Context, groupKey []
 	return i, err
 }
 
+const QuerySupplyCommitTransitionByNewCommitment = `-- name: QuerySupplyCommitTransitionByNewCommitment :one
+SELECT t.transition_id, t.state_machine_group_key, t.old_commitment_id, t.new_commitment_id, t.pending_commit_txn_id, t.frozen, t.finalized, t.creation_time
+FROM supply_commit_transitions t
+WHERE t.new_commitment_id = $1
+`
+
+type QuerySupplyCommitTransitionByNewCommitmentRow struct {
+	SupplyCommitTransition SupplyCommitTransition
+}
+
+func (q *Queries) QuerySupplyCommitTransitionByNewCommitment(ctx context.Context, newCommitmentID sql.NullInt64) (QuerySupplyCommitTransitionByNewCommitmentRow, error) {
+	row := q.db.QueryRowContext(ctx, QuerySupplyCommitTransitionByNewCommitment, newCommitmentID)
+	var i QuerySupplyCommitTransitionByNewCommitmentRow
+	err := row.Scan(
+		&i.SupplyCommitTransition.TransitionID,
+		&i.SupplyCommitTransition.StateMachineGroupKey,
+		&i.SupplyCommitTransition.OldCommitmentID,
+		&i.SupplyCommitTransition.NewCommitmentID,
+		&i.SupplyCommitTransition.PendingCommitTxnID,
+		&i.SupplyCommitTransition.Frozen,
+		&i.SupplyCommitTransition.Finalized,
+		&i.SupplyCommitTransition.CreationTime,
+	)
+	return i, err
+}
+
 const QuerySupplyCommitment = `-- name: QuerySupplyCommitment :one
 SELECT sc.commit_id, sc.group_key, sc.chain_txn_id, sc.output_index, sc.internal_key_id, sc.output_key, sc.block_header, sc.block_height, sc.merkle_proof, sc.supply_root_hash, sc.supply_root_sum, sc.spent_commitment, ct.tx_index
 FROM supply_commitments AS sc
@@ -877,6 +922,40 @@ func (q *Queries) QuerySupplyCommitmentBySpentOutpoint(ctx context.Context, arg 
 	return i, err
 }
 
+const QuerySupplyCommitmentByTxid = `-- name: QuerySupplyCommitmentByTxid :one
+SELECT sc.commit_id, sc.group_key, sc.chain_txn_id, sc.output_index, sc.internal_key_id, sc.output_key, sc.block_header, sc.block_height, sc.merkle_proof, sc.supply_root_hash, sc.supply_root_sum, sc.spent_commitment
+FROM supply_commitments sc
+JOIN chain_txns ct
+    ON sc.chain_txn_id = ct.txn_id
+WHERE sc.group_key = $1
+    AND ct.txid = $2
+`
+
+type QuerySupplyCommitmentByTxidParams struct {
+	GroupKey []byte
+	Txid     []byte
+}
+
+func (q *Queries) QuerySupplyCommitmentByTxid(ctx context.Context, arg QuerySupplyCommitmentByTxidParams) (SupplyCommitment, error) {
+	row := q.db.QueryRowContext(ctx, QuerySupplyCommitmentByTxid, arg.GroupKey, arg.Txid)
+	var i SupplyCommitment
+	err := row.Scan(
+		&i.CommitID,
+		&i.GroupKey,
+		&i.ChainTxnID,
+		&i.OutputIndex,
+		&i.InternalKeyID,
+		&i.OutputKey,
+		&i.BlockHeader,
+		&i.BlockHeight,
+		&i.MerkleProof,
+		&i.SupplyRootHash,
+		&i.SupplyRootSum,
+		&i.SpentCommitment,
+	)
+	return i, err
+}
+
 const QuerySupplyCommitmentOutpoint = `-- name: QuerySupplyCommitmentOutpoint :one
 SELECT ct.txid, sc.output_index
 FROM supply_commitments AS sc
@@ -964,6 +1043,17 @@ type SetSupplyUpdateEventKeyParams struct {
 // rows after column 000062 is added.
 func (q *Queries) SetSupplyUpdateEventKey(ctx context.Context, arg SetSupplyUpdateEventKeyParams) error {
 	_, err := q.db.ExecContext(ctx, SetSupplyUpdateEventKey, arg.EventKey, arg.EventID)
+	return err
+}
+
+const UnbindSupplyUpdateEvents = `-- name: UnbindSupplyUpdateEvents :exec
+UPDATE supply_update_events
+SET transition_id = NULL
+WHERE transition_id = $1
+`
+
+func (q *Queries) UnbindSupplyUpdateEvents(ctx context.Context, transitionID sql.NullInt64) error {
+	_, err := q.db.ExecContext(ctx, UnbindSupplyUpdateEvents, transitionID)
 	return err
 }
 

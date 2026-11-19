@@ -10,6 +10,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -30,6 +31,7 @@ const (
 	GenesisRevealType    tlv.Type = 23
 	GroupKeyRevealType   tlv.Type = 25
 	AltLeavesType        tlv.Type = 27
+	RootLocatorProofType tlv.Type = 29
 
 	TaprootProofOutputIndexType     tlv.Type = 0
 	TaprootProofInternalKeyType     tlv.Type = 2
@@ -44,6 +46,10 @@ const (
 	// CommitmentProofSTXOProofsType is the type of the TLV record for the
 	// Exclusion proof CommitmentProof's STXOProofs field.
 	CommitmentProofSTXOProofsType tlv.Type = 7
+
+	// CommitmentProofSpenderProofsType is the type of the TLV record for
+	// the CommitmentProof's SpenderProofs field.
+	CommitmentProofSpenderProofsType tlv.Type = 9
 
 	TapscriptProofTapPreimage1 tlv.Type = 1
 	TapscriptProofTapPreimage2 tlv.Type = 3
@@ -88,6 +94,7 @@ var KnownProofTypes = fn.NewSet(
 	ExclusionProofsType, SplitRootProofType, MetaRevealType,
 	AdditionalInputsType, ChallengeWitnessType, BlockHeightType,
 	GenesisRevealType, GroupKeyRevealType, AltLeavesType,
+	RootLocatorProofType,
 )
 
 // KnownTaprootProofTypes is a set of all known Taproot proof TLV types. This
@@ -103,6 +110,7 @@ var KnownTaprootProofTypes = fn.NewSet(
 var KnownCommitmentProofTypes = fn.NewSet(
 	commitment.ProofAssetProofType, commitment.ProofTaprootAssetProofType,
 	CommitmentProofTapSiblingPreimageType, CommitmentProofSTXOProofsType,
+	CommitmentProofSpenderProofsType,
 )
 
 // KnownTapscriptProofTypes is a set of all known Tapscript proof TLV types.
@@ -166,90 +174,50 @@ func AnchorTxRecord(tx *wire.MsgTx) tlv.Record {
 }
 
 func TxMerkleProofRecord(proof *TxMerkleProof) tlv.Record {
-	sizeFunc := func() uint64 {
-		var buf bytes.Buffer
-		if err := proof.Encode(&buf); err != nil {
-			panic(err)
-		}
-		return uint64(len(buf.Bytes()))
-	}
-	return tlv.MakeDynamicRecord(
-		TxMerkleProofType, proof, sizeFunc, TxMerkleProofEncoder,
-		TxMerkleProofDecoder,
+	return asset.EncodeOnceRecord(
+		TxMerkleProofType, proof,
+		TxMerkleProofEncoder, TxMerkleProofDecoder,
 	)
 }
 
 func AssetLeafRecord(a *asset.Asset) tlv.Record {
-	sizeFunc := func() uint64 {
-		var buf bytes.Buffer
-		if err := a.Encode(&buf); err != nil {
-			panic(err)
-		}
-		return uint64(len(buf.Bytes()))
-	}
-	return tlv.MakeDynamicRecord(
-		AssetLeafType, a, sizeFunc, asset.LeafEncoder,
-		asset.LeafDecoder,
+	return asset.EncodeOnceRecord(
+		AssetLeafType, a, asset.LeafEncoder, asset.LeafDecoder,
 	)
 }
 
 func InclusionProofRecord(proof *TaprootProof) tlv.Record {
-	sizeFunc := func() uint64 {
-		var buf bytes.Buffer
-		err := TaprootProofEncoder(&buf, proof, &[8]byte{})
-		if err != nil {
-			panic(err)
-		}
-		return uint64(len(buf.Bytes()))
-	}
-	return tlv.MakeDynamicRecord(
-		InclusionProofType, proof, sizeFunc, TaprootProofEncoder,
-		TaprootProofDecoder,
+	return asset.EncodeOnceRecord(
+		InclusionProofType, proof,
+		TaprootProofEncoder, TaprootProofDecoder,
 	)
 }
 
 func ExclusionProofsRecord(proofs *[]TaprootProof) tlv.Record {
-	sizeFunc := func() uint64 {
-		var buf bytes.Buffer
-		err := TaprootProofsEncoder(&buf, proofs, &[8]byte{})
-		if err != nil {
-			panic(err)
-		}
-		return uint64(len(buf.Bytes()))
-	}
-	return tlv.MakeDynamicRecord(
-		ExclusionProofsType, proofs, sizeFunc, TaprootProofsEncoder,
-		TaprootProofsDecoder,
+	return asset.EncodeOnceRecord(
+		ExclusionProofsType, proofs,
+		TaprootProofsEncoder, TaprootProofsDecoder,
 	)
 }
 
 func SplitRootProofRecord(proof **TaprootProof) tlv.Record {
-	sizeFunc := func() uint64 {
-		var buf bytes.Buffer
-		err := SplitRootProofEncoder(&buf, proof, &[8]byte{})
-		if err != nil {
-			panic(err)
-		}
-		return uint64(len(buf.Bytes()))
-	}
-	return tlv.MakeDynamicRecord(
-		SplitRootProofType, proof, sizeFunc, SplitRootProofEncoder,
-		SplitRootProofDecoder,
+	return asset.EncodeOnceRecord(
+		SplitRootProofType, proof,
+		SplitRootProofEncoder, SplitRootProofDecoder,
+	)
+}
+
+func RootLocatorProofRecord(proof **mssmt.Proof) tlv.Record {
+	return asset.EncodeOnceRecord(
+		RootLocatorProofType, proof, RootLocatorProofEncoder,
+		RootLocatorProofDecoder,
 	)
 }
 
 func AdditionalInputsRecord(inputs *[]File) tlv.Record {
-	sizeFunc := func() uint64 {
-		var buf bytes.Buffer
-		err := AdditionalInputsEncoder(&buf, inputs, &[8]byte{})
-		if err != nil {
-			panic(err)
-		}
-		return uint64(len(buf.Bytes()))
-	}
-	return tlv.MakeDynamicRecord(
-		AdditionalInputsType, inputs, sizeFunc, AdditionalInputsEncoder,
-		AdditionalInputsDecoder,
+	return asset.EncodeOnceRecord(
+		AdditionalInputsType, inputs,
+		AdditionalInputsEncoder, AdditionalInputsDecoder,
 	)
 }
 
@@ -276,31 +244,15 @@ func TaprootProofInternalKeyRecord(internalKey **btcec.PublicKey) tlv.Record {
 }
 
 func TaprootProofCommitmentProofRecord(proof **CommitmentProof) tlv.Record {
-	sizeFunc := func() uint64 {
-		var buf bytes.Buffer
-		err := CommitmentProofEncoder(&buf, proof, &[8]byte{})
-		if err != nil {
-			panic(err)
-		}
-		return uint64(len(buf.Bytes()))
-	}
-	return tlv.MakeDynamicRecord(
-		TaprootProofCommitmentProofType, proof, sizeFunc,
+	return asset.EncodeOnceRecord(
+		TaprootProofCommitmentProofType, proof,
 		CommitmentProofEncoder, CommitmentProofDecoder,
 	)
 }
 
 func TaprootProofTapscriptProofRecord(proof **TapscriptProof) tlv.Record {
-	sizeFunc := func() uint64 {
-		var buf bytes.Buffer
-		err := TapscriptProofEncoder(&buf, proof, &[8]byte{})
-		if err != nil {
-			panic(err)
-		}
-		return uint64(len(buf.Bytes()))
-	}
-	return tlv.MakeDynamicRecord(
-		TaprootProofTapscriptProofType, proof, sizeFunc,
+	return asset.EncodeOnceRecord(
+		TaprootProofTapscriptProofType, proof,
 		TapscriptProofEncoder, TapscriptProofDecoder,
 	)
 }
@@ -308,18 +260,9 @@ func TaprootProofTapscriptProofRecord(proof **TapscriptProof) tlv.Record {
 func CommitmentProofTapSiblingPreimageRecord(
 	preimage **commitment.TapscriptPreimage) tlv.Record {
 
-	sizeFunc := func() uint64 {
-		var buf bytes.Buffer
-		err := commitment.TapscriptPreimageEncoder(
-			&buf, preimage, &[8]byte{},
-		)
-		if err != nil {
-			panic(err)
-		}
-		return uint64(len(buf.Bytes()))
-	}
-	return tlv.MakeDynamicRecord(
-		CommitmentProofTapSiblingPreimageType, preimage, sizeFunc,
+	return asset.EncodeOnceRecord(
+		CommitmentProofTapSiblingPreimageType,
+		preimage,
 		commitment.TapscriptPreimageEncoder,
 		commitment.TapscriptPreimageDecoder,
 	)
@@ -328,39 +271,28 @@ func CommitmentProofTapSiblingPreimageRecord(
 func CommitmentProofSTXOProofsRecord(
 	stxoProofs *map[asset.SerializedKey]commitment.Proof) tlv.Record {
 
-	sizeFunc := func() uint64 {
-		var buf bytes.Buffer
-		err := CommitmentProofsEncoder(
-			&buf, stxoProofs, &[8]byte{},
-		)
-		if err != nil {
-			panic(err)
-		}
-		return uint64(len(buf.Bytes()))
-	}
-	return tlv.MakeDynamicRecord(
-		CommitmentProofSTXOProofsType, stxoProofs, sizeFunc,
-		CommitmentProofsEncoder,
-		CommitmentProofsDecoder,
+	return asset.EncodeOnceRecord(
+		CommitmentProofSTXOProofsType, stxoProofs,
+		CommitmentProofsEncoder, CommitmentProofsDecoder,
+	)
+}
+
+func CommitmentProofSpenderProofsRecord(
+	spenderProofs *map[asset.SerializedKey]commitment.Proof) tlv.Record {
+
+	return asset.EncodeOnceRecord(
+		CommitmentProofSpenderProofsType, spenderProofs,
+		CommitmentProofsEncoder, CommitmentProofsDecoder,
 	)
 }
 
 func TapscriptProofTapPreimage1Record(
 	preimage **commitment.TapscriptPreimage) tlv.Record {
 
-	sizeFunc := func() uint64 {
-		var buf bytes.Buffer
-		err := commitment.TapscriptPreimageEncoder(
-			&buf, preimage, &[8]byte{},
-		)
-		if err != nil {
-			panic(err)
-		}
-		return uint64(len(buf.Bytes()))
-	}
-	return tlv.MakeDynamicRecord(
-		TapscriptProofTapPreimage1, preimage,
-		sizeFunc, commitment.TapscriptPreimageEncoder,
+	return asset.EncodeOnceRecord(
+		TapscriptProofTapPreimage1,
+		preimage,
+		commitment.TapscriptPreimageEncoder,
 		commitment.TapscriptPreimageDecoder,
 	)
 }
@@ -368,19 +300,10 @@ func TapscriptProofTapPreimage1Record(
 func TapscriptProofTapPreimage2Record(
 	preimage **commitment.TapscriptPreimage) tlv.Record {
 
-	sizeFunc := func() uint64 {
-		var buf bytes.Buffer
-		err := commitment.TapscriptPreimageEncoder(
-			&buf, preimage, &[8]byte{},
-		)
-		if err != nil {
-			panic(err)
-		}
-		return uint64(len(buf.Bytes()))
-	}
-	return tlv.MakeDynamicRecord(
-		TapscriptProofTapPreimage2, preimage,
-		sizeFunc, commitment.TapscriptPreimageEncoder,
+	return asset.EncodeOnceRecord(
+		TapscriptProofTapPreimage2,
+		preimage,
+		commitment.TapscriptPreimageEncoder,
 		commitment.TapscriptPreimageDecoder,
 	)
 }
@@ -392,17 +315,8 @@ func TapscriptProofBip86Record(bip86 *bool) tlv.Record {
 }
 
 func MetaRevealRecord(reveal **MetaReveal) tlv.Record {
-	sizeFunc := func() uint64 {
-		var buf bytes.Buffer
-		err := MetaRevealEncoder(&buf, reveal, &[8]byte{})
-		if err != nil {
-			panic(err)
-		}
-		return uint64(len(buf.Bytes()))
-	}
-	return tlv.MakeDynamicRecord(
-		MetaRevealType, reveal, sizeFunc, MetaRevealEncoder,
-		MetaRevealDecoder,
+	return asset.EncodeOnceRecord(
+		MetaRevealType, reveal, MetaRevealEncoder, MetaRevealDecoder,
 	)
 }
 
@@ -534,17 +448,9 @@ func GroupKeyRevealRecord(reveal *asset.GroupKeyReveal) tlv.Record {
 }
 
 func AltLeavesRecord(leaves *[]asset.AltLeaf[asset.Asset]) tlv.Record {
-	sizeFunc := func() uint64 {
-		var buf bytes.Buffer
-		err := asset.AltLeavesEncoder(&buf, leaves, &[8]byte{})
-		if err != nil {
-			panic(err)
-		}
-		return uint64(len(buf.Bytes()))
-	}
-	return tlv.MakeDynamicRecord(
-		AltLeavesType, leaves, sizeFunc, asset.AltLeavesEncoder,
-		asset.AltLeavesDecoder,
+	return asset.EncodeOnceRecord(
+		AltLeavesType, leaves,
+		asset.AltLeavesEncoder, asset.AltLeavesDecoder,
 	)
 }
 
@@ -577,17 +483,9 @@ func FragmentOutPointRecord(prevOut *wire.OutPoint) tlv.Record {
 }
 
 func FragmentOutputsRecord(outputs *map[asset.ID]SendOutput) tlv.Record {
-	sizeFunc := func() uint64 {
-		var buf bytes.Buffer
-		err := SendOutputsEncoder(&buf, outputs, &[8]byte{})
-		if err != nil {
-			panic(err)
-		}
-		return uint64(len(buf.Bytes()))
-	}
-	return tlv.MakeDynamicRecord(
-		SendFragmentOutputsType, outputs, sizeFunc, SendOutputsEncoder,
-		SendOutputsDecoder,
+	return asset.EncodeOnceRecord(
+		SendFragmentOutputsType, outputs,
+		SendOutputsEncoder, SendOutputsDecoder,
 	)
 }
 

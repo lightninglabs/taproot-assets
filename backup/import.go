@@ -8,29 +8,72 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/taptls"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
 const (
-	// spendCheckTimeout is how long we wait for spend notifications
-	// when checking whether a backup's anchor outpoints have been
-	// spent. All outpoints are checked concurrently, so this is a
-	// single wait for the entire batch. Historical spends are
-	// reported almost immediately; the timeout only fires for
-	// unspent (valid) outpoints.
-	spendCheckTimeout = 10 * time.Second
-
 	// maxConcurrentSpendChecks limits the number of concurrent
 	// goroutines spawned for spend detection. This bounds memory
 	// usage for wallets with many assets.
 	maxConcurrentSpendChecks = 100
 )
+
+// spendCheckTimeout is how long we wait for spend notifications when checking
+// whether a backup's anchor outpoints have been spent. All outpoints are
+// checked concurrently, so this is a single wait for the entire batch.
+// Historical spends are reported almost immediately; the timeout only fires
+// for unspent (valid) outpoints. A variable so tests can shorten it.
+var spendCheckTimeout = 10 * time.Second
+
+// offlineChainLookup is the chain lookup of the pre-verification pass, which
+// must not reach the chain backend. The verifier asks it for a height on every
+// state transition, but that pass skips time lock validation, so no answer is
+// compared against a lock. It answers with zero values, which fail a lock
+// check rather than satisfy it.
+type offlineChainLookup struct{}
+
+// TxBlockHeight returns the block height that the given transaction was
+// included in.
+func (offlineChainLookup) TxBlockHeight(context.Context,
+	chainhash.Hash) (uint32, error) {
+
+	return 0, nil
+}
+
+// MeanBlockTimestamp returns the timestamp of the block at the given height,
+// taking into account the mean time elapsed over the previous blocks.
+func (offlineChainLookup) MeanBlockTimestamp(context.Context,
+	uint32) (time.Time, error) {
+
+	return time.Time{}, nil
+}
+
+// CurrentHeight returns the current height of the main chain.
+func (offlineChainLookup) CurrentHeight(context.Context) (uint32, error) {
+	return 0, nil
+}
+
+// GenFileChainLookup generates a chain lookup interface for the given proof
+// file.
+func (l offlineChainLookup) GenFileChainLookup(*proof.File) asset.ChainLookup {
+	return l
+}
+
+// GenProofChainLookup generates a chain lookup interface for the given single
+// proof.
+func (l offlineChainLookup) GenProofChainLookup(*proof.Proof) (
+	asset.ChainLookup, error) {
+
+	return l, nil
+}
 
 // SpendChecker can determine whether an outpoint has been spent.
 type SpendChecker interface {
@@ -54,19 +97,38 @@ type KeyRegistrar interface {
 		keyType asset.ScriptKeyType) error
 }
 
+// ProofStaker imports a proof together with every young anchoring it depends
+// on. The boundary deliberately does not expose a raw archive write: restored
+// wallet state must not exist without its re-org protection. The group
+// verifier lets a restore prove groups the wallet has never seen from the
+// genesis reveals in the backup's own proofs.
+type ProofStaker interface {
+	StakeReceiveWithGroupVerifier(ctx context.Context,
+		p *proof.AnnotatedProof,
+		groupVerifier proof.GroupVerifier) error
+}
+
 // ImportConfig holds the dependencies needed to import a backup.
 type ImportConfig struct {
 	// SpendChecker is used to detect stale backup entries whose anchor
 	// outpoints have already been spent.
 	SpendChecker SpendChecker
 
+	// SpendCheckTimeout is how long an anchor outpoint's spend
+	// notification may stay silent before the outpoint is taken as
+	// unspent. Zero means the default of ten seconds.
+	SpendCheckTimeout time.Duration
+
 	// ChainQuerier provides access to blockchain data for rehydrating
 	// stripped proofs.
 	ChainQuerier ChainQuerier
 
 	// ProofArchive is used to check for existing proofs and to import
-	// new proofs.
+	// proof data fetched from a universe.
 	ProofArchive proof.Archiver
+
+	// ProofStaker imports restored proofs with their re-org protection.
+	ProofStaker ProofStaker
 
 	// KeyRegistrar is used to register anchor internal keys and script
 	// keys so the wallet can sign for imported assets.
@@ -87,6 +149,17 @@ type ImportConfig struct {
 	// whose proofs directory survived would otherwise skip every asset.
 	// If nil, ProofArchive is used.
 	WalletProofs proof.Exporter
+
+	// GroupRegistrar makes the asset groups recorded in the backup known
+	// to the wallet, the same way a universe sync of the group would. A
+	// group is only registered once a leaf of it has been imported.
+	// Without it the groups are only accepted for the duration of the
+	// import. Optional.
+	GroupRegistrar GroupRegistrar
+
+	// UniverseTLS is the TLS policy for connections to the universe
+	// servers that proofs are fetched from.
+	UniverseTLS taptls.Policy
 }
 
 // keyMaterialComplete reports whether the key info of an entry carries the
@@ -249,6 +322,158 @@ func extractGroupKeys(proofBlob []byte,
 		gk[:])
 }
 
+// recordedGroup verifies the group info recorded on a backup entry against
+// the group key the entry's asset claims to belong to and returns the group.
+// The tweaked group key is re-derived from the recorded raw key and anchor
+// genesis, so an entry cannot whitelist a group key its record does not
+// actually describe.
+func recordedGroup(ab *AssetBackup) (*asset.AssetGroup, error) {
+	if ab.GroupKeyInfo == nil || ab.Asset == nil ||
+		ab.Asset.GroupKey == nil {
+
+		return nil, nil
+	}
+
+	groupKey, err := ab.GroupKeyInfo.GroupKey()
+	if err != nil {
+		return nil, err
+	}
+
+	claimed := &ab.Asset.GroupKey.GroupPubKey
+	if !groupKey.GroupPubKey.IsEqual(claimed) {
+		return nil, fmt.Errorf("recorded group derives to %x, entry "+
+			"claims %x", asset.ToSerialized(&groupKey.GroupPubKey),
+			asset.ToSerialized(claimed))
+	}
+
+	if len(groupKey.Witness) == 0 {
+		return nil, fmt.Errorf("recorded group has no anchor witness")
+	}
+
+	anchorGenesis := ab.GroupKeyInfo.AnchorGenesis
+	return &asset.AssetGroup{
+		Genesis:  &anchorGenesis,
+		GroupKey: groupKey,
+	}, nil
+}
+
+// recordedGroupSet holds the verified group records of a backup by tweaked
+// group key.
+type recordedGroupSet map[asset.SerializedKey]*asset.AssetGroup
+
+// recordedGroups collects the asset groups recorded in the backup and adds
+// their keys to the set of known group keys, so the proofs of their leaves
+// verify during this import. A record that does not verify is logged and
+// ignored, the entry then depends on the group being known some other way.
+//
+// Nothing is written to the database here. The file's description of a group
+// is only provisionally accepted, it is persisted by persistRecordedGroup once
+// a leaf of the group has actually verified and been imported. A truncated,
+// foreign or otherwise bad file therefore leaves nothing behind, and a bad
+// record cannot pre-empt the anchor witness of a group the wallet would
+// otherwise learn correctly later.
+func recordedGroups(entries []*AssetBackup,
+	known map[asset.SerializedKey]bool) recordedGroupSet {
+
+	groups := make(recordedGroupSet)
+	for i, ab := range entries {
+		group, err := recordedGroup(ab)
+		if err != nil {
+			assetID := ab.Asset.ID()
+			log.Warnf("Ignoring group info of asset %d (id=%x): "+
+				"%v", i, assetID[:], err)
+			continue
+		}
+		if group == nil {
+			continue
+		}
+
+		key := asset.ToSerialized(&group.GroupKey.GroupPubKey)
+		if _, done := groups[key]; done {
+			continue
+		}
+		groups[key] = group
+		known[key] = true
+	}
+
+	if len(groups) > 0 {
+		log.Infof("Accepting %d group(s) recorded in the backup for "+
+			"this import", len(groups))
+	}
+
+	return groups
+}
+
+// persistRecordedGroup makes the recorded group of a just imported leaf known
+// to the wallet, the same way a universe sync of the group would, once per
+// group. The leaf's proof has verified against the group key at this point,
+// which corroborates the file's description of the group. Registrar failures
+// are infrastructure errors and fatal.
+func persistRecordedGroup(ctx context.Context, cfg *ImportConfig,
+	a *asset.Asset, groups recordedGroupSet,
+	persisted map[asset.SerializedKey]struct{}) error {
+
+	if cfg.GroupRegistrar == nil || a == nil || a.GroupKey == nil {
+		return nil
+	}
+
+	key := asset.ToSerialized(&a.GroupKey.GroupPubKey)
+	group, ok := groups[key]
+	if !ok {
+		return nil
+	}
+	if _, done := persisted[key]; done {
+		return nil
+	}
+
+	err := cfg.GroupRegistrar.InsertAssetGen(
+		ctx, group.Genesis, group.GroupKey,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to register group %x: %w", key[:],
+			err)
+	}
+	persisted[key] = struct{}{}
+
+	log.Infof("Registered group %x recorded in the backup", key[:])
+
+	return nil
+}
+
+// warnUnknownGroups logs, once per group, every group that neither the proof
+// data nor the group info of the backup entries describe. Entries of such a
+// group are only restored if the wallet knows the group already, or learns it
+// from a group anchor proof fetched during the import.
+func warnUnknownGroups(entries []*AssetBackup,
+	known map[asset.SerializedKey]bool) {
+
+	warned := make(map[asset.SerializedKey]struct{})
+	for i, ab := range entries {
+		if ab.Asset == nil || ab.Asset.GroupKey == nil {
+			continue
+		}
+
+		key := asset.ToSerialized(&ab.Asset.GroupKey.GroupPubKey)
+		if known[key] {
+			continue
+		}
+		if _, done := warned[key]; done {
+			continue
+		}
+		warned[key] = struct{}{}
+
+		reason := "the entry has no group info and its genesis " +
+			"proof carries no group key reveal"
+		if ab.GroupKeyInfo != nil {
+			reason = "the entry's group info did not verify"
+		}
+
+		log.Warnf("Group %x of asset %d is not described by the "+
+			"backup, %s. Its leaves are only restored if the "+
+			"wallet already knows the group", key[:], i, reason)
+	}
+}
+
 // ImportBackup decodes and imports assets from a backup blob.
 // Returns the number of newly imported assets and the number
 // skipped due to per-asset errors.
@@ -296,8 +521,12 @@ func ImportBackup(ctx context.Context, backupBlob []byte,
 	// spent. We register spend notifications for all outpoints
 	// concurrently and wait once, so stale assets are detected
 	// without adding per-asset latency.
+	spendTimeout := cfg.SpendCheckTimeout
+	if spendTimeout == 0 {
+		spendTimeout = spendCheckTimeout
+	}
 	spentOutpoints, err := detectSpentOutpoints(
-		ctx, cfg.SpendChecker, walletBackup.Assets,
+		ctx, cfg.SpendChecker, walletBackup.Assets, spendTimeout,
 	)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to check outpoint "+
@@ -327,6 +556,14 @@ func ImportBackup(ctx context.Context, backupBlob []byte,
 			"backup proof data", len(knownGroupKeys))
 	}
 
+	// Groups recorded on the entries cover the leaves whose proofs carry
+	// no reveal, which is every tranche minted into a group after the
+	// group anchor. They are persisted as their leaves import.
+	groups := recordedGroups(walletBackup.Assets, knownGroupKeys)
+	persistedGroups := make(map[asset.SerializedKey]struct{})
+
+	warnUnknownGroups(walletBackup.Assets, knownGroupKeys)
+
 	// Build an augmented GroupVerifier that accepts
 	// pre-extracted group keys alongside the normal DB lookup.
 	// Security is preserved: File.Verify still runs
@@ -339,19 +576,16 @@ func ImportBackup(ctx context.Context, backupBlob []byte,
 		return origGroupVerifier(gk)
 	}
 
-	// Two verifier contexts: one for pre-verification (data
-	// checks only, no infrastructure dependencies) and one for
-	// the actual import (full verification including chain
-	// backend). Pre-verification catches per-asset data issues
-	// (unknown group keys, bad proofs) which are skippable.
-	// Import verification catches everything including chain
-	// and storage errors which are fatal.
+	// Pre-verification performs data checks without infrastructure
+	// dependencies. The staking boundary below repeats full verification,
+	// with the same augmented group verifier, while atomically importing
+	// the proof and its young anchorings.
 	//
 	// The pre-verify context uses no-op header verification
-	// and a mock chain lookup so it never hits the chain
-	// backend. The only code path that consumes the chain
-	// lookup is timelock validation, which is disabled via
-	// WithSkipTimeLockValidationForAllProofs.
+	// and an offline chain lookup so it never hits the chain
+	// backend. The chain lookup only feeds time lock
+	// validation, which WithSkipTimeLockValidationForAllProofs
+	// disables for every asset that uses a time lock.
 	preVerifyCtx := proof.VerifierCtx{
 		HeaderVerifier: func(_ wire.BlockHeader,
 			_ uint32) error {
@@ -361,17 +595,8 @@ func ImportBackup(ctx context.Context, backupBlob []byte,
 		MerkleVerifier:      cfg.ProofVerifier.MerkleVerifier,
 		GroupVerifier:       augmentedVerifier,
 		GroupAnchorVerifier: cfg.ProofVerifier.GroupAnchorVerifier,
-		ChainLookupGen:      proof.MockChainLookup,
+		ChainLookupGen:      offlineChainLookup{},
 		IgnoreChecker:       lfn.None[proof.IgnoreChecker](),
-	}
-
-	importVCtx := proof.VerifierCtx{
-		HeaderVerifier:      cfg.ProofVerifier.HeaderVerifier,
-		MerkleVerifier:      cfg.ProofVerifier.MerkleVerifier,
-		GroupVerifier:       augmentedVerifier,
-		GroupAnchorVerifier: cfg.ProofVerifier.GroupAnchorVerifier,
-		ChainLookupGen:      cfg.ProofVerifier.ChainLookupGen,
-		IgnoreChecker:       cfg.ProofVerifier.IgnoreChecker,
 	}
 
 	var (
@@ -467,8 +692,9 @@ func ImportBackup(ctx context.Context, backupBlob []byte,
 			len(walletBackup.FederationURLs) > 0 {
 
 			proofBlob, err := fetchProofFromUniverse(
-				ctx, walletBackup.FederationURLs,
-				assetBackup, cfg.ProofArchive,
+				ctx, cfg.UniverseTLS,
+				walletBackup.FederationURLs, assetBackup,
+				cfg.ProofArchive,
 			)
 			if err != nil {
 				log.Warnf("Skipping asset %d (id=%x):"+
@@ -616,17 +842,16 @@ func ImportBackup(ctx context.Context, backupBlob []byte,
 			continue
 		}
 
-		// Import the verified proof into the archive. The
+		// Stake the verified proof as wallet state. The
 		// locator is derived from the same backup entry as
 		// the proof blob, so the asset ID and script key
 		// are guaranteed to be consistent. Errors here are
 		// storage/infrastructure issues — fail fast.
-		err = cfg.ProofArchive.ImportProofs(
-			ctx, importVCtx, false,
-			&proof.AnnotatedProof{
+		err = cfg.ProofStaker.StakeReceiveWithGroupVerifier(
+			ctx, &proof.AnnotatedProof{
 				Locator: locator,
 				Blob:    assetBackup.ProofFileBlob,
-			},
+			}, augmentedVerifier,
 		)
 		if err != nil {
 			return numImported, numSkipped,
@@ -637,6 +862,13 @@ func ImportBackup(ctx context.Context, backupBlob []byte,
 
 		log.Debugf("Successfully imported asset %d", i)
 		numImported++
+
+		err = persistRecordedGroup(
+			ctx, cfg, assetBackup.Asset, groups, persistedGroups,
+		)
+		if err != nil {
+			return numImported, numSkipped, err
+		}
 	}
 
 	// Retry pass: re-attempt assets that failed specifically
@@ -682,13 +914,12 @@ func ImportBackup(ctx context.Context, backupBlob []byte,
 			continue
 		}
 
-		// Import — storage errors are fatal.
-		err = cfg.ProofArchive.ImportProofs(
-			ctx, importVCtx, false,
-			&proof.AnnotatedProof{
+		// Stake — storage or registration errors are fatal.
+		err = cfg.ProofStaker.StakeReceiveWithGroupVerifier(
+			ctx, &proof.AnnotatedProof{
 				Locator: retryLocator,
 				Blob:    ab.ProofFileBlob,
-			},
+			}, augmentedVerifier,
 		)
 		if err != nil {
 			return numImported, numSkipped,
@@ -701,6 +932,13 @@ func ImportBackup(ctx context.Context, backupBlob []byte,
 			idx, retryID[:])
 		numImported++
 		numSkipped--
+
+		err = persistRecordedGroup(
+			ctx, cfg, ab.Asset, groups, persistedGroups,
+		)
+		if err != nil {
+			return numImported, numSkipped, err
+		}
 	}
 
 	log.Infof("Imported %d assets from backup (%d skipped)",
@@ -713,8 +951,8 @@ func ImportBackup(ctx context.Context, backupBlob []byte,
 // anchor outpoint concurrently, giving each outpoint its own timeout.
 // Returns a slice indexed by asset position: true = spent.
 func detectSpentOutpoints(ctx context.Context,
-	spendChecker SpendChecker,
-	assets []*AssetBackup) ([]bool, error) {
+	spendChecker SpendChecker, assets []*AssetBackup,
+	timeout time.Duration) ([]bool, error) {
 
 	spent := make([]bool, len(assets))
 	if len(assets) == 0 {
@@ -763,7 +1001,7 @@ func detectSpentOutpoints(ctx context.Context,
 			defer func() { <-sem }()
 
 			assetCtx, cancel := context.WithTimeout(
-				detectCtx, spendCheckTimeout,
+				detectCtx, timeout,
 			)
 			defer cancel()
 

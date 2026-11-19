@@ -64,6 +64,10 @@ type (
 	// AssetGroupKey is used to insert a new asset key group into the DB.
 	AssetGroupKey = sqlc.UpsertAssetGroupKeyParams
 
+	// AssetGroupKeyFull is the set of fields of an asset group key that
+	// are all replaced on conflict.
+	AssetGroupKeyFull = sqlc.UpsertAssetGroupKeyFullParams
+
 	// BatchTapSiblingUpdate is used to update a batch with the root hash
 	// of a tapscript sibling associated with it.
 	BatchTapSiblingUpdate = sqlc.BindMintingBatchWithTapSiblingParams
@@ -146,6 +150,10 @@ type PendingAssetStore interface {
 	// UpsertAssetStore houses the methods related to inserting/updating
 	// assets.
 	UpsertAssetStore
+
+	// AssetProofStore houses the atomic proof blob and provenance index
+	// operations.
+	AssetProofStore
 
 	// GroupStore houses the methods related to querying asset groups.
 	GroupStore
@@ -241,10 +249,6 @@ type PendingAssetStore interface {
 	// table for a given asset identified by `Outpoint` and
 	// `TweakedScriptKey`.
 	FetchAssetID(ctx context.Context, arg FetchAssetID) ([]int64, error)
-
-	// UpsertAssetProofByID inserts a new or updates an existing asset
-	// proof on disk.
-	UpsertAssetProofByID(ctx context.Context, arg ProofUpdateByID) error
 
 	// FetchAssetMetaForAsset fetches the asset meta for a given asset.
 	FetchAssetMetaForAsset(ctx context.Context,
@@ -1073,41 +1077,27 @@ func fetchAssetSprouts(ctx context.Context, q PendingAssetStore,
 		// requirement of on going emission.
 		var groupKey *asset.GroupKey
 		if sprout.TweakedGroupKey != nil {
-			tweakedGroupKey, err := btcec.ParsePubKey(
-				sprout.TweakedGroupKey,
+			// The version and custom subtree root belong to the
+			// group rather than to this asset's witness row, so we
+			// read them from the group.
+			groupInfo, err := q.FetchGroupByGroupKey(
+				ctx, sprout.TweakedGroupKey,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("unable to fetch group "+
+					"of sprout: %w", err)
+			}
+
+			groupKey, err = parseGroupKeyInfo(
+				groupInfo.Version, sprout.TweakedGroupKey,
+				sprout.GroupKeyRaw, sprout.WitnessStack,
+				sprout.TapscriptRoot,
+				extractSqlInt32[int32](sprout.GroupKeyFamily),
+				extractSqlInt32[int32](sprout.GroupKeyIndex),
+				groupInfo.CustomSubtreeRoot,
 			)
 			if err != nil {
 				return nil, err
-			}
-			rawGroupKey, err := btcec.ParsePubKey(sprout.GroupKeyRaw)
-			if err != nil {
-				return nil, err
-			}
-			groupWitness, err := asset.ParseGroupWitness(
-				sprout.WitnessStack,
-			)
-			if err != nil {
-				return nil, err
-			}
-
-			groupKey = &asset.GroupKey{
-				RawKey: keychain.KeyDescriptor{
-					PubKey: rawGroupKey,
-					KeyLocator: keychain.KeyLocator{
-						Index: extractSqlInt32[uint32](
-							sprout.GroupKeyIndex,
-						),
-						Family: extractSqlInt32[keychain.KeyFamily](
-							sprout.GroupKeyFamily,
-						),
-					},
-				},
-				GroupPubKey: *tweakedGroupKey,
-				Witness:     groupWitness,
-			}
-
-			if len(sprout.TapscriptRoot) != 0 {
-				groupKey.TapscriptRoot = sprout.TapscriptRoot
 			}
 		}
 
@@ -1998,10 +1988,16 @@ func (a *AssetMintingStore) MarkBatchConfirmed(ctx context.Context,
 			// Upload proof by the dbAssetId, which is the _primary
 			// key_ of the asset in table assets, not the BIPS
 			// concept of `asset_id`.
-			err = q.UpsertAssetProofByID(ctx, ProofUpdateByID{
-				AssetID:   dbAssetIds[0],
-				ProofFile: proofBlob,
-			})
+			indexed, err := NewIndexedProofFile(proofBlob)
+			if err != nil {
+				return fmt.Errorf(
+					"unable to index proof file: %w", err,
+				)
+			}
+
+			err = StoreIndexedAssetProof(
+				ctx, q, dbAssetIds[0], indexed,
+			)
 			if err != nil {
 				return fmt.Errorf("unable to insert proof "+
 					"file: %w", err)

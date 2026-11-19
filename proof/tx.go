@@ -128,6 +128,22 @@ func NewTxMerkleProof(txs []*wire.MsgTx, txIdx int) (*TxMerkleProof, error) {
 	}
 }
 
+// TxIndex reconstructs the transaction's index within its block from
+// the merkle proof's bits. Bits[i] records, at level i of the tree,
+// whether we were the left child (true) or the right child (false);
+// each level-i index is txIdx >> i, so bit i of txIdx = !Bits[i].
+// A single-transaction block has an empty proof and index 0.
+func (p TxMerkleProof) TxIndex() uint32 {
+	var idx uint32
+	for i, bit := range p.Bits {
+		if !bit {
+			idx |= 1 << uint(i)
+		}
+	}
+
+	return idx
+}
+
 // Verify verifies a merkle proof for `tx` by ensuring the end result matches
 // the expected `merkleRoot`.
 func (p TxMerkleProof) Verify(tx *wire.MsgTx, merkleRoot chainhash.Hash) bool {

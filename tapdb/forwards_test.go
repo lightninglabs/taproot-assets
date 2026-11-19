@@ -717,3 +717,126 @@ func TestQueryForwardsWithCount(t *testing.T) {
 		})
 	}
 }
+
+// TestSettledFillByRfqID verifies that SettledFillByRfqID returns the summed
+// outgoing amounts of settled forwarding events grouped by RFQ ID, excluding
+// pending and failed events.
+func TestSettledFillByRfqID(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	forwardStore, _, db := newForwardStore(t)
+
+	rfqID1 := randRfqID(t)
+	rfqID2 := randRfqID(t)
+	peer := randPeer(t)
+
+	insertTestPolicy(
+		t, ctx, db, rfqID1, rfq.RfqPolicyTypeAssetSale, peer, nil, nil,
+	)
+	insertTestPolicy(
+		t, ctx, db, rfqID2, rfq.RfqPolicyTypeAssetSale, peer, nil, nil,
+	)
+
+	openedAt := time.Now().UTC().Truncate(time.Second)
+	settledAt := openedAt.Add(10 * time.Second)
+	failedAt := openedAt.Add(20 * time.Second)
+
+	newForward := func(rfqID rfqmsg.ID, htlcID uint64,
+		amtOutMsat uint64) rfq.ForwardInput {
+
+		return rfq.ForwardInput{
+			OpenedAt:   openedAt,
+			RfqID:      rfqID,
+			ChanIDIn:   100,
+			ChanIDOut:  200,
+			HtlcID:     htlcID,
+			AssetAmt:   500,
+			AmtInMsat:  amtOutMsat + 1000,
+			AmtOutMsat: amtOutMsat,
+		}
+	}
+
+	// Two settled forwards for the first RFQ ID, which must be summed.
+	settled1 := newForward(rfqID1, 1, 41000)
+	settled1.SettledAt = fn.Some(settledAt)
+	settled2 := newForward(rfqID1, 2, 9000)
+	settled2.SettledAt = fn.Some(settledAt)
+
+	// A settled forward for the second RFQ ID.
+	settled3 := newForward(rfqID2, 3, 777)
+	settled3.SettledAt = fn.Some(settledAt)
+
+	// A pending and a failed forward, which must be excluded.
+	pending := newForward(rfqID1, 4, 12345)
+	failed := newForward(rfqID2, 5, 54321)
+	failed.FailedAt = fn.Some(failedAt)
+
+	inputs := []rfq.ForwardInput{
+		settled1, settled2, settled3, pending, failed,
+	}
+	for _, input := range inputs {
+		require.NoError(t, forwardStore.UpsertForward(ctx, input))
+	}
+
+	settledFill, err := forwardStore.SettledFillByRfqID(ctx)
+	require.NoError(t, err)
+
+	require.Len(t, settledFill, 2)
+	require.Equal(t, uint64(50000), settledFill[rfqID1])
+	require.Equal(t, uint64(777), settledFill[rfqID2])
+
+	// With no settled forwards at all, the result must be empty.
+	freshStore, _, _ := newForwardStore(t)
+	emptyFill, err := freshStore.SettledFillByRfqID(ctx)
+	require.NoError(t, err)
+	require.Empty(t, emptyFill)
+}
+
+// TestSettledFillForwardLegs exercises aggregation with real schema uniqueness,
+// more than one former page of rows, and direct sales on the outgoing quote.
+func TestSettledFillForwardLegs(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store, _, db := newForwardStore(t)
+	purchase, sale := randRfqID(t), randRfqID(t)
+	peer := randPeer(t)
+	insertTestPolicy(t, ctx, db, purchase, rfq.RfqPolicyTypeAssetPurchase,
+		peer, nil, nil)
+	insertTestPolicy(t, ctx, db, sale, rfq.RfqPolicyTypeAssetSale,
+		peer, nil, nil)
+
+	// Test policies use SCID 12345. Only the sale policy may receive the
+	// outgoing leg, even when a purchase policy shares that SCID.
+	const count = 1001
+	for i := 0; i < count; i++ {
+		input := rfq.ForwardInput{
+			OpenedAt: time.Now().UTC(), RfqID: purchase,
+			ChanIDIn: 9876, ChanIDOut: 12345, HtlcID: uint64(i),
+			AmtOutMsat: 10,
+		}
+		require.NoError(t, store.UpsertForward(ctx, input))
+		input.SettledAt = fn.Some(time.Now().UTC())
+		require.NoError(t, store.UpsertForward(ctx, input))
+	}
+	for i, terminal := range []string{"settled", "pending", "failed"} {
+		input := rfq.ForwardInput{
+			OpenedAt: time.Now().UTC(), RfqID: sale,
+			ChanIDIn: 8765, ChanIDOut: 12345, HtlcID: uint64(i),
+			AmtOutMsat: 7,
+		}
+		switch terminal {
+		case "settled":
+			input.SettledAt = fn.Some(time.Now().UTC())
+		case "failed":
+			input.FailedAt = fn.Some(time.Now().UTC())
+		}
+		require.NoError(t, store.UpsertForward(ctx, input))
+	}
+	fill, err := store.SettledFillByRfqID(ctx)
+	require.NoError(t, err)
+	require.Equal(t, map[rfqmsg.ID]uint64{
+		purchase: count * 10,
+		sale:     count*10 + 7,
+	}, fill)
+}

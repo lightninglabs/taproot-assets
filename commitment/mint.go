@@ -5,8 +5,6 @@ import (
 	"fmt"
 
 	"github.com/lightninglabs/taproot-assets/asset"
-	"github.com/lightninglabs/taproot-assets/fn"
-	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
@@ -108,8 +106,4 @@ func Mint(version *TapCommitmentVersion, genesis asset.Genesis,
 	}
 
 	return tapCommitment, assets, nil
-}
-
-func RandTapCommitVersion() *TapCommitmentVersion {
-	return test.RandFlip(nil, fn.Ptr(TapCommitmentV2))
 }

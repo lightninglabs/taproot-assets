@@ -10,7 +10,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/fn"
 	cmsg "github.com/lightninglabs/taproot-assets/tapchannelmsg"
-	"github.com/lightninglabs/taproot-assets/tapfeatures"
 	"github.com/lightningnetwork/lnd/channeldb"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
@@ -67,12 +66,12 @@ func FetchLeavesFromView(chainParams *address.ChainParams,
 		),
 	)
 
-	supportsSTXO := features.HasFeature(tapfeatures.STXOOptional)
+	stxoFeatures := NewSTXOFeatures(features)
 
 	allocations, newCommitment, err := GenerateCommitmentAllocations(
 		prevState, in.ChannelState, chanAssetState, in.WhoseCommit,
 		in.OurBalance, in.TheirBalance, in.UnfilteredView, chainParams,
-		in.KeyRing, supportsSTXO,
+		in.KeyRing, stxoFeatures,
 	)
 	if err != nil {
 		return lfn.Err[returnType](fmt.Errorf("unable to generate "+
@@ -117,7 +116,8 @@ func FetchLeavesFromCommit(chainParams *address.ChainParams,
 			"commitment: %w", err))
 	}
 
-	supportSTXO := commitment.STXO.Val
+	stxoFeatures := CommitmentSTXOFeatures(commitment)
+	warnMissingSpenderLeaves(chanState.FundingOutpoint, stxoFeatures)
 
 	incomingHtlcs := commitment.IncomingHtlcAssets.Val.HtlcOutputs
 	incomingHtlcLeaves := commitment.AuxLeaves.Val.IncomingHtlcLeaves.
@@ -150,7 +150,7 @@ func FetchLeavesFromCommit(chainParams *address.ChainParams,
 			leaf, err := CreateSecondLevelHtlcTx(
 				chanState, com.CommitTx, htlc.Amt.ToSatoshis(),
 				keys, chainParams, htlcOutputs, cltvTimeout,
-				htlc.HtlcIndex, supportSTXO,
+				htlc.HtlcIndex, stxoFeatures,
 			)
 			if err != nil {
 				return lfn.Err[returnType](fmt.Errorf("unable "+
@@ -191,7 +191,7 @@ func FetchLeavesFromCommit(chainParams *address.ChainParams,
 			leaf, err := CreateSecondLevelHtlcTx(
 				chanState, com.CommitTx, htlc.Amt.ToSatoshis(),
 				keys, chainParams, htlcOutputs, cltvTimeout,
-				htlc.HtlcIndex, supportSTXO,
+				htlc.HtlcIndex, stxoFeatures,
 			)
 			if err != nil {
 				return lfn.Err[returnType](fmt.Errorf("unable "+
@@ -276,14 +276,12 @@ func ApplyHtlcView(chainParams *address.ChainParams,
 		),
 	)
 
-	supportSTXO := features.HasFeature(
-		tapfeatures.STXOOptional,
-	)
+	stxoFeatures := NewSTXOFeatures(features)
 
 	_, newCommitment, err := GenerateCommitmentAllocations(
 		prevState, in.ChannelState, chanAssetState, in.WhoseCommit,
 		in.OurBalance, in.TheirBalance, in.UnfilteredView, chainParams,
-		in.KeyRing, supportSTXO,
+		in.KeyRing, stxoFeatures,
 	)
 	if err != nil {
 		return lfn.Err[returnType](fmt.Errorf("unable to generate "+

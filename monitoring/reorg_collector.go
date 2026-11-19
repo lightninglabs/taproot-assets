@@ -48,8 +48,8 @@ func newReorgCollector(cfg *PrometheusConfig,
 		stuckDelivery: prometheus.NewGauge(
 			prometheus.GaugeOpts{
 				Name: "reorg_stuck_deliveries",
-				Help: "Anchorings whose site delivery is " +
-					"flagged stuck",
+				Help: "Anchorings flagged stuck after " +
+					"repeated delivery failures",
 			},
 		),
 		deliveryLag: prometheus.NewGauge(

@@ -2460,6 +2460,7 @@ func payInvoiceWithSatoshiLastHop(t *testing.T,
 type assetHodlInvoice struct {
 	preimage lntypes.Preimage
 	payReq   string
+	payAddr  []byte
 }
 
 // createAssetHodlInvoice creates a hodl invoice for the given asset amount.
@@ -2498,7 +2499,8 @@ func createAssetHodlInvoice(t *testing.T, dstRfqPeer,
 		InvoiceRequest: &lnrpc.Invoice{
 			Memo: fmt.Sprintf("this is an asset invoice for "+
 				"%d units", assetAmount),
-			Expiry: timeoutSeconds,
+			Expiry:     timeoutSeconds,
+			RouteHints: cfg.routeHints,
 		},
 		HodlInvoice: &tchrpc.HodlInvoice{
 			PaymentHash: payHash[:],
@@ -2514,6 +2516,11 @@ func createAssetHodlInvoice(t *testing.T, dstRfqPeer,
 	}
 
 	resp, err := dst.TaprootAssetChannelsClient.AddInvoice(ctxt, request)
+	if cfg.errSubStr != "" {
+		require.ErrorContains(t, err, cfg.errSubStr)
+
+		return assetHodlInvoice{}
+	}
 	require.NoError(t, err)
 
 	decodedInvoice, err := dst.DecodePayReq(ctxt, &lnrpc.PayReqString{
@@ -2541,6 +2548,7 @@ func createAssetHodlInvoice(t *testing.T, dstRfqPeer,
 	return assetHodlInvoice{
 		preimage: preimage,
 		payReq:   resp.InvoiceResult.PaymentRequest,
+		payAddr:  decodedInvoice.PaymentAddr,
 	}
 }
 
@@ -2819,7 +2827,7 @@ func recvHtlcEventWithTimeout(c subscribeEventsClient,
 		return result.evt, result.err
 
 	case <-time.After(timeout):
-		return nil, fmt.Errorf("Htlc event receive timeout")
+		return nil, fmt.Errorf("htlc event receive timeout")
 	}
 }
 
@@ -3470,7 +3478,12 @@ func assertForceCloseSweeps(ctx context.Context,
 	// appearance in the mempool (and its confirmation, since we mine
 	// aggressively). So we poll ListSweeps instead of asserting on a
 	// single snapshot.
-	var bobSweepTx *wire.MsgTx
+	//
+	// Bob's timeout HTLCs may be split across several of the mined sweep
+	// transactions, so we count HTLC inputs over all of them. There's
+	// always an extra input that pays for the fees, so we can only count
+	// the remainder of each transaction's inputs as HTLC inputs.
+	var numSweptHTLCs int
 	err = wait.NoError(func() error {
 		bobSweeps, err := bob.WalletKitClient.ListSweeps(
 			ctx, &walletrpc.ListSweepsRequest{
@@ -3481,6 +3494,8 @@ func assertForceCloseSweeps(ctx context.Context,
 			return err
 		}
 
+		var found bool
+		numSweptHTLCs = 0
 		txns := bobSweeps.GetTransactionDetails().Transactions
 		for _, sweep := range txns {
 			for _, tx := range timeoutSweeps {
@@ -3495,29 +3510,26 @@ func assertForceCloseSweeps(ctx context.Context,
 					return err
 				}
 
-				bobSweepTx = &wire.MsgTx{}
-				err = bobSweepTx.Deserialize(
+				var sweepTx wire.MsgTx
+				err = sweepTx.Deserialize(
 					bytes.NewReader(txBytes),
 				)
 				if err != nil {
 					return err
 				}
 
-				return nil
+				numSweptHTLCs += len(sweepTx.TxIn) - 1
+				found = true
 			}
 		}
 
-		if bobSweepTx == nil {
-			return fmt.Errorf("Bob's sweep transaction not found")
+		if !found {
+			return fmt.Errorf("bob's sweep transaction not found")
 		}
 
 		return nil
 	}, ccShortTimeout)
 	require.NoError(t.t, err)
-
-	// There's always an extra input that pays for the fees. So we can only
-	// count the remainder as HTLC inputs.
-	numSweptHTLCs := len(bobSweepTx.TxIn) - 1
 
 	// If we didn't yet sweep all HTLCs, then we need to wait for another
 	// sweep.

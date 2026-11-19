@@ -110,6 +110,15 @@ func TestValidateMetaReveal(t *testing.T) {
 			expectedErr: ErrDecDisplayTooLarge,
 		},
 		{
+			name: "invalid JSON and invalid decimal display",
+			reveal: &MetaReveal{
+				Type:           MetaJson,
+				Data:           []byte("invalid"),
+				DecimalDisplay: fn.Some[uint32](999),
+			},
+			expectedErr: ErrDecDisplayTooLarge,
+		},
+		{
 			name: "correct decimal display",
 			reveal: &MetaReveal{
 				Type:           MetaJson,
@@ -581,24 +590,16 @@ func TestMetaJsonEncodeDecodeProperties(t *testing.T) {
 	})
 }
 
-// TestDecodeMetaJSONOversizedProperty tests that DecodeMetaJSON returns an
-// error when the input byte slice is larger than MetaDataMaxSizeBytes.
-func TestDecodeMetaJSONOversizedProperty(t *testing.T) {
+// TestDecodeMetaJSONOversized tests that DecodeMetaJSON returns an error
+// when the input byte slice is larger than MetaDataMaxSizeBytes.
+func TestDecodeMetaJSONOversized(t *testing.T) {
 	t.Parallel()
 
-	rapid.Check(t, func(rt *rapid.T) {
-		// Generate a byte slice that is guaranteed to be too large. We
-		// add a small delta to avoid generating slices that are
-		// excessively large and slow down the test.
-		oversizedBytes := rapid.SliceOfN(
-			rapid.Byte(),
-			MetaDataMaxSizeBytes+1,
-			MetaDataMaxSizeBytes+10,
-		).Draw(rt, "oversizedBytes")
-
-		_, err := DecodeMetaJSON(oversizedBytes)
-		require.ErrorIs(rt, err, ErrMetaDataTooLarge)
-	})
+	sizes := []int{MetaDataMaxSizeBytes + 1, MetaDataMaxSizeBytes + 10}
+	for _, size := range sizes {
+		_, err := DecodeMetaJSON(test.RandBytes(size))
+		require.ErrorIs(t, err, ErrMetaDataTooLarge)
+	}
 }
 
 // TestDecodeMetaJSONInvalidJSONProperty tests that DecodeMetaJSON returns an

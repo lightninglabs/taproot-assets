@@ -15,6 +15,16 @@ NUM_CC_ITEST_TRANCHES = 1
 CC_ITEST_PARALLELISM = $(NUM_CC_ITEST_TRANCHES)
 SHUFFLE_SEED = 0
 
+# Third-party pure-Go packages compiled without race detector
+# instrumentation in race builds.
+RACE_GCFLAGS = -gcflags='modernc.org/...=-race=false' \
+	-gcflags='github.com/decred/dcrd/dcrec/secp256k1/...=-race=false'
+
+# Race builds disable size-specialized malloc. Its allocation routines,
+# called only from packages built without race instrumentation, do not
+# register allocations with the race detector.
+unit-race unit-race-parallel: export GOEXPERIMENT = nosizespecializedmalloc
+
 GOLIST := go list -tags="$(DEV_TAGS)" -deps $(PKG)/... | grep '$(PKG)'| grep -v '/vendor/'
 GOLISTCOVER := $(shell go list -tags="$(DEV_TAGS)" -deps -f '{{.ImportPath}}' ./... | grep '$(PKG)' | sed -e 's/^$(ESCPKG)/./')
 
@@ -157,7 +167,7 @@ UNIT := $(GOTEST) $(UNIT_VERBOSE_FLAG) -tags="$(DEV_TAGS) $(LOG_TAGS)" $(TEST_FL
 UNIT_COVER := $(GOTEST) $(UNIT_VERBOSE_FLAG) -coverprofile=coverage.txt -tags="$(DEV_TAGS) $(LOG_TAGS)" $(TEST_FLAGS) $(UNITPKG)
 UNIT_DEBUG := $(GOTEST) -v -tags="$(DEV_TAGS) $(LOG_TAGS)" $(TEST_FLAGS) $(UNITPKG)
 UNIT_TRACE := $(GOTEST) -v -tags="$(DEV_TAGS) stdout trace" $(TEST_FLAGS) $(UNITPKG)
-UNIT_RACE := $(GOTEST) $(UNIT_VERBOSE_FLAG) -tags="$(DEV_TAGS) $(LOG_TAGS) lowscrypt" $(TEST_FLAGS) -race $(UNITPKG)
+UNIT_RACE := $(GOTEST) $(UNIT_VERBOSE_FLAG) -tags="$(DEV_TAGS) $(LOG_TAGS) lowscrypt" $(TEST_FLAGS) -race $(RACE_GCFLAGS) $(UNITPKG)
 endif
 
 ifeq ($(UNIT_TARGETED), no)
@@ -165,7 +175,7 @@ UNIT := $(GOLIST) | $(UNIT_XARGS) env $(GOTEST) $(UNIT_VERBOSE_FLAG) -tags="$(DE
 UNIT_COVER := $(GOTEST) $(UNIT_VERBOSE_FLAG) $(UNIT_PARALLEL_FLAG) -coverprofile=coverage.txt -tags="$(DEV_TAGS) $(LOG_TAGS)" $(TEST_FLAGS) ./...
 UNIT_DEBUG := $(GOLIST) | $(UNIT_XARGS) env $(GOTEST) -v -tags="$(DEV_TAGS) $(LOG_TAGS)" $(TEST_FLAGS)
 UNIT_TRACE := $(GOLIST) | $(UNIT_XARGS) env $(GOTEST) -v -tags="$(DEV_TAGS) stdout trace" $(TEST_FLAGS)
-UNIT_RACE := $(UNIT) -race
+UNIT_RACE := $(UNIT) -race $(RACE_GCFLAGS)
 endif
 
 

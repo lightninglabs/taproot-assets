@@ -495,6 +495,16 @@ func (q *Queries) CountUnconfirmedAssets(ctx context.Context, arg CountUnconfirm
 	return count, err
 }
 
+const DeleteAssetProofAnchors = `-- name: DeleteAssetProofAnchors :exec
+DELETE FROM asset_proof_anchors
+WHERE proof_id = $1
+`
+
+func (q *Queries) DeleteAssetProofAnchors(ctx context.Context, proofID int64) error {
+	_, err := q.db.ExecContext(ctx, DeleteAssetProofAnchors, proofID)
+	return err
+}
+
 const DeleteExpiredUTXOLeases = `-- name: DeleteExpiredUTXOLeases :exec
 UPDATE managed_utxos
 SET lease_owner = NULL, lease_expiry = NULL
@@ -806,6 +816,32 @@ func (q *Queries) FetchAssetProof(ctx context.Context, arg FetchAssetProofParams
 	return items, nil
 }
 
+const FetchAssetProofFileByProofID = `-- name: FetchAssetProofFileByProofID :one
+SELECT proof_file
+FROM asset_proofs
+WHERE proof_id = $1
+`
+
+func (q *Queries) FetchAssetProofFileByProofID(ctx context.Context, proofID int64) ([]byte, error) {
+	row := q.db.QueryRowContext(ctx, FetchAssetProofFileByProofID, proofID)
+	var proof_file []byte
+	err := row.Scan(&proof_file)
+	return proof_file, err
+}
+
+const FetchAssetProofID = `-- name: FetchAssetProofID :one
+SELECT proof_id
+FROM asset_proofs
+WHERE asset_id = $1
+`
+
+func (q *Queries) FetchAssetProofID(ctx context.Context, assetID int64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, FetchAssetProofID, assetID)
+	var proof_id int64
+	err := row.Scan(&proof_id)
+	return proof_id, err
+}
+
 const FetchAssetProofs = `-- name: FetchAssetProofs :many
 WITH asset_info AS (
     SELECT assets.asset_id, script_keys.tweaked_script_key
@@ -834,6 +870,65 @@ func (q *Queries) FetchAssetProofs(ctx context.Context) ([]FetchAssetProofsRow, 
 	for rows.Next() {
 		var i FetchAssetProofsRow
 		if err := rows.Scan(&i.ScriptKey, &i.ProofFile); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const FetchAssetProofsByAnchorTx = `-- name: FetchAssetProofsByAnchorTx :many
+SELECT asset_proofs.proof_id, asset_proofs.asset_id,
+       asset_proofs.proof_file, genesis_assets.asset_id AS genesis_asset_id,
+       script_keys.tweaked_script_key, managed_utxos.outpoint
+FROM asset_proof_anchors
+JOIN asset_proofs
+    ON asset_proofs.proof_id = asset_proof_anchors.proof_id
+JOIN assets
+    ON assets.asset_id = asset_proofs.asset_id
+JOIN genesis_assets
+    ON genesis_assets.gen_asset_id = assets.genesis_id
+JOIN script_keys
+    ON script_keys.script_key_id = assets.script_key_id
+JOIN managed_utxos
+    ON managed_utxos.utxo_id = assets.anchor_utxo_id
+WHERE asset_proof_anchors.anchor_txid = $1
+  AND asset_proofs.provenance_indexed = TRUE
+ORDER BY asset_proofs.proof_id
+`
+
+type FetchAssetProofsByAnchorTxRow struct {
+	ProofID          int64
+	AssetID          int64
+	ProofFile        []byte
+	GenesisAssetID   []byte
+	TweakedScriptKey []byte
+	Outpoint         []byte
+}
+
+func (q *Queries) FetchAssetProofsByAnchorTx(ctx context.Context, anchorTxid []byte) ([]FetchAssetProofsByAnchorTxRow, error) {
+	rows, err := q.db.QueryContext(ctx, FetchAssetProofsByAnchorTx, anchorTxid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FetchAssetProofsByAnchorTxRow
+	for rows.Next() {
+		var i FetchAssetProofsByAnchorTxRow
+		if err := rows.Scan(
+			&i.ProofID,
+			&i.AssetID,
+			&i.ProofFile,
+			&i.GenesisAssetID,
+			&i.TweakedScriptKey,
+			&i.Outpoint,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -930,6 +1025,44 @@ func (q *Queries) FetchAssetProofsByIDs(ctx context.Context, assetIds []int64) (
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const FetchAssetProofsForAdoption = `-- name: FetchAssetProofsForAdoption :many
+SELECT asset_proofs.proof_file
+FROM asset_proofs
+JOIN assets
+    ON assets.asset_id = asset_proofs.asset_id
+LEFT JOIN managed_utxos
+    ON managed_utxos.utxo_id = assets.anchor_utxo_id
+LEFT JOIN chain_txns
+    ON chain_txns.txn_id = managed_utxos.txn_id
+WHERE chain_txns.block_height IS NULL
+   OR chain_txns.block_height = 0
+   OR chain_txns.block_height >= $1
+ORDER BY asset_proofs.proof_id
+`
+
+func (q *Queries) FetchAssetProofsForAdoption(ctx context.Context, minBlockHeight sql.NullInt32) ([][]byte, error) {
+	rows, err := q.db.QueryContext(ctx, FetchAssetProofsForAdoption, minBlockHeight)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items [][]byte
+	for rows.Next() {
+		var proof_file []byte
+		if err := rows.Scan(&proof_file); err != nil {
+			return nil, err
+		}
+		items = append(items, proof_file)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
@@ -1500,6 +1633,66 @@ func (q *Queries) FetchGroupByGroupKey(ctx context.Context, groupKey []byte) (Fe
 	return i, err
 }
 
+const FetchGroupWitnessesByGroupKey = `-- name: FetchGroupWitnessesByGroupKey :many
+SELECT
+    key_group_info_view.version AS version,
+    key_group_info_view.gen_asset_id AS gen_asset_id,
+    key_group_info_view.raw_key AS raw_key,
+    key_group_info_view.key_index AS key_index,
+    key_group_info_view.key_family AS key_family,
+    key_group_info_view.tapscript_root AS tapscript_root,
+    key_group_info_view.witness_stack AS witness_stack,
+    key_group_info_view.custom_subtree_root AS custom_subtree_root
+FROM key_group_info_view
+WHERE (
+    key_group_info_view.tweaked_group_key = $1
+)
+ORDER BY key_group_info_view.witness_id
+`
+
+type FetchGroupWitnessesByGroupKeyRow struct {
+	Version           int32
+	GenAssetID        int64
+	RawKey            []byte
+	KeyIndex          int32
+	KeyFamily         int32
+	TapscriptRoot     []byte
+	WitnessStack      []byte
+	CustomSubtreeRoot []byte
+}
+
+func (q *Queries) FetchGroupWitnessesByGroupKey(ctx context.Context, groupKey []byte) ([]FetchGroupWitnessesByGroupKeyRow, error) {
+	rows, err := q.db.QueryContext(ctx, FetchGroupWitnessesByGroupKey, groupKey)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FetchGroupWitnessesByGroupKeyRow
+	for rows.Next() {
+		var i FetchGroupWitnessesByGroupKeyRow
+		if err := rows.Scan(
+			&i.Version,
+			&i.GenAssetID,
+			&i.RawKey,
+			&i.KeyIndex,
+			&i.KeyFamily,
+			&i.TapscriptRoot,
+			&i.WitnessStack,
+			&i.CustomSubtreeRoot,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const FetchGroupedAssets = `-- name: FetchGroupedAssets :many
 SELECT
     assets.asset_id AS asset_primary_key,
@@ -1918,6 +2111,108 @@ func (q *Queries) FetchMintingBatchesByInverseState(ctx context.Context, batchSt
 	return items, nil
 }
 
+const FetchOrphanManagedUTXOs = `-- name: FetchOrphanManagedUTXOs :many
+SELECT
+    utxos.utxo_id, utxos.outpoint, utxos.amt_sats, utxos.internal_key_id, utxos.taproot_asset_root, utxos.tapscript_sibling, utxos.merkle_root, utxos.txn_id, utxos.lease_owner, utxos.lease_expiry, utxos.root_version, utxos.swept_txn_id,
+    keys.key_id, keys.raw_key, keys.key_family, keys.key_index,
+    MAX(CASE
+        WHEN COALESCE(script_keys.key_type, 0) = $1
+            OR script_keys.key_type = $2
+        THEN 1 ELSE 0
+    END) = 1 AS needs_asset_validation
+FROM managed_utxos utxos
+JOIN internal_keys keys
+    ON utxos.internal_key_id = keys.key_id
+JOIN assets
+    ON assets.anchor_utxo_id = utxos.utxo_id
+JOIN script_keys
+    ON assets.script_key_id = script_keys.script_key_id
+GROUP BY utxos.utxo_id, keys.key_id
+HAVING SUM(CASE
+    WHEN COALESCE(script_keys.key_type, 0) = $1
+        OR script_keys.key_type = $2
+        OR (
+            script_keys.key_type = $3
+            AND script_keys.tweaked_script_key = $4
+            AND assets.amount = 0
+        )
+    THEN 0 ELSE 1
+END) = 0
+`
+
+type FetchOrphanManagedUTXOsParams struct {
+	UnknownKeyType   sql.NullInt16
+	BurnKeyType      sql.NullInt16
+	TombstoneKeyType sql.NullInt16
+	NumsKey          []byte
+}
+
+type FetchOrphanManagedUTXOsRow struct {
+	UtxoID               int64
+	Outpoint             []byte
+	AmtSats              int64
+	InternalKeyID        int64
+	TaprootAssetRoot     []byte
+	TapscriptSibling     []byte
+	MerkleRoot           []byte
+	TxnID                int64
+	LeaseOwner           []byte
+	LeaseExpiry          sql.NullTime
+	RootVersion          sql.NullInt16
+	SweptTxnID           sql.NullInt64
+	KeyID                int64
+	RawKey               []byte
+	KeyFamily            int32
+	KeyIndex             int32
+	NeedsAssetValidation bool
+}
+
+func (q *Queries) FetchOrphanManagedUTXOs(ctx context.Context, arg FetchOrphanManagedUTXOsParams) ([]FetchOrphanManagedUTXOsRow, error) {
+	rows, err := q.db.QueryContext(ctx, FetchOrphanManagedUTXOs,
+		arg.UnknownKeyType,
+		arg.BurnKeyType,
+		arg.TombstoneKeyType,
+		arg.NumsKey,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FetchOrphanManagedUTXOsRow
+	for rows.Next() {
+		var i FetchOrphanManagedUTXOsRow
+		if err := rows.Scan(
+			&i.UtxoID,
+			&i.Outpoint,
+			&i.AmtSats,
+			&i.InternalKeyID,
+			&i.TaprootAssetRoot,
+			&i.TapscriptSibling,
+			&i.MerkleRoot,
+			&i.TxnID,
+			&i.LeaseOwner,
+			&i.LeaseExpiry,
+			&i.RootVersion,
+			&i.SweptTxnID,
+			&i.KeyID,
+			&i.RawKey,
+			&i.KeyFamily,
+			&i.KeyIndex,
+			&i.NeedsAssetValidation,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const FetchScriptKeyByTweakedKey = `-- name: FetchScriptKeyByTweakedKey :one
 SELECT script_keys.script_key_id, script_keys.internal_key_id, script_keys.tweaked_script_key, script_keys.tweak, script_keys.key_type, internal_keys.key_id, internal_keys.raw_key, internal_keys.key_family, internal_keys.key_index
 FROM script_keys
@@ -2192,6 +2487,49 @@ func (q *Queries) FetchTapscriptTree(ctx context.Context, rootHash []byte) ([]Fe
 	return items, nil
 }
 
+const FetchUnindexedAssetProofs = `-- name: FetchUnindexedAssetProofs :many
+SELECT proof_id, asset_id, proof_file
+FROM asset_proofs
+WHERE provenance_indexed = FALSE
+  AND proof_id > $1
+ORDER BY proof_id
+LIMIT $2
+`
+
+type FetchUnindexedAssetProofsParams struct {
+	AfterProofID int64
+	RowLimit     int32
+}
+
+type FetchUnindexedAssetProofsRow struct {
+	ProofID   int64
+	AssetID   int64
+	ProofFile []byte
+}
+
+func (q *Queries) FetchUnindexedAssetProofs(ctx context.Context, arg FetchUnindexedAssetProofsParams) ([]FetchUnindexedAssetProofsRow, error) {
+	rows, err := q.db.QueryContext(ctx, FetchUnindexedAssetProofs, arg.AfterProofID, arg.RowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FetchUnindexedAssetProofsRow
+	for rows.Next() {
+		var i FetchUnindexedAssetProofsRow
+		if err := rows.Scan(&i.ProofID, &i.AssetID, &i.ProofFile); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const FetchUnknownTypeScriptKeys = `-- name: FetchUnknownTypeScriptKeys :many
 SELECT script_keys.script_key_id, script_keys.internal_key_id, script_keys.tweaked_script_key, script_keys.tweak, script_keys.key_type, internal_keys.key_id, internal_keys.raw_key, internal_keys.key_family, internal_keys.key_index
 FROM script_keys
@@ -2323,6 +2661,24 @@ func (q *Queries) HasAssetProof(ctx context.Context, tweakedScriptKey []byte) (b
 	return has_proof, err
 }
 
+const InsertAssetProofAnchor = `-- name: InsertAssetProofAnchor :exec
+INSERT INTO asset_proof_anchors (
+    proof_id, anchor_txid
+) VALUES (
+    $1, $2
+) ON CONFLICT (proof_id, anchor_txid) DO NOTHING
+`
+
+type InsertAssetProofAnchorParams struct {
+	ProofID    int64
+	AnchorTxid []byte
+}
+
+func (q *Queries) InsertAssetProofAnchor(ctx context.Context, arg InsertAssetProofAnchorParams) error {
+	_, err := q.db.ExecContext(ctx, InsertAssetProofAnchor, arg.ProofID, arg.AnchorTxid)
+	return err
+}
+
 const InsertAssetSeedling = `-- name: InsertAssetSeedling :exec
 INSERT INTO asset_seedlings (
     asset_name, asset_type, asset_version, asset_supply, asset_meta_id,
@@ -2440,6 +2796,17 @@ func (q *Queries) InsertAssetSeedlingIntoBatch(ctx context.Context, arg InsertAs
 	return err
 }
 
+const MarkAssetProofProvenanceIndexed = `-- name: MarkAssetProofProvenanceIndexed :exec
+UPDATE asset_proofs
+SET provenance_indexed = TRUE
+WHERE proof_id = $1
+`
+
+func (q *Queries) MarkAssetProofProvenanceIndexed(ctx context.Context, proofID int64) error {
+	_, err := q.db.ExecContext(ctx, MarkAssetProofProvenanceIndexed, proofID)
+	return err
+}
+
 const MarkManagedUTXOAsSwept = `-- name: MarkManagedUTXOAsSwept :exec
 WITH spending_tx AS (
     SELECT txn_id
@@ -2482,6 +2849,51 @@ func (q *Queries) NewMintingBatch(ctx context.Context, arg NewMintingBatchParams
 		arg.UniverseCommitments,
 	)
 	return err
+}
+
+const ProofAnchorSiteOwnership = `-- name: ProofAnchorSiteOwnership :one
+SELECT
+    EXISTS (
+        SELECT 1
+        FROM asset_minting_batches batches
+        JOIN genesis_points points
+          ON points.genesis_id = batches.genesis_id
+        JOIN chain_txns txns
+          ON txns.txn_id = points.anchor_tx_id
+        WHERE txns.txid = $1
+    ) AS mint_owned,
+    EXISTS (
+        SELECT 1
+        FROM asset_transfers transfers
+        JOIN chain_txns txns
+          ON txns.txn_id = transfers.anchor_txn_id
+        WHERE txns.txid = $1
+          AND transfers.abandoned = FALSE
+    ) AS porter_owned,
+    EXISTS (
+        SELECT 1
+        FROM addr_event_proofs event_proofs
+        JOIN asset_proof_anchors anchors
+          ON anchors.proof_id = event_proofs.asset_proof_id
+        WHERE anchors.anchor_txid = $1
+    ) AS receive_owned
+`
+
+type ProofAnchorSiteOwnershipRow struct {
+	MintOwned    bool
+	PorterOwned  bool
+	ReceiveOwned bool
+}
+
+// Classify local subsystem state staked on one proof transition. Mint and
+// porter rows require their own compensation. An address-event reference is
+// independently receive-owned, including for a self-send that is also owned
+// by the porter.
+func (q *Queries) ProofAnchorSiteOwnership(ctx context.Context, anchorTxid []byte) (ProofAnchorSiteOwnershipRow, error) {
+	row := q.db.QueryRowContext(ctx, ProofAnchorSiteOwnership, anchorTxid)
+	var i ProofAnchorSiteOwnershipRow
+	err := row.Scan(&i.MintOwned, &i.PorterOwned, &i.ReceiveOwned)
+	return i, err
 }
 
 const QueryAssetBalancesByAsset = `-- name: QueryAssetBalancesByAsset :many
@@ -2977,6 +3389,84 @@ func (q *Queries) SetAssetSpent(ctx context.Context, arg SetAssetSpentParams) (i
 	return asset_id, err
 }
 
+const SetAssetSpentByID = `-- name: SetAssetSpentByID :exec
+UPDATE assets
+SET spent = TRUE
+WHERE asset_id = $1
+`
+
+// Marks one asset row spent by its primary key. Used by abandonment
+// compensation for a passive holding whose restored anchor outpoint
+// the foreclosing transaction consumed: the holding's provenance is
+// intact but the outpoint belongs to someone else, so it must not
+// count toward balances or coin selection.
+func (q *Queries) SetAssetSpentByID(ctx context.Context, assetID int64) error {
+	_, err := q.db.ExecContext(ctx, SetAssetSpentByID, assetID)
+	return err
+}
+
+const SetAssetUnspent = `-- name: SetAssetUnspent :one
+WITH target_asset(asset_id) AS (
+    SELECT assets.asset_id
+    FROM assets
+    JOIN script_keys
+      ON assets.script_key_id = script_keys.script_key_id
+    JOIN genesis_assets
+      ON assets.genesis_id = genesis_assets.gen_asset_id
+    JOIN managed_utxos utxos
+         ON assets.anchor_utxo_id = utxos.utxo_id AND
+            (utxos.outpoint = $3 OR
+             $3 IS NULL)
+    WHERE script_keys.tweaked_script_key = $1
+     AND genesis_assets.asset_id = $2
+)
+UPDATE assets
+SET spent = FALSE
+WHERE asset_id = (SELECT asset_id FROM target_asset)
+  AND NOT EXISTS (
+      SELECT 1
+      FROM asset_transfer_inputs claimant_in
+      JOIN asset_transfers claimant
+        ON claimant.id = claimant_in.transfer_id
+      JOIN chain_txns claimant_txn
+        ON claimant_txn.txn_id = claimant.anchor_txn_id
+      WHERE claimant_in.script_key = $1
+        AND claimant_in.asset_id = $2
+        AND (claimant_in.anchor_point = $3 OR
+             $3 IS NULL)
+        AND claimant_txn.block_hash IS NOT NULL
+  )
+RETURNING assets.asset_id
+`
+
+type SetAssetUnspentParams struct {
+	ScriptKey   []byte
+	GenAssetID  []byte
+	AnchorPoint []byte
+}
+
+// The inverse of SetAssetSpent, applied when the transfer that spent
+// the asset is abandoned and nothing else consumed its anchor input
+// on the surviving chain.
+//
+// Two claimants can contradict that premise. A rival local transfer
+// may have confirmed against the same outpoint — the sweeper's fee
+// bump composes a replacement form — and only the losing form is
+// abandoned; the surviving-claimant test below guards that case, the
+// same test UnsupersedeSafeTransfers applies. Or the foreclosing
+// transaction itself consumed the outpoint (a third party, routine
+// for tapchannel triggers): that transaction is not a local transfer
+// and is invisible here, so the caller must not invoke this query
+// for inputs the foreclosure consumed. The abandoned transfer's own
+// confirmation is withdrawn before this runs, so it cannot answer
+// for itself.
+func (q *Queries) SetAssetUnspent(ctx context.Context, arg SetAssetUnspentParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, SetAssetUnspent, arg.ScriptKey, arg.GenAssetID, arg.AnchorPoint)
+	var asset_id int64
+	err := row.Scan(&asset_id)
+	return asset_id, err
+}
+
 const UpdateBatchGenesisTx = `-- name: UpdateBatchGenesisTx :exec
 WITH target_batch AS (
     SELECT batch_id
@@ -3130,6 +3620,49 @@ func (q *Queries) UpsertAssetGroupKey(ctx context.Context, arg UpsertAssetGroupK
 	return group_id, err
 }
 
+const UpsertAssetGroupKeyFull = `-- name: UpsertAssetGroupKeyFull :one
+INSERT INTO asset_groups (
+    version, tweaked_group_key, tapscript_root, internal_key_id,
+    genesis_point_id, custom_subtree_root_id
+) VALUES (
+    $1, $2, $3, $4, $5, $6
+) ON CONFLICT (tweaked_group_key)
+    -- The caller knows the group's raw key, so it also knows the version and
+    -- roots the tweaked key is derived from. Replace whatever an earlier
+    -- import of a reissuance stored, which had none of that and used the
+    -- tweaked key in place of the raw key.
+    DO UPDATE SET
+        version = EXCLUDED.version,
+        tapscript_root = EXCLUDED.tapscript_root,
+        internal_key_id = EXCLUDED.internal_key_id,
+        genesis_point_id = EXCLUDED.genesis_point_id,
+        custom_subtree_root_id = EXCLUDED.custom_subtree_root_id
+RETURNING group_id
+`
+
+type UpsertAssetGroupKeyFullParams struct {
+	Version             int32
+	TweakedGroupKey     []byte
+	TapscriptRoot       []byte
+	InternalKeyID       int64
+	GenesisPointID      int64
+	CustomSubtreeRootID sql.NullInt32
+}
+
+func (q *Queries) UpsertAssetGroupKeyFull(ctx context.Context, arg UpsertAssetGroupKeyFullParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, UpsertAssetGroupKeyFull,
+		arg.Version,
+		arg.TweakedGroupKey,
+		arg.TapscriptRoot,
+		arg.InternalKeyID,
+		arg.GenesisPointID,
+		arg.CustomSubtreeRootID,
+	)
+	var group_id int64
+	err := row.Scan(&group_id)
+	return group_id, err
+}
+
 const UpsertAssetGroupWitness = `-- name: UpsertAssetGroupWitness :one
 INSERT INTO asset_group_witnesses (
     witness_stack, gen_asset_id, group_key_id
@@ -3201,12 +3734,13 @@ func (q *Queries) UpsertAssetMeta(ctx context.Context, arg UpsertAssetMetaParams
 
 const UpsertAssetProofByID = `-- name: UpsertAssetProofByID :exec
 INSERT INTO asset_proofs (
-    asset_id, proof_file
+    asset_id, proof_file, provenance_indexed
 ) VALUES (
-    $1, $2
+    $1, $2, FALSE
 ) ON CONFLICT (asset_id)
     -- This is not a NOP, we always overwrite the proof with the new one.
-    DO UPDATE SET proof_file = EXCLUDED.proof_file
+    DO UPDATE SET proof_file = EXCLUDED.proof_file,
+                  provenance_indexed = FALSE
 `
 
 type UpsertAssetProofByIDParams struct {
@@ -3546,11 +4080,11 @@ VALUES (
     $5
 )
 ON CONFLICT(outpoint) DO UPDATE SET
+    -- Proof replay can update discovery metadata but cannot undo a spend.
     group_key            = EXCLUDED.group_key,
     taproot_internal_key = EXCLUDED.taproot_internal_key,
     outpoint             = EXCLUDED.outpoint,
-    chain_txn_db_id      = EXCLUDED.chain_txn_db_id,
-    spent_by             = EXCLUDED.spent_by
+    chain_txn_db_id      = EXCLUDED.chain_txn_db_id
 RETURNING id
 `
 

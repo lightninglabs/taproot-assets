@@ -37,6 +37,8 @@ type testCaseEncodeDecode struct {
 	assetRateLimit *uint64
 
 	oracleMetadata string
+
+	inAssetSwapAmt *uint64
 }
 
 // Request generates a requestWireMsgData instance from the test case.
@@ -130,6 +132,15 @@ func (tc testCaseEncodeDecode) Request() requestWireMsgData {
 		)
 	}
 
+	var inAssetSwapAmt requestInAssetSwapAmt
+	if tc.inAssetSwapAmt != nil {
+		inAssetSwapAmt = tlv.SomeRecordT[tlv.TlvType33](
+			tlv.NewPrimitiveRecord[tlv.TlvType33](
+				*tc.inAssetSwapAmt,
+			),
+		)
+	}
+
 	return requestWireMsgData{
 		Version:             version,
 		ID:                  id,
@@ -145,6 +156,7 @@ func (tc testCaseEncodeDecode) Request() requestWireMsgData {
 		MinOutAsset:         minOutAsset,
 		AssetRateLimit:      assetRateLimit,
 		PriceOracleMetadata: oracleMetadata,
+		InAssetSwapAmt:      inAssetSwapAmt,
 	}
 }
 
@@ -176,6 +188,7 @@ func TestRequestMsgDataEncodeDecode(t *testing.T) {
 	minInAsset := uint64(1)
 	minOutAsset := uint64(10)
 	assetRateLimit := uint64(50000)
+	inAssetSwapAmt := uint64(900)
 
 	testCases := []testCaseEncodeDecode{
 		{
@@ -196,6 +209,7 @@ func TestRequestMsgDataEncodeDecode(t *testing.T) {
 			minOutAsset:      &minOutAsset,
 			assetRateLimit:   &assetRateLimit,
 			oracleMetadata:   "this could be a JSON string",
+			inAssetSwapAmt:   &inAssetSwapAmt,
 		},
 		{
 			testName: "in asset ID, out asset ID zero, no asset " +

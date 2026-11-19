@@ -115,7 +115,7 @@ func FundGenesisTx(packet *psbt.Packet, feeRate chainfee.SatPerKWeight) uint32 {
 // FundPsbt funds a PSBT.
 func (m *WalletAnchor) FundPsbt(_ context.Context, packet *psbt.Packet,
 	_ uint32, _ chainfee.SatPerKWeight,
-	changeIdx int32) (*tapsend.FundedPsbt, error) {
+	_ int32) (*tapsend.FundedPsbt, error) {
 
 	// Mock outpoint index; not security-sensitive.
 	// nolint:gosec
@@ -143,7 +143,7 @@ func (m *WalletAnchor) FundPsbt(_ context.Context, packet *psbt.Packet,
 	packet.UnsignedTx.AddTxOut(&changeOutput)
 	packet.Outputs = append(packet.Outputs, psbt.POutput{})
 
-	changeIdx = int32(len(packet.Outputs) - 1)
+	changeIdx := int32(len(packet.Outputs) - 1)
 
 	pkt := &tapsend.FundedPsbt{
 		Pkt:               packet,

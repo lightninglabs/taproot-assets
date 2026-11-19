@@ -119,6 +119,7 @@ func TestRpcMarshalSellRequest(t *testing.T) {
 		req        *rfqmsg.SellRequest
 		wantPolicy pilotrpc.ExecutionPolicy
 		wantMin    uint64
+		wantSwap   uint64
 		wantLimit  bool
 	}{
 		{
@@ -130,6 +131,9 @@ func TestRpcMarshalSellRequest(t *testing.T) {
 				PaymentMinAmt: fn.Some(
 					lnwire.MilliSatoshi(500),
 				),
+				PaymentSwapAmt: fn.Some(
+					lnwire.MilliSatoshi(1800),
+				),
 				AssetRateLimit: fn.Some(rateLimit),
 				ExecutionPolicy: fn.Some(
 					rfqmsg.ExecutionPolicyFOK,
@@ -137,6 +141,7 @@ func TestRpcMarshalSellRequest(t *testing.T) {
 			},
 			wantPolicy: policyFOK,
 			wantMin:    500,
+			wantSwap:   1800,
 			wantLimit:  true,
 		},
 		{
@@ -171,6 +176,10 @@ func TestRpcMarshalSellRequest(t *testing.T) {
 				t, tc.wantMin,
 				rpc.PaymentMinAmount,
 			)
+			require.Equal(
+				t, tc.wantSwap,
+				rpc.PaymentSwapAmount,
+			)
 
 			if tc.wantLimit {
 				require.NotNil(t, rpc.AssetRateLimit)
@@ -187,4 +196,33 @@ func TestRpcMarshalSellRequest(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestRpcMarshalQueryAssetRatesRequest verifies that the optional amounts of
+// an asset rate query are marshaled into the RPC form, with unset amounts
+// becoming zero.
+func TestRpcMarshalQueryAssetRatesRequest(t *testing.T) {
+	t.Parallel()
+
+	spec := asset.NewSpecifierFromId(asset.ID{0xCC})
+
+	query := AssetRateQuery{
+		AssetSpecifier:    spec,
+		Direction:         AssetTransferSell,
+		Intent:            IntentPayInvoiceHint,
+		PaymentAmount:     fn.Some(lnwire.MilliSatoshi(2500)),
+		PaymentSwapAmount: fn.Some(lnwire.MilliSatoshi(2000)),
+	}
+
+	rpc, err := rpcMarshalQueryAssetRatesRequest(query)
+	require.NoError(t, err)
+	require.EqualValues(t, 2500, rpc.PaymentAmount)
+	require.EqualValues(t, 2000, rpc.PaymentSwapAmount)
+	require.Zero(t, rpc.AssetAmount)
+
+	query.PaymentSwapAmount = fn.None[lnwire.MilliSatoshi]()
+	rpc, err = rpcMarshalQueryAssetRatesRequest(query)
+	require.NoError(t, err)
+	require.EqualValues(t, 2500, rpc.PaymentAmount)
+	require.Zero(t, rpc.PaymentSwapAmount)
 }

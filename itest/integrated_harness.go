@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -22,6 +23,12 @@ import (
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 )
+
+// currentBinaryTapdArgs are the tapd args that nodes running the harness's
+// default binary get ahead of their test-specific args.
+var currentBinaryTapdArgs = []string{
+	"--universe.tls.insecure",
+}
 
 // IntegratedNetworkHarness manages a set of IntegratedNodes for integration
 // testing. It coordinates shared infrastructure such as chain backend
@@ -72,6 +79,18 @@ func NewIntegratedNetworkHarness(t *testing.T, binary string,
 	}
 }
 
+// ConnectMiner connects the chain backend to the miner.
+func (h *IntegratedNetworkHarness) ConnectMiner() error {
+	return h.chainBackend.ConnectMiner()
+}
+
+// DisconnectMiner disconnects the chain backend from the miner. Used by
+// re-org tests: with the backend detached, a temporary miner can extend a
+// competing fork that the backend then re-orgs onto when reconnected.
+func (h *IntegratedNetworkHarness) DisconnectMiner() error {
+	return h.chainBackend.DisconnectMiner()
+}
+
 // NewNode creates, starts, and returns a new IntegratedNode. Chain backend
 // connection args from the harness are automatically prepended to the node's
 // lnd args so the caller only needs to pass test-specific overrides.
@@ -91,8 +110,10 @@ func (h *IntegratedNetworkHarness) NewNode(name string,
 		lndArgs = append(lndArgs, "--fee.url="+h.FeeServiceURL)
 	}
 
+	tapdArgs := slices.Concat(currentBinaryTapdArgs, extraTapdArgs)
+
 	n := NewIntegratedNode(
-		h.t, name, h.binary, h.netParams, lndArgs, extraTapdArgs,
+		h.t, name, h.binary, h.netParams, lndArgs, tapdArgs,
 	)
 	n.Start()
 
@@ -125,6 +146,21 @@ func (h *IntegratedNetworkHarness) NewNodeWithBinary(name, binaryPath string,
 	h.activeNodes[name] = n
 
 	return n
+}
+
+// UpgradeNode restarts the given node on the harness's default binary, with
+// the given tapd args added, keeping its data directories. This simulates the
+// upgrade of a node that runs an older release to the current build.
+func (h *IntegratedNetworkHarness) UpgradeNode(node *IntegratedNode,
+	extraTapdArgs ...string) {
+
+	h.t.Helper()
+
+	node.Cfg.BinaryPath = h.binary
+	node.Cfg.ExtraTapdArgs = slices.Concat(
+		node.Cfg.ExtraTapdArgs, currentBinaryTapdArgs, extraTapdArgs,
+	)
+	node.Restart()
 }
 
 // TearDown stops all active nodes managed by this harness.
@@ -738,5 +774,5 @@ func copyFile(dst, src string) error {
 		return err
 	}
 
-	return os.WriteFile(dst, data, 0600)
+	return os.WriteFile(dst, data, 0600) //nolint:gosec
 }

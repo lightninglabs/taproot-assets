@@ -447,7 +447,7 @@
     },
     "/v1/taproot-assets/wallet/virtual-psbt/log-transfer": {
       "post": {
-        "summary": "PublishAndLogTransfer accepts a fully committed and signed anchor\ntransaction and publishes it to the Bitcoin network. It also logs the\ntransfer of the given active and passive assets in the database and ships\nany outgoing proofs to the counterparties.",
+        "summary": "PublishAndLogTransfer accepts a fully committed and signed anchor\ntransaction and publishes it to the Bitcoin network. It also logs the\ntransfer of the given active and passive assets in the database and ships\nany outgoing proofs to the counterparties. If sign_anchor_inputs is set,\ntapd first signs the anchor inputs it owns.",
         "operationId": "AssetWallet_PublishAndLogTransfer",
         "responses": {
           "200": {
@@ -605,7 +605,7 @@
         },
         "transition_proof_version": {
           "$ref": "#/definitions/assetwalletrpcTransitionProofVersion",
-          "description": "The version to use when generating the state transition proof suffixes.\nThis defaults to TRANSITION_PROOF_VERSION_V0 for backward compatibility."
+          "description": "The version to use when generating the state transition proof suffixes.\nIf unset, the daemon's default proof version is used."
         }
       }
     },
@@ -885,6 +885,18 @@
         "label": {
           "type": "string",
           "description": "An optional short label for the transfer. This label can be used to track\nthe progress of the transfer via the logs or an event subscription.\nMultiple transfers can share the same label."
+        },
+        "sign_anchor_inputs": {
+          "type": "boolean",
+          "description": "If set, tapd signs and finalizes the anchor inputs of this transfer that\nspend anchor outputs it owns and that have no final witness yet. All other\ninputs must already be finalized."
+        },
+        "input_proof_files": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "The proof files of asset inputs that this daemon's wallet holds no proof\nfor, such as an input whose last transitions happened in transactions\nthis daemon never saw. Each file must end in the proof of one of the\ntransfer's inputs. The daemon verifies each file and stores it in its\nproof archive, replacing any copy stored there, so it can extend the\ninput's proof once the anchor transaction confirms. A file for an input\nwhose proof the wallet holds is ignored."
         }
       }
     },
@@ -953,7 +965,7 @@
         "TRANSITION_PROOF_VERSION_V1"
       ],
       "default": "TRANSITION_PROOF_VERSION_V0",
-      "description": " - TRANSITION_PROOF_VERSION_V0: The first version of the state transition proof. This is the default for\nbackward compatibility.\n - TRANSITION_PROOF_VERSION_V1: The second version of the state transition proof. This version adds spent\ntransaction output (STXO) inclusion and exclusion proofs."
+      "description": " - TRANSITION_PROOF_VERSION_V0: The first version of the state transition proof. As the zero value of\nthis enum it is also what an unset field carries, so selecting it\napplies the daemon's default proof version rather than V0.\n - TRANSITION_PROOF_VERSION_V1: The second version of the state transition proof. This version adds spent\ntransaction output (STXO) inclusion and exclusion proofs."
     },
     "assetwalletrpcTxTemplate": {
       "type": "object",

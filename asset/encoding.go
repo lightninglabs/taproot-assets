@@ -36,7 +36,64 @@ var (
 	// ErrDuplicateScriptKeys is returned when two alt leaves have the same
 	// script key.
 	ErrDuplicateScriptKeys = errors.New("alt leaf: duplicate script keys")
+
+	// ErrRecordLength is returned when a record's value does not occupy
+	// exactly the record's declared length.
+	ErrRecordLength = errors.New("record: length mismatch")
 )
+
+// encodeOnce caches the serialization of a TLV record value so that the
+// record's size function and encoder share a single encoding pass.
+type encodeOnce struct {
+	val     any
+	enc     tlv.Encoder
+	encoded []byte
+	err     error
+	done    bool
+}
+
+func (e *encodeOnce) run() {
+	if e.done {
+		return
+	}
+	e.done = true
+
+	var buf bytes.Buffer
+	e.err = e.enc(&buf, e.val, &[8]byte{})
+	e.encoded = buf.Bytes()
+}
+
+func (e *encodeOnce) size() uint64 {
+	e.run()
+	if e.err != nil {
+		panic(e.err)
+	}
+	return uint64(len(e.encoded))
+}
+
+func (e *encodeOnce) encode(w io.Writer, _ any, _ *[8]byte) error {
+	e.run()
+	if e.err != nil {
+		return e.err
+	}
+	_, err := w.Write(e.encoded)
+	return err
+}
+
+// EncodeOnceRecord returns a dynamic TLV record whose value is serialized at
+// most once. A TLV stream asks every record for its size before encoding it,
+// so a size function that serializes the value doubles the work, and for
+// values that are TLV streams themselves the doubling compounds at every
+// level of nesting. Here the first request encodes the value and both the
+// size function and the encoder reuse the result. The value must not change
+// between the record's creation and its encoding, since the first size or
+// encode request pins the bytes.
+func EncodeOnceRecord(typ tlv.Type, val any, enc tlv.Encoder,
+	dec tlv.Decoder) tlv.Record {
+
+	e := &encodeOnce{val: val, enc: enc}
+	return tlv.MakeDynamicRecord(typ, val, e.size, e.encode, dec)
+}
 
 func VarIntEncoder(w io.Writer, val any, buf *[8]byte) error {
 	if t, ok := val.(*uint64); ok {
@@ -58,18 +115,35 @@ func VarIntDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 }
 
 func DVarBytesWithLimit(limit uint64) tlv.Decoder {
-	return func(r io.Reader, val interface{}, _ *[8]byte, l uint64) error {
+	return func(r io.Reader, val interface{}, buf *[8]byte,
+		l uint64) error {
+
 		if l > limit {
 			return tlv.ErrRecordTooLarge
 		}
 
-		if b, ok := val.(*[]byte); ok {
-			*b = make([]byte, l)
-			_, err := io.ReadFull(r, *b)
-			return err
-		}
-		return tlv.NewTypeForDecodingErr(val, "[]byte", l, l)
+		return tlv.DVarBytes(r, val, buf, l)
 	}
+}
+
+// decodeExact runs decode over the next l bytes of r, and fails unless decode
+// consumes all of them.
+func decodeExact(r io.Reader, l uint64, decode func(io.Reader) error) error {
+	if l > math.MaxInt64 {
+		return tlv.ErrRecordTooLarge
+	}
+
+	lr := &io.LimitedReader{R: r, N: int64(l)}
+	if err := decode(lr); err != nil {
+		return err
+	}
+
+	if lr.N != 0 {
+		return fmt.Errorf("%w: %d of %d bytes unread", ErrRecordLength,
+			lr.N, l)
+	}
+
+	return nil
 }
 
 func InlineVarBytesEncoder(w io.Writer, val any, buf *[8]byte) error {

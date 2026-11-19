@@ -14,6 +14,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/internal/test/lndmock"
 	"github.com/lightninglabs/taproot-assets/proof"
 	cmsg "github.com/lightninglabs/taproot-assets/tapchannelmsg"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
@@ -62,7 +63,7 @@ func RandAuxSigJob(t *testing.T, cancelChan chan struct{},
 	commitBlob lfn.Option[[]byte], outputIdx int32) lnwallet.AuxSigJob {
 
 	keyDesc, _ := test.RandKeyDesc(t)
-	keyRing := test.RandCommitmentKeyRing(t)
+	keyRing := lndmock.RandCommitmentKeyRing(t)
 
 	return lnwallet.AuxSigJob{
 		SignDesc: input.SignDescriptor{
@@ -112,6 +113,7 @@ func setupAuxLeafSigner(t *testing.T, numJobs int32) (*AuxLeafSigner,
 
 	com := cmsg.NewCommitment(
 		nil, nil, outgoingHtlcs, nil, lnwallet.CommitAuxLeaves{}, false,
+		false,
 	)
 	cancelChan := make(chan struct{})
 
@@ -251,7 +253,7 @@ var _ VirtualPacketSigner = (*mockVirtualSigner)(nil)
 
 // randProof returns a random proof that contains all information required for
 // it to be successfully serialized.
-func randProof(t *testing.T) proof.Proof {
+func randProof(t testing.TB) proof.Proof {
 	oddTxBlockHex, err := os.ReadFile(oddTxBlockHexFileName)
 	require.NoError(t, err)
 

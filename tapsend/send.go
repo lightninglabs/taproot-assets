@@ -20,7 +20,6 @@ import (
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btclog/v2"
 	"github.com/davecgh/go-spew/spew"
-	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
@@ -29,7 +28,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
-	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"golang.org/x/exp/maps"
 )
 
@@ -47,6 +45,18 @@ const (
 )
 
 var (
+	// psbtKeyTypeInputSignatureTweakSingle is the custom PSBT input key
+	// that holds a single tweak for the signing key. The value matches
+	// PsbtKeyTypeInputSignatureTweakSingle of lnd's lnwallet/btcwallet
+	// package.
+	psbtKeyTypeInputSignatureTweakSingle = []byte{0x51}
+
+	// psbtKeyTypeInputSignatureTweakDouble is the custom PSBT input key
+	// that holds a double tweak for the signing key. The value matches
+	// PsbtKeyTypeInputSignatureTweakDouble of lnd's lnwallet/btcwallet
+	// package.
+	psbtKeyTypeInputSignatureTweakDouble = []byte{0xd0}
+
 	// ErrInvalidCollectibleSplit is returned when a collectible is split
 	// into more than two outputs.
 	ErrInvalidCollectibleSplit = errors.New(
@@ -804,7 +814,7 @@ func CreateTaprootSignature(vIn *tappsbt.VInput, virtualTx *wire.MsgTx,
 
 	// Start with a default sign descriptor and the BIP-0086 sign method
 	// then adjust depending on the input parameters.
-	spendDesc := lndclient.SignDescriptor{
+	spendDesc := asset.SignDescriptor{
 		KeyDesc:    keyDesc,
 		SignMethod: input.TaprootKeySpendBIP0086SignMethod,
 		Output:     prevOut,
@@ -895,23 +905,17 @@ func CreateTaprootSignature(vIn *tappsbt.VInput, virtualTx *wire.MsgTx,
 
 // addKeyTweaks examines if there are any tweak parameters given in the
 // custom/proprietary PSBT fields and may add them to the given sign descriptor.
-func addKeyTweaks(unknowns []*psbt.Unknown, desc *lndclient.SignDescriptor) {
+func addKeyTweaks(unknowns []*psbt.Unknown, desc *asset.SignDescriptor) {
 	// There can be other custom/unknown keys in a PSBT that we just ignore.
 	// Key tweaking is optional and only one tweak (single _or_ double) can
 	// ever be applied (at least for any use cases described in the BOLT
 	// spec).
 	for _, u := range unknowns {
-		if bytes.Equal(
-			u.Key, btcwallet.PsbtKeyTypeInputSignatureTweakSingle,
-		) {
-
+		if bytes.Equal(u.Key, psbtKeyTypeInputSignatureTweakSingle) {
 			desc.SingleTweak = u.Value
 		}
 
-		if bytes.Equal(
-			u.Key, btcwallet.PsbtKeyTypeInputSignatureTweakDouble,
-		) {
-
+		if bytes.Equal(u.Key, psbtKeyTypeInputSignatureTweakDouble) {
 			doubleTweakKey, _ := btcec.PrivKeyFromBytes(u.Value)
 			desc.DoubleTweak = doubleTweakKey
 		}
@@ -925,6 +929,12 @@ type OutputCommitmentConfig struct {
 	// STXO proofs. This should only be done for asset channels to preserve
 	// the backward compatibility with older peers.
 	noSTXOProofs bool
+
+	// spenderLeaves indicates whether we should commit to the spender
+	// leaves of the inputs next to their STXOs. Both parties of an asset
+	// channel must arrive at the same commitments, so this must not be
+	// done for asset channels unless both peers support it.
+	spenderLeaves bool
 }
 
 // OutputCommitmentOption is a functional option that can be used to configure
@@ -937,6 +947,15 @@ type OutputCommitmentOption func(*OutputCommitmentConfig)
 func WithNoSTXOProofs() OutputCommitmentOption {
 	return func(cfg *OutputCommitmentConfig) {
 		cfg.noSTXOProofs = true
+	}
+}
+
+// WithSpenderLeaves is an option that can be used to commit to the spender
+// leaves of the inputs next to their STXOs. It has no effect if the generation
+// of STXO proofs is skipped.
+func WithSpenderLeaves() OutputCommitmentOption {
+	return func(cfg *OutputCommitmentConfig) {
+		cfg.spenderLeaves = true
 	}
 }
 
@@ -984,7 +1003,7 @@ func CreateOutputCommitments(packets []*tappsbt.VPacket,
 	// And now we commit each packet to the respective anchor output
 	// commitments.
 	for _, vPkt := range packets {
-		err := commitPacket(vPkt, cfg.noSTXOProofs, outputCommitments)
+		err := commitPacket(vPkt, cfg, outputCommitments)
 		if err != nil {
 			return nil, err
 		}
@@ -995,7 +1014,7 @@ func CreateOutputCommitments(packets []*tappsbt.VPacket,
 
 // commitPacket creates the output commitments for a virtual packet and merges
 // it with the existing commitments for the anchor outputs.
-func commitPacket(vPkt *tappsbt.VPacket, noSTXOProofs bool,
+func commitPacket(vPkt *tappsbt.VPacket, cfg *OutputCommitmentConfig,
 	outputCommitments tappsbt.OutputCommitments) error {
 
 	inputs := vPkt.Inputs
@@ -1033,7 +1052,7 @@ func commitPacket(vPkt *tappsbt.VPacket, noSTXOProofs bool,
 
 		// To not break backward compatibility with older peers, we skip
 		// the generation of STXO proofs for asset channels.
-		if !noSTXOProofs {
+		if !cfg.noSTXOProofs {
 			// Collect the spent assets for this output.
 			stxoAssets, err := asset.CollectSTXO(vOut.Asset)
 			if err != nil {
@@ -1045,6 +1064,21 @@ func commitPacket(vPkt *tappsbt.VPacket, noSTXOProofs bool,
 			// with them. They will be merged into the commitment
 			// later with MergeAltLeaves.
 			vOut.AltLeaves = append(vOut.AltLeaves, stxoAssets...)
+		}
+
+		if !cfg.noSTXOProofs && cfg.spenderLeaves {
+			// Collect the leaves that name the asset of this output
+			// as the spender of its inputs. They are committed to
+			// the same way as the STXOs.
+			spenderAssets, err := asset.CollectSpenders(vOut.Asset)
+			if err != nil {
+				return fmt.Errorf("error collecting spender "+
+					"assets: %w", err)
+			}
+
+			vOut.AltLeaves = append(
+				vOut.AltLeaves, spenderAssets...,
+			)
 		}
 
 		// Because the receiver of this output might be receiving

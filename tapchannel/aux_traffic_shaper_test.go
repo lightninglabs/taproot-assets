@@ -9,9 +9,10 @@ import (
 	"pgregory.net/rapid"
 )
 
-// TestUnitConversionTolerance demonstrates the unit conversion loss of
-// precision issue that lead to the increased tolerance value in the invoice
-// manager.
+// TestUnitConversionTolerance demonstrates the loss when an invoice amount
+// passes through msat-to-unit conversion for each shard. The invoice manager
+// cannot credit this loss because a payer can produce the same shortfall by
+// sending fewer asset units.
 func TestUnitConversionTolerance(t *testing.T) {
 	const (
 		invoiceAmtUnits = 6_000_000
@@ -78,9 +79,9 @@ func TestUnitConversionTolerance(t *testing.T) {
 	t.Logf("Proposed tolerance allowed in msat: %d", proposedMargin)
 }
 
-// TestUnitConversionToleranceRapid uses rapid to randomly draw invoice amounts,
-// HTLC counts, and coefficients to test unit conversion tolerance. This ensures
-// the conversion logic is robust against a wide range of values.
+// TestUnitConversionToleranceRapid bounds the conversion loss across randomly
+// drawn invoice amounts, HTLC counts, and rates. This bound describes the
+// sender's rounding behavior, not an invoice settlement allowance.
 func TestUnitConversionToleranceRapid(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		invoiceAmtUnits := rapid.Uint64Range(1, 10_000_000).
@@ -144,7 +145,7 @@ func TestUnitConversionToleranceRapid(t *testing.T) {
 
 		marginAmt += lnwire.MilliSatoshi(numHTLCs)
 
-		// The difference should be within the newly allowed margin.
+		// The difference should be within the conversion loss bound.
 		require.LessOrEqual(
 			t,
 			invoiceAmtMsat-inboundAmountMSat, marginAmt,

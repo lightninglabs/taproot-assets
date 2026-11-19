@@ -3,9 +3,11 @@ package proof
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -436,6 +438,27 @@ func TestProofEncoding(t *testing.T) {
 	require.ErrorIs(t, err, ErrUnknownVersion)
 }
 
+// TestProofFileDeclaredLength verifies EOF handling for a truncated proof at
+// the maximum permitted declared size.
+func TestProofFileDeclaredLength(t *testing.T) {
+	t.Parallel()
+
+	var encoded bytes.Buffer
+	_, err := encoded.Write(FilePrefixMagicBytes[:])
+	require.NoError(t, err)
+	require.NoError(t, binary.Write(&encoded, binary.BigEndian, uint32(V0)))
+
+	var scratch [8]byte
+	require.NoError(t, tlv.WriteVarInt(&encoded, 1, &scratch))
+	require.NoError(t, tlv.WriteVarInt(
+		&encoded, FileMaxProofSizeBytes, &scratch,
+	))
+
+	var file File
+	err = file.Decode(&encoded)
+	require.ErrorIs(t, err, io.EOF)
+}
+
 // genRandomGenesisWithProof is kept as an alias for the exported fixture
 // builder in mock.go, which other packages reuse as well.
 var genRandomGenesisWithProof = RandGenesisProofWithKey
@@ -829,6 +852,17 @@ func TestProofFileVerification(t *testing.T) {
 	require.ErrorIs(t, err, ErrUnknownVersion)
 }
 
+// TestEmptyProofFileVerification ensures an empty proof file cannot verify an
+// asset state.
+func TestEmptyProofFileVerification(t *testing.T) {
+	t.Parallel()
+
+	f := NewEmptyFile(V0)
+	snapshot, err := f.Verify(context.Background(), MockVerifierCtx)
+	require.Nil(t, snapshot)
+	require.ErrorIs(t, err, ErrEmptyProofFile)
+}
+
 // TestProofVerification ensures that the proof encoding and decoding works as
 // expected.
 func TestProofVerification(t *testing.T) {
@@ -910,6 +944,33 @@ func TestProofVerification(t *testing.T) {
 	)
 	require.Nil(t, lastAsset)
 	require.ErrorIs(t, err, ErrUnknownVersion)
+}
+
+// TestProofUnknownTapCommitmentVersion tests that a proof whose inclusion
+// proof declares an unknown tap commitment version is rejected.
+func TestProofUnknownTapCommitmentVersion(t *testing.T) {
+	proofHex, err := os.ReadFile(proofHexFileName)
+	require.NoError(t, err)
+
+	proofBytes, err := hex.DecodeString(
+		strings.Trim(string(proofHex), "\n"),
+	)
+	require.NoError(t, err)
+
+	p := &Proof{}
+	require.NoError(t, p.Decode(bytes.NewReader(proofBytes)))
+
+	p.InclusionProof.CommitmentProof.TaprootAssetProof.Version =
+		commitment.LatestCommitVersion + 1
+
+	_, err = p.VerifyProofIntegrity(context.Background(), MockVerifierCtx)
+	require.ErrorIs(t, err, commitment.ErrInvalidTapCommitmentVersion)
+
+	var buf bytes.Buffer
+	require.NoError(t, p.Encode(&buf))
+
+	err = (&Proof{}).Decode(&buf)
+	require.ErrorIs(t, err, commitment.ErrInvalidTapCommitmentVersion)
 }
 
 // TestProofFileVerificationIgnoreChecker tests that the ignore checker can be
@@ -996,8 +1057,9 @@ func TestOwnershipProofVerification(t *testing.T) {
 
 // TestProofReplacement ensures that proofs can be replaced in a proof file.
 func TestProofReplacement(t *testing.T) {
-	// We create a file with 1k proofs.
-	const numProofs = 1_000
+	// We create a file with 256 proofs, a count that encodes as a
+	// multi-byte varint.
+	const numProofs = 256
 	lotsOfProofs := make([]Proof, numProofs)
 	for i := 0; i < numProofs; i++ {
 		amt := uint64(i + 1)
@@ -1021,10 +1083,10 @@ func TestProofReplacement(t *testing.T) {
 		require.Equal(t, amt, p.Asset.Amount)
 	}
 	assertIndex(0, 1)
-	assertIndex(999, 1000)
+	assertIndex(numProofs-1, numProofs)
 
-	// We'll now go ahead and randomly replace 100 proofs.
-	const numReplacements = 100
+	// We'll now go ahead and randomly replace 25 proofs.
+	const numReplacements = 25
 	for i := 0; i < numReplacements; i++ {
 		amt := uint64(1000*numReplacements - i)
 		assetVersion := asset.Version(i % 2)

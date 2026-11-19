@@ -12,8 +12,11 @@ import (
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/internal/test/grpcmock"
+	"github.com/lightninglabs/taproot-assets/internal/test/lndmock"
 	"github.com/lightninglabs/taproot-assets/proof"
 	mboxrpc "github.com/lightninglabs/taproot-assets/taprpc/authmailboxrpc"
+	"github.com/lightninglabs/taproot-assets/taptls"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -47,6 +50,10 @@ func NewMockStore() *MockMsgStore {
 func (s *MockMsgStore) StoreMessage(_ context.Context, txProof proof.TxProof,
 	msg *Message) (uint64, error) {
 
+	if len(msg.EncryptedPayload) == 0 {
+		return 0, ErrEmptyPayload
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -70,14 +77,14 @@ func (s *MockMsgStore) FetchMessage(_ context.Context,
 	defer s.mu.RUnlock()
 
 	msg, exists := s.messages[id]
-	if !exists {
+	if !exists || len(msg.EncryptedPayload) == 0 {
 		return nil, fmt.Errorf("message with ID %d not found", id)
 	}
 
 	return msg, nil
 }
 
-func (s *MockMsgStore) FetchMessageByOutPoint(ctx context.Context,
+func (s *MockMsgStore) FetchMessageByOutPoint(_ context.Context,
 	claimedOp wire.OutPoint) (*Message, error) {
 
 	s.mu.RLock()
@@ -88,7 +95,7 @@ func (s *MockMsgStore) FetchMessageByOutPoint(ctx context.Context,
 		return nil, ErrMessageNotFound
 	}
 
-	return s.FetchMessage(ctx, msgID)
+	return s.messages[msgID], nil
 }
 
 func (s *MockMsgStore) QueryMessages(_ context.Context,
@@ -99,6 +106,10 @@ func (s *MockMsgStore) QueryMessages(_ context.Context,
 
 	var result []*Message
 	for _, msg := range s.messages {
+		if len(msg.EncryptedPayload) == 0 {
+			continue
+		}
+
 		if !msg.ReceiverKey.IsEqual(&filter.ReceiverKey) {
 			continue
 		}
@@ -132,7 +143,14 @@ func (s *MockMsgStore) NumMessages(context.Context) uint64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	return uint64(len(s.messages))
+	var count uint64
+	for _, msg := range s.messages {
+		if len(msg.EncryptedPayload) > 0 {
+			count++
+		}
+	}
+
+	return count
 }
 
 func (s *MockMsgStore) ListOutpoints(_ context.Context, limit,
@@ -193,7 +211,7 @@ func (s *MockMsgStore) DeleteByMessageID(_ context.Context, msgID uint64,
 	defer s.mu.Unlock()
 
 	msg, exists := s.messages[msgID]
-	if !exists {
+	if !exists || len(msg.EncryptedPayload) == 0 {
 		return false, nil
 	}
 
@@ -202,17 +220,11 @@ func (s *MockMsgStore) DeleteByMessageID(_ context.Context, msgID uint64,
 		return false, nil
 	}
 
-	// Find and remove the corresponding outpoint mapping.
-	for op, id := range s.outpointToMessage {
-		if id == msgID {
-			delete(s.outpointToMessage, op)
-			delete(s.proofs, op)
-
-			break
-		}
-	}
-
-	delete(s.messages, msgID)
+	// Like the database store, keep the message and its claimed outpoint
+	// and only discard the payload.
+	removed := *msg
+	removed.EncryptedPayload = nil
+	s.messages[msgID] = &removed
 
 	return true, nil
 }
@@ -228,7 +240,7 @@ type MockServer struct {
 }
 
 func NewMockServer(t *testing.T) *MockServer {
-	signer := test.NewMockSigner()
+	signer := lndmock.NewMockSigner()
 	signer.Signature = test.RandBytes(64)
 
 	return NewMockServerWithSigner(t, signer)
@@ -249,12 +261,16 @@ func NewMockServerWithSigner(t *testing.T,
 		MerkleVerifier: proof.DefaultMerkleVerifier,
 		MsgStore:       inMemMsgStore,
 	}
+
+	plaintext, err := taptls.New(taptls.Config{Mode: taptls.ModePlaintext})
+	require.NoError(t, err)
+
 	h := &MockServer{
 		ListenAddr: listenAddr,
 		cfg:        serverCfg,
 		clientCfg: &ClientConfig{
 			ServerAddress:      listenAddr,
-			Insecure:           true,
+			TLS:                plaintext,
 			Signer:             signer,
 			MinBackoff:         testMinBackoff,
 			MaxBackoff:         testMaxBackoff,
@@ -280,7 +296,7 @@ func (m *MockServer) Start(t *testing.T) {
 	require.NoError(t, m.srv.Start(m.cfg))
 	mboxrpc.RegisterMailboxServer(m.grpcServer, m.srv)
 
-	cleanup, err := test.StartMockGRPCServerWithAddr(
+	cleanup, err := grpcmock.StartMockGRPCServerWithAddr(
 		t, m.grpcServer, false, m.ListenAddr,
 	)
 	require.NoError(t, err)
@@ -290,6 +306,11 @@ func (m *MockServer) Start(t *testing.T) {
 
 func (m *MockServer) PublishMessage(msg *Message) {
 	m.srv.publishMessage(msg)
+}
+
+// MsgStore returns the message store of the mock server.
+func (m *MockServer) MsgStore() *MockMsgStore {
+	return m.mockMsgStore
 }
 
 func (m *MockServer) Stop(t *testing.T) {

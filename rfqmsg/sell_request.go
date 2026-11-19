@@ -74,6 +74,14 @@ type SellRequest struct {
 	// agreed rate.
 	AssetRateHint fn.Option[AssetRate]
 
+	// PaymentSwapAmt is an optional msat amount that the requesting peer
+	// actually intends to swap. Unlike PaymentMaxAmt, this excludes any
+	// routing fee budget: for an invoice payment it is the invoice amount,
+	// while PaymentMaxAmt is the invoice amount plus the fee limit. It is
+	// forwarded to the price oracle for context and must not exceed
+	// PaymentMaxAmt.
+	PaymentSwapAmt fn.Option[lnwire.MilliSatoshi]
+
 	// PriceOracleMetadata is an optional text field that can be used to
 	// provide additional metadata about the sell request to the price
 	// oracle. This can include information about the wallet end user that
@@ -89,8 +97,8 @@ func NewSellRequest(peer route.Vertex, assetSpecifier asset.Specifier,
 	paymentMinAmt fn.Option[lnwire.MilliSatoshi],
 	assetRateLimit fn.Option[rfqmath.BigIntFixedPoint],
 	assetRateHint fn.Option[AssetRate],
-	oracleMetadata string,
-	execPolicy fn.Option[ExecutionPolicy]) (*SellRequest, error) {
+	oracleMetadata string, execPolicy fn.Option[ExecutionPolicy],
+	paymentSwapAmt fn.Option[lnwire.MilliSatoshi]) (*SellRequest, error) {
 
 	id, err := NewID()
 	if err != nil {
@@ -113,6 +121,7 @@ func NewSellRequest(peer route.Vertex, assetSpecifier asset.Specifier,
 		AssetRateLimit:      assetRateLimit,
 		ExecutionPolicy:     execPolicy,
 		AssetRateHint:       assetRateHint,
+		PaymentSwapAmt:      paymentSwapAmt,
 		PriceOracleMetadata: oracleMetadata,
 	}
 
@@ -206,6 +215,18 @@ func NewSellRequestFromWire(wireMsg WireMessage,
 		},
 	)
 
+	// Extract optional swap amount. A zero value is treated as unset.
+	var paymentSwapAmt fn.Option[lnwire.MilliSatoshi]
+	msgData.InAssetSwapAmt.WhenSome(
+		func(r tlv.RecordT[tlv.TlvType33, uint64]) {
+			if r.Val > 0 {
+				paymentSwapAmt = fn.Some(
+					lnwire.MilliSatoshi(r.Val),
+				)
+			}
+		},
+	)
+
 	req := SellRequest{
 		Peer:           wireMsg.Peer,
 		Version:        msgData.Version.Val,
@@ -218,6 +239,7 @@ func NewSellRequestFromWire(wireMsg WireMessage,
 		AssetRateLimit:  assetRateLimit,
 		ExecutionPolicy: execPolicy,
 		AssetRateHint:   assetRateHint,
+		PaymentSwapAmt:  paymentSwapAmt,
 	}
 
 	msgData.PriceOracleMetadata.ValOpt().WhenSome(func(metaBytes []byte) {
@@ -281,7 +303,23 @@ func (q *SellRequest) Validate() error {
 		return err
 	}
 
-	return nil
+	// Ensure the swap amount is strictly positive and does not exceed
+	// the max amount when set.
+	return fn.MapOptionZ(
+		q.PaymentSwapAmt,
+		func(swapAmt lnwire.MilliSatoshi) error {
+			if swapAmt == 0 {
+				return fmt.Errorf("payment swap amount " +
+					"must be positive")
+			}
+			if swapAmt > q.PaymentMaxAmt {
+				return fmt.Errorf("payment swap amount "+
+					"(%d) exceeds max amount (%d)",
+					swapAmt, q.PaymentMaxAmt)
+			}
+			return nil
+		},
+	)
 }
 
 // ToWire returns a wire message with a serialized data field.
@@ -374,10 +412,18 @@ func (q *SellRequest) String() string {
 		},
 	)
 
+	swapAmtStr := fn.MapOptionZ(
+		q.PaymentSwapAmt,
+		func(v lnwire.MilliSatoshi) string {
+			return fmt.Sprintf(", payment_swap_amt=%d", v)
+		},
+	)
+
 	return fmt.Sprintf("SellRequest(peer=%x, id=%x, asset=%s, "+
-		"payment_max_amt=%d%s%s%s, asset_rate_hint=%s)",
+		"payment_max_amt=%d%s%s%s%s, asset_rate_hint=%s)",
 		q.Peer[:], q.ID[:], q.AssetSpecifier.String(), q.PaymentMaxAmt,
-		minAmtStr, rateLimitStr, execPolicyStr, assetRateHintStr)
+		minAmtStr, rateLimitStr, execPolicyStr, swapAmtStr,
+		assetRateHintStr)
 }
 
 // Ensure that the message type implements the OutgoingMsg interface.

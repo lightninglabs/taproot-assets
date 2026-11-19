@@ -12,8 +12,8 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
+	"github.com/lightninglabs/taproot-assets/tapreorg"
 	"github.com/lightninglabs/taproot-assets/tapsend"
-	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"golang.org/x/exp/maps"
@@ -436,6 +436,24 @@ type PreAnchoredParcel struct {
 	// anchorTxHeightHint is an optional height hint for the anchor
 	// transaction.
 	anchorTxHeightHint fn.Option[uint32]
+
+	// inputProofs holds caller-supplied proof files of inputs, keyed by
+	// the input each file ends in.
+	inputProofs map[asset.PrevID]proof.Blob
+}
+
+// PreAnchoredParcelOption configures a pre-anchored parcel.
+type PreAnchoredParcelOption func(*PreAnchoredParcel)
+
+// WithInputProofs supplies the proof files of inputs that this daemon may
+// hold no proof for, keyed by the input each file ends in. They are used
+// only where the proof archive has no proof for the input.
+func WithInputProofs(
+	inputProofs map[asset.PrevID]proof.Blob) PreAnchoredParcelOption {
+
+	return func(p *PreAnchoredParcel) {
+		p.inputProofs = inputProofs
+	}
 }
 
 // A compile-time assertion to ensure PreAnchoredParcel implements the Parcel
@@ -446,9 +464,10 @@ var _ Parcel = (*PreAnchoredParcel)(nil)
 func NewPreAnchoredParcel(vPackets []*tappsbt.VPacket,
 	passiveAssets []*tappsbt.VPacket, anchorTx *tapsend.AnchorTransaction,
 	skipAnchorTxBroadcast bool, label string,
-	anchorTxHeightHint fn.Option[uint32]) *PreAnchoredParcel {
+	anchorTxHeightHint fn.Option[uint32],
+	opts ...PreAnchoredParcelOption) *PreAnchoredParcel {
 
-	return &PreAnchoredParcel{
+	parcel := &PreAnchoredParcel{
 		parcelKit: &parcelKit{
 			respChan: make(chan *OutboundParcel, 1),
 			errChan:  make(chan error, 1),
@@ -460,6 +479,11 @@ func NewPreAnchoredParcel(vPackets []*tappsbt.VPacket,
 		label:                 label,
 		anchorTxHeightHint:    anchorTxHeightHint,
 	}
+	for _, opt := range opts {
+		opt(parcel)
+	}
+
+	return parcel
 }
 
 // pkg returns the send package that should be delivered.
@@ -477,6 +501,7 @@ func (p *PreAnchoredParcel) pkg() *sendPackage {
 		AnchorTx:              p.anchorTx,
 		Label:                 p.label,
 		SkipAnchorTxBroadcast: p.skipAnchorTxBroadcast,
+		InputProofs:           p.inputProofs,
 	}
 }
 
@@ -518,6 +543,19 @@ func (p *PreAnchoredParcel) Validate() error {
 		return fmt.Errorf("no funded PSBT in anchor transaction")
 	}
 
+	inputs := make(map[asset.PrevID]struct{})
+	for _, vPkt := range p.virtualPackets {
+		for _, vIn := range vPkt.Inputs {
+			inputs[vIn.PrevID] = struct{}{}
+		}
+	}
+	for prevID := range p.inputProofs {
+		if _, ok := inputs[prevID]; !ok {
+			return fmt.Errorf("input proof for %v does not match "+
+				"a transfer input", prevID.OutPoint)
+		}
+	}
+
 	return nil
 }
 
@@ -526,6 +564,11 @@ func (p *PreAnchoredParcel) Validate() error {
 // set for historical transactions that have already confirmed.
 func (p *PreAnchoredParcel) HeightHint() fn.Option[uint32] {
 	return p.anchorTxHeightHint
+}
+
+// VirtualPackets returns the active virtual packets of the parcel.
+func (p *PreAnchoredParcel) VirtualPackets() []*tappsbt.VPacket {
+	return p.virtualPackets
 }
 
 // sendPackage houses the information we need to complete a package transfer.
@@ -559,6 +602,14 @@ type sendPackage struct {
 	// as it was used when funding/signing it.
 	AnchorTx *tapsend.AnchorTransaction
 
+	// AnchoringID is the transfer's speculative anchoring in the
+	// re-org watcher's registry, on the anchoring path.
+	AnchoringID tapreorg.AnchoringID
+
+	// ConfWitness is the anchoring's current witness with its block
+	// enrichment, set once the anchoring reports witnessed.
+	ConfWitness *tapreorg.CandidateSpend
+
 	// OutboundPkg is the on-disk level information that tracks the pending
 	// transfer.
 	OutboundPkg *OutboundParcel
@@ -567,10 +618,6 @@ type sendPackage struct {
 	// to be stored on disk, one for each output in the outbound parcel,
 	// keyed by their unique output key (hash of asset ID and script key).
 	FinalProofs map[OutputIdentifier]*proof.AnnotatedProof
-
-	// TransferTxConfEvent contains transfer transaction on-chain
-	// confirmation data.
-	TransferTxConfEvent *chainntnfs.TxConfirmation
 
 	// Label is a user provided short label for this transfer.
 	Label string
@@ -584,6 +631,11 @@ type sendPackage struct {
 	// testing purposes or to force transfer attempts even if the
 	// proof courier is not immediately reachable.
 	SkipProofCourierPingCheck bool
+
+	// InputProofs holds caller-supplied proof files of inputs, keyed by
+	// the input each file ends in. They are used only where the proof
+	// archive has no proof for the input.
+	InputProofs map[asset.PrevID]proof.Blob
 
 	// SkipAnchorTxBroadcast indicates whether the anchor transaction
 	// broadcast should be skipped. Useful when an external system handles

@@ -15,7 +15,10 @@ import (
 	"io"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -53,6 +56,10 @@ const (
 	// payload. This prevents OOM from malformed input.
 	maxTLVSize = 100 * 1024 * 1024 // 100 MB
 
+	// maxSerializedPubKeySize permits both compressed and uncompressed
+	// public keys accepted by btcec.ParsePubKey during backup import.
+	maxSerializedPubKeySize = 65
+
 	// maxFederationURLs is the maximum number of federation URLs that
 	// can be stored in a v3 backup. This prevents OOM from malformed
 	// input.
@@ -62,6 +69,19 @@ const (
 	// URL in bytes.
 	maxFederationURLLen = 2048
 )
+
+func boundedBytesRecord(typ tlv.Type, value *[]byte,
+	maxSize uint64) tlv.Record {
+
+	size := func() uint64 {
+		return uint64(len(*value))
+	}
+
+	return tlv.MakeDynamicRecord(
+		typ, value, size, tlv.EVarBytes,
+		asset.DVarBytesWithLimit(maxSize),
+	)
+}
 
 // TLV type constants for AssetBackup fields.
 const (
@@ -99,6 +119,20 @@ const (
 	// rehydration hints needed to reconstruct stripped fields. Used in v2+
 	// backups. Odd type so older decoders can safely skip it.
 	AssetBackupRehydrationHintsType tlv.Type = 9
+
+	// AssetBackupGroupKeyType is the TLV type for the asset group info of
+	// a grouped leaf. Odd type so older decoders can safely skip it.
+	AssetBackupGroupKeyType tlv.Type = 11
+)
+
+// TLV type constants for GroupKeyBackup fields.
+const (
+	GroupKeyAnchorGenesisType tlv.Type = 0
+	GroupKeyVersionType       tlv.Type = 1
+	GroupKeyRawKeyType        tlv.Type = 2
+	GroupKeyTapscriptRootType tlv.Type = 3
+	GroupKeyWitnessType       tlv.Type = 4
+	GroupKeyCustomRootType    tlv.Type = 5
 )
 
 // TLV type constants for ScriptKeyBackup fields.
@@ -401,6 +435,19 @@ func (ab *AssetBackup) Encode(w io.Writer) error {
 			&ab.AnchorOutputPkScript))
 	}
 
+	// Add optional asset group info (type 11).
+	if ab.GroupKeyInfo != nil {
+		var groupKeyBuf bytes.Buffer
+		err := ab.GroupKeyInfo.Encode(&groupKeyBuf)
+		if err != nil {
+			return fmt.Errorf("failed to encode group key: %w",
+				err)
+		}
+		groupKeyBytes := groupKeyBuf.Bytes()
+		records = append(records, tlv.MakePrimitiveRecord(
+			AssetBackupGroupKeyType, &groupKeyBytes))
+	}
+
 	// Write the TLV stream with a length prefix.
 	var tlvBuf bytes.Buffer
 	stream, err := tlv.NewStream(records...)
@@ -438,8 +485,8 @@ func (ab *AssetBackup) Decode(r io.Reader) error {
 			"maximum %d", tlvLen, maxTLVSize)
 	}
 
-	tlvData := make([]byte, tlvLen)
-	if _, err := io.ReadFull(r, tlvData); err != nil {
+	var tlvData []byte
+	if err := tlv.DVarBytes(r, &tlvData, &lenBuf, tlvLen); err != nil {
 		return fmt.Errorf("failed to read TLV data: %w", err)
 	}
 
@@ -453,35 +500,46 @@ func (ab *AssetBackup) Decode(r io.Reader) error {
 		proofBlobBytes        []byte
 		strippedBlobBytes     []byte
 		rehydrationHintsBytes []byte
+		groupKeyBytes         []byte
 	)
 
 	// Create decode records. Include all known types (v1 and v2) so
 	// we can decode either format.
 	records := []tlv.Record{
-		tlv.MakePrimitiveRecord(
-			AssetBackupAssetType, &assetBytes,
+		boundedBytesRecord(
+			AssetBackupAssetType, &assetBytes, maxTLVSize,
 		),
-		tlv.MakePrimitiveRecord(
-			AssetBackupOutpointType, &outpointBytes,
+		boundedBytesRecord(
+			AssetBackupOutpointType, &outpointBytes, maxTLVSize,
 		),
 		tlv.MakePrimitiveRecord(
 			AssetBackupBlockHeightType,
 			&ab.AnchorBlockHeight,
 		),
-		tlv.MakePrimitiveRecord(AssetBackupScriptKeyType,
-			&scriptKeyBytes),
-		tlv.MakePrimitiveRecord(AssetBackupAnchorKeyType,
-			&anchorKeyBytes),
-		tlv.MakePrimitiveRecord(AssetBackupProofBlobType,
-			&proofBlobBytes),
-		tlv.MakePrimitiveRecord(AssetBackupAnchorPkScriptType,
-			&anchorPkScriptBytes),
-		tlv.MakePrimitiveRecord(
+		boundedBytesRecord(
+			AssetBackupScriptKeyType, &scriptKeyBytes, maxTLVSize,
+		),
+		boundedBytesRecord(
+			AssetBackupAnchorKeyType, &anchorKeyBytes, maxTLVSize,
+		),
+		boundedBytesRecord(
+			AssetBackupProofBlobType, &proofBlobBytes, maxTLVSize,
+		),
+		boundedBytesRecord(
+			AssetBackupAnchorPkScriptType, &anchorPkScriptBytes,
+			maxTLVSize,
+		),
+		boundedBytesRecord(
 			AssetBackupStrippedProofBlobType,
-			&strippedBlobBytes),
-		tlv.MakePrimitiveRecord(
+			&strippedBlobBytes, maxTLVSize,
+		),
+		boundedBytesRecord(
 			AssetBackupRehydrationHintsType,
-			&rehydrationHintsBytes),
+			&rehydrationHintsBytes, maxTLVSize,
+		),
+		boundedBytesRecord(
+			AssetBackupGroupKeyType, &groupKeyBytes, maxTLVSize,
+		),
 	}
 
 	stream, err := tlv.NewStream(records...)
@@ -561,6 +619,16 @@ func (ab *AssetBackup) Decode(r io.Reader) error {
 		ab.RehydrationHintsBlob = rehydrationHintsBytes
 	}
 
+	// Decode optional asset group info.
+	if _, ok := parsedTypes[AssetBackupGroupKeyType]; ok {
+		ab.GroupKeyInfo = &GroupKeyBackup{}
+		err := ab.GroupKeyInfo.Decode(bytes.NewReader(groupKeyBytes))
+		if err != nil {
+			return fmt.Errorf("failed to decode group key: %w",
+				err)
+		}
+	}
+
 	// Validate required fields are present.
 	if ab.Asset == nil {
 		return fmt.Errorf("missing required asset field")
@@ -622,13 +690,19 @@ func (sk *ScriptKeyBackup) Decode(r io.Reader) error {
 
 	// Records must be in ascending type order.
 	records := []tlv.Record{
-		tlv.MakePrimitiveRecord(ScriptKeyPubKeyType, &pubKeyBytes),
+		boundedBytesRecord(
+			ScriptKeyPubKeyType, &pubKeyBytes,
+			maxSerializedPubKeySize,
+		),
 		tlv.MakePrimitiveRecord(ScriptKeyFamilyType, &family),
 		tlv.MakePrimitiveRecord(ScriptKeyIndexType, &index),
-		tlv.MakePrimitiveRecord(
+		boundedBytesRecord(
 			ScriptKeyRawPubKeyType, &rawPubKeyBytes,
+			maxSerializedPubKeySize,
 		),
-		tlv.MakePrimitiveRecord(ScriptKeyTweakType, &tweak),
+		boundedBytesRecord(
+			ScriptKeyTweakType, &tweak, maxTLVSize,
+		),
 		tlv.MakePrimitiveRecord(ScriptKeyTypeType, &keyType),
 	}
 
@@ -714,7 +788,10 @@ func (kd *KeyDescriptorBackup) Decode(r io.Reader) error {
 	)
 
 	records := []tlv.Record{
-		tlv.MakePrimitiveRecord(KeyDescPubKeyType, &pubKeyBytes),
+		boundedBytesRecord(
+			KeyDescPubKeyType, &pubKeyBytes,
+			maxSerializedPubKeySize,
+		),
 		tlv.MakePrimitiveRecord(KeyDescFamilyType, &family),
 		tlv.MakePrimitiveRecord(KeyDescIndexType, &index),
 	}
@@ -743,6 +820,135 @@ func (kd *KeyDescriptorBackup) Decode(r io.Reader) error {
 	}
 	if _, ok := parsedTypes[KeyDescIndexType]; ok {
 		kd.KeyLocator.Index = index
+	}
+
+	return nil
+}
+
+// Encode serializes a GroupKeyBackup to a writer.
+func (g *GroupKeyBackup) Encode(w io.Writer) error {
+	if g.RawKey == nil {
+		return fmt.Errorf("group key backup without raw key")
+	}
+
+	version := uint8(g.Version)
+	rawKey := g.RawKey
+	witness := g.Witness
+
+	records := []tlv.Record{
+		tlv.MakeDynamicRecord(
+			GroupKeyAnchorGenesisType, &g.AnchorGenesis,
+			func() uint64 {
+				var buf bytes.Buffer
+				var scratch [8]byte
+				_ = asset.GenesisEncoder(
+					&buf, &g.AnchorGenesis, &scratch,
+				)
+				return uint64(buf.Len())
+			}, asset.GenesisEncoder, asset.GenesisDecoder,
+		),
+		tlv.MakePrimitiveRecord(GroupKeyVersionType, &version),
+		tlv.MakeStaticRecord(
+			GroupKeyRawKeyType, &rawKey,
+			btcec.PubKeyBytesLenCompressed,
+			asset.CompressedPubKeyEncoder,
+			asset.CompressedPubKeyDecoder,
+		),
+	}
+	if len(g.TapscriptRoot) > 0 {
+		records = append(records, tlv.MakePrimitiveRecord(
+			GroupKeyTapscriptRootType, &g.TapscriptRoot,
+		))
+	}
+	if len(witness) > 0 {
+		records = append(records, tlv.MakeDynamicRecord(
+			GroupKeyWitnessType, &witness, func() uint64 {
+				var buf bytes.Buffer
+				var scratch [8]byte
+				_ = asset.TxWitnessEncoder(
+					&buf, &witness, &scratch,
+				)
+				return uint64(buf.Len())
+			}, asset.TxWitnessEncoder, asset.TxWitnessDecoder,
+		))
+	}
+	g.CustomTapscriptRoot.WhenSome(func(root chainhash.Hash) {
+		rootBytes := root[:]
+		records = append(records, tlv.MakePrimitiveRecord(
+			GroupKeyCustomRootType, &rootBytes,
+		))
+	})
+
+	stream, err := tlv.NewStream(records...)
+	if err != nil {
+		return fmt.Errorf("failed to create TLV stream: %w", err)
+	}
+
+	return stream.Encode(w)
+}
+
+// Decode deserializes a GroupKeyBackup from a reader.
+func (g *GroupKeyBackup) Decode(r io.Reader) error {
+	var (
+		version    uint8
+		rawKey     *btcec.PublicKey
+		witness    wire.TxWitness
+		customRoot []byte
+	)
+
+	records := []tlv.Record{
+		tlv.MakeDynamicRecord(
+			GroupKeyAnchorGenesisType, &g.AnchorGenesis, nil,
+			asset.GenesisEncoder, asset.GenesisDecoder,
+		),
+		tlv.MakePrimitiveRecord(GroupKeyVersionType, &version),
+		tlv.MakeStaticRecord(
+			GroupKeyRawKeyType, &rawKey,
+			btcec.PubKeyBytesLenCompressed,
+			asset.CompressedPubKeyEncoder,
+			asset.CompressedPubKeyDecoder,
+		),
+		boundedBytesRecord(
+			GroupKeyTapscriptRootType, &g.TapscriptRoot, maxTLVSize,
+		),
+		tlv.MakeDynamicRecord(
+			GroupKeyWitnessType, &witness, nil,
+			asset.TxWitnessEncoder, asset.TxWitnessDecoder,
+		),
+		boundedBytesRecord(
+			GroupKeyCustomRootType, &customRoot, chainhash.HashSize,
+		),
+	}
+
+	stream, err := tlv.NewStream(records...)
+	if err != nil {
+		return fmt.Errorf("failed to create TLV stream: %w", err)
+	}
+
+	parsedTypes, err := stream.DecodeWithParsedTypes(r)
+	if err != nil {
+		return fmt.Errorf("failed to decode TLV stream: %w", err)
+	}
+
+	if _, ok := parsedTypes[GroupKeyAnchorGenesisType]; !ok {
+		return fmt.Errorf("missing anchor genesis")
+	}
+	if _, ok := parsedTypes[GroupKeyRawKeyType]; !ok || rawKey == nil {
+		return fmt.Errorf("missing raw key")
+	}
+
+	g.Version = asset.GroupKeyVersion(version)
+	g.RawKey = rawKey
+	g.Witness = witness
+
+	if _, ok := parsedTypes[GroupKeyCustomRootType]; ok {
+		if len(customRoot) != chainhash.HashSize {
+			return fmt.Errorf("invalid custom tapscript root "+
+				"length %d", len(customRoot))
+		}
+		var root chainhash.Hash
+		copy(root[:], customRoot)
+		g.CustomTapscriptRoot = fn.Some(root)
 	}
 
 	return nil

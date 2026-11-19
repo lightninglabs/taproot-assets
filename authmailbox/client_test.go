@@ -141,6 +141,8 @@ func randProof(t *testing.T) proof.TxProof {
 // restarted. It also tests that the client can receive messages from the
 // server's backlog.
 func TestServerClientAuthAndRestart(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	harness := NewMockServer(t)
 	clientCfg := harness.clientCfg
@@ -193,6 +195,7 @@ func TestServerClientAuthAndRestart(t *testing.T) {
 	msg1 := &Message{
 		ID:               1000,
 		ReceiverKey:      *clientKey1.PubKey,
+		EncryptedPayload: []byte("payload"),
 		ArrivalTimestamp: time.Now(),
 	}
 
@@ -229,6 +232,7 @@ func TestServerClientAuthAndRestart(t *testing.T) {
 	msg2 := &Message{
 		ID:               1001,
 		ReceiverKey:      *clientKey1.PubKey,
+		EncryptedPayload: []byte("payload"),
 		ArrivalTimestamp: time.Now(),
 	}
 	_, err = harness.mockMsgStore.StoreMessage(ctx, randProof(t), msg2)
@@ -267,6 +271,7 @@ func TestServerClientAuthAndRestart(t *testing.T) {
 	msg3 := &Message{
 		ID:               1000,
 		ReceiverKey:      *clientKey1.PubKey,
+		EncryptedPayload: []byte("payload"),
 		ArrivalTimestamp: time.Now(),
 	}
 	harness.srv.publishMessage(msg3)
@@ -294,6 +299,8 @@ func TestServerClientAuthAndRestart(t *testing.T) {
 // TestSendMessage tests the SendMessage RPC of the server and its ability to
 // rate limit messages by validating the transaction proofs.
 func TestSendMessage(t *testing.T) {
+	t.Parallel()
+
 	txProof1 := proof.MockTxProof(t)
 	txProof2 := proof.MockTxProof(t)
 	txProof3 := proof.MockTxProof(t)
@@ -388,6 +395,8 @@ func TestSendMessage(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			ctx := context.Background()
 
 			harness := NewMockServer(t)
@@ -467,6 +476,7 @@ func makeMessage(c clock.Clock, id uint64, key keychain.KeyDescriptor,
 	msg := &Message{
 		ID:               id,
 		ReceiverKey:      *key.PubKey,
+		EncryptedPayload: []byte("payload"),
 		ArrivalTimestamp: c.Now(),
 	}
 
@@ -625,6 +635,7 @@ func TestReconnectAfterStreamError(t *testing.T) {
 	msg1 := &Message{
 		ID:               1000,
 		ReceiverKey:      *clientKey.PubKey,
+		EncryptedPayload: []byte("payload"),
 		ArrivalTimestamp: time.Now(),
 	}
 	_, err := harness.mockMsgStore.StoreMessage(ctx, randProof(t), msg1)
@@ -645,6 +656,7 @@ func TestReconnectAfterStreamError(t *testing.T) {
 	msg2 := &Message{
 		ID:               1001,
 		ReceiverKey:      *clientKey.PubKey,
+		EncryptedPayload: []byte("payload"),
 		ArrivalTimestamp: time.Now(),
 	}
 	_, err = harness.mockMsgStore.StoreMessage(ctx, randProof(t), msg2)

@@ -19,25 +19,35 @@ const (
 	// optional feature.
 	STXOOptional lnwire.FeatureBit = 3
 
+	// STXOSpenderRequired is a feature bit that declares the spender
+	// leaves, committed to next to the STXOs, as a required feature.
+	STXOSpenderRequired lnwire.FeatureBit = 4
+
+	// STXOSpenderOptional is a feature bit that declares the spender
+	// leaves, committed to next to the STXOs, as an optional feature.
+	STXOSpenderOptional lnwire.FeatureBit = 5
+
 	// NegotiatedChanCfgRequired is a feature bit that declares as required
 	// that the initial (height zero) commitment of an asset channel is
 	// derived from the negotiated local and remote channel configs (dust
 	// limit, CSV delay). Peers without this feature derive it from zeroed
 	// configs instead.
-	NegotiatedChanCfgRequired lnwire.FeatureBit = 4
+	NegotiatedChanCfgRequired lnwire.FeatureBit = 6
 
 	// NegotiatedChanCfgOptional is a feature bit that declares as optional
 	// that the initial commitment of an asset channel is derived from the
 	// negotiated local and remote channel configs.
-	NegotiatedChanCfgOptional lnwire.FeatureBit = 5
+	NegotiatedChanCfgOptional lnwire.FeatureBit = 7
 )
 
 // featureNames keeps track of the string description of known features.
 var featureNames = map[lnwire.FeatureBit]string{
-	NoOpHTLCsRequired: "noop-htlcs",
-	NoOpHTLCsOptional: "noop-htlcs",
-	STXORequired:      "stxo-proofs",
-	STXOOptional:      "stxo-proofs",
+	NoOpHTLCsRequired:   "noop-htlcs",
+	NoOpHTLCsOptional:   "noop-htlcs",
+	STXORequired:        "stxo-proofs",
+	STXOOptional:        "stxo-proofs",
+	STXOSpenderRequired: "stxo-spender",
+	STXOSpenderOptional: "stxo-spender",
 
 	NegotiatedChanCfgRequired: "negotiated-chan-cfg",
 	NegotiatedChanCfgOptional: "negotiated-chan-cfg",
@@ -50,6 +60,7 @@ func ourFeatures() []lnwire.FeatureBit {
 	return []lnwire.FeatureBit{
 		NoOpHTLCsOptional,
 		STXOOptional,
+		STXOSpenderOptional,
 		NegotiatedChanCfgOptional,
 	}
 }

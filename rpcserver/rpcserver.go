@@ -118,7 +118,7 @@ const (
 
 	// proofTypeReceive is an alias for the proof type used for receiving
 	// assets.
-	proofTypeReceive = tapdevrpc.ProofTransferType_PROOF_TRANSFER_TYPE_RECEIVE
+	proofTypeReceive = tapdevrpc.ProofTransferType_PROOF_TRANSFER_TYPE_RECEIVE //nolint:lll
 
 	// maxRfqHopHints is the maximum number of RFQ quotes that may be
 	// encoded as hop hints in a bolt11 invoice.
@@ -165,7 +165,7 @@ type (
 
 	// devReceiveEventStream is a type alias for the asset receive event
 	// notification stream.
-	devReceiveEventStream = tapdevrpc.TapDev_SubscribeReceiveAssetEventNtfnsServer
+	devReceiveEventStream = tapdevrpc.TapDev_SubscribeReceiveAssetEventNtfnsServer //nolint:lll
 
 	// receiveEventStream is a type alias for the asset receive event
 	// notification stream.
@@ -177,7 +177,7 @@ type (
 
 	// receiveBackOff is a type alias for the backoff event that is sent
 	// when a proof transfer process failed and needs to re-try.
-	receiveBackoff = tapdevrpc.ReceiveAssetEvent_ProofTransferBackoffWaitEvent
+	receiveBackoff = tapdevrpc.ReceiveAssetEvent_ProofTransferBackoffWaitEvent //nolint:lll
 
 	// receiveComplete is a type alias for the complete event that is sent
 	// when an asset is received.
@@ -703,7 +703,6 @@ func (r *RPCServer) MintAsset(ctx context.Context,
 			"for decimal display %d", req.Asset.DecimalDisplay)
 
 		req.Asset.AssetMeta = &taprpc.AssetMeta{}
-
 	}
 
 	// Decimal display doesn't really make sense for collectibles.
@@ -940,7 +939,7 @@ func checkFeeRateSanity(ctx context.Context, rpcFeeRate chainfee.SatPerKWeight,
 
 	// Set the fee rate for this transaction.
 	default:
-		return fn.Ptr(chainfee.SatPerKWeight(rpcFeeRate)), nil
+		return fn.Ptr(rpcFeeRate), nil
 	}
 }
 
@@ -1596,10 +1595,11 @@ func (r *RPCServer) listBalancesByGroupKey(ctx context.Context,
 		}
 
 		groupKeyString := hex.EncodeToString(groupKey)
-		resp.AssetGroupBalances[groupKeyString] = &taprpc.AssetGroupBalance{
+		groupBalance := &taprpc.AssetGroupBalance{
 			GroupKey: groupKey,
 			Balance:  balance.Balance,
 		}
+		resp.AssetGroupBalances[groupKeyString] = groupBalance
 	}
 
 	// We will also report the number of unconfirmed transfers. This is
@@ -1648,10 +1648,11 @@ func (r *RPCServer) ListUtxos(ctx context.Context,
 
 	utxos := make(map[string]*taprpc.ManagedUtxo)
 	for _, u := range managedUtxos {
+		internalKey := u.InternalKey.PubKey.SerializeCompressed()
 		utxos[u.OutPoint.String()] = &taprpc.ManagedUtxo{
 			OutPoint:         u.OutPoint.String(),
 			AmtSat:           int64(u.OutputValue),
-			InternalKey:      u.InternalKey.PubKey.SerializeCompressed(),
+			InternalKey:      internalKey,
 			TaprootAssetRoot: u.TaprootAssetRoot,
 			MerkleRoot:       u.MerkleRoot,
 			LeaseOwner:       u.LeaseOwner[:],
@@ -1904,6 +1905,14 @@ func (r *RPCServer) ListAnchorings(ctx context.Context,
 // the request's phase filter takes — with the evidence renderings in
 // the detail fields alongside.
 func marshalAnchoring(summary tapdb.AnchoringSummary) *taprpc.Anchoring {
+	// The error column also holds transient text while delivery
+	// retries below the stuck threshold; it surfaces as the stuck
+	// reason only once the flag is set.
+	var stuckReason string
+	if summary.Stuck {
+		stuckReason = summary.LastDeliveryError
+	}
+
 	return &taprpc.Anchoring{
 		Id:                   int64(summary.ID),
 		Site:                 string(summary.Site),
@@ -1914,11 +1923,13 @@ func marshalAnchoring(summary tapdb.AnchoringSummary) *taprpc.Anchoring {
 		Threshold:            summary.Threshold,
 		CreatedHeight:        summary.CreatedHeight,
 		Stuck:                summary.Stuck,
+		StuckReason:          stuckReason,
 		DeliveryAttempts:     summary.DeliveryAttempts,
 		WitnessTxid:          summary.WitnessTxid,
 		NumCandidates:        summary.NumCandidates,
 		LastDeliveryError:    summary.LastDeliveryError,
 		TerminalAt:           summary.TerminalAt,
+		MatchKey:             summary.MatchKey,
 	}
 }
 
@@ -2076,6 +2087,16 @@ func (r *RPCServer) NewAddr(ctx context.Context,
 			proof.AuthMailboxUniRpcCourierType)
 	}
 
+	// A pinned certificate or a verification exception for the courier
+	// host is part of this node's TLS policy only.
+	if r.cfg.UniverseTLS.HostScoped(courierAddr.Host) {
+		rpcsLog.WarnS(ctx, "Proof courier host has a pinned "+
+			"certificate or a TLS verification exception on this "+
+			"node; senders without matching TLS configuration "+
+			"cannot verify the courier", nil,
+			"courier_addr", courierAddr.String())
+	}
+
 	// If the courier is an (auth mailbox) universe RPC type we will check
 	// that we can connect to it.
 	connCheckScheme := courierAddr.Scheme == proof.UniverseRpcCourierType ||
@@ -2085,7 +2106,8 @@ func (r *RPCServer) NewAddr(ctx context.Context,
 			"RPC", "courier_addr", courierAddr.String())
 
 		err := proof.CheckUniverseRpcCourierConnection(
-			ctx, proofCourierCheckTimeout, courierAddr,
+			ctx, proofCourierCheckTimeout, r.cfg.UniverseTLS,
+			courierAddr,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("connection check failed for "+
@@ -2629,10 +2651,10 @@ func (r *RPCServer) ImportProof(ctx context.Context,
 		return nil, fmt.Errorf("error extracting last proof: %w", err)
 	}
 
-	// Now that we know the proof file is at least present, we'll attempt
-	// to import it into the main archive.
-	err = r.cfg.ProofArchive.ImportProofs(
-		ctx, r.ProofVerifierCtx(ctx), false, &proof.AnnotatedProof{
+	// Import through the custody boundary so the asset and all young
+	// transactions in its provenance are staked atomically.
+	err = r.cfg.AssetCustodian.StakeReceive(
+		ctx, &proof.AnnotatedProof{
 			Locator: proof.Locator{
 				AssetID:   fn.Ptr(lastProof.Asset.ID()),
 				ScriptKey: *lastProof.Asset.ScriptKey.PubKey,
@@ -2720,7 +2742,8 @@ func (r *RPCServer) AddrReceives(ctx context.Context,
 		)
 	}
 
-	if req.FilterStatus != taprpc.AddrEventStatus_ADDR_EVENT_STATUS_UNKNOWN {
+	unknownStatus := taprpc.AddrEventStatus_ADDR_EVENT_STATUS_UNKNOWN
+	if req.FilterStatus != unknownStatus {
 		status, err := unmarshalAddrEventStatus(req.FilterStatus)
 		if err != nil {
 			return nil, fmt.Errorf("error parsing status: %w", err)
@@ -2983,7 +3006,8 @@ func (r *RPCServer) SignVirtualPsbt(ctx context.Context,
 		// need to look it up in the local database, to make sure we'll
 		// be able to sign for it.
 		if scriptKey.TweakedScriptKey == nil {
-			tweakedScriptKey, err := r.cfg.AssetWallet.FetchScriptKey(
+			wallet := r.cfg.AssetWallet
+			tweakedScriptKey, err := wallet.FetchScriptKey(
 				ctx, scriptKey.PubKey,
 			)
 			if err != nil {
@@ -3114,15 +3138,20 @@ func (r *RPCServer) AnchorVirtualPsbts(ctx context.Context,
 	}, nil
 }
 
-func transitionProofOption(
-	version wrpc.TransitionProofVersion) (proof.GenOption, error) {
+// transitionProofOptions maps the requested transition proof version to
+// proof generation options. The enum's zero value is what an unset field
+// carries, so it selects the daemon's default version rather than V0.
+func transitionProofOptions(
+	version wrpc.TransitionProofVersion) ([]proof.GenOption, error) {
 
 	switch version {
 	case wrpc.TransitionProofVersion_TRANSITION_PROOF_VERSION_V0:
-		return proof.WithVersion(proof.TransitionV0), nil
+		return nil, nil
 
 	case wrpc.TransitionProofVersion_TRANSITION_PROOF_VERSION_V1:
-		return proof.WithVersion(proof.TransitionV1), nil
+		return []proof.GenOption{
+			proof.WithVersion(proof.TransitionV1),
+		}, nil
 
 	default:
 		return nil, status.Errorf(
@@ -3140,7 +3169,7 @@ func (r *RPCServer) CommitVirtualPsbts(ctx context.Context,
 	req *wrpc.CommitVirtualPsbtsRequest) (*wrpc.CommitVirtualPsbtsResponse,
 	error) {
 
-	proofOption, err := transitionProofOption(req.TransitionProofVersion)
+	proofOpts, err := transitionProofOptions(req.TransitionProofVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -3183,8 +3212,8 @@ func (r *RPCServer) CommitVirtualPsbts(ctx context.Context,
 	var (
 		lockedUTXO      []*walletrpc.UtxoLease
 		lockedOutpoints []wire.OutPoint
-		fundedPacket    *psbt.Packet = pkt
-		changeIndex     int32        = -1
+		fundedPacket          = pkt
+		changeIndex     int32 = -1
 		success         bool
 	)
 
@@ -3281,42 +3310,10 @@ func (r *RPCServer) CommitVirtualPsbts(ctx context.Context,
 	}
 
 	// We can now update the anchor outputs as we have the final
-	// commitments.
-	outputCommitments, err := tapsend.CreateOutputCommitments(allPackets)
+	// commitments, and create the transition proof suffixes.
+	err = tapsend.CommitPackets(fundedPacket, allPackets, proofOpts...)
 	if err != nil {
-		return nil, fmt.Errorf("unable to create new output "+
-			"commitments: %w", err)
-	}
-
-	for _, vPkt := range allPackets {
-		err = tapsend.UpdateTaprootOutputKeys(
-			fundedPacket, vPkt, outputCommitments,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("error updating taproot output "+
-				"keys: %w", err)
-		}
-	}
-
-	// We're done creating the output commitments, we can now create the
-	// transition proof suffixes.
-	for idx := range allPackets {
-		vPkt := allPackets[idx]
-
-		for vOutIdx := range vPkt.Outputs {
-			proofSuffix, err := tapsend.CreateProofSuffix(
-				fundedPacket.UnsignedTx, fundedPacket.Outputs,
-				vPkt, outputCommitments, vOutIdx, allPackets,
-				proofOption,
-			)
-			if err != nil {
-				return nil, fmt.Errorf("unable to create "+
-					"proof suffix for output %d of vPSBT "+
-					"%d: %w", vOutIdx, idx, err)
-			}
-
-			vPkt.Outputs[vOutIdx].ProofSuffix = proofSuffix
-		}
+		return nil, err
 	}
 
 	// We can now prepare the full answer, beginning with the serialized
@@ -3480,53 +3477,14 @@ func (r *RPCServer) validateInputAssets(ctx context.Context,
 		}
 	}
 
-	// At this point all the virtual packet inputs and outputs should fully
-	// match the BTC level anchor transaction. Version 0 assets should also
-	// be signed now.
-	if err := tapsend.AssertInputAnchorsEqual(vPackets); err != nil {
-		return fmt.Errorf("input anchors don't match: %w", err)
-	}
-	if err := tapsend.AssertOutputAnchorsEqual(vPackets); err != nil {
-		return fmt.Errorf("output anchors don't match: %w", err)
-	}
-	err = tapsend.ValidateAnchorInputs(btcPkt, vPackets, purgedAssets)
-	if err != nil {
-		return fmt.Errorf("error validating anchor inputs: %w", err)
-	}
-
-	// Now that we know the packet inputs match the anchored assets, we can
-	// also check that we don't inflate or deflate the asset supply with the
-	// active and passive assets. We explicitly don't look at the pruned
-	// assets. We have already made sure that the total sum of all inputs
-	// that was committed to in the input anchor is accounted for with the
-	// active, passive and pruned assets. Now we just need to make sure the
-	// active and passive transfers don't create or destroy assets.
-	inputBalances := make(map[asset.ID]uint64)
-	outputBalances := make(map[asset.ID]uint64)
-	for _, vPkt := range vPackets {
-		for _, vIn := range vPkt.Inputs {
-			inputBalances[vIn.Asset().ID()] += vIn.Asset().Amount
-		}
-		for _, vOut := range vPkt.Outputs {
-			outputBalances[vOut.Asset.ID()] += vOut.Asset.Amount
-		}
-	}
-	for assetID, inputBalance := range inputBalances {
-		outputBalance := outputBalances[assetID]
-		if inputBalance != outputBalance {
-			return fmt.Errorf("input and output balances don't "+
-				"match for asset %x: %d != %d", assetID[:],
-				inputBalance, outputBalance)
-		}
-	}
-
-	return nil
+	return tapsend.ValidateAnchoredPackets(btcPkt, vPackets, purgedAssets)
 }
 
 // PublishAndLogTransfer accepts a fully committed and signed anchor transaction
 // and publishes it to the Bitcoin network. It also logs the transfer of the
 // given active and passive assets in the database and ships any outgoing proofs
-// to the counterparties.
+// to the counterparties. If requested, it first signs the anchor inputs it
+// owns.
 func (r *RPCServer) PublishAndLogTransfer(ctx context.Context,
 	req *wrpc.PublishAndLogRequest) (*taprpc.SendAssetResponse, error) {
 
@@ -3564,6 +3522,13 @@ func (r *RPCServer) PublishAndLogTransfer(ctx context.Context,
 	if err != nil {
 		return nil, fmt.Errorf("error validating anchor outputs: %w",
 			err)
+	}
+
+	if req.SignAnchorInputs {
+		err = r.signAnchorInputs(ctx, pkt, allPackets)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	chainFees, err := pkt.GetTxFee()
@@ -3609,6 +3574,11 @@ func (r *RPCServer) PublishAndLogTransfer(ctx context.Context,
 		parcelLabel = req.Label
 	}
 
+	inputProofs, err := unmarshalInputProofFiles(req.InputProofFiles)
+	if err != nil {
+		return nil, err
+	}
+
 	// We now have everything to ship the pre-anchored parcel using the
 	// freighter. This will publish the TX, create the transfer database
 	// entries and ship the proofs to the counterparties. It'll also wait
@@ -3619,6 +3589,7 @@ func (r *RPCServer) PublishAndLogTransfer(ctx context.Context,
 			activePackets, passivePackets, anchorTx,
 			req.SkipAnchorTxBroadcast, parcelLabel,
 			fn.None[uint32](),
+			tapfreighter.WithInputProofs(inputProofs),
 		),
 	)
 	if err != nil {
@@ -3635,6 +3606,83 @@ func (r *RPCServer) PublishAndLogTransfer(ctx context.Context,
 	return &taprpc.SendAssetResponse{
 		Transfer: parcel,
 	}, nil
+}
+
+// unmarshalInputProofFiles decodes caller-supplied input proof files and keys
+// each by the input its last proof describes.
+func unmarshalInputProofFiles(
+	files [][]byte) (map[asset.PrevID]proof.Blob, error) {
+
+	if len(files) == 0 {
+		return nil, nil
+	}
+
+	inputProofs := make(map[asset.PrevID]proof.Blob, len(files))
+	for idx, blob := range files {
+		file, err := proof.DecodeFile(blob)
+		if err != nil {
+			return nil, fmt.Errorf("error decoding input proof "+
+				"file %d: %w", idx, err)
+		}
+		last, err := file.LastProof()
+		if err != nil {
+			return nil, fmt.Errorf("error reading input proof "+
+				"file %d: %w", idx, err)
+		}
+
+		prevID := asset.PrevID{
+			OutPoint: last.OutPoint(),
+			ID:       last.Asset.ID(),
+			ScriptKey: asset.ToSerialized(
+				last.Asset.ScriptKey.PubKey,
+			),
+		}
+		if _, ok := inputProofs[prevID]; ok {
+			return nil, fmt.Errorf("duplicate input proof file "+
+				"for %v", prevID.OutPoint)
+		}
+		inputProofs[prevID] = blob
+	}
+
+	return inputProofs, nil
+}
+
+// signAnchorInputs signs and finalizes the inputs of the anchor transaction
+// that spend anchor outputs of the given packets owned by this daemon.
+func (r *RPCServer) signAnchorInputs(ctx context.Context, pkt *psbt.Packet,
+	vPackets []*tappsbt.VPacket) error {
+
+	unsigned, err := tapsend.UnsignedAnchorInputs(pkt, vPackets)
+	if err != nil {
+		return err
+	}
+
+	anchors := make([]tapsend.OwnedAnchorInput, 0, len(unsigned))
+	for _, idx := range unsigned {
+		op := pkt.UnsignedTx.TxIn[idx].PreviousOutPoint
+
+		utxo, err := r.cfg.AssetStore.FetchManagedUTXO(ctx, op)
+		if err != nil {
+			return fmt.Errorf("anchor input %d (%v) is not "+
+				"managed by this daemon: %w", idx, op, err)
+		}
+		if !r.cfg.AddrBook.IsLocalKey(ctx, utxo.InternalKey) {
+			return fmt.Errorf("anchor input %d (%v) is not owned "+
+				"by this daemon", idx, op)
+		}
+
+		anchors = append(anchors, tapsend.OwnedAnchorInput{
+			Index:       idx,
+			InternalKey: utxo.InternalKey,
+			MerkleRoot:  utxo.MerkleRoot,
+			Value:       utxo.OutputValue,
+		})
+	}
+
+	return tapsend.SignAnchorInputs(
+		ctx, pkt, anchors, r.cfg.ChainParams.HDCoinType,
+		r.cfg.Lnd.WalletKit.SignPsbt,
+	)
 }
 
 // NextInternalKey derives the next internal key for the given key family and
@@ -3983,11 +4031,11 @@ func marshalAddrEventStatus(status address.Status) (taprpc.AddrEventStatus,
 
 	switch status {
 	case address.StatusTransactionDetected:
-		return taprpc.AddrEventStatus_ADDR_EVENT_STATUS_TRANSACTION_DETECTED,
+		return taprpc.AddrEventStatus_ADDR_EVENT_STATUS_TRANSACTION_DETECTED, //nolint:lll
 			nil
 
 	case address.StatusTransactionConfirmed:
-		return taprpc.AddrEventStatus_ADDR_EVENT_STATUS_TRANSACTION_CONFIRMED,
+		return taprpc.AddrEventStatus_ADDR_EVENT_STATUS_TRANSACTION_CONFIRMED, //nolint:lll
 			nil
 
 	case address.StatusProofReceived:
@@ -7763,6 +7811,18 @@ func (r *RPCServer) QueryProof(ctx context.Context,
 				leafKey.UniverseKey(), err)
 		}
 
+		// A leaf the universe doesn't hold is a normal outcome of a
+		// well-formed query: receivers poll for transfer proofs
+		// before the sender has uploaded them. Report it as
+		// NotFound so clients, and the RPC error log, can tell it
+		// apart from a server failure.
+		if errors.Is(err, universe.ErrNoUniverseProofFound) {
+			return nil, status.Errorf(codes.NotFound,
+				"query proof (uni=%v, leaf_key=%x): %v",
+				universeID.StringForLog(),
+				leafKey.UniverseKey(), err)
+		}
+
 		return nil, fmt.Errorf("query proof "+
 			"(uni=%v, leaf_key=%x): %w",
 			universeID.StringForLog(),
@@ -8151,14 +8211,17 @@ func (r *RPCServer) PushProof(ctx context.Context,
 	// Make sure that we aren't trying to push the proof to ourself, and
 	// then attempt to push the proof.
 	err = CheckFederationServer(
-		r.cfg.RuntimeID, universe.DefaultTimeout, remoteUniAddr,
+		r.cfg.UniverseTLS, r.cfg.RuntimeID, universe.DefaultTimeout,
+		remoteUniAddr,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("check federation "+
 			"server %v: %w", remoteUniAddr.HostStr(), err)
 	}
 
-	remoteUni, err := NewRpcUniverseRegistrar(remoteUniAddr)
+	remoteUni, err := NewRpcUniverseRegistrar(
+		r.cfg.UniverseTLS, remoteUniAddr,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("dial remote "+
 			"universe %v: %w", remoteUniAddr.HostStr(), err)
@@ -8545,7 +8608,8 @@ func (r *RPCServer) AddFederationServer(ctx context.Context,
 		// that we can actually connect to it and that it isn't
 		// ourselves.
 		err := CheckFederationServer(
-			r.cfg.RuntimeID, universe.DefaultTimeout, server,
+			r.cfg.UniverseTLS, r.cfg.RuntimeID,
+			universe.DefaultTimeout, server,
 		)
 		if err != nil {
 			return nil, fmt.Errorf(""+
@@ -9608,10 +9672,25 @@ func unmarshalAssetSellOrder(
 		return nil, err
 	}
 
+	// Unmarshal the optional swap amount. A value of zero means unset.
+	var paymentSwapAmt fn.Option[lnwire.MilliSatoshi]
+	if req.PaymentSwapAmt > 0 {
+		if req.PaymentSwapAmt > req.PaymentMaxAmt {
+			return nil, fmt.Errorf("payment swap amount (%d) "+
+				"exceeds payment max amount (%d)",
+				req.PaymentSwapAmt, req.PaymentMaxAmt)
+		}
+
+		paymentSwapAmt = fn.Some(
+			lnwire.MilliSatoshi(req.PaymentSwapAmt),
+		)
+	}
+
 	return &rfq.SellOrder{
 		AssetSpecifier:      assetSpecifier,
 		PaymentMaxAmt:       lnwire.MilliSatoshi(req.PaymentMaxAmt),
 		PaymentMinAmt:       paymentMinAmt,
+		PaymentSwapAmt:      paymentSwapAmt,
 		AssetRateLimit:      assetRateLimit,
 		ExecutionPolicy:     execPolicy,
 		Expiry:              expiry,
@@ -10311,17 +10390,17 @@ func (r *RPCServer) SendPayment(req *tchrpc.SendPaymentRequest,
 				"quote: %w", err)
 		}
 
-		// paymentMaxAmt is the maximum amount that the counterparty is
-		// expected to pay. This is the amount that the invoice is
-		// asking for plus the fee limit in milli-satoshis.
-		paymentMaxAmt, _, err := r.parseRequest(pReq)
+		// The parsed request holds the maximum amount the
+		// counterparty is expected to pay. This is the amount that the
+		// invoice is asking for plus the fee limit in milli-satoshis.
+		parsedReq, err := r.parseRequest(pReq)
 		if err != nil {
 			return err
 		}
 
 		// Check if the payment requires overpayment based on the quote.
 		err = checkOverpayment(
-			sellOrder, paymentMaxAmt, req.AllowOverpay,
+			sellOrder, parsedReq.paymentMaxAmt, req.AllowOverpay,
 		)
 		if err != nil {
 			return err
@@ -10385,10 +10464,11 @@ func (r *RPCServer) SendPayment(req *tchrpc.SendPaymentRequest,
 				"use: %w", err)
 		}
 
-		// paymentMaxAmt is the maximum amount that the counterparty is
-		// expected to pay. This is the amount that the invoice is
-		// asking for plus the fee limit in milli-satoshis.
-		paymentMaxAmt, expiry, err := r.parseRequest(pReq)
+		// The parsed request holds the amount the invoice is asking
+		// for, and the maximum amount that the counterparty is expected
+		// to pay, which is the invoice amount plus the fee limit in
+		// milli-satoshis.
+		parsedReq, err := r.parseRequest(pReq)
 		if err != nil {
 			return err
 		}
@@ -10409,7 +10489,7 @@ func (r *RPCServer) SendPayment(req *tchrpc.SendPaymentRequest,
 		// need to initiate the negotiation procedure for this payment.
 		// We'll store here all the quotes we acquired successfully.
 		acquiredQuotes := r.acquirePaymentQuotes(
-			ctx, &rpcSpecifier, paymentMaxAmt, expiry, chanMap,
+			ctx, &rpcSpecifier, parsedReq, chanMap,
 			req.AllowOverpay, payHash, req.PriceOracleMetadata,
 		)
 
@@ -10550,7 +10630,7 @@ func (r *RPCServer) SendPayment(req *tchrpc.SendPaymentRequest,
 		update, err := updateStream.Recv()
 		if err != nil {
 			// Stream is closed; no more updates.
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				return nil
 			}
 			return fmt.Errorf("failed to receive payment "+
@@ -10575,33 +10655,49 @@ func (r *RPCServer) SendPayment(req *tchrpc.SendPaymentRequest,
 	}
 }
 
-// parseRequest parses the payment request and returns the payment maximum
-// amount and the expiry time.
+// parsedPaymentRequest holds the amounts and expiry derived from a payment
+// request.
+type parsedPaymentRequest struct {
+	// paymentAmt is the amount the invoice asks for (or the user supplied
+	// amount for a zero amount invoice), excluding any routing fees.
+	paymentAmt lnwire.MilliSatoshi
+
+	// paymentMaxAmt is the maximum amount that the counterparty is
+	// expected to pay: paymentAmt plus the fee limit of the payment.
+	paymentMaxAmt lnwire.MilliSatoshi
+
+	// expiry is the time at which the invoice expires.
+	expiry time.Time
+}
+
+// parseRequest parses the payment request and returns the payment amount, the
+// payment maximum amount and the expiry time.
 func (r *RPCServer) parseRequest(
-	req *routerrpc.SendPaymentRequest) (lnwire.MilliSatoshi, time.Time,
-	error) {
+	req *routerrpc.SendPaymentRequest) (parsedPaymentRequest, error) {
+
+	var zero parsedPaymentRequest
 
 	invoice, err := zpay32.Decode(req.PaymentRequest, r.cfg.Lnd.ChainParams)
 	if err != nil {
-		return 0, time.Time{}, fmt.Errorf("error decoding payment "+
-			"request: %w", err)
+		return zero, fmt.Errorf("error decoding payment request: %w",
+			err)
 	}
 
-	var paymentMaxAmt lnwire.MilliSatoshi
+	var paymentAmt lnwire.MilliSatoshi
 	if invoice.MilliSat == nil {
 		amt, err := lnrpc.UnmarshallAmt(req.Amt, req.AmtMsat)
 		if err != nil {
-			return 0, time.Time{}, fmt.Errorf("error "+
-				"unmarshalling amount: %w", err)
+			return zero, fmt.Errorf("error unmarshalling "+
+				"amount: %w", err)
 		}
 		if amt == 0 {
-			return 0, time.Time{}, errors.New("amount must be " +
-				"specified when paying a zero amount invoice")
+			return zero, errors.New("amount must be specified " +
+				"when paying a zero amount invoice")
 		}
 
-		paymentMaxAmt = amt
+		paymentAmt = amt
 	} else {
-		paymentMaxAmt = *invoice.MilliSat
+		paymentAmt = *invoice.MilliSat
 	}
 
 	// Calculate the fee limit that should be used for this payment.
@@ -10609,14 +10705,15 @@ func (r *RPCServer) parseRequest(
 		req.FeeLimitSat, req.FeeLimitMsat,
 	)
 	if err != nil {
-		return 0, time.Time{}, fmt.Errorf("error unmarshalling fee "+
-			"limit: %w", err)
+		return zero, fmt.Errorf("error unmarshalling fee limit: %w",
+			err)
 	}
 
-	paymentMaxAmt += feeLimit
-
-	expiry := invoice.Timestamp.Add(invoice.Expiry())
-	return paymentMaxAmt, expiry, nil
+	return parsedPaymentRequest{
+		paymentAmt:    paymentAmt,
+		paymentMaxAmt: paymentAmt + feeLimit,
+		expiry:        invoice.Timestamp.Add(invoice.Expiry()),
+	}, nil
 }
 
 // checkOverpayment checks if paying a certain invoice amount requires
@@ -11017,6 +11114,18 @@ func (r *RPCServer) AddInvoice(ctx context.Context,
 			)
 		}
 
+		// With pre-existing route hints, the invoice carries the hints
+		// that passed the quote expiry filter.
+		if existingQuotes {
+			routeHints, err = invoicesrpc.CreateZpay32HopHints(
+				iReq.RouteHints,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("error parsing route "+
+					"hints: %w", err)
+			}
+		}
+
 		payReq, err := r.cfg.Lnd.Invoices.AddHoldInvoice(
 			ctx, &invoicesrpc.AddInvoiceData{
 				Memo: iReq.Memo,
@@ -11026,6 +11135,7 @@ func (r *RPCServer) AddInvoice(ctx context.Context,
 				Hash:            &payHash,
 				DescriptionHash: iReq.DescriptionHash,
 				Expiry:          iReq.Expiry,
+				CltvExpiry:      iReq.CltvExpiry,
 				// We set private to false as we don't want to
 				// add any hop hints other than this one.
 				Private:     false,
@@ -11299,7 +11409,7 @@ func (r *RPCServer) forwardAssetPaymentUpdates(ctx context.Context,
 
 // streamRecvError normalizes expected stream shutdown errors.
 func streamRecvError(ctx context.Context, err error) error {
-	if err == io.EOF {
+	if errors.Is(err, io.EOF) {
 		return nil
 	}
 
@@ -11632,11 +11742,13 @@ func newAssetGroupLookup(ctx context.Context,
 	}
 }
 
-// groupKey returns the compressed tweaked group key that the given asset
-// tranche belongs to, or nil if the tranche has no group, the asset isn't
-// known to this tapd, or no address book is configured. Errors are logged
-// and swallowed: a list RPC should never fail because of opportunistic
-// metadata enrichment.
+// groupKey returns the compressed tweaked group key that the given asset ID
+// belongs to, or nil if the asset has no group, the asset isn't known to this
+// tapd, or no address book is configured. The ID is either a tranche ID or
+// the group key x-coordinate placeholder that group-key HTLCs carry. Only the
+// local store is consulted: an unknown asset must never cause a list RPC to
+// block on a federation sync. Errors are logged and swallowed: a list RPC
+// should never fail because of opportunistic metadata enrichment.
 func (l *assetGroupLookup) groupKey(id asset.ID) []byte {
 	if gk, ok := l.cache[id]; ok {
 		return gk
@@ -11647,19 +11759,18 @@ func (l *assetGroupLookup) groupKey(id asset.ID) []byte {
 		return nil
 	}
 
-	info, err := l.addrBook.QueryAssetInfo(
-		l.ctx, asset.NewSpecifierFromId(id),
-	)
+	group, err := l.addrBook.QueryLocalAssetGroup(l.ctx, id)
 	if err != nil {
-		rpcsLog.Debugf("list rpc: unable to query asset info for "+
+		rpcsLog.Debugf("list rpc: unable to resolve asset group for "+
 			"asset_id %x: %v", id[:], err)
 		l.cache[id] = nil
+
 		return nil
 	}
 
 	var gk []byte
-	if info.GroupKey != nil {
-		gk = info.GroupKey.GroupPubKey.SerializeCompressed()
+	if group.GroupKey != nil {
+		gk = group.GroupKey.GroupPubKey.SerializeCompressed()
 	}
 	l.cache[id] = gk
 
@@ -11960,8 +12071,8 @@ func (r *RPCServer) acquireBuyOrder(ctx context.Context,
 // payment with all available peers. The list of successfully negotiated quotes
 // is returned.
 func (r *RPCServer) acquirePaymentQuotes(ctx context.Context,
-	rpcSpecifier *rfqrpc.AssetSpecifier, paymentMaxAmt lnwire.MilliSatoshi,
-	expiry time.Time, chanMap rfq.PeerChanMap, overpay bool, payHash string,
+	rpcSpecifier *rfqrpc.AssetSpecifier, parsedReq parsedPaymentRequest,
+	chanMap rfq.PeerChanMap, overpay bool, payHash string,
 	metadata string) []*rfqrpc.PeerAcceptedSellQuote {
 
 	var acquiredQuotes []*rfqrpc.PeerAcceptedSellQuote
@@ -11986,15 +12097,17 @@ func (r *RPCServer) acquirePaymentQuotes(ctx context.Context,
 			defer cancel()
 
 			quote, err := r.acquireSellQuote(
-				rpcCtx, rpcSpecifier, paymentMaxAmt,
-				expiry, &peer, metadata,
+				rpcCtx, rpcSpecifier, parsedReq, &peer,
+				metadata,
 			)
 			if err != nil {
 				fn.SendOrDone(collectorCtx, errorCollector, err)
 				return
 			}
 
-			err = checkOverpayment(quote, paymentMaxAmt, overpay)
+			err = checkOverpayment(
+				quote, parsedReq.paymentMaxAmt, overpay,
+			)
 			if err != nil {
 				fn.SendOrDone(collectorCtx, errorCollector, err)
 				return
@@ -12032,25 +12145,42 @@ func (r *RPCServer) acquirePaymentQuotes(ctx context.Context,
 	}
 }
 
+// newPaymentSellOrderRequest creates a sell order used to acquire one of the
+// quotes that can jointly fund an asset payment.
+func newPaymentSellOrderRequest(rpcSpecifier *rfqrpc.AssetSpecifier,
+	parsedReq parsedPaymentRequest, peerPubKey *route.Vertex,
+	metadata string) *rfqrpc.AddAssetSellOrderRequest {
+
+	return &rfqrpc.AddAssetSellOrderRequest{
+		AssetSpecifier: rpcSpecifier,
+		PaymentMaxAmt:  uint64(parsedReq.paymentMaxAmt),
+		// A payment can combine quotes backed by different asset
+		// channels, so each peer must be allowed to offer a partial
+		// fill. Explicit zero avoids the RPC default of requiring
+		// the full maximum amount from every peer.
+		PaymentMinAmt: fn.Ptr[uint64](0),
+		// The max amount includes the routing fee budget, while the
+		// swap amount is the invoice amount itself. Both are passed on
+		// so the price oracle can tell the two apart.
+		PaymentSwapAmt:      uint64(parsedReq.paymentAmt),
+		Expiry:              uint64(parsedReq.expiry.Unix()),
+		PeerPubKey:          peerPubKey[:],
+		TimeoutSeconds:      uint32(rfq.DefaultTimeout.Seconds()),
+		PriceOracleMetadata: metadata,
+	}
+}
+
 // acquireSellQuote performs an RFQ negotiation with the target peer and quote
 // parameters and returns the quote if the negotiation was successful.
 func (r *RPCServer) acquireSellQuote(ctx context.Context,
-	rpcSpecifier *rfqrpc.AssetSpecifier, paymentMaxAmt lnwire.MilliSatoshi,
-	expiry time.Time, peerPubKey *route.Vertex,
+	rpcSpecifier *rfqrpc.AssetSpecifier, parsedReq parsedPaymentRequest,
+	peerPubKey *route.Vertex,
 	metadata string) (*rfqrpc.PeerAcceptedSellQuote, error) {
 
-	resp, err := r.AddAssetSellOrder(
-		ctx, &rfqrpc.AddAssetSellOrderRequest{
-			AssetSpecifier: rpcSpecifier,
-			PaymentMaxAmt:  uint64(paymentMaxAmt),
-			Expiry:         uint64(expiry.Unix()),
-			PeerPubKey:     peerPubKey[:],
-			TimeoutSeconds: uint32(
-				rfq.DefaultTimeout.Seconds(),
-			),
-			PriceOracleMetadata: metadata,
-		},
+	request := newPaymentSellOrderRequest(
+		rpcSpecifier, parsedReq, peerPubKey, metadata,
 	)
+	resp, err := r.AddAssetSellOrder(ctx, request)
 	if err != nil {
 		return nil, fmt.Errorf("error adding sell order: %w", err)
 	}
@@ -12177,8 +12307,8 @@ func (r *RPCServer) assetInvoiceAmt(ctx context.Context,
 
 	oracleResp, err := oracle.QuerySellPrice(
 		ctx, targetAsset, fn.None[uint64](), fn.Some(invoiceAmt),
-		fn.None[rfqmsg.AssetRate](), fn.None[route.Vertex](), metadata,
-		rfq.IntentPayInvoice,
+		fn.Some(invoiceAmt), fn.None[rfqmsg.AssetRate](),
+		fn.None[route.Vertex](), metadata, rfq.IntentPayInvoice,
 	)
 	if err != nil {
 		return 0, fmt.Errorf("error querying ask price: %w", err)
@@ -12394,6 +12524,12 @@ func (r *RPCServer) DecodeAssetPayReq(ctx context.Context,
 // local universe (e.g. through the use of the universerpc.InsertProof RPC or
 // the universe proof courier and universe sync mechanisms) and this call
 // simply instructs the daemon to detect the transfer as an asset it owns.
+//
+// Recovery invariant. The RPC is caller-driven; a crash between the archive
+// import and the anchoring registration is recovered by the caller retrying.
+// Both ImportProofs (idempotent via archive locator dedupe) and
+// RegisterReceiveAnchoring (idempotent via the anchoring registry's
+// (site, match_key) unique index) tolerate the repeat cleanly.
 func (r *RPCServer) RegisterTransfer(ctx context.Context,
 	req *taprpc.RegisterTransferRequest) (*taprpc.RegisterTransferResponse,
 	error) {
@@ -12469,18 +12605,6 @@ func (r *RPCServer) RegisterTransfer(ctx context.Context,
 			"belong to this node: %w", err)
 	}
 
-	// Next, we make sure we don't already have this proof in the local
-	// archive (only in the universe). If we have, it means the user already
-	// imported it, and we don't want to overwrite it.
-	haveProof, err := r.cfg.ProofArchive.HasProof(ctx, locator)
-	if err != nil {
-		return nil, fmt.Errorf("error checking if proof is available: "+
-			"%w", err)
-	}
-	if haveProof {
-		return nil, fmt.Errorf("proof already exists for this transfer")
-	}
-
 	// We now fetch the full proof file from the local multiverse store,
 	// making sure we have the full proof chain for this transfer.
 	fullProvenance, err := r.cfg.Multiverse.FetchProof(ctx, locator)
@@ -12495,25 +12619,20 @@ func (r *RPCServer) RegisterTransfer(ctx context.Context,
 			err)
 	}
 
-	// All seems well, we can now import the proof into our local proof
-	// archive, which will also materialize an asset in the asset database.
-	err = r.cfg.ProofArchive.ImportProofs(
-		ctx, r.ProofVerifierCtx(ctx), false, &proof.AnnotatedProof{
-			Locator: locator,
-			Blob:    fullProvenance,
-		},
-	)
+	// The import and the registration commit together: the receiver
+	// never holds an asset the watcher does not, a receive the
+	// watcher has abandoned is refused (the universe's copy outlived
+	// the compensation), and a file that cannot be staked is refused
+	// rather than held. A proof already imported — a run of this RPC
+	// that failed after its stake committed — is staked again without
+	// being imported twice, so retries are safe.
+	err = r.cfg.AssetCustodian.StakeReceive(ctx, &proof.AnnotatedProof{
+		Locator: locator,
+		Blob:    fullProvenance,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("error importing proof: %w", err)
-	}
-
-	// In case this proof hasn't been buried sufficiently, let's also hand
-	// it to the re-org watcher.
-	err = r.cfg.ReOrgWatcher.MaybeWatch(
-		proofFile, r.cfg.ReOrgWatcher.DefaultUpdateCallback(),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("error watching received proof: %w", err)
+		return nil, fmt.Errorf("error staking received proof: %w",
+			err)
 	}
 
 	lastProof, err := proofFile.LastProof()
@@ -12613,7 +12732,7 @@ func (r *RPCServer) ExportAssetWalletBackup(ctx context.Context,
 	// Delegate to the backup package.
 	blob, err := backup.ExportBackup(
 		ctx, mode, confirmedAssets, r.cfg.ProofArchive,
-		r.cfg.TapAddrBook, fedURLs,
+		r.cfg.TapAddrBook, r.cfg.TapAddrBook, fedURLs,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to export backup: %w", err)
@@ -12631,13 +12750,16 @@ func (r *RPCServer) ImportAssetsFromBackup(ctx context.Context,
 	*wrpc.ImportAssetsFromBackupResponse, error) {
 
 	cfg := &backup.ImportConfig{
-		SpendChecker:  r.cfg.Lnd.ChainNotifier,
-		ChainQuerier:  r.cfg.ChainBridge,
-		ProofArchive:  r.cfg.ProofArchive,
-		KeyRegistrar:  r.cfg.TapAddrBook,
-		ProofVerifier: r.ProofVerifierCtx(ctx),
-		KeyDeriver:    r.cfg.Lnd.WalletKit,
-		WalletProofs:  r.cfg.AssetStore,
+		SpendChecker:   r.cfg.Lnd.ChainNotifier,
+		ChainQuerier:   r.cfg.ChainBridge,
+		ProofArchive:   r.cfg.ProofArchive,
+		ProofStaker:    r.cfg.AssetCustodian,
+		KeyRegistrar:   r.cfg.TapAddrBook,
+		ProofVerifier:  r.ProofVerifierCtx(ctx),
+		KeyDeriver:     r.cfg.Lnd.WalletKit,
+		WalletProofs:   r.cfg.AssetStore,
+		GroupRegistrar: r.cfg.TapAddrBook,
+		UniverseTLS:    r.cfg.UniverseTLS,
 	}
 
 	numImported, numSkipped, err := backup.ImportBackup(

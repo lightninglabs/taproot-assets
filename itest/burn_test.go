@@ -138,7 +138,7 @@ func testBurnAssets(t *harnessTest) {
 
 	// We'll now assert that the burned asset has the correct state.
 	// We use a retry loop here because the asset record in the DB is
-	// created during anchor TX confirmation (LogAnchorTxConfirm), which
+	// created when the anchor TX's confirmation is delivered, which
 	// may not have completed by the time the transfer is visible in
 	// ListTransfers.
 	burnedAsset := burnResp.BurnProofs[0].Asset

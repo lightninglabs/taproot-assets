@@ -9,6 +9,9 @@ import (
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightninglabs/lndclient"
+	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/lnrpc/chainrpc"
 	"github.com/stretchr/testify/require"
@@ -160,4 +163,72 @@ func TestRegisterSpendNtfnError(t *testing.T) {
 	)
 	require.ErrorContains(t, err, "unable to register for spend")
 	require.ErrorContains(t, err, "nope")
+}
+
+// TestFindTxHeightInProofFileUnsetHeight asserts that a proof with an unset
+// (zero) height doesn't count as a match for its anchor transaction, whether
+// it's in the file itself or in an additional input.
+func TestFindTxHeightInProofFileUnsetHeight(t *testing.T) {
+	t.Parallel()
+
+	// randProof returns a random proof anchored in a transaction with an
+	// output of the given value, along with the transaction's hash.
+	randProof := func(value int64) (proof.Proof, chainhash.Hash) {
+		anchorTx := wire.NewMsgTx(2)
+		anchorTx.AddTxIn(&wire.TxIn{})
+		anchorTx.AddTxOut(&wire.TxOut{
+			Value: value, PkScript: []byte{0x51},
+		})
+		block := wire.MsgBlock{Transactions: []*wire.MsgTx{anchorTx}}
+
+		p := proof.RandProof(
+			t, asset.RandGenesis(t, asset.Normal),
+			test.RandPubKey(t), block, 0, 0,
+		)
+
+		return p, anchorTx.TxHash()
+	}
+
+	p, txid := randProof(1000)
+
+	outer, _ := randProof(2000)
+	outer.BlockHeight = 100
+
+	findHeight := func(t *testing.T, height uint32,
+		nested bool) (uint32, error) {
+
+		p.BlockHeight = height
+		f, err := proof.NewFile(proof.V0, p)
+		require.NoError(t, err)
+
+		if nested {
+			outer.AdditionalInputs = []proof.File{*f}
+			f, err = proof.NewFile(proof.V0, outer)
+			require.NoError(t, err)
+		}
+
+		return findTxHeightInProofFile(f, txid)
+	}
+
+	tests := []struct {
+		name   string
+		nested bool
+	}{{
+		name:   "top level",
+		nested: false,
+	}, {
+		name:   "additional input",
+		nested: true,
+	}}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			height, err := findHeight(t, 42, tc.nested)
+			require.NoError(t, err)
+			require.EqualValues(t, 42, height)
+
+			_, err = findHeight(t, 0, tc.nested)
+			require.ErrorIs(t, err, errTxNotFound)
+		})
+	}
 }

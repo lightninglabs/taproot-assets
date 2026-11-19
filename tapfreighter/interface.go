@@ -679,16 +679,11 @@ type AssetConfirmEvent struct {
 }
 
 // ExportLog is used to track the state of outbound Taproot Asset parcels
-// (batched spends). This log is used by the ChainPorter to mark pending
-// outbound deliveries, and finally confirm the deliveries once they've been
-// committed to the main chain.
+// (batched spends). This log is used by the ChainPorter to read parcels
+// back and to record proof delivery. The writes that stake a parcel and
+// apply its confirmation run through the AnchoringLog, inside the
+// anchoring watcher's transactions.
 type ExportLog interface {
-	// LogPendingParcel marks an outbound parcel as pending on disk. This
-	// commits the set of changes to disk (the asset deltas) but doesn't
-	// mark the batched spend as being finalized.
-	LogPendingParcel(context.Context, *OutboundParcel, [32]byte,
-		time.Time) error
-
 	// PendingParcels returns the set of parcels that haven't yet been
 	// finalized. This can be used to query the set of unconfirmed
 	// transactions for re-broadcast.
@@ -698,15 +693,15 @@ type ExportLog interface {
 	// transferred.
 	ConfirmProofDelivery(context.Context, wire.OutPoint, uint64) error
 
-	// LogAnchorTxConfirm updates the send package state on disk to reflect
-	// the confirmation of the anchor transaction, ensuring the on-chain
-	// reference information is up to date.
-	LogAnchorTxConfirm(context.Context, *AssetConfirmEvent,
-		[]*AssetBurn) error
-
 	// QueryParcels returns the set of confirmed or unconfirmed parcels.
 	QueryParcels(ctx context.Context, anchorTxHash *chainhash.Hash,
 		pending bool) ([]*OutboundParcel, error)
+
+	// ParcelsForAdoption returns the confirmed parcels whose anchor
+	// transaction may still need protection: those confirmed at or
+	// above the given block height.
+	ParcelsForAdoption(ctx context.Context, minBlockHeight uint32) (
+		[]*OutboundParcel, error)
 
 	// QueryCompletedParcels returns the set of completed parcels that were
 	// transferred after the given start time, optionally filtered by label

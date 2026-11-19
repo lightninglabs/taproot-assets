@@ -43,6 +43,10 @@ type ChainBridge struct {
 	BlocksMu sync.RWMutex
 	Blocks   map[chainhash.Hash]*wire.MsgBlock
 
+	// blockHeights holds the block heights recorded with SetBlockHeight.
+	// It is guarded by BlocksMu.
+	blockHeights map[chainhash.Hash]uint32
+
 	failFeeEstimates atomic.Bool
 	errConf          atomic.Int32
 	emptyConf        atomic.Int32
@@ -59,6 +63,7 @@ func NewChainBridge() *ChainBridge {
 		BlockEpochSignal:  make(chan struct{}, 1),
 		NewBlocks:         make(chan int32),
 		Blocks:            make(map[chainhash.Hash]*wire.MsgBlock),
+		blockHeights:      make(map[chainhash.Hash]uint32),
 	}
 }
 
@@ -187,6 +192,14 @@ func (m *ChainBridge) SetBlock(hash chainhash.Hash, block *wire.MsgBlock) {
 	m.BlocksMu.Unlock()
 }
 
+// SetBlockHeight records the height of the block with the given hash, which
+// VerifyBlock checks headers against.
+func (m *ChainBridge) SetBlockHeight(hash chainhash.Hash, height uint32) {
+	m.BlocksMu.Lock()
+	m.blockHeights[hash] = height
+	m.BlocksMu.Unlock()
+}
+
 // GetBlockByHeight returns a block given the block height.
 func (m *ChainBridge) GetBlockByHeight(ctx context.Context,
 	blockHeight int64) (*wire.MsgBlock, error) {
@@ -209,11 +222,21 @@ func (m *ChainBridge) GetBlockHash(ctx context.Context,
 	return chainhash.Hash{}, nil
 }
 
-// VerifyBlock returns an error if a block (with given header and height) is not
-// present on-chain. It also checks to ensure that block height corresponds to
-// the given block header.
+// VerifyBlock returns an error if a height was recorded for the block with the
+// given header and it differs from the given height.
 func (m *ChainBridge) VerifyBlock(_ context.Context,
-	_ wire.BlockHeader, _ uint32) error {
+	header wire.BlockHeader, height uint32) error {
+
+	hash := header.BlockHash()
+
+	m.BlocksMu.RLock()
+	knownHeight, ok := m.blockHeights[hash]
+	m.BlocksMu.RUnlock()
+
+	if ok && knownHeight != height {
+		return fmt.Errorf("block %s is at height %d, not %d", hash,
+			knownHeight, height)
+	}
 
 	return nil
 }

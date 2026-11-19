@@ -434,10 +434,24 @@ func (f *FederationEnvoy) pushProofToServer(ctx context.Context,
 	// non-pooled, single-use registrar.
 	defer remoteUniverseServer.Close()
 
+	// One push, one deadline. The envoy's serial loop sits behind
+	// every push it makes, and so does every caller waiting to enter
+	// that loop, so a member that accepts the call and never answers
+	// must cost a bounded wait rather than the loop.
+	ctx, cancel := context.WithTimeout(ctx, f.DefaultTimeout)
+	defer cancel()
+
 	_, err = remoteUniverseServer.UpsertProofLeaf(
 		ctx, uniID, key, leaf,
 	)
 	if err != nil {
+		// The transport reports an expired deadline as a status
+		// error of its own; surface the context's verdict so that
+		// callers can tell a stuck member from a refusal.
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			err = fmt.Errorf("%w: %w", ctxErr, err)
+		}
+
 		return fmt.Errorf("cannot push proof to remote "+
 			"server(%v): %w", addr.HostStr(), err)
 	}
@@ -483,6 +497,18 @@ func (f *FederationEnvoy) pushProofToServerLogged(ctx context.Context,
 	return nil
 }
 
+// pushLeaf pushes one proof leaf to one federation member, through the
+// proof sync log when logProofSync is set.
+func (f *FederationEnvoy) pushLeaf(ctx context.Context, uniID Identifier,
+	key LeafKey, leaf *Leaf, addr ServerAddr, logProofSync bool) error {
+
+	if logProofSync {
+		return f.pushProofToServerLogged(ctx, uniID, key, leaf, addr)
+	}
+
+	return f.pushProofToServer(ctx, uniID, key, leaf, addr)
+}
+
 // pushProofToFederation attempts to push out a new proof to the current
 // federation in parallel.
 func (f *FederationEnvoy) pushProofToFederation(ctx context.Context,
@@ -496,23 +522,7 @@ func (f *FederationEnvoy) pushProofToFederation(ctx context.Context,
 	// registrar, then will attempt to push the new proof directly to the
 	// register.
 	pushNewProof := func(ctx context.Context, addr ServerAddr) error {
-		// If we are logging proof sync attempts, we will use the
-		// logged version of the push function.
-		if logProofSync {
-			err := f.pushProofToServerLogged(
-				ctx, uniID, key, leaf, addr,
-			)
-			if err != nil {
-				log.Warnf("Cannot push proof via logged "+
-					"server push: %v", err)
-			}
-
-			return nil
-		}
-
-		// If we are not logging proof sync attempts, we will use the
-		// non-logged version of the push function.
-		err := f.pushProofToServer(ctx, uniID, key, leaf, addr)
+		err := f.pushLeaf(ctx, uniID, key, leaf, addr, logProofSync)
 		if err != nil {
 			log.Warnf("Cannot push proof: %v", err)
 		}
@@ -796,9 +806,9 @@ func (f *FederationEnvoy) handlePushRequest(pushReq *FederationPushReq) error {
 }
 
 // handleBatchPushRequest is called each time a new batch push request is
-// received. It will perform an asynchronous registration with the local
-// Universe registrar, then push each leaf from the batch out in an async manner
-// to the federation members.
+// received. It registers the batch with the local Universe registrar,
+// answers the caller, then pushes the batch to each federation member in
+// parallel, one leaf at a time per member.
 func (f *FederationEnvoy) handleBatchPushRequest(
 	pushReq *FederationProofBatchPushReq) error {
 
@@ -848,15 +858,45 @@ func (f *FederationEnvoy) handleBatchPushRequest(
 		return nil
 	}
 
-	// With the response sent above, we'll push this out to all the Universe
-	// servers in the background.
-	for idx := range pushReq.Batch {
-		item := pushReq.Batch[idx]
+	log.Infof("Pushing %d proofs to %d federation members",
+		len(pushReq.Batch), len(fedServers))
 
-		f.pushProofToFederation(
-			ctx, item.ID, item.Key, item.Leaf, fedServers,
-			item.LogProofSync,
-		)
+	// With the response sent above, push the batch to each member on
+	// its own. A member that misses a push's deadline is dropped for
+	// the rest of the batch: one stuck peer then costs the loop a
+	// single deadline rather than one per leaf, and never holds the
+	// healthy members back.
+	pushToMember := func(ctx context.Context, addr ServerAddr) error {
+		for idx := range pushReq.Batch {
+			item := pushReq.Batch[idx]
+
+			err := f.pushLeaf(
+				ctx, item.ID, item.Key, item.Leaf, addr,
+				item.LogProofSync,
+			)
+			switch {
+			case errors.Is(err, context.DeadlineExceeded):
+				log.Warnf("Federation member %v did not "+
+					"answer within %v, skipping its "+
+					"remaining %d leaves of this batch",
+					addr.HostStr(), f.DefaultTimeout,
+					len(pushReq.Batch)-idx-1)
+
+				return nil
+
+			case errors.Is(err, context.Canceled):
+				return nil
+
+			case err != nil:
+				log.Warnf("Cannot push proof: %v", err)
+			}
+		}
+
+		return nil
+	}
+	err = fn.ParSlice(ctx, fedServers, pushToMember)
+	if err != nil {
+		log.Errorf("unable to push proof batch to federation: %v", err)
 	}
 
 	return nil

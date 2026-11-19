@@ -13,6 +13,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightninglabs/taproot-assets/rpcutils"
 	oraclerpc "github.com/lightninglabs/taproot-assets/taprpc/priceoraclerpc"
+	"github.com/lightninglabs/taproot-assets/taptls"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"google.golang.org/grpc"
@@ -166,6 +167,12 @@ func ParsePriceOracleAddress(addrStr string) (*OracleAddr, error) {
 
 // PriceOracle is an interface that provides exchange rate information for
 // assets.
+//
+// For both query methods, paymentMaxAmt is the maximum payment asset amount
+// that could be involved in the transaction, which for an invoice payment
+// includes the routing fee budget. paymentSwapAmt is the payment asset amount
+// that is actually intended to be swapped (the invoice amount), excluding any
+// fee budget. Both are optional.
 type PriceOracle interface {
 	// QuerySellPrice returns the sell price for a given asset amount. The
 	// sell price is the amount the oracle suggests a peer should accept
@@ -173,6 +180,7 @@ type PriceOracle interface {
 	QuerySellPrice(ctx context.Context, assetSpecifier asset.Specifier,
 		assetMaxAmt fn.Option[uint64],
 		paymentMaxAmt fn.Option[lnwire.MilliSatoshi],
+		paymentSwapAmt fn.Option[lnwire.MilliSatoshi],
 		assetRateHint fn.Option[rfqmsg.AssetRate],
 		counterparty fn.Option[route.Vertex], metadata string,
 		intent PriceQueryIntent) (*OracleResponse, error)
@@ -183,6 +191,7 @@ type PriceOracle interface {
 	QueryBuyPrice(ctx context.Context, assetSpecifier asset.Specifier,
 		assetMaxAmt fn.Option[uint64],
 		paymentMaxAmt fn.Option[lnwire.MilliSatoshi],
+		paymentSwapAmt fn.Option[lnwire.MilliSatoshi],
 		assetRateHint fn.Option[rfqmsg.AssetRate],
 		counterparty fn.Option[route.Vertex], metadata string,
 		intent PriceQueryIntent) (*OracleResponse, error)
@@ -207,7 +216,7 @@ type RpcPriceOracle struct {
 // NewRpcPriceOracle creates a new RPC price oracle handle given the address
 // of the price oracle RPC server. An optional macaroon dial option can be
 // provided for authentication with the oracle server.
-func NewRpcPriceOracle(addrStr string, tlsConfig *TLSConfig,
+func NewRpcPriceOracle(addrStr string, tlsPolicy taptls.Policy,
 	macaroonOpt fn.Option[grpc.DialOption],
 	nodeID fn.Option[route.Vertex]) (*RpcPriceOracle, error) {
 
@@ -216,15 +225,8 @@ func NewRpcPriceOracle(addrStr string, tlsConfig *TLSConfig,
 		return nil, err
 	}
 
-	// Create transport credentials and dial options from the supplied TLS
-	// config.
-	transportCredentials, err := configureTransportCredentials(tlsConfig)
-	if err != nil {
-		return nil, err
-	}
-
 	dialOpts := []grpc.DialOption{
-		grpc.WithTransportCredentials(transportCredentials),
+		tlsPolicy.DialOption(),
 
 		// We require active keepalive to ensure success of price
 		// queries after idle periods.
@@ -273,6 +275,7 @@ func NewRpcPriceOracle(addrStr string, tlsConfig *TLSConfig,
 func (r *RpcPriceOracle) QuerySellPrice(ctx context.Context,
 	assetSpecifier asset.Specifier, assetMaxAmt fn.Option[uint64],
 	paymentMaxAmt fn.Option[lnwire.MilliSatoshi],
+	paymentSwapAmt fn.Option[lnwire.MilliSatoshi],
 	assetRateHint fn.Option[rfqmsg.AssetRate],
 	counterparty fn.Option[route.Vertex], metadata string,
 	intent PriceQueryIntent) (*OracleResponse, error) {
@@ -302,6 +305,11 @@ func (r *RpcPriceOracle) QuerySellPrice(ctx context.Context,
 		paymentMaxAmt.UnwrapOr(lnwire.MilliSatoshi(0)),
 	)
 
+	// Marshal payment asset swap amount.
+	paymentAssetSwapAmount := uint64(
+		paymentSwapAmt.UnwrapOr(lnwire.MilliSatoshi(0)),
+	)
+
 	rpcIntent, err := rpcMarshalIntent(intent)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal intent: %w", err)
@@ -326,18 +334,20 @@ func (r *RpcPriceOracle) QuerySellPrice(ctx context.Context,
 				AssetId: paymentAssetId,
 			},
 		},
-		PaymentAssetMaxAmount: paymentAssetMaxAmount,
-		AssetRatesHint:        rpcAssetRatesHint,
-		Intent:                rpcIntent,
-		CounterpartyId:        counterpartyBytes,
-		Metadata:              metadata,
-		NodeId:                nodeIdBytes,
+		PaymentAssetMaxAmount:  paymentAssetMaxAmount,
+		PaymentAssetSwapAmount: paymentAssetSwapAmount,
+		AssetRatesHint:         rpcAssetRatesHint,
+		Intent:                 rpcIntent,
+		CounterpartyId:         counterpartyBytes,
+		Metadata:               metadata,
+		NodeId:                 nodeIdBytes,
 	}
 
 	log.Debugf("Querying price oracle for sell price (asset_specifier=%s, "+
-		"asset_max_amt=%s, payment_max_amt=%s, asset_rate_hint=%s)",
-		assetSpecifier.String(), assetMaxAmt.String(),
-		paymentMaxAmt.String(), assetRateHint.String())
+		"asset_max_amt=%s, payment_max_amt=%s, payment_swap_amt=%s, "+
+		"asset_rate_hint=%s)", assetSpecifier.String(),
+		assetMaxAmt.String(), paymentMaxAmt.String(),
+		paymentSwapAmt.String(), assetRateHint.String())
 
 	resp, err := r.client.QueryAssetRates(ctx, req)
 	if err != nil {
@@ -414,6 +424,7 @@ func marshallErrorCode(code oraclerpc.ErrorCode) OracleErrorCode {
 func (r *RpcPriceOracle) QueryBuyPrice(ctx context.Context,
 	assetSpecifier asset.Specifier, assetMaxAmt fn.Option[uint64],
 	paymentMaxAmt fn.Option[lnwire.MilliSatoshi],
+	paymentSwapAmt fn.Option[lnwire.MilliSatoshi],
 	assetRateHint fn.Option[rfqmsg.AssetRate],
 	counterparty fn.Option[route.Vertex], metadata string,
 	intent PriceQueryIntent) (*OracleResponse, error) {
@@ -433,6 +444,11 @@ func (r *RpcPriceOracle) QueryBuyPrice(ctx context.Context,
 	// Marshal payment asset max amount.
 	paymentAssetMaxAmount := uint64(
 		paymentMaxAmt.UnwrapOr(lnwire.MilliSatoshi(0)),
+	)
+
+	// Marshal payment asset swap amount.
+	paymentAssetSwapAmount := uint64(
+		paymentSwapAmt.UnwrapOr(lnwire.MilliSatoshi(0)),
 	)
 
 	// Construct the RPC asset rates hint.
@@ -467,18 +483,20 @@ func (r *RpcPriceOracle) QueryBuyPrice(ctx context.Context,
 				AssetId: paymentAssetId,
 			},
 		},
-		PaymentAssetMaxAmount: paymentAssetMaxAmount,
-		AssetRatesHint:        rpcAssetRatesHint,
-		Intent:                rpcIntent,
-		CounterpartyId:        counterpartyBytes,
-		Metadata:              metadata,
-		NodeId:                nodeIdBytes,
+		PaymentAssetMaxAmount:  paymentAssetMaxAmount,
+		PaymentAssetSwapAmount: paymentAssetSwapAmount,
+		AssetRatesHint:         rpcAssetRatesHint,
+		Intent:                 rpcIntent,
+		CounterpartyId:         counterpartyBytes,
+		Metadata:               metadata,
+		NodeId:                 nodeIdBytes,
 	}
 
 	log.Debugf("Querying price oracle for buy price (asset_specifier=%s, "+
-		"asset_max_amt=%s, payment_max_amt=%s, asset_rate_hint=%s)",
-		assetSpecifier.String(), assetMaxAmt.String(),
-		paymentMaxAmt.String(), assetRateHint.String())
+		"asset_max_amt=%s, payment_max_amt=%s, payment_swap_amt=%s, "+
+		"asset_rate_hint=%s)", assetSpecifier.String(),
+		assetMaxAmt.String(), paymentMaxAmt.String(),
+		paymentSwapAmt.String(), assetRateHint.String())
 
 	resp, err := r.client.QueryAssetRates(ctx, req)
 	if err != nil {

@@ -48,13 +48,13 @@ type persistedCloseInfo struct {
 	// closeFee is the BTC fee paid for the cooperative close transaction.
 	closeFee int64
 
-	// supportSTXO records whether STXO proofs were enabled for the
-	// channel at AuxCloseOutputs time. The negotiator's feature map is
-	// in-memory only and would default to "no STXO" after a restart,
+	// stxoFeatures records which STXO related leaves were enabled for
+	// the channel at AuxCloseOutputs time. The negotiator's feature map
+	// is in-memory only and would default to "no STXO" after a restart,
 	// causing the recovery path to compute different commitments and
 	// proofs. We persist this explicitly so the post-restart pipeline
 	// replay matches the original run.
-	supportSTXO bool
+	stxoFeatures STXOFeatures
 }
 
 // noAssetAlloc is the minimal serializable subset of tapsend.Allocation we
@@ -172,9 +172,10 @@ const (
 
 // File format (all integers big-endian):
 //
-//	uint8   format version (currently 2)
+//	uint8   format version (currently 3)
 //	int64   closeFee
 //	uint8   supportSTXO (0 or 1)
+//	uint8   supportSpender (0 or 1, version 3 and up)
 //	uint32  numVPackets         (post-mutation)
 //	  per vPacket:
 //	    uint32 length
@@ -185,7 +186,11 @@ const (
 //	  per noAssetAlloc:
 //	    uint32 outputIndex
 //	    [33]byte compressed internalKey
-const closeInfoFormatVersion uint8 = 2
+const closeInfoFormatVersion uint8 = 3
+
+// closeInfoFormatVersionSTXO is the last format version that records the
+// STXO flag alone, without the spender flag.
+const closeInfoFormatVersionSTXO uint8 = 2
 
 func writeVPacketList(w io.Writer, pkts []*tappsbt.VPacket) error {
 	if err := binary.Write(
@@ -252,11 +257,17 @@ func encodeCloseInfo(w io.Writer, info *persistedCloseInfo) error {
 	if err := binary.Write(w, binary.BigEndian, info.closeFee); err != nil {
 		return err
 	}
-	var stxoByte uint8
-	if info.supportSTXO {
+	var stxoByte, spenderByte uint8
+	if info.stxoFeatures.STXO {
 		stxoByte = 1
 	}
+	if info.stxoFeatures.Spender {
+		spenderByte = 1
+	}
 	if err := binary.Write(w, binary.BigEndian, stxoByte); err != nil {
+		return err
+	}
+	if err := binary.Write(w, binary.BigEndian, spenderByte); err != nil {
 		return err
 	}
 	if err := writeVPacketList(w, info.vPackets); err != nil {
@@ -295,7 +306,9 @@ func decodeCloseInfo(r io.Reader) (*persistedCloseInfo, error) {
 	if err := binary.Read(r, binary.BigEndian, &version); err != nil {
 		return nil, err
 	}
-	if version != closeInfoFormatVersion {
+	if version != closeInfoFormatVersion &&
+		version != closeInfoFormatVersionSTXO {
+
 		return nil, fmt.Errorf(
 			"unsupported close info version %d", version,
 		)
@@ -312,7 +325,18 @@ func decodeCloseInfo(r io.Reader) (*persistedCloseInfo, error) {
 	if err := binary.Read(r, binary.BigEndian, &stxoByte); err != nil {
 		return nil, err
 	}
-	info.supportSTXO = stxoByte != 0
+	info.stxoFeatures.STXO = stxoByte != 0
+
+	// The spender flag was recorded from version 3 on. Any earlier close
+	// predates the spender leaves.
+	if version >= closeInfoFormatVersion {
+		var spenderByte uint8
+		err := binary.Read(r, binary.BigEndian, &spenderByte)
+		if err != nil {
+			return nil, err
+		}
+		info.stxoFeatures.Spender = spenderByte != 0
+	}
 
 	pkts, err := readVPacketList(r)
 	if err != nil {

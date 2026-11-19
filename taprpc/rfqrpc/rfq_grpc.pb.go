@@ -19,53 +19,54 @@ const _ = grpc.SupportPackageIsVersion7
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type RfqClient interface {
 	// tapcli: `rfq buyorder`
-	// AddAssetBuyOrder is used to add a buy order for a specific asset. If a buy
-	// order already exists for the asset, it will be updated.
+	//AddAssetBuyOrder is used to add a buy order for a specific asset. If a buy
+	//order already exists for the asset, it will be updated.
 	//
-	// A buy order instructs the RFQ (Request For Quote) system to request a quote
-	// from a peer for the acquisition of an asset.
+	//A buy order instructs the RFQ (Request For Quote) system to request a quote
+	//from a peer for the acquisition of an asset.
 	//
-	// The normal use of a buy order is as follows:
-	// 1. Alice, operating a wallet node, wants to receive a Tap asset as payment
-	// by issuing a Lightning invoice.
-	// 2. Alice has an asset channel established with Bob's edge node.
-	// 3. Before issuing the invoice, Alice needs to agree on an exchange rate with
-	// Bob, who will facilitate the asset transfer.
-	// 4. To obtain the best exchange rate, Alice creates a buy order specifying
-	// the desired asset.
-	// 5. Alice's RFQ subsystem processes the buy order and sends buy requests to
-	// relevant peers to find the best rate. In this example, Bob is the only
-	// available peer.
-	// 6. Once Bob provides a satisfactory quote, Alice accepts it.
-	// 7. Alice issues the Lightning invoice, which Charlie will pay.
-	// 8. Instead of paying Alice directly, Charlie pays Bob.
-	// 9. Bob then forwards the agreed amount of the Tap asset to Alice over their
-	// asset channel.
+	//The normal use of a buy order is as follows:
+	//1. Alice, operating a wallet node, wants to receive a Tap asset as payment
+	//by issuing a Lightning invoice.
+	//2. Alice has an asset channel established with Bob's edge node.
+	//3. Before issuing the invoice, Alice needs to agree on an exchange rate with
+	//Bob, who will facilitate the asset transfer.
+	//4. To obtain the best exchange rate, Alice creates a buy order specifying
+	//the desired asset.
+	//5. Alice's RFQ subsystem processes the buy order and sends buy requests to
+	//relevant peers to find the best rate. In this example, Bob is the only
+	//available peer.
+	//6. Once Bob provides a satisfactory quote, Alice accepts it.
+	//7. Alice issues the Lightning invoice, which Charlie will pay.
+	//8. Instead of paying Alice directly, Charlie pays Bob.
+	//9. Bob then forwards the agreed amount of the Tap asset to Alice over their
+	//asset channel.
 	AddAssetBuyOrder(ctx context.Context, in *AddAssetBuyOrderRequest, opts ...grpc.CallOption) (*AddAssetBuyOrderResponse, error)
 	// tapcli: `rfq sellorder`
-	// AddAssetSellOrder is used to add a sell order for a specific asset. If a
-	// sell order already exists for the asset, it will be updated.
+	//AddAssetSellOrder is used to add a sell order for a specific asset. If a
+	//sell order already exists for the asset, it will be updated.
 	AddAssetSellOrder(ctx context.Context, in *AddAssetSellOrderRequest, opts ...grpc.CallOption) (*AddAssetSellOrderResponse, error)
 	// tapcli: `rfq selloffer`
-	// AddAssetSellOffer is used to add a sell offer for a specific asset. If a
-	// sell offer already exists for the asset, it will be updated.
+	//AddAssetSellOffer is used to add a sell offer for a specific asset. If a
+	//sell offer already exists for the asset, it will be updated.
 	AddAssetSellOffer(ctx context.Context, in *AddAssetSellOfferRequest, opts ...grpc.CallOption) (*AddAssetSellOfferResponse, error)
 	// tapcli: `rfq buyoffer`
-	// AddAssetBuyOffer is used to add a buy offer for a specific asset. If a
-	// buy offer already exists for the asset, it will be updated.
+	//AddAssetBuyOffer is used to add a buy offer for a specific asset. If a
+	//buy offer already exists for the asset, it will be updated.
 	//
-	// A buy offer is used by the node to selectively accept or reject incoming
-	// asset sell quote requests before price is considered.
+	//A buy offer is used by the node to selectively accept or reject incoming
+	//asset sell quote requests before price is considered.
 	AddAssetBuyOffer(ctx context.Context, in *AddAssetBuyOfferRequest, opts ...grpc.CallOption) (*AddAssetBuyOfferResponse, error)
 	// tapcli: `rfq acceptedquotes`
-	// QueryPeerAcceptedQuotes is used to query for quotes that were requested by
-	// our node and have been accepted our peers.
+	//QueryPeerAcceptedQuotes is used to query for quotes that were requested by
+	//our node and have been accepted our peers.
 	QueryPeerAcceptedQuotes(ctx context.Context, in *QueryPeerAcceptedQuotesRequest, opts ...grpc.CallOption) (*QueryPeerAcceptedQuotesResponse, error)
-	// SubscribeRfqEventNtfns is used to subscribe to RFQ events.
+	//
+	//SubscribeRfqEventNtfns is used to subscribe to RFQ events.
 	SubscribeRfqEventNtfns(ctx context.Context, in *SubscribeRfqEventNtfnsRequest, opts ...grpc.CallOption) (Rfq_SubscribeRfqEventNtfnsClient, error)
 	// tapcli: `rfq forwardinghistory`
-	// ForwardingHistory is used to query for completed asset forwarding events.
-	// These are historical records of HTLCs that were settled successfully.
+	//ForwardingHistory is used to query for completed asset forwarding events.
+	//These are historical records of HTLCs that were settled successfully.
 	ForwardingHistory(ctx context.Context, in *ForwardingHistoryRequest, opts ...grpc.CallOption) (*ForwardingHistoryResponse, error)
 }
 
@@ -168,53 +169,54 @@ func (c *rfqClient) ForwardingHistory(ctx context.Context, in *ForwardingHistory
 // for forward compatibility
 type RfqServer interface {
 	// tapcli: `rfq buyorder`
-	// AddAssetBuyOrder is used to add a buy order for a specific asset. If a buy
-	// order already exists for the asset, it will be updated.
+	//AddAssetBuyOrder is used to add a buy order for a specific asset. If a buy
+	//order already exists for the asset, it will be updated.
 	//
-	// A buy order instructs the RFQ (Request For Quote) system to request a quote
-	// from a peer for the acquisition of an asset.
+	//A buy order instructs the RFQ (Request For Quote) system to request a quote
+	//from a peer for the acquisition of an asset.
 	//
-	// The normal use of a buy order is as follows:
-	// 1. Alice, operating a wallet node, wants to receive a Tap asset as payment
-	// by issuing a Lightning invoice.
-	// 2. Alice has an asset channel established with Bob's edge node.
-	// 3. Before issuing the invoice, Alice needs to agree on an exchange rate with
-	// Bob, who will facilitate the asset transfer.
-	// 4. To obtain the best exchange rate, Alice creates a buy order specifying
-	// the desired asset.
-	// 5. Alice's RFQ subsystem processes the buy order and sends buy requests to
-	// relevant peers to find the best rate. In this example, Bob is the only
-	// available peer.
-	// 6. Once Bob provides a satisfactory quote, Alice accepts it.
-	// 7. Alice issues the Lightning invoice, which Charlie will pay.
-	// 8. Instead of paying Alice directly, Charlie pays Bob.
-	// 9. Bob then forwards the agreed amount of the Tap asset to Alice over their
-	// asset channel.
+	//The normal use of a buy order is as follows:
+	//1. Alice, operating a wallet node, wants to receive a Tap asset as payment
+	//by issuing a Lightning invoice.
+	//2. Alice has an asset channel established with Bob's edge node.
+	//3. Before issuing the invoice, Alice needs to agree on an exchange rate with
+	//Bob, who will facilitate the asset transfer.
+	//4. To obtain the best exchange rate, Alice creates a buy order specifying
+	//the desired asset.
+	//5. Alice's RFQ subsystem processes the buy order and sends buy requests to
+	//relevant peers to find the best rate. In this example, Bob is the only
+	//available peer.
+	//6. Once Bob provides a satisfactory quote, Alice accepts it.
+	//7. Alice issues the Lightning invoice, which Charlie will pay.
+	//8. Instead of paying Alice directly, Charlie pays Bob.
+	//9. Bob then forwards the agreed amount of the Tap asset to Alice over their
+	//asset channel.
 	AddAssetBuyOrder(context.Context, *AddAssetBuyOrderRequest) (*AddAssetBuyOrderResponse, error)
 	// tapcli: `rfq sellorder`
-	// AddAssetSellOrder is used to add a sell order for a specific asset. If a
-	// sell order already exists for the asset, it will be updated.
+	//AddAssetSellOrder is used to add a sell order for a specific asset. If a
+	//sell order already exists for the asset, it will be updated.
 	AddAssetSellOrder(context.Context, *AddAssetSellOrderRequest) (*AddAssetSellOrderResponse, error)
 	// tapcli: `rfq selloffer`
-	// AddAssetSellOffer is used to add a sell offer for a specific asset. If a
-	// sell offer already exists for the asset, it will be updated.
+	//AddAssetSellOffer is used to add a sell offer for a specific asset. If a
+	//sell offer already exists for the asset, it will be updated.
 	AddAssetSellOffer(context.Context, *AddAssetSellOfferRequest) (*AddAssetSellOfferResponse, error)
 	// tapcli: `rfq buyoffer`
-	// AddAssetBuyOffer is used to add a buy offer for a specific asset. If a
-	// buy offer already exists for the asset, it will be updated.
+	//AddAssetBuyOffer is used to add a buy offer for a specific asset. If a
+	//buy offer already exists for the asset, it will be updated.
 	//
-	// A buy offer is used by the node to selectively accept or reject incoming
-	// asset sell quote requests before price is considered.
+	//A buy offer is used by the node to selectively accept or reject incoming
+	//asset sell quote requests before price is considered.
 	AddAssetBuyOffer(context.Context, *AddAssetBuyOfferRequest) (*AddAssetBuyOfferResponse, error)
 	// tapcli: `rfq acceptedquotes`
-	// QueryPeerAcceptedQuotes is used to query for quotes that were requested by
-	// our node and have been accepted our peers.
+	//QueryPeerAcceptedQuotes is used to query for quotes that were requested by
+	//our node and have been accepted our peers.
 	QueryPeerAcceptedQuotes(context.Context, *QueryPeerAcceptedQuotesRequest) (*QueryPeerAcceptedQuotesResponse, error)
-	// SubscribeRfqEventNtfns is used to subscribe to RFQ events.
+	//
+	//SubscribeRfqEventNtfns is used to subscribe to RFQ events.
 	SubscribeRfqEventNtfns(*SubscribeRfqEventNtfnsRequest, Rfq_SubscribeRfqEventNtfnsServer) error
 	// tapcli: `rfq forwardinghistory`
-	// ForwardingHistory is used to query for completed asset forwarding events.
-	// These are historical records of HTLCs that were settled successfully.
+	//ForwardingHistory is used to query for completed asset forwarding events.
+	//These are historical records of HTLCs that were settled successfully.
 	ForwardingHistory(context.Context, *ForwardingHistoryRequest) (*ForwardingHistoryResponse, error)
 	mustEmbedUnimplementedRfqServer()
 }

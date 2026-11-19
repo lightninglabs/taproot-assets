@@ -24,6 +24,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/tapnode"
 	"github.com/lightninglabs/taproot-assets/tapreorg"
+	"github.com/lightninglabs/taproot-assets/taptls"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightninglabs/taproot-assets/universe/supplycommit"
 	"github.com/lightninglabs/taproot-assets/universe/supplyverifier"
@@ -218,14 +219,9 @@ type Config struct {
 
 	MboxServerConfig authmailbox.ServerConfig
 
-	ReOrgWatcher *tapreorg.LegacyWatcher
-
-	// AnchoringWatcher is the righteous re-org watcher: sites
-	// register speculative anchorings with it, and it converges
-	// them to chain truth. It runs alongside the legacy watcher
-	// until every site has migrated. Nil when disabled by
-	// configuration; the registry's read surfaces stay available
-	// either way.
+	// AnchoringWatcher is the re-org watcher: sites register
+	// speculative anchorings with it, and it converges them to
+	// chain truth.
 	AnchoringWatcher *tapreorg.Watcher
 
 	// AnchoringRegistry is the anchoring watcher's durable store,
@@ -246,6 +242,10 @@ type Config struct {
 	AddrBookDisableSyncer bool
 
 	DefaultProofCourierAddr *url.URL
+
+	// UniverseTLS is the TLS policy for connections to universe servers,
+	// proof couriers and auth mailboxes.
+	UniverseTLS taptls.Policy
 
 	ProofArchive proof.Archiver
 

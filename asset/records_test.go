@@ -2,6 +2,7 @@ package asset
 
 import (
 	"bytes"
+	"io"
 	"testing"
 
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -62,6 +63,45 @@ func TestTlvStrictDecode(t *testing.T) {
 			testCase.parsedTypes, testCase.knownTypes,
 		))
 	}
+}
+
+// TestTlvStrictDecodeDeclaredLength verifies that a declared unknown-record
+// length must be backed by bytes in the input instead of triggering an eager
+// allocation.
+func TestTlvStrictDecodeDeclaredLength(t *testing.T) {
+	t.Parallel()
+
+	stream := tlv.MustNewStream()
+	parsedTypes, err := TlvStrictDecode(
+		stream, bytes.NewReader([]byte("0\xff00000000")),
+		fn.NewSet[tlv.Type](),
+	)
+	require.ErrorIs(t, err, io.ErrUnexpectedEOF)
+	require.Nil(t, parsedTypes)
+}
+
+// TestDVarBytesWithLimitDeclaredLength verifies that an allowed declared
+// length is still backed by input bytes before memory is retained for it.
+func TestDVarBytesWithLimitDeclaredLength(t *testing.T) {
+	t.Parallel()
+
+	const declaredLength = uint64(0x3030303030303030)
+
+	var (
+		decoded []byte
+		buf     [8]byte
+	)
+	decoder := DVarBytesWithLimit(declaredLength)
+	err := decoder(
+		bytes.NewReader(nil), &decoded, &buf, declaredLength,
+	)
+	require.ErrorIs(t, err, io.EOF)
+	require.Nil(t, decoded)
+
+	err = DVarBytesWithLimit(declaredLength-1)(
+		bytes.NewReader(nil), &decoded, &buf, declaredLength,
+	)
+	require.ErrorIs(t, err, tlv.ErrRecordTooLarge)
 }
 
 // TestFilterUnknownTypes tests that the filtering of unknown TLV records works

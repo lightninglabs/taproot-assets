@@ -80,6 +80,7 @@ func (p *portfolioPilotHarness) start(t *testing.T) {
 
 	transportCredentials := credentials.NewTLS(&tls.Config{
 		Certificates: []tls.Certificate{tlsCert},
+		MinVersion:   tls.VersionTLS12,
 	})
 	p.grpcServer = grpc.NewServer(grpc.Creds(transportCredentials))
 
@@ -174,10 +175,11 @@ func (p *portfolioPilotHarness) ResolveRequest(_ context.Context,
 	case *pilotrpc.ResolveRequestRequest_SellRequest:
 		sr := r.SellRequest
 		hint = sr.GetAssetRateHint()
-		log.Infof("ResolveRequest sell: max=%d min=%d "+
+		log.Infof("ResolveRequest sell: max=%d min=%d swap=%d "+
 			"rate_limit=%v exec_policy=%v",
 			sr.GetPaymentMaxAmount(),
 			sr.GetPaymentMinAmount(),
+			sr.GetPaymentSwapAmount(),
 			sr.GetAssetRateLimit(),
 			sr.GetExecutionPolicy())
 	default:

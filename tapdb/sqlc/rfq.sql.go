@@ -262,6 +262,54 @@ func (q *Queries) QueryPendingForwards(ctx context.Context) ([]QueryPendingForwa
 	return items, nil
 }
 
+const QuerySettledFillByRfqID = `-- name: QuerySettledFillByRfqID :many
+WITH settled AS (
+    SELECT rfq_id, chan_id_out, SUM(amt_out_msat) AS amt_msat
+    FROM forwards
+    WHERE settled_at IS NOT NULL
+    GROUP BY rfq_id, chan_id_out
+), legs AS (
+    SELECT rfq_id, amt_msat FROM settled
+    UNION ALL
+    SELECT p.rfq_id, s.amt_msat
+    FROM settled s
+    JOIN rfq_policies p ON p.scid = s.chan_id_out
+    WHERE p.policy_type = 'RFQ_POLICY_TYPE_SALE'
+        AND p.rfq_id != s.rfq_id
+)
+SELECT rfq_id, CAST(SUM(amt_msat) AS BIGINT) AS settled_amt_msat
+FROM legs
+GROUP BY rfq_id
+`
+
+type QuerySettledFillByRfqIDRow struct {
+	RfqID          []byte
+	SettledAmtMsat int64
+}
+
+func (q *Queries) QuerySettledFillByRfqID(ctx context.Context) ([]QuerySettledFillByRfqIDRow, error) {
+	rows, err := q.db.QueryContext(ctx, QuerySettledFillByRfqID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []QuerySettledFillByRfqIDRow
+	for rows.Next() {
+		var i QuerySettledFillByRfqIDRow
+		if err := rows.Scan(&i.RfqID, &i.SettledAmtMsat); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const UpsertForward = `-- name: UpsertForward :one
 INSERT INTO forwards (
     opened_at, settled_at, failed_at, rfq_id, chan_id_in, chan_id_out,

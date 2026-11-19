@@ -14,6 +14,7 @@ import (
 
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/asset/assetmock"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
@@ -133,12 +134,12 @@ func TestProofChunkRoundTripProperty(t *testing.T) {
 
 	rapid.Check(t, func(r *rapid.T) {
 		// Make sure the asset type is normal or collectible.
-		randGen := asset.GenesisGen.Draw(r, "randGen")
+		randGen := assetmock.GenesisGen.Draw(r, "randGen")
 		randGen.Type = asset.Type(
 			rapid.IntRange(0, 1).Draw(r, "assetType"),
 		)
 
-		scriptKey := asset.PubKeyGen.Draw(r, "scriptKey")
+		scriptKey := assetmock.PubKeyGen.Draw(r, "scriptKey")
 
 		originalRandProof := proof.RandProof(
 			t, randGen, scriptKey, oddTxBlock, 0, 1,
@@ -182,12 +183,12 @@ func TestProofChunkErrorCases(t *testing.T) {
 
 	rapid.Check(t, func(r *rapid.T) {
 		// Make sure the asset type is normal or collectible.
-		randGen := asset.GenesisGen.Draw(r, "randGen")
+		randGen := assetmock.GenesisGen.Draw(r, "randGen")
 		randGen.Type = asset.Type(
 			rapid.IntRange(0, 1).Draw(r, "assetType"),
 		)
 
-		scriptKey := asset.PubKeyGen.Draw(r, "scriptKey")
+		scriptKey := assetmock.PubKeyGen.Draw(r, "scriptKey")
 
 		originalRandProof := proof.RandProof(
 			t, randGen, scriptKey, oddTxBlock, 0, 1,

@@ -107,9 +107,15 @@ type AssetMintingBatch struct {
 }
 
 type AssetProof struct {
-	ProofID   int64
-	AssetID   int64
-	ProofFile []byte
+	ProofID           int64
+	AssetID           int64
+	ProofFile         []byte
+	ProvenanceIndexed bool
+}
+
+type AssetProofAnchor struct {
+	ProofID    int64
+	AnchorTxid []byte
 }
 
 type AssetSeedling struct {
@@ -138,6 +144,7 @@ type AssetTransfer struct {
 	Label                 sql.NullString
 	SkipAnchorTxBroadcast bool
 	Superseded            bool
+	Abandoned             bool
 }
 
 type AssetTransferInput struct {
@@ -405,6 +412,7 @@ type ReorgAnchoring struct {
 	LastDeliveryError sql.NullString
 	NextDeliveryAt    int64
 	TerminalAt        sql.NullInt64
+	MatchKey          []byte
 }
 
 type ReorgCandidateSpend struct {

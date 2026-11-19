@@ -12,6 +12,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
@@ -44,6 +45,9 @@ type mockPortfolioPilot struct {
 
 	// err is the error returned by the portfolio pilot.
 	err error
+
+	// rateQueries records the asset rate queries received.
+	rateQueries []AssetRateQuery
 }
 
 // ResolveRequest returns the configured response.
@@ -62,8 +66,10 @@ func (s *mockPortfolioPilot) VerifyAcceptQuote(context.Context,
 }
 
 // QueryAssetRates returns mock asset rate information.
-func (s *mockPortfolioPilot) QueryAssetRates(context.Context,
-	AssetRateQuery) (rfqmsg.AssetRate, error) {
+func (s *mockPortfolioPilot) QueryAssetRates(_ context.Context,
+	query AssetRateQuery) (rfqmsg.AssetRate, error) {
+
+	s.rateQueries = append(s.rateQueries, query)
 
 	// Return a default asset rate for testing
 	return rfqmsg.AssetRate{
@@ -89,7 +95,7 @@ func assertIncomingSellAcceptTestCase(
 	mockPriceOracle.On(
 		"QuerySellPrice", mock.Anything, mock.Anything,
 		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
-		mock.Anything, mock.Anything,
+		mock.Anything, mock.Anything, mock.Anything,
 	).Return(
 		&OracleResponse{
 			AssetRate: tc.priceOracleAskPrice,
@@ -276,7 +282,7 @@ func assertIncomingBuyAcceptTestCase(
 	mockPriceOracle.On(
 		"QueryBuyPrice", mock.Anything, mock.Anything,
 		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
-		mock.Anything, mock.Anything,
+		mock.Anything, mock.Anything, mock.Anything,
 	).Return(
 		&OracleResponse{
 			AssetRate: tc.priceOracleBidPrice,
@@ -471,6 +477,20 @@ func TestHandleIncomingQuoteRequestError(t *testing.T) {
 				PortfolioPilot: &mockPortfolioPilot{
 					err: pilotErr,
 				},
+				fetchChannel: func(_ context.Context,
+					_ asset.Specifier, peer *route.Vertex,
+					_ ChanIntention) (PeerChanMap, error) {
+
+					funded := []rfqmsg.JsonAssetUtxo{{}}
+					info := rfqmsg.JsonAssetChannel{
+						FundingAssets: funded,
+						RemoteBalance: 1,
+					}
+
+					return PeerChanMap{
+						*peer: {{AssetInfo: info}},
+					}, nil
+				},
 				OutgoingMessages: outgoing,
 				ErrChan:          errChan,
 			})
@@ -512,6 +532,319 @@ func TestHandleIncomingQuoteRequestError(t *testing.T) {
 				require.ErrorIs(t, err, pilotErr)
 			default:
 				t.Fatalf("expected error on errChan")
+			}
+		})
+	}
+}
+
+// TestSellRequestChannelAdmission verifies that incoming sell quotes require
+// matching channel backing and that accepted fills are capped by it.
+func TestSellRequestChannelAdmission(t *testing.T) {
+	t.Parallel()
+
+	peer := route.Vertex{9, 8, 7}
+	request := &rfqmsg.SellRequest{
+		Peer:           peer,
+		ID:             rfqmsg.ID{6, 5, 4},
+		AssetSpecifier: asset.NewSpecifierFromId(asset.ID{3, 2, 1}),
+		PaymentMaxAmt:  lnwire.MilliSatoshi(3_000_000_000),
+	}
+	rate := rfqmsg.NewAssetRate(
+		rfqmath.NewBigIntFixedPoint(100, 0), time.Now().Add(time.Hour),
+	)
+
+	t.Run("backed fill is capped", func(t *testing.T) {
+		outgoing := make(chan rfqmsg.OutgoingMsg, 1)
+		errChan := make(chan error, 1)
+		negotiator, err := NewNegotiator(NegotiatorCfg{
+			PortfolioPilot: &mockPortfolioPilot{
+				resp: NewAcceptResolveResp(
+					rate, fn.None[uint64](),
+				),
+			},
+			fetchChannel: func(_ context.Context,
+				spec asset.Specifier, requestPeer *route.Vertex,
+				intention ChanIntention) (PeerChanMap, error) {
+
+				assert.Equal(t, request.AssetSpecifier, spec)
+				assert.Equal(t, peer, *requestPeer)
+				assert.Equal(t, ReceiveIntention, intention)
+
+				funded := []rfqmsg.JsonAssetUtxo{{}}
+				info1 := rfqmsg.JsonAssetChannel{
+					FundingAssets: funded,
+					RemoteBalance: 1,
+				}
+				info2 := rfqmsg.JsonAssetChannel{
+					FundingAssets: funded,
+					RemoteBalance: 2,
+				}
+				info3 := rfqmsg.JsonAssetChannel{
+					RemoteBalance: 100,
+				}
+
+				return PeerChanMap{
+					peer: {
+						{AssetInfo: info1},
+						{AssetInfo: info2},
+						{AssetInfo: info3},
+					},
+				}, nil
+			},
+			OutgoingMessages: outgoing,
+			ErrChan:          errChan,
+		})
+		require.NoError(t, err)
+		require.NoError(t, negotiator.HandleIncomingQuoteRequest(
+			context.Background(), request,
+		))
+		negotiator.Wg.Wait()
+
+		var msg rfqmsg.OutgoingMsg
+		select {
+		case msg = <-outgoing:
+		case <-time.After(time.Second):
+			t.Fatal("timeout waiting for sell accept")
+		}
+		accept, ok := msg.(*rfqmsg.SellAccept)
+		require.True(t, ok)
+		require.Equal(
+			t, uint64(2_000_000_000),
+			accept.AcceptedMaxAmount.UnwrapOr(0),
+		)
+		select {
+		case err := <-errChan:
+			t.Fatalf("unexpected admission error: %v", err)
+		default:
+		}
+	})
+
+	t.Run("lookup failure rejects", func(t *testing.T) {
+		outgoing := make(chan rfqmsg.OutgoingMsg, 1)
+		errChan := make(chan error, 1)
+		lookupErr := errors.New("channel lookup failed")
+		negotiator, err := NewNegotiator(NegotiatorCfg{
+			PortfolioPilot: &mockPortfolioPilot{
+				resp: NewAcceptResolveResp(
+					rate, fn.None[uint64](),
+				),
+			},
+			fetchChannel: func(context.Context, asset.Specifier,
+				*route.Vertex, ChanIntention) (
+				PeerChanMap, error) {
+
+				return nil, lookupErr
+			},
+			OutgoingMessages: outgoing,
+			ErrChan:          errChan,
+		})
+		require.NoError(t, err)
+		require.NoError(t, negotiator.HandleIncomingQuoteRequest(
+			context.Background(), request,
+		))
+		negotiator.Wg.Wait()
+
+		select {
+		case msg := <-outgoing:
+			_, ok := msg.(*rfqmsg.Reject)
+			require.True(t, ok)
+		case <-time.After(time.Second):
+			t.Fatal("timeout waiting for quote reject")
+		}
+		select {
+		case err = <-errChan:
+			require.ErrorIs(t, err, lookupErr)
+			require.ErrorContains(t, err, "admit quote request")
+		case <-time.After(time.Second):
+			t.Fatal("timeout waiting for admission error")
+		}
+	})
+}
+
+// TestMaxRemoteChannelBalance verifies that only a positive, funded channel
+// belonging to the requesting peer can back a quote.
+func TestMaxRemoteChannelBalance(t *testing.T) {
+	t.Parallel()
+
+	peer := route.Vertex{1}
+	otherPeer := route.Vertex{2}
+	req := &rfqmsg.SellRequest{
+		Peer:           peer,
+		AssetSpecifier: asset.NewSpecifierFromId(asset.ID{3}),
+	}
+	funded := []rfqmsg.JsonAssetUtxo{{}}
+
+	tests := []struct {
+		name       string
+		channels   PeerChanMap
+		expected   uint64
+		errMessage string
+	}{
+		{
+			name: "wrong peer",
+			channels: PeerChanMap{
+				otherPeer: {{AssetInfo: rfqmsg.JsonAssetChannel{
+					FundingAssets: funded, RemoteBalance: 5,
+				}}},
+			},
+			errMessage: "no remote asset channel balance",
+		},
+		{
+			name: "zero and unfunded balances",
+			channels: PeerChanMap{
+				peer: {
+					{AssetInfo: rfqmsg.JsonAssetChannel{
+						FundingAssets: funded,
+					}},
+					{AssetInfo: rfqmsg.JsonAssetChannel{
+						RemoteBalance: 100,
+					}},
+				},
+			},
+			errMessage: "no remote asset channel balance",
+		},
+		{
+			name: "largest eligible balance",
+			channels: PeerChanMap{
+				peer: {
+					{AssetInfo: rfqmsg.JsonAssetChannel{
+						FundingAssets: funded,
+						RemoteBalance: 5,
+					}},
+					{AssetInfo: rfqmsg.JsonAssetChannel{
+						FundingAssets: funded,
+						RemoteBalance: 9,
+					}},
+				},
+			},
+			expected: 9,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			negotiator := &Negotiator{cfg: NegotiatorCfg{
+				fetchChannel: func(
+					context.Context, asset.Specifier,
+					*route.Vertex, ChanIntention,
+				) (PeerChanMap, error) {
+
+					return test.channels, nil
+				},
+			}}
+			balance, err := negotiator.maxRemoteChannelBalance(
+				context.Background(), req,
+			)
+			if test.errMessage != "" {
+				require.ErrorContains(t, err, test.errMessage)
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, test.expected, balance)
+		})
+	}
+}
+
+// TestBackedSellRequestFillRejectsZeroRate verifies that an external pilot
+// cannot trigger a divide-by-zero panic with an invalid accepted rate.
+func TestBackedSellRequestFillRejectsZeroRate(t *testing.T) {
+	t.Parallel()
+
+	req := &rfqmsg.SellRequest{
+		PaymentMaxAmt: 1_000,
+	}
+	zeroRate := rfqmsg.NewAssetRate(
+		rfqmath.NewBigIntFixedPoint(0, 0), time.Now().Add(time.Hour),
+	)
+	fill, err := backedSellRequestFill(
+		req, zeroRate, fn.None[uint64](), 1,
+	)
+	require.ErrorContains(t, err, "asset rate is zero")
+	require.True(t, fill.IsNone())
+}
+
+// TestHandleOutgoingSellOrderSwapAmt asserts that the swap amount of a sell
+// order is forwarded both to the rate hint query and to the outgoing sell
+// request, while the max amount is left untouched.
+func TestHandleOutgoingSellOrderSwapAmt(t *testing.T) {
+	t.Parallel()
+
+	const (
+		paymentMaxAmt  = lnwire.MilliSatoshi(11_000)
+		paymentSwapAmt = lnwire.MilliSatoshi(10_000)
+	)
+
+	testCases := []struct {
+		name    string
+		swapAmt fn.Option[lnwire.MilliSatoshi]
+	}{
+		{
+			name:    "swap amount set",
+			swapAmt: fn.Some(paymentSwapAmt),
+		},
+		{
+			name:    "swap amount unset",
+			swapAmt: fn.None[lnwire.MilliSatoshi](),
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			outgoing := make(chan rfqmsg.OutgoingMsg, 1)
+			errChan := make(chan error, 1)
+			pilot := &mockPortfolioPilot{}
+
+			negotiator, err := NewNegotiator(NegotiatorCfg{
+				PortfolioPilot:   pilot,
+				OutgoingMessages: outgoing,
+				ErrChan:          errChan,
+				SendPriceHint:    true,
+			})
+			require.NoError(t, err)
+
+			order := SellOrder{
+				AssetSpecifier: asset.NewSpecifierFromId(
+					asset.ID{4, 2},
+				),
+				PaymentMaxAmt:  paymentMaxAmt,
+				PaymentSwapAmt: tc.swapAmt,
+				Expiry:         time.Now().Add(time.Hour),
+				Peer:           fn.Some(route.Vertex{1, 2, 3}),
+			}
+
+			_, err = negotiator.HandleOutgoingSellOrder(
+				context.Background(), order,
+			)
+			require.NoError(t, err)
+
+			// The rate hint query must carry both amounts.
+			require.Len(t, pilot.rateQueries, 1)
+			query := pilot.rateQueries[0]
+			require.Equal(
+				t, fn.Some(paymentMaxAmt), query.PaymentAmount,
+			)
+			require.Equal(t, tc.swapAmt, query.PaymentSwapAmount)
+
+			// And so must the sell request sent to the peer.
+			var msg rfqmsg.OutgoingMsg
+			select {
+			case msg = <-outgoing:
+			default:
+				t.Fatalf("expected sell request on outgoing " +
+					"channel")
+			}
+
+			req, ok := msg.(*rfqmsg.SellRequest)
+			require.True(t, ok, "expected sell request")
+			require.Equal(t, paymentMaxAmt, req.PaymentMaxAmt)
+			require.Equal(t, tc.swapAmt, req.PaymentSwapAmt)
+
+			select {
+			case err := <-errChan:
+				t.Fatalf("unexpected error: %v", err)
+			default:
 			}
 		})
 	}

@@ -23,6 +23,7 @@ import (
 
 	"github.com/lightninglabs/taproot-assets/rpcserver"
 	"github.com/lightninglabs/taproot-assets/taprpc/universerpc"
+	"github.com/lightninglabs/taproot-assets/taptls"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/cert"
 	"github.com/stretchr/testify/require"
@@ -124,11 +125,11 @@ func startNoopServer(tb testing.TB, accepts *atomic.Int64) string {
 	return rawLis.Addr().String()
 }
 
-// dialDirect mirrors rpcserver.ConnectUniverse: TLS with skip-verify,
-// h2 default credentials, a fresh grpc.ClientConn — used by the
-// fresh-dial and hand-pool variants. The real-pool variant goes
-// through rpcserver.UniverseConnPool, which internally calls
-// rpcserver.ConnectUniverse with the same options.
+// dialDirect mirrors rpcserver.ConnectUniverse under a skip-verify
+// policy: TLS with skip-verify, h2 default credentials, a fresh
+// grpc.ClientConn — used by the fresh-dial and hand-pool variants. The
+// real-pool variant goes through rpcserver.UniverseConnPool, which
+// internally calls rpcserver.ConnectUniverse with the same options.
 func dialDirect(tb testing.TB,
 	addr string) (*grpc.ClientConn, universerpc.UniverseClient) {
 
@@ -258,7 +259,14 @@ func BenchmarkFederationPushRealPool(b *testing.B) {
 			ctx := context.Background()
 			req := &universerpc.AssetProof{}
 
-			pool := rpcserver.NewUniverseConnPool()
+			// The fixture servers use self-signed
+			// certificates.
+			skipVerify, err := taptls.New(taptls.Config{
+				Mode: taptls.ModeSkipVerify,
+			})
+			require.NoError(b, err)
+
+			pool := rpcserver.NewUniverseConnPool(skipVerify)
 			b.Cleanup(pool.Close)
 
 			// Warm each server's conn so the TLS handshake

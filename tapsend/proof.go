@@ -12,6 +12,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
+	"github.com/lightninglabs/taproot-assets/vm"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"golang.org/x/exp/maps"
 )
@@ -155,10 +156,7 @@ func CreateProofSuffixCustom(finalTx *wire.MsgTx, vPacket *tappsbt.VPacket,
 
 	inputPrevID := vPacket.Inputs[0].PrevID
 
-	cfg := proof.DefaultGenConfig()
-	for _, opt := range opts {
-		opt(&cfg)
-	}
+	cfg := proof.NewGenConfig(opts...)
 
 	params, err := proofParams(
 		finalTx, vPacket, outputCommitments, outIndex,
@@ -208,6 +206,66 @@ func CreateProofSuffixCustom(finalTx *wire.MsgTx, vPacket *tappsbt.VPacket,
 	}
 
 	return proofSuffix, nil
+}
+
+// rootLocatorProof extracts the MS-SMT inclusion proof of the root locator's
+// split leaf from the split root virtual output. The split root output retains
+// the canonical root locator split asset, whose split commitment witness
+// contains the proof.
+func rootLocatorProof(splitRootOut *tappsbt.VOutput) (*mssmt.Proof, error) {
+	if splitRootOut.SplitAsset == nil {
+		return nil, fmt.Errorf("split root output has no split asset")
+	}
+
+	if !splitRootOut.SplitAsset.HasSplitCommitmentWitness() {
+		return nil, fmt.Errorf("split root locator asset has no " +
+			"split commitment witness")
+	}
+
+	// Copy the proof to avoid aliasing the virtual packet's state.
+	locatorProof := splitRootOut.SplitAsset.PrevWitnesses[0].
+		SplitCommitment.Proof
+
+	return &locatorProof, nil
+}
+
+// ValidateSplitRootLocators checks that every output asset carrying a split
+// commitment root is committed to within its own split commitment tree as the
+// root locator leaf. A witness over a split only signs the split commitment
+// root, so the root asset's amount, script key and anchor output index are
+// bound to the signature through that leaf alone. The inclusion proof is taken
+// from the output's root locator split asset.
+func ValidateSplitRootLocators(vPackets []*tappsbt.VPacket) error {
+	for pktIdx, vPkt := range vPackets {
+		for outIdx, vOut := range vPkt.Outputs {
+			if vOut.Asset == nil ||
+				vOut.Asset.SplitCommitmentRoot == nil {
+
+				continue
+			}
+
+			locatorProof, err := rootLocatorProof(vOut)
+			if err != nil {
+				return fmt.Errorf("output %d of vPSBT %d: %w",
+					outIdx, pktIdx, err)
+			}
+
+			locatorAsset := proof.RootLocatorSplitAsset(
+				vOut.Asset, *locatorProof,
+				vOut.AnchorOutputIndex,
+			)
+			err = vm.VerifySplitCommitmentProof(
+				vOut.Asset, locatorAsset,
+			)
+			if err != nil {
+				return fmt.Errorf("invalid root locator for "+
+					"output %d of vPSBT %d: %w", outIdx,
+					pktIdx, err)
+			}
+		}
+	}
+
+	return nil
 }
 
 // newParams is used to create a set of new params for the final state
@@ -269,6 +327,18 @@ func proofParams(finalTx *wire.MsgTx, vPkt *tappsbt.VPacket,
 			rootOut.AnchorOutputTapscriptSibling,
 		)
 
+		// For a split, the root output retains the canonical root
+		// locator split asset, whose split commitment witness contains
+		// the root locator's inclusion proof into the split tree.
+		if rootOut.Type.IsSplitRoot() {
+			locatorProof, err := rootLocatorProof(rootOut)
+			if err != nil {
+				return nil, err
+			}
+
+			rootParams.RootLocatorProof = locatorProof
+		}
+
 		// Add exclusion proofs for all the other outputs.
 		err = addOtherOutputExclusionProofs(
 			allVirtualOutputs, rootOut.Asset, rootParams,
@@ -290,8 +360,8 @@ func proofParams(finalTx *wire.MsgTx, vPkt *tappsbt.VPacket,
 		// create the basic proof template. There we drop the STXO
 		// exclusion proofs in proof.UnknownOddTypes.
 		err := addSTXOExclusionProofs(
-			allVirtualOutputs, rootOut.Asset, rootParams,
-			outputCommitments,
+			allVirtualOutputs, rootOut.Asset, rootOut.Asset,
+			rootIndex, rootParams, outputCommitments,
 		)
 		if err != nil {
 			return nil, err
@@ -312,16 +382,15 @@ func proofParams(finalTx *wire.MsgTx, vPkt *tappsbt.VPacket,
 	splitRootTree := outputCommitments[splitRootIndex]
 
 	splitOut := vPkt.Outputs[outIndex]
+	if splitOut.Asset == nil ||
+		!splitOut.Asset.HasSplitCommitmentWitness() {
+
+		return nil, fmt.Errorf("split output %d has no split "+
+			"commitment witness", outIndex)
+	}
+
 	splitIndex := splitOut.AnchorOutputIndex
 	splitTapTree := outputCommitments[splitIndex]
-
-	_, splitRootExclusionProof, err := splitRootTree.Proof(
-		splitOut.Asset.TapCommitmentKey(),
-		splitOut.Asset.AssetCommitmentKey(),
-	)
-	if err != nil {
-		return nil, err
-	}
 
 	splitRootPreimage := splitRootOut.AnchorOutputTapscriptSibling
 	splitParams := newParams(
@@ -333,14 +402,39 @@ func proofParams(finalTx *wire.MsgTx, vPkt *tappsbt.VPacket,
 	splitParams.RootInternalKey = splitRootOut.AnchorOutputInternalKey
 	splitParams.RootTapscriptSibling = splitRootPreimage
 	splitParams.RootTaprootAssetTree = splitRootTree
-	splitParams.ExclusionProofs = []proof.TaprootProof{{
-		OutputIndex: splitRootIndex,
-		InternalKey: splitRootOut.AnchorOutputInternalKey,
-		CommitmentProof: &proof.CommitmentProof{
-			Proof:              *splitRootExclusionProof,
-			TapSiblingPreimage: splitRootPreimage,
-		},
-	}}
+
+	// The split root output retains the canonical root locator split
+	// asset, whose split commitment witness contains the root locator's
+	// inclusion proof into the split tree. The proof of a split/receiver
+	// asset must carry it as well, so a verifier can bind the root asset's
+	// amount to the split tree.
+	locatorProof, err := rootLocatorProof(splitRootOut)
+	if err != nil {
+		return nil, err
+	}
+
+	splitParams.RootLocatorProof = locatorProof
+
+	// The split asset must be excluded from the split root output, unless
+	// the two share an anchor output, which then holds the split asset.
+	if splitIndex != splitRootIndex {
+		_, splitRootExclusionProof, err := splitRootTree.Proof(
+			splitOut.Asset.TapCommitmentKey(),
+			splitOut.Asset.AssetCommitmentKey(),
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		splitParams.ExclusionProofs = []proof.TaprootProof{{
+			OutputIndex: splitRootIndex,
+			InternalKey: splitRootOut.AnchorOutputInternalKey,
+			CommitmentProof: &proof.CommitmentProof{
+				Proof:              *splitRootExclusionProof,
+				TapSiblingPreimage: splitRootPreimage,
+			},
+		}}
+	}
 
 	// Add exclusion proofs for all the other outputs.
 	err = addOtherOutputExclusionProofs(
@@ -351,19 +445,43 @@ func proofParams(finalTx *wire.MsgTx, vPkt *tappsbt.VPacket,
 		return nil, err
 	}
 
+	// If we don't require STXO exclusion proofs, then we are done here.
+	if noStxoProofs {
+		return splitParams, nil
+	}
+
+	// A split asset takes part in the transfer of its root asset, so its
+	// proof carries the STXO exclusion proofs for the inputs spent by the
+	// root asset. The split root output commits to those STXOs and needs
+	// no exclusion proof. The proof for the output of the split asset
+	// itself is created along with its inclusion proof.
+	splitWitness := splitOut.Asset.PrevWitnesses[0]
+	err = addSTXOExclusionProofs(
+		allVirtualOutputs, splitOut.Asset,
+		&splitWitness.SplitCommitment.RootAsset, splitRootIndex,
+		splitParams, outputCommitments,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	return splitParams, nil
 }
 
-// addSTXOExclusionProofs adds exclusion proofs for all the STXOs of the asset,
-// for all the outputs that are asset outputs but haven't been processed yet,
-// otherwise they'll be skipped. This should only be called after
-// `addOtherOutputExclusionProofs` because it depends on
+// addSTXOExclusionProofs adds exclusion proofs for all the STXOs of the root
+// asset of a transfer, for all the outputs that are asset outputs but haven't
+// been processed yet, otherwise they'll be skipped. The new asset is the asset
+// the proof is created for, which is either the root asset itself or one of
+// its split assets. The anchor output of the root asset at the given index
+// commits to the STXOs, so it is skipped as well. This should only be called
+// after `addOtherOutputExclusionProofs` because it depends on
 // `params.ExclusionProofs` already being set.
 func addSTXOExclusionProofs(outputs []*tappsbt.VOutput,
-	newAsset *asset.Asset, params *proof.TransitionParams,
+	newAsset, rootAsset *asset.Asset, rootIndex uint32,
+	params *proof.TransitionParams,
 	outputCommitments map[uint32]*commitment.TapCommitment) error {
 
-	stxoAssets, err := asset.CollectSTXO(newAsset)
+	stxoAssets, err := asset.CollectSTXO(rootAsset)
 	if err != nil {
 		return fmt.Errorf("error collecting STXO assets: %w", err)
 	}
@@ -372,6 +490,9 @@ func addSTXOExclusionProofs(outputs []*tappsbt.VOutput,
 		vOut := outputs[idx]
 
 		outIndex := vOut.AnchorOutputIndex
+		if outIndex == rootIndex {
+			continue
+		}
 
 		// We can use `HaveInclusionProof` here because it is just a
 		// check on whether we are processing our own anchor output.

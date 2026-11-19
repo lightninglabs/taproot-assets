@@ -36,7 +36,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnutils"
-	"github.com/lightningnetwork/lnd/lnwallet"
 	lnwl "github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chancloser"
 	"github.com/lightningnetwork/lnd/lnwallet/types"
@@ -100,7 +99,9 @@ func (s *Server) UpdateConfig(cfg *tapconfig.Config) {
 // the components.
 //
 // NOTE: the rpc server is not registered with any grpc server in this function.
-func (s *Server) initialize(interceptorChain *rpcperms.InterceptorChain) error {
+func (s *Server) initialize(ctx context.Context,
+	interceptorChain *rpcperms.InterceptorChain) error {
+
 	var ready bool
 
 	// If by the time this function exits we haven't yet given the ready
@@ -187,31 +188,32 @@ func (s *Server) initialize(interceptorChain *rpcperms.InterceptorChain) error {
 		}
 	}
 
-	// First, we'll start the main batched asset minter.
+	// Start the watcher before subsystem adoption. Site handlers and effect
+	// handlers were wired during construction, while synchronous adoption
+	// needs the watcher's sensing loop available for registration handoff.
+	if err := s.cfg.AnchoringWatcher.Start(); err != nil {
+		return fmt.Errorf("unable to start anchoring watcher: %w",
+			err)
+	}
+
 	if err := s.cfg.AssetMinter.Start(); err != nil {
 		return fmt.Errorf("unable to start asset minter: %w", err)
 	}
 
-	// Next, we'll start the asset custodian.
 	if err := s.cfg.AssetCustodian.Start(); err != nil {
 		return fmt.Errorf("unable to start asset custodian: %w", err)
 	}
 
-	if err := s.cfg.ReOrgWatcher.Start(); err != nil {
-		return fmt.Errorf("unable to start re-org watcher: %w", err)
-	}
-
-	// The anchoring watcher is nil when disabled by configuration;
-	// the registry's read surfaces stay up regardless.
-	if s.cfg.AnchoringWatcher != nil {
-		if err := s.cfg.AnchoringWatcher.Start(); err != nil {
-			return fmt.Errorf("unable to start anchoring "+
-				"watcher: %w", err)
-		}
-	}
-
 	if err := s.cfg.ChainPorter.Start(); err != nil {
 		return fmt.Errorf("unable to start chain porter: %w", err)
+	}
+
+	// Native mint and porter adoption runs first. The remaining legacy
+	// proof transitions are generic wallet custody and can now be assigned
+	// to the receive site without stealing another subsystem's recovery.
+	err := s.cfg.AssetCustodian.AdoptProofs(ctx)
+	if err != nil {
+		return fmt.Errorf("unable to adopt legacy proofs: %w", err)
 	}
 
 	if err := s.cfg.UniverseFederation.Start(); err != nil {
@@ -389,7 +391,21 @@ func (s *Server) RunUntilShutdown(mainErrChan <-chan error) error {
 		}
 	}()
 
-	err := s.initialize(interceptorChain)
+	// Derive a context that ends when the interceptor signals shutdown,
+	// so long-running startup work, legacy proof adoption in particular,
+	// can be interrupted before the RPC server is up.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		select {
+		case <-s.cfg.SignalInterceptor.ShutdownChannel():
+			cancel()
+
+		case <-ctx.Done():
+		}
+	}()
+
+	err := s.initialize(ctx, interceptorChain)
 	if err != nil {
 		return mkErr("unable to initialize RPC server: %v", err)
 	}
@@ -621,7 +637,10 @@ func (s *Server) startHealthChecks() error {
 // for REST (if enabled), instead of creating an own mux and HTTP server, we
 // register to an existing one.
 func (s *Server) StartAsSubserver(lndGrpc *lndclient.GrpcLndServices) error {
-	if err := s.initialize(nil); err != nil {
+	// The integrated host stops the server through Stop and hands no
+	// shutdown context to this entry point, so startup work runs to
+	// completion here.
+	if err := s.initialize(context.Background(), nil); err != nil {
 		return fmt.Errorf("unable to initialize RPC server: %w", err)
 	}
 
@@ -854,21 +873,20 @@ func (s *Server) Stop() error {
 		return err
 	}
 
-	if err := s.cfg.ReOrgWatcher.Stop(); err != nil {
+	// The federation envoy stops before the anchoring watcher: the
+	// watcher's mint-publish effect waits on the envoy's serial loop,
+	// which ignores the attempt context and returns only once the
+	// envoy quits, so a federation member that never answers would
+	// otherwise park the watcher's shutdown behind it.
+	if err := s.cfg.UniverseFederation.Stop(); err != nil {
 		return err
 	}
 
-	if s.cfg.AnchoringWatcher != nil {
-		if err := s.cfg.AnchoringWatcher.Stop(); err != nil {
-			return err
-		}
+	if err := s.cfg.AnchoringWatcher.Stop(); err != nil {
+		return err
 	}
 
 	if err := s.cfg.ChainPorter.Stop(); err != nil {
-		return err
-	}
-
-	if err := s.cfg.UniverseFederation.Stop(); err != nil {
 		return err
 	}
 
@@ -1287,7 +1305,7 @@ func (s *Server) ShouldHandleTraffic(cid lnwire.ShortChannelID,
 // NOTE: This method is part of the routing.TlvTrafficShaper interface.
 func (s *Server) PaymentBandwidth(fundingBlob, htlcBlob,
 	commitmentBlob lfn.Option[tlv.Blob], linkBandwidth,
-	htlcAmt lnwire.MilliSatoshi, htlcView lnwallet.AuxHtlcView,
+	htlcAmt lnwire.MilliSatoshi, htlcView lnwl.AuxHtlcView,
 	peer route.Vertex) (lnwire.MilliSatoshi, error) {
 
 	srvrLog.Debugf("PaymentBandwidth called, fundingBlob=%v, htlcBlob=%v, "+

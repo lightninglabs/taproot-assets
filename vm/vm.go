@@ -26,6 +26,16 @@ type Engine struct {
 
 	// splitAssets represents zero or more asset splits committed to within
 	// the newAsset's SplitCommitmentRoot.
+	//
+	// NOTE: The VM only validates the split assets it is given. If
+	// newAsset carries a SplitCommitmentRoot, the non-inflation check
+	// only compares the sum of the inputs against the split tree's sum;
+	// it does NOT verify that the tree contains a root locator leaf
+	// matching newAsset's amount, script key and anchor output index.
+	// Callers verifying a split transition are responsible for supplying
+	// that root locator split asset themselves (the proof package does
+	// this via the proof's RootLocatorProof field), otherwise the root
+	// asset's amount is not bound to the split tree.
 	splitAssets []*commitment.SplitAsset
 
 	// prevAssets maps newAsset's inputs by the hash of their PrevID to
@@ -90,6 +100,12 @@ func WithSkipTimeLockValidation() NewEngineOpt {
 
 // New returns a new virtual machine capable of executing and verifying Taproot
 // Asset state transitions.
+//
+// NOTE: For a split transition (newAsset carries a SplitCommitmentRoot), the
+// caller must supply all split assets relevant to the verification via
+// splitAssets, including the canonical root locator split asset. The VM's
+// non-inflation check alone does not bind newAsset's amount to the split
+// tree; see the comment on Engine.splitAssets.
 func New(newAsset *asset.Asset, splitAssets []*commitment.SplitAsset,
 	prevAssets commitment.InputSet, opts ...NewEngineOpt) (*Engine, error) {
 
@@ -108,41 +124,6 @@ func New(newAsset *asset.Asset, splitAssets []*commitment.SplitAsset,
 	}, nil
 }
 
-// matchesPrevGenesis determines whether certain key parameters of the new
-// asset continue to hold its previous genesis.
-func matchesPrevGenesis(prevID asset.ID, groupKey *asset.GroupKey,
-	tag string, prevAsset *asset.Asset) bool {
-
-	switch {
-	// Matched genesis ID, gg.
-	case prevID == prevAsset.Genesis.ID():
-		return true
-
-	// Mismatched ID and nil GroupKey, ouch.
-	case groupKey == nil && prevAsset.GroupKey == nil:
-		fallthrough
-	case groupKey == nil && prevAsset.GroupKey != nil:
-		fallthrough
-	case groupKey != nil && prevAsset.GroupKey == nil:
-		return false
-
-	// Mismatched ID and non-nil GroupKey, there's hope!
-	case groupKey != nil && prevAsset.GroupKey != nil:
-		// Mismatched ID and GroupKey, sigh.
-		if !groupKey.IsEqual(prevAsset.GroupKey) {
-			return false
-		}
-
-		// Matched ID and GroupKey, there's still hope!
-		return tag == prevAsset.Genesis.Tag
-
-	// How did we get here?
-	default:
-		// TODO(roasbeef): actually make into an error?
-		panic("unreachable")
-	}
-}
-
 // matchesAssetParams ensures that a new asset continues to adhere to the
 // static parameters of its predecessor.
 func matchesAssetParams(newAsset, prevAsset *asset.Asset,
@@ -153,10 +134,24 @@ func matchesAssetParams(newAsset, prevAsset *asset.Asset,
 		return newErrKind(ErrScriptKeyMismatch)
 	}
 
-	if !matchesPrevGenesis(
-		prevAssetWitness.PrevID.ID, newAsset.GroupKey,
-		newAsset.Genesis.Tag, prevAsset,
-	) {
+	// The witness must reference its input, and the new asset must carry
+	// the asset ID and group key of that input: both are ungrouped, or
+	// both are grouped under the same tweaked group key, the only part of
+	// a group key that an asset commits to.
+	prevID := prevAsset.ID()
+	newGroup, prevGroup := newAsset.GroupKey, prevAsset.GroupKey
+	switch {
+	case prevAssetWitness.PrevID.ID != prevID:
+		return newErrKind(ErrIDMismatch)
+
+	case newAsset.ID() != prevID:
+		return newErrKind(ErrIDMismatch)
+
+	case (newGroup == nil) != (prevGroup == nil):
+		return newErrKind(ErrIDMismatch)
+
+	case newGroup != nil &&
+		!newGroup.GroupPubKey.IsEqual(&prevGroup.GroupPubKey):
 
 		return newErrKind(ErrIDMismatch)
 	}
@@ -265,7 +260,6 @@ func (vm *Engine) validateSplit(splitAsset *commitment.SplitAsset) error {
 		return fmt.Errorf("%w: prev witness zero", ErrNoInputs)
 	}
 	rootWitness := vm.newAsset.PrevWitnesses[0]
-	splitWitness := splitAsset.PrevWitnesses[0]
 
 	if rootWitness.PrevID == nil {
 		return fmt.Errorf("%w: nil prev_id on root witness",
@@ -305,27 +299,52 @@ func (vm *Engine) validateSplit(splitAsset *commitment.SplitAsset) error {
 
 	// Finally, verify that the split commitment proof for the split asset
 	// resolves to the split commitment root found within the change asset.
+	return VerifySplitCommitmentProof(vm.newAsset, splitAsset)
+}
+
+// VerifySplitCommitmentProof verifies that the split commitment proof carried
+// in the witness of the given split asset resolves to the split commitment
+// root of the given root asset.
+func VerifySplitCommitmentProof(rootAsset *asset.Asset,
+	splitAsset *commitment.SplitAsset) error {
+
+	if rootAsset.SplitCommitmentRoot == nil {
+		return newErrKind(ErrNoSplitCommitment)
+	}
+
+	if !splitAsset.Asset.HasSplitCommitmentWitness() {
+		return newErrKind(ErrInvalidSplitCommitmentWitness)
+	}
+
 	locator := &commitment.SplitLocator{
 		OutputIndex: splitAsset.OutputIndex,
 		AssetID:     splitAsset.Genesis.ID(),
 		ScriptKey:   asset.ToSerialized(splitAsset.ScriptKey.PubKey),
 		Amount:      splitAsset.Amount,
 	}
-	splitNoWitness := splitAsset.Copy()
+	// The leaf excludes only the split commitment witness, so a shallow
+	// copy with a fresh witness slice suffices. Asset.Copy would deep-copy
+	// the whole split commitment proof just for it to be dropped again.
+	splitNoWitness := splitAsset.Asset
+	splitNoWitness.PrevWitnesses = make(
+		[]asset.Witness, len(splitAsset.PrevWitnesses),
+	)
+	copy(splitNoWitness.PrevWitnesses, splitAsset.PrevWitnesses)
 	splitNoWitness.PrevWitnesses[0].SplitCommitment = nil
 
 	// Lock times should not invalidate the split commitment proof.
-	splitNoWitness.LockTime = vm.newAsset.LockTime
-	splitNoWitness.RelativeLockTime = vm.newAsset.RelativeLockTime
+	splitNoWitness.LockTime = rootAsset.LockTime
+	splitNoWitness.RelativeLockTime = rootAsset.RelativeLockTime
 
 	splitLeaf, err := splitNoWitness.Leaf()
 	if err != nil {
 		return err
 	}
 
+	splitWitness := splitAsset.PrevWitnesses[0]
 	if !mssmt.VerifyMerkleProof(
 		locator.Hash(), splitLeaf, &splitWitness.SplitCommitment.Proof,
-		vm.newAsset.SplitCommitmentRoot,
+		rootAsset.SplitCommitmentRoot,
 	) {
 
 		return newErrKind(ErrInvalidSplitCommitmentProof)
@@ -448,11 +467,19 @@ func (vm *Engine) validateStateTransition() error {
 	if err != nil {
 		return err
 	}
-	if treeRoot.NodeSum() !=
-		uint64(virtualTx.TxOut[0].Value) {
+	inputAmount := treeRoot.NodeSum()
 
+	// A split virtual output commits to the split tree sum instead of the
+	// root asset's plain amount. Bound that amount by the inputs
+	// separately.
+	if vm.newAsset.Amount > inputAmount {
+		return newErrInner(ErrAmountMismatch, fmt.Errorf("asset "+
+			"amount=%v exceeds input amount=%v",
+			vm.newAsset.Amount, inputAmount))
+	}
+	if inputAmount != uint64(virtualTx.TxOut[0].Value) {
 		return newErrInner(ErrAmountMismatch, fmt.Errorf("expected "+
-			"output value=%v, got=%v", treeRoot.NodeSum(),
+			"output value=%v, got=%v", inputAmount,
 			virtualTx.TxOut[0].Value))
 	}
 
@@ -622,6 +649,13 @@ func checkLockTime(ctx context.Context, newAsset *asset.Asset,
 
 			// Do nothing, continue below.
 
+		// No anchor transaction confirms in the genesis block, so a
+		// zero height means the input's height is unknown, and the
+		// lock can't be checked against it.
+		case inputConfirmHeight == 0:
+			return fmt.Errorf("unknown confirm height for input %v",
+				witness.PrevID.OutPoint)
+
 		case sequenceNum&wire.SequenceLockTimeIsSeconds ==
 			wire.SequenceLockTimeIsSeconds:
 
@@ -632,9 +666,6 @@ func checkLockTime(ctx context.Context, newAsset *asset.Asset,
 			// compute the past median time for the block prior to
 			// the one which included this referenced output.
 			prevInputHeight := inputConfirmHeight - 1
-			if prevInputHeight < 0 {
-				prevInputHeight = 0
-			}
 			inMedianTime, err := chainLookup.MeanBlockTimestamp(
 				ctx, prevInputHeight,
 			)

@@ -56,6 +56,7 @@ func (m *MockPriceOracle) QuerySellPrice(ctx context.Context,
 	assetSpecifier asset.Specifier,
 	assetMaxAmt fn.Option[uint64],
 	paymentMaxAmt fn.Option[lnwire.MilliSatoshi],
+	paymentSwapAmt fn.Option[lnwire.MilliSatoshi],
 	assetRateHint fn.Option[rfqmsg.AssetRate],
 	counterparty fn.Option[route.Vertex], metadata string,
 	intent PriceQueryIntent) (*OracleResponse, error) {
@@ -76,8 +77,8 @@ func (m *MockPriceOracle) QuerySellPrice(ctx context.Context,
 
 	// If an expected call exists, call normally.
 	args := m.Called(
-		ctx, assetSpecifier, assetMaxAmt, paymentMaxAmt, assetRateHint,
-		counterparty, metadata, intent,
+		ctx, assetSpecifier, assetMaxAmt, paymentMaxAmt,
+		paymentSwapAmt, assetRateHint, counterparty, metadata, intent,
 	)
 	resp, _ := args.Get(0).(*OracleResponse)
 	return resp, args.Error(1)
@@ -88,6 +89,7 @@ func (m *MockPriceOracle) QueryBuyPrice(ctx context.Context,
 	assetSpecifier asset.Specifier,
 	assetMaxAmt fn.Option[uint64],
 	paymentMaxAmt fn.Option[lnwire.MilliSatoshi],
+	paymentSwapAmt fn.Option[lnwire.MilliSatoshi],
 	assetRateHint fn.Option[rfqmsg.AssetRate],
 	counterparty fn.Option[route.Vertex], metadata string,
 	intent PriceQueryIntent) (*OracleResponse, error) {
@@ -108,8 +110,8 @@ func (m *MockPriceOracle) QueryBuyPrice(ctx context.Context,
 
 	// If an expected call exists, call normally.
 	args := m.Called(
-		ctx, assetSpecifier, assetMaxAmt, paymentMaxAmt, assetRateHint,
-		counterparty, metadata, intent,
+		ctx, assetSpecifier, assetMaxAmt, paymentMaxAmt,
+		paymentSwapAmt, assetRateHint, counterparty, metadata, intent,
 	)
 	resp, _ := args.Get(0).(*OracleResponse)
 	return resp, args.Error(1)

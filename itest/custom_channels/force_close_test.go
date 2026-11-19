@@ -245,9 +245,9 @@ func testCustomChannelsForceClose(ctx context.Context,
 
 	time.Sleep(time.Second * 1)
 
-	// Next, we'll mine three additional blocks to trigger the CSV delay
+	// Next, we'll mine two additional blocks to trigger the CSV delay
 	// for Charlie.
-	mineBlocks(t, net, 4, 0)
+	mineBlocks(t, net, 2, 0)
 
 	// We expect that Charlie's sweep transaction has been broadcast.
 	charlieSweepTxid, err := waitForNTxsInMempool(

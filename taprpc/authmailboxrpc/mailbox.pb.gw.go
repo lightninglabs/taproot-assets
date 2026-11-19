@@ -10,6 +10,7 @@ package authmailboxrpc
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 
@@ -24,37 +25,41 @@ import (
 )
 
 // Suppress "imported and not used" errors
-var _ codes.Code
-var _ io.Reader
-var _ status.Status
-var _ = runtime.String
-var _ = utilities.NewDoubleArray
-var _ = metadata.Join
+var (
+	_ codes.Code
+	_ io.Reader
+	_ status.Status
+	_ = errors.New
+	_ = runtime.String
+	_ = utilities.NewDoubleArray
+	_ = metadata.Join
+)
 
 func request_Mailbox_SendMessage_0(ctx context.Context, marshaler runtime.Marshaler, client MailboxClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq SendMessageRequest
-	var metadata runtime.ServerMetadata
-
-	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && err != io.EOF {
+	var (
+		protoReq SendMessageRequest
+		metadata runtime.ServerMetadata
+	)
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-
+	if req.Body != nil {
+		_, _ = io.Copy(io.Discard, req.Body)
+	}
 	msg, err := client.SendMessage(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
-
 }
 
 func local_request_Mailbox_SendMessage_0(ctx context.Context, marshaler runtime.Marshaler, server MailboxServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq SendMessageRequest
-	var metadata runtime.ServerMetadata
-
-	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && err != io.EOF {
+	var (
+		protoReq SendMessageRequest
+		metadata runtime.ServerMetadata
+	)
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-
 	msg, err := server.SendMessage(ctx, &protoReq)
 	return msg, metadata, err
-
 }
 
 func request_Mailbox_ReceiveMessages_0(ctx context.Context, marshaler runtime.Marshaler, client MailboxClient, req *http.Request, pathParams map[string]string) (Mailbox_ReceiveMessagesClient, runtime.ServerMetadata, error) {
@@ -68,12 +73,12 @@ func request_Mailbox_ReceiveMessages_0(ctx context.Context, marshaler runtime.Ma
 	handleSend := func() error {
 		var protoReq ReceiveMessagesRequest
 		err := dec.Decode(&protoReq)
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			return err
 		}
 		if err != nil {
 			grpclog.Errorf("Failed to decode request: %v", err)
-			return err
+			return status.Errorf(codes.InvalidArgument, "Failed to decode request: %v", err)
 		}
 		if err := stream.Send(&protoReq); err != nil {
 			grpclog.Errorf("Failed to send request: %v", err)
@@ -101,64 +106,66 @@ func request_Mailbox_ReceiveMessages_0(ctx context.Context, marshaler runtime.Ma
 }
 
 func request_Mailbox_MailboxInfo_0(ctx context.Context, marshaler runtime.Marshaler, client MailboxClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq MailboxInfoRequest
-	var metadata runtime.ServerMetadata
-
+	var (
+		protoReq MailboxInfoRequest
+		metadata runtime.ServerMetadata
+	)
+	if req.Body != nil {
+		_, _ = io.Copy(io.Discard, req.Body)
+	}
 	msg, err := client.MailboxInfo(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
-
 }
 
 func local_request_Mailbox_MailboxInfo_0(ctx context.Context, marshaler runtime.Marshaler, server MailboxServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq MailboxInfoRequest
-	var metadata runtime.ServerMetadata
-
+	var (
+		protoReq MailboxInfoRequest
+		metadata runtime.ServerMetadata
+	)
 	msg, err := server.MailboxInfo(ctx, &protoReq)
 	return msg, metadata, err
-
 }
 
 func request_Mailbox_RemoveMessage_0(ctx context.Context, marshaler runtime.Marshaler, client MailboxClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq RemoveMessageRequest
-	var metadata runtime.ServerMetadata
-
-	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && err != io.EOF {
+	var (
+		protoReq RemoveMessageRequest
+		metadata runtime.ServerMetadata
+	)
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-
+	if req.Body != nil {
+		_, _ = io.Copy(io.Discard, req.Body)
+	}
 	msg, err := client.RemoveMessage(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
-
 }
 
 func local_request_Mailbox_RemoveMessage_0(ctx context.Context, marshaler runtime.Marshaler, server MailboxServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq RemoveMessageRequest
-	var metadata runtime.ServerMetadata
-
-	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && err != io.EOF {
+	var (
+		protoReq RemoveMessageRequest
+		metadata runtime.ServerMetadata
+	)
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-
 	msg, err := server.RemoveMessage(ctx, &protoReq)
 	return msg, metadata, err
-
 }
 
 // RegisterMailboxHandlerServer registers the http handlers for service Mailbox to "mux".
 // UnaryRPC     :call MailboxServer directly.
 // StreamingRPC :currently unsupported pending https://github.com/grpc/grpc-go/issues/906.
 // Note that using this registration option will cause many gRPC library features to stop working. Consider using RegisterMailboxHandlerFromEndpoint instead.
+// GRPC interceptors will not work for this type of registration. To use interceptors, you must use the "runtime.WithMiddlewares" option in the "runtime.NewServeMux" call.
 func RegisterMailboxHandlerServer(ctx context.Context, mux *runtime.ServeMux, server MailboxServer) error {
-
-	mux.Handle("POST", pattern_Mailbox_SendMessage_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_Mailbox_SendMessage_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/authmailboxrpc.Mailbox/SendMessage", runtime.WithHTTPPathPattern("/v1/taproot-assets/mailbox/send"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/authmailboxrpc.Mailbox/SendMessage", runtime.WithHTTPPathPattern("/v1/taproot-assets/mailbox/send"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -170,27 +177,22 @@ func RegisterMailboxHandlerServer(ctx context.Context, mux *runtime.ServeMux, se
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-
 		forward_Mailbox_SendMessage_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
 	})
 
-	mux.Handle("POST", pattern_Mailbox_ReceiveMessages_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_Mailbox_ReceiveMessages_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		err := status.Error(codes.Unimplemented, "streaming calls are not yet supported in the in-process transport")
 		_, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 		return
 	})
-
-	mux.Handle("GET", pattern_Mailbox_MailboxInfo_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodGet, pattern_Mailbox_MailboxInfo_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/authmailboxrpc.Mailbox/MailboxInfo", runtime.WithHTTPPathPattern("/v1/taproot-assets/mailbox/info"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/authmailboxrpc.Mailbox/MailboxInfo", runtime.WithHTTPPathPattern("/v1/taproot-assets/mailbox/info"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -202,20 +204,15 @@ func RegisterMailboxHandlerServer(ctx context.Context, mux *runtime.ServeMux, se
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-
 		forward_Mailbox_MailboxInfo_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
 	})
-
-	mux.Handle("POST", pattern_Mailbox_RemoveMessage_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_Mailbox_RemoveMessage_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/authmailboxrpc.Mailbox/RemoveMessage", runtime.WithHTTPPathPattern("/v1/taproot-assets/mailbox/remove"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/authmailboxrpc.Mailbox/RemoveMessage", runtime.WithHTTPPathPattern("/v1/taproot-assets/mailbox/remove"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -227,9 +224,7 @@ func RegisterMailboxHandlerServer(ctx context.Context, mux *runtime.ServeMux, se
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-
 		forward_Mailbox_RemoveMessage_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
 	})
 
 	return nil
@@ -256,7 +251,6 @@ func RegisterMailboxHandlerFromEndpoint(ctx context.Context, mux *runtime.ServeM
 			}
 		}()
 	}()
-
 	return RegisterMailboxHandler(ctx, mux, conn)
 }
 
@@ -270,16 +264,13 @@ func RegisterMailboxHandler(ctx context.Context, mux *runtime.ServeMux, conn *gr
 // to "mux". The handlers forward requests to the grpc endpoint over the given implementation of "MailboxClient".
 // Note: the gRPC framework executes interceptors within the gRPC handler. If the passed in "MailboxClient"
 // doesn't go through the normal gRPC flow (creating a gRPC client etc.) then it will be up to the passed in
-// "MailboxClient" to call the correct interceptors.
+// "MailboxClient" to call the correct interceptors. This client ignores the HTTP middlewares.
 func RegisterMailboxHandlerClient(ctx context.Context, mux *runtime.ServeMux, client MailboxClient) error {
-
-	mux.Handle("POST", pattern_Mailbox_SendMessage_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_Mailbox_SendMessage_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/authmailboxrpc.Mailbox/SendMessage", runtime.WithHTTPPathPattern("/v1/taproot-assets/mailbox/send"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/authmailboxrpc.Mailbox/SendMessage", runtime.WithHTTPPathPattern("/v1/taproot-assets/mailbox/send"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -290,18 +281,13 @@ func RegisterMailboxHandlerClient(ctx context.Context, mux *runtime.ServeMux, cl
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-
 		forward_Mailbox_SendMessage_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
 	})
-
-	mux.Handle("POST", pattern_Mailbox_ReceiveMessages_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_Mailbox_ReceiveMessages_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/authmailboxrpc.Mailbox/ReceiveMessages", runtime.WithHTTPPathPattern("/v1/taproot-assets/mailbox/receive"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/authmailboxrpc.Mailbox/ReceiveMessages", runtime.WithHTTPPathPattern("/v1/taproot-assets/mailbox/receive"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -312,18 +298,13 @@ func RegisterMailboxHandlerClient(ctx context.Context, mux *runtime.ServeMux, cl
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-
 		forward_Mailbox_ReceiveMessages_0(annotatedContext, mux, outboundMarshaler, w, req, func() (proto.Message, error) { return resp.Recv() }, mux.GetForwardResponseOptions()...)
-
 	})
-
-	mux.Handle("GET", pattern_Mailbox_MailboxInfo_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodGet, pattern_Mailbox_MailboxInfo_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/authmailboxrpc.Mailbox/MailboxInfo", runtime.WithHTTPPathPattern("/v1/taproot-assets/mailbox/info"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/authmailboxrpc.Mailbox/MailboxInfo", runtime.WithHTTPPathPattern("/v1/taproot-assets/mailbox/info"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -334,18 +315,13 @@ func RegisterMailboxHandlerClient(ctx context.Context, mux *runtime.ServeMux, cl
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-
 		forward_Mailbox_MailboxInfo_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
 	})
-
-	mux.Handle("POST", pattern_Mailbox_RemoveMessage_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_Mailbox_RemoveMessage_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/authmailboxrpc.Mailbox/RemoveMessage", runtime.WithHTTPPathPattern("/v1/taproot-assets/mailbox/remove"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/authmailboxrpc.Mailbox/RemoveMessage", runtime.WithHTTPPathPattern("/v1/taproot-assets/mailbox/remove"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -356,30 +332,21 @@ func RegisterMailboxHandlerClient(ctx context.Context, mux *runtime.ServeMux, cl
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-
 		forward_Mailbox_RemoveMessage_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-
 	})
-
 	return nil
 }
 
 var (
-	pattern_Mailbox_SendMessage_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "taproot-assets", "mailbox", "send"}, ""))
-
+	pattern_Mailbox_SendMessage_0     = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "taproot-assets", "mailbox", "send"}, ""))
 	pattern_Mailbox_ReceiveMessages_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "taproot-assets", "mailbox", "receive"}, ""))
-
-	pattern_Mailbox_MailboxInfo_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "taproot-assets", "mailbox", "info"}, ""))
-
-	pattern_Mailbox_RemoveMessage_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "taproot-assets", "mailbox", "remove"}, ""))
+	pattern_Mailbox_MailboxInfo_0     = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "taproot-assets", "mailbox", "info"}, ""))
+	pattern_Mailbox_RemoveMessage_0   = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "taproot-assets", "mailbox", "remove"}, ""))
 )
 
 var (
-	forward_Mailbox_SendMessage_0 = runtime.ForwardResponseMessage
-
+	forward_Mailbox_SendMessage_0     = runtime.ForwardResponseMessage
 	forward_Mailbox_ReceiveMessages_0 = runtime.ForwardResponseStream
-
-	forward_Mailbox_MailboxInfo_0 = runtime.ForwardResponseMessage
-
-	forward_Mailbox_RemoveMessage_0 = runtime.ForwardResponseMessage
+	forward_Mailbox_MailboxInfo_0     = runtime.ForwardResponseMessage
+	forward_Mailbox_RemoveMessage_0   = runtime.ForwardResponseMessage
 )

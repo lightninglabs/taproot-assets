@@ -232,6 +232,14 @@ message QueryAssetRatesRequest {
     // is set by default and can be disabled via the
     // --experimental.rfq.priceoracledisablenodeid configuration option.
     bytes node_id = 10;
+
+    // payment_asset_swap_amount is the amount of the payment asset that the
+    // requesting party actually intends to swap, excluding any routing fee
+    // budget. For a pay-invoice flow this is the invoice amount, while
+    // payment_asset_max_amount is the invoice amount plus the fee limit of
+    // the payment. This field is optional. If set to zero, it is considered
+    // unset. This field will only be set by tapd v0.9.0 and later.
+    uint64 payment_asset_swap_amount = 11;
 }
 
 // QueryAssetRatesOkResponse is the successful response to a

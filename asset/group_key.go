@@ -17,7 +17,6 @@ import (
 	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
-	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/pedersen"
 	"github.com/lightningnetwork/lnd/input"
@@ -336,6 +335,12 @@ const (
 	GKRInternalKey       GroupKeyRevealTlvType = 2
 	GKRTapscriptRoot     GroupKeyRevealTlvType = 4
 	GKRCustomSubtreeRoot GroupKeyRevealTlvType = 7
+)
+
+// knownGroupKeyRevealTypes is the set of all known group key reveal V1 TLV
+// types.
+var knownGroupKeyRevealTypes = fn.NewSet(
+	GKRVersion, GKRInternalKey, GKRTapscriptRoot, GKRCustomSubtreeRoot,
 )
 
 func NewGKRVersionRecord(version *uint8) tlv.Record {
@@ -802,8 +807,17 @@ func (g *GroupKeyRevealV1) Decode(r io.Reader, buf *[8]byte, l uint64) error {
 		return err
 	}
 
-	// Decode the reader's contents into the tlv stream.
-	_, err = tlvStream.DecodeWithParsedTypes(r)
+	// Decode the record's l bytes into the tlv stream.
+	err = decodeExact(r, l, func(r io.Reader) error {
+		parsedTypes, err := tlvStream.DecodeWithParsedTypes(r)
+		if err != nil {
+			return err
+		}
+
+		return AssertNoUnknownEvenTypes(
+			parsedTypes, knownGroupKeyRevealTypes,
+		)
+	})
 	if err != nil {
 		return err
 	}
@@ -1444,7 +1458,7 @@ func DeriveGroupKey(genSigner GenesisSigner, genTx GroupVirtualTx,
 
 	// Populate the signing descriptor needed to sign the virtual minting
 	// transaction.
-	signDesc := &lndclient.SignDescriptor{
+	signDesc := &SignDescriptor{
 		KeyDesc:     req.RawKey,
 		SingleTweak: genTx.GenID[:],
 		TapTweak:    req.TapscriptRoot,

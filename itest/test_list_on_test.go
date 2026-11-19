@@ -82,6 +82,18 @@ var allTestCases = []*testCase{
 		test: testBackupFileUpdates,
 	},
 	{
+		name: "backup file reissuance",
+		test: testBackupFileReissuance,
+	},
+	{
+		name: "backup file reissuance v1",
+		test: testBackupFileReissuanceV1,
+	},
+	{
+		name: "backup file legacy anchor",
+		test: testBackupFileLegacyAnchor,
+	},
+	{
 		name: "addresses",
 		test: testAddresses,
 	},
@@ -109,20 +121,57 @@ var allTestCases = []*testCase{
 	// if the re-org tests run last. So we run them toward the beginning to
 	// reduce the flakiness of the Postgres itest.
 	{
-		name: "re-org mint",
-		test: testReOrgMint,
+		name:           "re-org mint",
+		test:           testReOrgMint,
+		reOrgSafeDepth: 6,
 	},
 	{
-		name: "re-org send",
-		test: testReOrgSend,
+		name:           "re-org send",
+		test:           testReOrgSend,
+		reOrgSafeDepth: 6,
 	},
 	{
-		name: "re-org send v2 address",
-		test: testReOrgSendV2Address,
+		name:           "re-org send v2 address",
+		test:           testReOrgSendV2Address,
+		reOrgSafeDepth: 6,
 	},
 	{
-		name: "re-org mint and send",
-		test: testReOrgMintAndSend,
+		name:           "re-org mint and send",
+		test:           testReOrgMintAndSend,
+		reOrgSafeDepth: 6,
+	},
+	{
+		name:           "re-org nested history",
+		test:           testReOrgNestedHistory,
+		reOrgSafeDepth: 6,
+	},
+	// The act gate itself, at a depth where it is not vacuous: the
+	// rest of the suite runs at depth 1, where burial coincides with
+	// the first confirmation.
+	{
+		name:           "act gated mint publication",
+		test:           testActGatedMintPublication,
+		reOrgSafeDepth: 6,
+	},
+	{
+		name:           "act gated supply emissions",
+		test:           testActGatedSupplyEmissions,
+		reOrgSafeDepth: 6,
+	},
+	{
+		name:           "re-org send conflicting spend",
+		test:           testReOrgSendConflictingSpend,
+		reOrgSafeDepth: 6,
+	},
+	{
+		name:           "re-org supply commit",
+		test:           testReOrgSupplyCommit,
+		reOrgSafeDepth: 3,
+	},
+	{
+		name:           "re-org genesis receive",
+		test:           testReOrgGenesisReceive,
+		reOrgSafeDepth: 3,
 	},
 	{
 		name:             "basic send unidirectional hashmail courier",
@@ -314,8 +363,28 @@ var allTestCases = []*testCase{
 		test: testPsbtTrustlessSwap,
 	},
 	{
+		name: "psbt external input",
+		test: testPsbtExternalInput,
+	},
+	{
+		name: "psbt external input restart",
+		test: testPsbtExternalInputRestart,
+	},
+	{
+		name: "psbt external input universe proof",
+		test: testPsbtExternalInputUniverseProof,
+	},
+	{
+		name: "psbt external input request proof",
+		test: testPsbtExternalInputRequestProof,
+	},
+	{
 		name: "psbt external commit",
 		test: testPsbtExternalCommit,
+	},
+	{
+		name: "psbt sign anchor inputs",
+		test: testPsbtSignAnchorInputs,
 	},
 	{
 		name: "multi input psbt single asset id",
@@ -466,6 +535,10 @@ var allTestCases = []*testCase{
 	{
 		name: "address v2 with simple asset",
 		test: testAddressV2WithSimpleAsset,
+	},
+	{
+		name: "universe tls verification",
+		test: testUniverseTLSVerification,
 	},
 	{
 		name: "address v2 with group key",

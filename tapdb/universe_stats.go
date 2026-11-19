@@ -217,6 +217,10 @@ func (a *atomicSyncStatsCache) fetchQuery(q universe.SyncStatsQuery,
 	// part of the key.
 	newQuery.AssetTypeFilter = nil
 
+	// The key omits the page bounds.
+	newQuery.Offset = 0
+	newQuery.Limit = 0
+
 	// First make the wrapper around the struct, using a value of the max
 	// asset type to signal that no asset type was requested.
 	query := syncStatsQuery{
@@ -259,6 +263,10 @@ func (a *atomicSyncStatsCache) storeQuery(q universe.SyncStatsQuery,
 	// Set this to nil so the map doesn't try to use the memory address as
 	// part of the key.
 	newQuery.AssetTypeFilter = nil
+
+	// The key omits the page bounds.
+	newQuery.Offset = 0
+	newQuery.Limit = 0
 
 	// First make the wrapper around the struct, using a value of the max
 	// asset type to signal that no asset type was requested.
@@ -785,7 +793,8 @@ func (u *UniverseStats) QueryAssetStatsPerDay(ctx context.Context,
 // QuerySyncStats attempts to query the stats for the target universe.  For a
 // given asset ID, tag, or type, the set of universe stats is returned which
 // lists information such as the total number of syncs and known proofs for a
-// given Universe server instance.
+// given Universe server instance. The page selected by the query's offset and
+// limit is a slice of the result cached for the query's filters and sort.
 func (u *UniverseStats) QuerySyncStats(ctx context.Context,
 	q universe.SyncStatsQuery) (*universe.AssetSyncStats, error) {
 
@@ -800,7 +809,7 @@ func (u *UniverseStats) QuerySyncStats(ctx context.Context,
 	u.syncStatsMtx.RUnlock()
 
 	if syncSnapshots != nil {
-		resp.SyncStats = syncSnapshots
+		resp.SyncStats = syncStatsPage(syncSnapshots, q)
 		return resp, nil
 	}
 
@@ -812,7 +821,7 @@ func (u *UniverseStats) QuerySyncStats(ctx context.Context,
 	// Check again to see if the value was loaded in while we were waiting.
 	syncSnapshots = u.syncStatsCache.fetchQuery(q)
 	if syncSnapshots != nil {
-		resp.SyncStats = syncSnapshots
+		resp.SyncStats = syncStatsPage(syncSnapshots, q)
 		return resp, nil
 	}
 
@@ -830,14 +839,8 @@ func (u *UniverseStats) QuerySyncStats(ctx context.Context,
 		}(),
 		SortBy:        sqlStr(sortTypeToOrderBy(q.SortBy)),
 		SortDirection: sqlInt16(q.SortDirection),
-		NumOffset:     int32(q.Offset),
-		NumLimit: func() int32 {
-			if q.Limit == 0 {
-				return universe.RequestPageSize
-			}
-
-			return int32(q.Limit)
-		}(),
+		NumOffset:     0,
+		NumLimit:      math.MaxInt32,
 	}
 
 	// In order for the narg clause to work properly, we'll only
@@ -856,7 +859,7 @@ func (u *UniverseStats) QuerySyncStats(ctx context.Context,
 			return err
 		}
 
-		resp.SyncStats = make(
+		syncSnapshots = make(
 			[]universe.AssetSyncSnapshot, 0, len(assetStats),
 		)
 
@@ -903,7 +906,7 @@ func (u *UniverseStats) QuerySyncStats(ctx context.Context,
 				Index: uint32(assetStat.AnchorIndex),
 			}
 
-			resp.SyncStats = append(resp.SyncStats, stats)
+			syncSnapshots = append(syncSnapshots, stats)
 		}
 
 		return nil
@@ -913,7 +916,9 @@ func (u *UniverseStats) QuerySyncStats(ctx context.Context,
 	}
 
 	// Now we'll insert the result in the cache.
-	u.syncStatsCache.storeQuery(q, resp.SyncStats)
+	u.syncStatsCache.storeQuery(q, syncSnapshots)
+
+	resp.SyncStats = syncStatsPage(syncSnapshots, q)
 
 	// Finally, we'll create the time after function that'll wipe the
 	// cache, forcing a refresh.
@@ -935,6 +940,22 @@ func (u *UniverseStats) QuerySyncStats(ctx context.Context,
 	})
 
 	return resp, nil
+}
+
+// syncStatsPage returns the stats selected by the query's offset and limit. A
+// zero limit selects universe.RequestPageSize stats.
+func syncStatsPage(stats []universe.AssetSyncSnapshot,
+	q universe.SyncStatsQuery) []universe.AssetSyncSnapshot {
+
+	limit := q.Limit
+	if limit == 0 {
+		limit = universe.RequestPageSize
+	}
+
+	start := min(q.Offset, len(stats))
+	end := min(start+limit, len(stats))
+
+	return stats[start:end:end]
 }
 
 var _ universe.Telemetry = (*UniverseStats)(nil)
