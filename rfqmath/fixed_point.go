@@ -43,7 +43,7 @@ func (f FixedPoint[T]) ScaleTo(newScale uint8) FixedPoint[T] {
 	scaleDiff := int32(newScale) - int32(f.Scale)
 
 	absoluteScale := int(math.Abs(float64(scaleDiff)))
-	scaleMultiplier := NewInt[T]().FromFloat(math.Pow10(absoluteScale))
+	scaleMultiplier := pow10[T](absoluteScale)
 
 	// We'll explicitly handle the scale down vs scale up case.
 	var newCoefficient T
@@ -93,7 +93,7 @@ func (f FixedPoint[T]) ToFloat64() float64 {
 // NOTE: This function assumes that the scales of the two FixedPoint values are
 // identical. If the scales differ, the result may be incorrect.
 func (f FixedPoint[T]) Mul(other FixedPoint[T]) FixedPoint[T] {
-	multiplier := NewInt[T]().FromFloat(math.Pow10(int(f.Scale)))
+	multiplier := pow10[T](int(f.Scale))
 
 	result := f.Coefficient.Mul(other.Coefficient).Div(multiplier)
 
@@ -109,7 +109,7 @@ func (f FixedPoint[T]) Mul(other FixedPoint[T]) FixedPoint[T] {
 // NOTE: This function assumes that the scales of the two FixedPoint values are
 // identical. If the scales differ, the result may be incorrect.
 func (f FixedPoint[T]) Div(other FixedPoint[T]) FixedPoint[T] {
-	multiplier := NewInt[T]().FromFloat(math.Pow10(int(f.Scale)))
+	multiplier := pow10[T](int(f.Scale))
 
 	result := f.Coefficient.Mul(multiplier).Div(other.Coefficient)
 
@@ -230,10 +230,23 @@ func AddTolerance(value, tolerancePpm BigInt) BigInt {
 	return res
 }
 
+// pow10 returns 10^exp as an integer of type N. Unlike converting
+// math.Pow10 to an integer, this is exact for every exponent and doesn't
+// clamp large powers to the range of an int64.
+func pow10[N Int[N]](exp int) N {
+	ten := NewInt[N]().FromUint64(10)
+	result := NewInt[N]().FromUint64(1)
+	for i := 0; i < exp; i++ {
+		result = result.Mul(ten)
+	}
+
+	return result
+}
+
 // FixedPointFromUint64 creates a new FixedPoint from the given integer and
 // scale. Note that the input here should be *unscaled*.
 func FixedPointFromUint64[N Int[N]](value uint64, scale uint8) FixedPoint[N] {
-	scaleN := NewInt[N]().FromFloat(math.Pow10(int(scale)))
+	scaleN := pow10[N](int(scale))
 	coefficientN := NewInt[N]().FromUint64(value)
 
 	return FixedPoint[N]{
