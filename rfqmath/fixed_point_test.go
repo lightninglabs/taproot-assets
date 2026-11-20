@@ -934,3 +934,34 @@ func TestFixedPoint(t *testing.T) {
 
 	t.Run("within_tolerance", testWithinTolerance)
 }
+
+// TestBigIntFixedPointLargeScale makes sure that scales whose power of ten
+// doesn't fit into an int64 are handled exactly.
+func TestBigIntFixedPointLargeScale(t *testing.T) {
+	t.Parallel()
+
+	for _, scale := range []uint8{18, 19, 20, 23, 30, 60} {
+		expected := new(big.Int).Exp(
+			big.NewInt(10), big.NewInt(int64(scale)), nil,
+		)
+
+		fp := FixedPointFromUint64[BigInt](1, scale)
+		require.Zero(t, fp.Coefficient.value.Cmp(expected), "scale %d: "+
+			"got %v, want %v", scale, fp.Coefficient, expected)
+
+		scaled := NewBigIntFixedPoint(5, 0).ScaleTo(scale)
+		require.Zero(t, scaled.Coefficient.value.Cmp(
+			new(big.Int).Mul(big.NewInt(5), expected),
+		), "scale %d: got %v", scale, scaled.Coefficient)
+
+		// Round trip back down to the original scale.
+		require.Equal(
+			t, uint64(5), scaled.ScaleTo(0).Coefficient.ToUint64(),
+		)
+
+		// Multiplying and dividing by one must be the identity.
+		two := FixedPointFromUint64[BigInt](2, scale)
+		require.True(t, two.Mul(fp).Equals(two), "scale %d", scale)
+		require.True(t, two.Div(fp).Equals(two), "scale %d", scale)
+	}
+}
