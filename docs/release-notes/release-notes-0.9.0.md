@@ -30,6 +30,10 @@
   vulnerability. Operators can explicitly opt in with
   `GODEBUG=multipathtcp=1`.
 
+- [A mailbox send fragment can no longer name an output index beyond the
+  transaction it references](https://github.com/lightninglabs/taproot-assets/pull/2389).
+  The custodian rejects the fragment with an error instead of panicking.
+
 - [The asset-aware `ListInvoices`, `ListPayments` and the matching subscription
   RPCs no longer trigger a universe federation sync on every
   call](https://github.com/lightninglabs/taproot-assets/pull/2379) for grouped
