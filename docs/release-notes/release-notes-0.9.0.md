@@ -544,6 +544,13 @@
   `make build-wasm` target and CI job compile the core packages for
   js/wasm.
 
+* [PR#2394](https://github.com/lightninglabs/taproot-assets/pull/2394)
+  exports `proof.EncryptSendFragment` and `proof.DecryptSendFragment`,
+  so that an application embedding these packages reads and writes the
+  auth mailbox messages of V2 address sends with the code tapd runs.
+  `DecryptSendFragment` takes the shared key derivation as a function
+  and needs no lnd signer. The message format is unchanged.
+
 ## Tooling and Documentation
 
 # Contributors (Alphabetical Order)
