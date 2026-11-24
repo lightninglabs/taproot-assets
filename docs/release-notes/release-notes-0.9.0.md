@@ -240,6 +240,11 @@
   inputs as well, so it accepts an asset with a time locked input in its
   history.
 
+* [PR#2274](https://github.com/lightninglabs/taproot-assets/pull/2274)
+  makes `AssetLeaves` reject an unspecified proof type with an error
+  instead of returning an empty leaf list. Fixes
+  [#701](https://github.com/lightninglabs/taproot-assets/issues/701).
+
 # New Features
 
 ## Functional Enhancements
