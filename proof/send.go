@@ -2,6 +2,7 @@ package proof
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"fmt"
 	"io"
@@ -10,6 +11,8 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/internal/ecies"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -183,6 +186,94 @@ func DecodeSendFragment(blob []byte) (*SendFragment, error) {
 	if err := fragment.Decode(bytes.NewReader(blob)); err != nil {
 		return nil, fmt.Errorf("unable to decode send fragment: %w",
 			err)
+	}
+
+	return fragment, nil
+}
+
+// SharedKeyDeriver derives the ECDH shared key between the receiver key of a
+// send fragment and the given public key. The shared key is the SHA256 hash of
+// the shared point in compressed format, as returned by lnd's DeriveSharedKey
+// RPC and its keychain.ECDHRing.
+type SharedKeyDeriver func(ctx context.Context,
+	pubKey *btcec.PublicKey) ([sha256.Size]byte, error)
+
+// EncryptSendFragment encodes the send fragment and encrypts it to the
+// receiver key, using a new ephemeral sender key. The result is the payload of
+// an auth mailbox message:
+//
+// <1 byte version> <1 byte sender key length> <33 bytes sender key>
+// <24 bytes nonce> <* bytes ciphertext>
+func EncryptSendFragment(fragment *SendFragment,
+	receiver *btcec.PublicKey) ([]byte, error) {
+
+	// The receiver derives the shared key from the public key of the
+	// ephemeral key pair, which is sent along as the authenticated
+	// additional data of the message. The private key isn't needed after
+	// the ECDH operation.
+	senderKey, err := btcec.NewPrivateKey()
+	if err != nil {
+		return nil, fmt.Errorf("unable to generate ephemeral key: %w",
+			err)
+	}
+
+	sharedKey, err := ecies.ECDH(senderKey, receiver)
+	if err != nil {
+		return nil, fmt.Errorf("unable to derive shared key: %w", err)
+	}
+
+	msg, err := fn.Encode(fragment)
+	if err != nil {
+		return nil, fmt.Errorf("unable to encode send fragment: %w",
+			err)
+	}
+
+	payload, err := ecies.EncryptSha256ChaCha20Poly1305(
+		sharedKey, msg, senderKey.PubKey().SerializeCompressed(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to encrypt send fragment: %w",
+			err)
+	}
+
+	return payload, nil
+}
+
+// DecryptSendFragment decrypts the payload of an auth mailbox message, as
+// created by EncryptSendFragment, and returns the validated send fragment. The
+// given function must derive the shared key between the receiver key the
+// message was sent to and the sender key it is called with.
+func DecryptSendFragment(ctx context.Context, payload []byte,
+	deriveSharedKey SharedKeyDeriver) (*SendFragment, error) {
+
+	_, senderKeyBytes, _, err := ecies.ExtractAdditionalData(payload)
+	if err != nil {
+		return nil, fmt.Errorf("unable to extract sender key: %w", err)
+	}
+
+	senderKey, err := btcec.ParsePubKey(senderKeyBytes)
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse sender key: %w", err)
+	}
+
+	sharedKey, err := deriveSharedKey(ctx, senderKey)
+	if err != nil {
+		return nil, fmt.Errorf("unable to derive shared key: %w", err)
+	}
+
+	msg, err := ecies.DecryptSha256ChaCha20Poly1305(sharedKey, payload)
+	if err != nil {
+		return nil, fmt.Errorf("unable to decrypt send fragment: %w",
+			err)
+	}
+
+	fragment, err := DecodeSendFragment(msg)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := fragment.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid send fragment: %w", err)
 	}
 
 	return fragment, nil
