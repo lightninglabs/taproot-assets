@@ -22,7 +22,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/authmailbox"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
-	"github.com/lightninglabs/taproot-assets/internal/ecies"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapcustody"
@@ -847,18 +846,8 @@ func (r *v2Receiver) storeFragment(
 
 	t := r.h.t
 
-	senderPrivKey, err := btcec.NewPrivateKey()
-	require.NoError(t, err)
-
-	sharedSecret, err := ecies.ECDH(senderPrivKey, r.receiverKey.PubKey)
-	require.NoError(t, err)
-
-	fragmentBytes, err := fn.Encode(fragment)
-	require.NoError(t, err)
-
-	payload, err := ecies.EncryptSha256ChaCha20Poly1305(
-		sharedSecret, fragmentBytes,
-		senderPrivKey.PubKey().SerializeCompressed(),
+	payload, err := proof.EncryptSendFragment(
+		fragment, r.receiverKey.PubKey,
 	)
 	require.NoError(t, err)
 

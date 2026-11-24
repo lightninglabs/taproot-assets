@@ -2,6 +2,7 @@ package tapcustody
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"net/url"
@@ -18,7 +19,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	mbox "github.com/lightninglabs/taproot-assets/authmailbox"
 	"github.com/lightninglabs/taproot-assets/fn"
-	"github.com/lightninglabs/taproot-assets/internal/ecies"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapnode"
 	"github.com/lightninglabs/taproot-assets/tapreorg"
@@ -1470,46 +1470,15 @@ func (c *Custodian) decryptMailboxMsg(ctx context.Context,
 	receiverKey keychain.KeyDescriptor, msg []byte) (*proof.SendFragment,
 	error) {
 
-	_, pubKeyBytes, _, err := ecies.ExtractAdditionalData(msg)
-	if err != nil {
-		return nil, fmt.Errorf("unable to extract additional data "+
-			"from mailbox message: %w", err)
+	deriveSharedKey := func(ctx context.Context,
+		senderKey *btcec.PublicKey) ([sha256.Size]byte, error) {
+
+		return c.cfg.Signer.DeriveSharedKey(
+			ctx, senderKey, &receiverKey.KeyLocator,
+		)
 	}
 
-	senderPubKey, err := btcec.ParsePubKey(pubKeyBytes)
-	if err != nil {
-		return nil, fmt.Errorf("unable to parse sender public key: %w",
-			err)
-	}
-
-	sharedKey, err := c.cfg.Signer.DeriveSharedKey(
-		ctx, senderPubKey, &receiverKey.KeyLocator,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("unable to derive shared key for "+
-			"mailbox message: %w", err)
-	}
-
-	// Decrypt the message using the ECIES decryption method.
-	decryptedMsg, err := ecies.DecryptSha256ChaCha20Poly1305(sharedKey, msg)
-	if err != nil {
-		return nil, fmt.Errorf("unable to decrypt mailbox message: %w",
-			err)
-	}
-
-	// Decode the decrypted message into a mailbox message.
-	fragment, err := proof.DecodeSendFragment(decryptedMsg)
-	if err != nil {
-		return nil, fmt.Errorf("unable to decode send fragment: %w",
-			err)
-	}
-
-	err = fragment.Validate()
-	if err != nil {
-		return nil, fmt.Errorf("invalid send fragment: %w", err)
-	}
-
-	return fragment, nil
+	return proof.DecryptSendFragment(ctx, msg, deriveSharedKey)
 }
 
 // checkProofAvailable checks the proof storage if a proof for the given event

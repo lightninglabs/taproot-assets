@@ -16,7 +16,6 @@ import (
 	"github.com/lightninglabs/lightning-node-connect/hashmailrpc"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
-	"github.com/lightninglabs/taproot-assets/internal/ecies"
 	"github.com/lightninglabs/taproot-assets/rpcutils"
 	mboxrpc "github.com/lightninglabs/taproot-assets/taprpc/authmailboxrpc"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
@@ -1401,36 +1400,14 @@ func (c *UniverseRpcCourier) deliverFragment(ctx context.Context,
 			AuthMailboxUniRpcCourierType)
 	}
 
-	// We generate an ephemeral key pair that we'll use to create the shared
-	// secret that to encrypt the send fragment with, before sending it to
-	// the receiver. The public key of the pair will be part of the
-	// encrypted payload, so we can throw away the private key after doing
-	// the ECDH operation below to arrive at the shared secret.
-	privKey, err := btcec.NewPrivateKey()
-	if err != nil {
-		return fmt.Errorf("unable to generate ephemeral key: %w", err)
-	}
-	senderEphemeralKey := privKey.PubKey()
-	senderKeyBytes := senderEphemeralKey.SerializeCompressed()
-
-	sharedSecret, err := ecies.ECDH(privKey, &fragment.Receiver)
-	if err != nil {
-		return fmt.Errorf("unable to derive shared key: %w", err)
-	}
-
 	log.Infof("Transferring send fragment to receiver with claimed "+
 		"outpoint %v", fragment.Fragment.OutPoint)
 
-	msg, err := fn.Encode(&fragment.Fragment)
-	if err != nil {
-		return fmt.Errorf("unable to encode send fragment: %w", err)
-	}
-
-	encryptedPayload, err := ecies.EncryptSha256ChaCha20Poly1305(
-		sharedSecret, msg, senderKeyBytes,
+	encryptedPayload, err := EncryptSendFragment(
+		&fragment.Fragment, &fragment.Receiver,
 	)
 	if err != nil {
-		return fmt.Errorf("unable to encrypt send fragment: %w", err)
+		return err
 	}
 
 	rpcProof, err := MarshalTxProof(fragment.TxProof)
