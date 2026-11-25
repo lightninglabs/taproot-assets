@@ -3,6 +3,8 @@ package rpcutils
 import (
 	"testing"
 
+	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/stretchr/testify/require"
 )
 
@@ -71,6 +73,52 @@ func TestParseDerivationPath(t *testing.T) {
 
 		t.Run(tc.name, func(t *testing.T) {
 			result, err := parseDerivationPath(tc.path)
+
+			if tc.expectedErr != "" {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tc.expectedErr)
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, tc.expectedResult, result)
+		})
+	}
+}
+
+func TestUnmarshalAssetType(t *testing.T) {
+	testCases := []struct {
+		name           string
+		rpcType        taprpc.AssetType
+		expectedErr    string
+		expectedResult asset.Type
+	}{{
+		name:           "normal",
+		rpcType:        taprpc.AssetType_NORMAL,
+		expectedResult: asset.Normal,
+	}, {
+		name:           "collectible",
+		rpcType:        taprpc.AssetType_COLLECTIBLE,
+		expectedResult: asset.Collectible,
+	}, {
+		name:        "unknown positive value",
+		rpcType:     taprpc.AssetType(2),
+		expectedErr: "unknown asset type",
+	}, {
+		name:        "value 256",
+		rpcType:     taprpc.AssetType(256),
+		expectedErr: "unknown asset type",
+	}, {
+		name:        "negative value",
+		rpcType:     taprpc.AssetType(-1),
+		expectedErr: "unknown asset type",
+	}}
+
+	for _, tc := range testCases {
+		tc := tc
+
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := UnmarshalAssetType(tc.rpcType)
 
 			if tc.expectedErr != "" {
 				require.Error(t, err)

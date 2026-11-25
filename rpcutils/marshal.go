@@ -229,6 +229,20 @@ func MarshalAssetVersion(version asset.Version) (taprpc.AssetVersion, error) {
 	}
 }
 
+// UnmarshalAssetType parses an asset type from the RPC variant.
+func UnmarshalAssetType(rpcType taprpc.AssetType) (asset.Type, error) {
+	switch rpcType {
+	case taprpc.AssetType_NORMAL:
+		return asset.Normal, nil
+
+	case taprpc.AssetType_COLLECTIBLE:
+		return asset.Collectible, nil
+
+	default:
+		return 0, fmt.Errorf("unknown asset type: %v", rpcType)
+	}
+}
+
 // MarshalGenesisInfo marshals the native asset genesis into the RPC
 // counterpart.
 func MarshalGenesisInfo(gen *asset.Genesis,
@@ -256,12 +270,17 @@ func UnmarshalGenesisInfo(rpcGen *taprpc.GenesisInfo) (*asset.Genesis, error) {
 			sha256.Size)
 	}
 
+	assetType, err := UnmarshalAssetType(rpcGen.AssetType)
+	if err != nil {
+		return nil, err
+	}
+
 	return &asset.Genesis{
 		FirstPrevOut: *firstPrevOut,
 		Tag:          rpcGen.Name,
 		MetaHash:     fn.ToArray[[32]byte](rpcGen.MetaHash),
 		OutputIndex:  rpcGen.OutputIndex,
-		Type:         asset.Type(rpcGen.AssetType),
+		Type:         assetType,
 	}, nil
 }
 
