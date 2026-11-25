@@ -801,9 +801,14 @@ func (r *RPCServer) MintAsset(ctx context.Context,
 			"and group internal key descriptor")
 	}
 
+	assetType, err := rpcutils.UnmarshalAssetType(req.Asset.AssetType)
+	if err != nil {
+		return nil, err
+	}
+
 	seedling := &tapgarden.Seedling{
 		AssetVersion:      assetVersion,
-		AssetType:         asset.Type(req.Asset.AssetType),
+		AssetType:         assetType,
 		AssetName:         req.Asset.Name,
 		Amount:            req.Asset.Amount,
 		EnableEmission:    req.Asset.NewGroupedAsset,
@@ -6888,6 +6893,41 @@ func unmarshalUniSortDirection(
 	}
 }
 
+// unmarshalUniSyncStatsSort parses the RPC asset query sort field into
+// the native sync stats sort counterpart.
+func unmarshalUniSyncStatsSort(
+	rpcSort unirpc.AssetQuerySort) (universe.SyncStatsSort, error) {
+
+	switch rpcSort {
+	case unirpc.AssetQuerySort_SORT_BY_NONE:
+		return universe.SortByNone, nil
+
+	case unirpc.AssetQuerySort_SORT_BY_ASSET_NAME:
+		return universe.SortByAssetName, nil
+
+	case unirpc.AssetQuerySort_SORT_BY_ASSET_ID:
+		return universe.SortByAssetID, nil
+
+	case unirpc.AssetQuerySort_SORT_BY_ASSET_TYPE:
+		return universe.SortByAssetType, nil
+
+	case unirpc.AssetQuerySort_SORT_BY_TOTAL_SYNCS:
+		return universe.SortByTotalSyncs, nil
+
+	case unirpc.AssetQuerySort_SORT_BY_TOTAL_PROOFS:
+		return universe.SortByTotalProofs, nil
+
+	case unirpc.AssetQuerySort_SORT_BY_GENESIS_HEIGHT:
+		return universe.SortByGenesisHeight, nil
+
+	case unirpc.AssetQuerySort_SORT_BY_TOTAL_SUPPLY:
+		return universe.SortByTotalSupply, nil
+
+	default:
+		return 0, fmt.Errorf("unknown asset query sort: %v", rpcSort)
+	}
+}
+
 // validatePage validates the pagination parameters for universe
 // queries.
 func validatePage(offset, limit int32) error {
@@ -9016,6 +9056,11 @@ func (r *RPCServer) QueryAssetStats(ctx context.Context,
 		limit = universe.RequestPageSize
 	}
 
+	sortBy, err := unmarshalUniSyncStatsSort(req.SortBy)
+	if err != nil {
+		return nil, err
+	}
+
 	assetStats, err := r.cfg.UniverseStats.QuerySyncStats(
 		ctx, universe.SyncStatsQuery{
 			AssetNameFilter: req.AssetNameFilter,
@@ -9034,7 +9079,7 @@ func (r *RPCServer) QueryAssetStats(ctx context.Context,
 			AssetIDFilter: fn.ToArray[asset.ID](
 				req.AssetIdFilter,
 			),
-			SortBy:        universe.SyncStatsSort(req.SortBy),
+			SortBy:        sortBy,
 			SortDirection: unmarshalUniSortDirection(req.Direction),
 			Offset:        int(req.Offset),
 			Limit:         int(limit + 1),
