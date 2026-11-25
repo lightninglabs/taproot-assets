@@ -90,6 +90,10 @@ func MarshalBigIntFixedPoint(
 func UnmarshalFixedPoint(
 	fp *priceoraclerpc.FixedPoint) (*rfqmath.BigIntFixedPoint, error) {
 
+	if fp == nil {
+		return nil, fmt.Errorf("fixed point is nil")
+	}
+
 	// Return an error is the scale component of the fixed point is greater
 	// than the max value of uint8.
 	if fp.Scale > 255 {
@@ -98,7 +102,9 @@ func UnmarshalFixedPoint(
 	scale := uint8(fp.Scale)
 
 	cBigInt := new(big.Int)
-	cBigInt.SetString(fp.Coefficient, 10)
+	if _, ok := cBigInt.SetString(fp.Coefficient, 10); !ok {
+		return nil, fmt.Errorf("invalid fixed point coefficient")
+	}
 
 	return &rfqmath.BigIntFixedPoint{
 		Coefficient: rfqmath.NewBigInt(cBigInt),
