@@ -197,6 +197,14 @@ type Archiver interface {
 	// proof.
 	ImportProofs(ctx context.Context, vCtx VerifierCtx,
 		replace bool, proofs ...*AnnotatedProof) error
+
+	// ImportVerifiedProofs stores verified proofs. The previous outpoint
+	// of the first state transition will be used as the Genesis point.
+	// The final resting place of the asset will be used as the script
+	// key itself. If replace is specified, we expect a proof to already
+	// be present, and we just update (replace) it with the new proof.
+	ImportVerifiedProofs(ctx context.Context, replace bool,
+		proofs ...VerifiedAnnotatedProof) error
 }
 
 // NotifyArchiver is an Archiver that also allows callers to subscribe to
