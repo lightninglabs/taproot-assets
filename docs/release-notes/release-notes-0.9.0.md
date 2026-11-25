@@ -21,6 +21,11 @@
 
 # Bug Fixes
 
+- [`rfqmath` fixed-point scale multipliers are now computed
+  exactly](https://github.com/lightninglabs/taproot-assets/pull/2392).
+  Previously any scale above 18 was clamped to `MaxInt64` for `BigInt`
+  coefficients, corrupting conversions that use large-scale rates.
+
 - [Taproot Assets daemons now disable MPTCP listeners by
   default](https://github.com/lightninglabs/taproot-assets/pull/2370), restoring
   plain TCP as the default transport and mitigating the demonstrated
@@ -556,3 +561,4 @@
 # Contributors (Alphabetical Order)
 
 * Vandit Singh
+* amalsaidov
