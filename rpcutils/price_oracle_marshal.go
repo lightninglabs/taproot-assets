@@ -90,6 +90,10 @@ func MarshalBigIntFixedPoint(
 func UnmarshalFixedPoint(
 	fp *priceoraclerpc.FixedPoint) (*rfqmath.BigIntFixedPoint, error) {
 
+	if fp == nil {
+		return nil, fmt.Errorf("fixed point is nil")
+	}
+
 	// Return an error is the scale component of the fixed point is greater
 	// than the max value of uint8.
 	if fp.Scale > 255 {

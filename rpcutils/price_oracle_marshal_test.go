@@ -111,3 +111,13 @@ func TestIsAssetBtc(t *testing.T) {
 		})
 	}
 }
+
+// TestUnmarshalFixedPointNil asserts that UnmarshalFixedPoint rejects a nil
+// fixed point, as found in a price oracle reply that omits a rate field.
+func TestUnmarshalFixedPointNil(t *testing.T) {
+	t.Parallel()
+
+	rate, err := UnmarshalFixedPoint(nil)
+	require.ErrorContains(t, err, "fixed point is nil")
+	require.Nil(t, rate)
+}
