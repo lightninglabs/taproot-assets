@@ -353,17 +353,14 @@ func (a *testChainAsset) storeProof(t *testing.T,
 	archive *proof.MockProofArchive) {
 
 	assetID := a.ID()
-	err := archive.ImportProofs(
-		context.Background(), proof.VerifierCtx{}, false,
-		&proof.AnnotatedProof{
-			Locator: proof.Locator{
-				AssetID:   &assetID,
-				ScriptKey: *a.ScriptKey.PubKey,
-				OutPoint:  &a.AnchorOutpoint,
-			},
-			Blob: a.proofBlob,
+	err := archive.StoreProof(&proof.AnnotatedProof{
+		Locator: proof.Locator{
+			AssetID:   &assetID,
+			ScriptKey: *a.ScriptKey.PubKey,
+			OutPoint:  &a.AnchorOutpoint,
 		},
-	)
+		Blob: a.proofBlob,
+	})
 	require.NoError(t, err)
 }
 

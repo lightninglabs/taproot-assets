@@ -153,9 +153,8 @@ func testExternalInputConfirmation(t *harnessTest, restart bool,
 			alice.cfg.BaseDir, "data", alice.cfg.NetParams.Name,
 		))
 		require.NoError(t.t, err)
-		require.NoError(t.t, archive.ImportProofs(
-			ctx, proof.VerifierCtx{}, false,
-			&proof.AnnotatedProof{
+		verified, err := proof.VerifyAnnotatedProofs(
+			ctx, proof.MockVerifierCtx, &proof.AnnotatedProof{
 				Locator: proof.Locator{
 					AssetID: &id,
 					ScriptKey: *lockProof.Asset.
@@ -164,6 +163,10 @@ func testExternalInputConfirmation(t *harnessTest, restart bool,
 				},
 				Blob: lockFile.RawProofFile,
 			},
+		)
+		require.NoError(t.t, err)
+		require.NoError(t.t, archive.ImportVerifiedProofs(
+			ctx, false, verified...,
 		))
 
 	// The publishing wallet learns the history from its local universe

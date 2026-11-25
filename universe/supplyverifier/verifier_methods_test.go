@@ -1181,18 +1181,15 @@ func inputProvenance(t *testing.T, burnProof *proof.Proof,
 
 	groupKey := burnProof.Asset.GroupKey.GroupPubKey
 	archive := proof.NewMockProofArchive()
-	err = archive.ImportProofs(
-		context.Background(), proof.VerifierCtx{}, false,
-		&proof.AnnotatedProof{
-			Locator: proof.Locator{
-				AssetID:   &prevID.ID,
-				GroupKey:  &groupKey,
-				ScriptKey: *scriptKey,
-				OutPoint:  &prevID.OutPoint,
-			},
-			Blob: buf.Bytes(),
+	err = archive.StoreProof(&proof.AnnotatedProof{
+		Locator: proof.Locator{
+			AssetID:   &prevID.ID,
+			GroupKey:  &groupKey,
+			ScriptKey: *scriptKey,
+			OutPoint:  &prevID.OutPoint,
 		},
-	)
+		Blob: buf.Bytes(),
+	})
 	require.NoError(t, err)
 
 	return archive

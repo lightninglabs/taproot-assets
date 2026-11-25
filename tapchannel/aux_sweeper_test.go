@@ -40,13 +40,21 @@ type importProofChainBridge struct {
 }
 
 type archiveReceiveStaker struct {
+	t       *testing.T
 	archive proof.Archiver
 }
 
 func (s *archiveReceiveStaker) StakeReceive(ctx context.Context,
 	p *proof.AnnotatedProof) error {
 
-	return s.archive.ImportProofs(ctx, proof.MockVerifierCtx, false, p)
+	verified, err := proof.VerifyAnnotatedProofsWithVerifier(
+		ctx, proof.NewMockVerifier(s.t), proof.MockVerifierCtx, p,
+	)
+	if err != nil {
+		return err
+	}
+
+	return s.archive.ImportVerifiedProofs(ctx, false, verified...)
 }
 
 func (b *importProofChainBridge) GetBlockByHeight(context.Context,
@@ -190,7 +198,7 @@ func TestImportOutputProofsMerge(t *testing.T) {
 	err := importOutputProofs(
 		ctx, lnwire.ShortChannelID{}, []*proof.Proof{&outputProof},
 		&url.URL{}, dispatch, chainBridge, archive,
-		&archiveReceiveStaker{archive: archive},
+		&archiveReceiveStaker{t: t, archive: archive},
 	)
 	require.NoError(t, err)
 	require.Len(t, recordingCourier.received, len(inputProofs))
@@ -264,7 +272,9 @@ func TestImportOutputProofsUsesConfirmedFundingTx(t *testing.T) {
 		context.Background(), lnwire.ShortChannelID{},
 		[]*proof.Proof{&outputProof}, &url.URL{}, dispatch,
 		chainBridge, proof.NewMockProofArchive(),
-		&archiveReceiveStaker{archive: proof.NewMockProofArchive()},
+		&archiveReceiveStaker{
+			t: t, archive: proof.NewMockProofArchive(),
+		},
 	)
 	require.ErrorContains(t, err, "does not spend input")
 	require.Empty(t, recordingCourier.received)
@@ -742,7 +752,7 @@ func TestResolveContractNoAssetOutputs(t *testing.T) {
 				},
 				ProofArchive: proofArchive,
 				AnchoringRegistrar: &archiveReceiveStaker{
-					archive: proofArchive,
+					t: t, archive: proofArchive,
 				},
 				HeaderVerifier: proof.MockHeaderVerifier,
 				GroupVerifier:  proof.MockGroupVerifier,
