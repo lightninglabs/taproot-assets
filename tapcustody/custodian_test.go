@@ -155,8 +155,7 @@ func newProofArchiveForDB(t *testing.T, db *tapdb.BaseDB) (*proof.MultiArchiver,
 	)
 
 	proofArchive := proof.NewMultiArchiver(
-		proof.NewMockVerifier(t), tapdb.DefaultStoreTimeout,
-		assetStore,
+		tapdb.DefaultStoreTimeout, assetStore,
 	)
 
 	multiverseDB := tapdb.NewTransactionExecutor(
@@ -412,9 +411,7 @@ func newHarness(t *testing.T,
 	// import hits the archiver deadline, the custodian only logs the
 	// error and never retries, stranding the event short of
 	// StatusCompleted.
-	archive := proof.NewMultiArchiver(
-		newMockVerifier(t), 2*eventTimeout, assetDB,
-	)
+	archive := proof.NewMultiArchiver(2*eventTimeout, assetDB)
 
 	// The mock auth mailbox server serves plaintext.
 	mboxTLS, err := taptls.New(taptls.Config{Mode: taptls.ModePlaintext})

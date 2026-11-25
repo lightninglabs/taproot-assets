@@ -51,12 +51,14 @@ func TestDispatchMirrorSync(t *testing.T) {
 	// Once the source holds it, a rewrite copies it — and creates
 	// the mirror's file, since the mirror may lag the source.
 	blob := Blob("first")
-	require.NoError(t, source.ImportProofs(
-		ctx, MockVerifierCtx, false, &AnnotatedProof{
+	verified, err := VerifyAnnotatedProofsWithVerifier(
+		ctx, NewMockVerifier(t), MockVerifierCtx, &AnnotatedProof{
 			Locator: loc,
 			Blob:    blob,
 		},
-	))
+	)
+	require.NoError(t, err)
+	require.NoError(t, source.ImportVerifiedProofs(ctx, false, verified...))
 	require.NoError(t, dispatch(MirrorSyncRewrite))
 	got, err := mirror.FetchProof(ctx, loc)
 	require.NoError(t, err)
@@ -64,12 +66,14 @@ func TestDispatchMirrorSync(t *testing.T) {
 
 	// A rewrite after the source changed brings the mirror along.
 	blob = Blob("second")
-	require.NoError(t, source.ImportProofs(
-		ctx, MockVerifierCtx, true, &AnnotatedProof{
+	verified, err = VerifyAnnotatedProofsWithVerifier(
+		ctx, NewMockVerifier(t), MockVerifierCtx, &AnnotatedProof{
 			Locator: loc,
 			Blob:    blob,
 		},
-	))
+	)
+	require.NoError(t, err)
+	require.NoError(t, source.ImportVerifiedProofs(ctx, true, verified...))
 	require.NoError(t, dispatch(MirrorSyncRewrite))
 	require.NoError(t, dispatch(MirrorSyncRewrite))
 	got, err = mirror.FetchProof(ctx, loc)

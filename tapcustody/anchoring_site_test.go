@@ -1117,9 +1117,7 @@ func (l *archiveStakingLog) storeReceivedProofs(ctx context.Context,
 		if has {
 			continue
 		}
-		err = l.archive.ImportProofs(
-			ctx, proof.VerifierCtx{}, false, p,
-		)
+		err = l.archive.ImportVerifiedProofs(ctx, false, verified)
 		if err != nil {
 			return nil, err
 		}

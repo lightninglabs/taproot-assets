@@ -1341,7 +1341,12 @@ func (b *Cultivator) storeMintingProof(ctx context.Context,
 		Blob: blob,
 	}
 
-	err = b.cfg.ProofFiles.ImportProofs(ctx, vCtx, false, fullProof)
+	verified, err := proof.VerifyAnnotatedProofs(ctx, vCtx, fullProof)
+	if err != nil {
+		return nil, fmt.Errorf("unable to verify proof: %w", err)
+	}
+
+	err = b.cfg.ProofFiles.ImportVerifiedProofs(ctx, false, verified...)
 	if err != nil {
 		return nil, fmt.Errorf("unable to insert proofs: %w", err)
 	}

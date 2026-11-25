@@ -92,8 +92,10 @@ func benchRestampWallet(b *testing.B, store *AssetStore, files,
 		require.NoError(b, file.Encode(&encoded))
 		totalBytes += int64(encoded.Len())
 
-		require.NoError(b, store.ImportProofs(
-			ctx, proof.MockVerifierCtx, false,
+		snapshot := benchSnapshot(b, tip)
+		verified, err := proof.VerifyAnnotatedProofsWithVerifier(
+			ctx, snapshotVerifier{snapshot: snapshot},
+			proof.MockVerifierCtx,
 			&proof.AnnotatedProof{
 				Locator: proof.Locator{
 					AssetID:   fn.Ptr(tip.Asset.ID()),
@@ -101,8 +103,12 @@ func benchRestampWallet(b *testing.B, store *AssetStore, files,
 					OutPoint:  fn.Ptr(tip.OutPoint()),
 				},
 				Blob:          encoded.Bytes(),
-				AssetSnapshot: benchSnapshot(b, tip),
+				AssetSnapshot: snapshot,
 			},
+		)
+		require.NoError(b, err)
+		require.NoError(b, store.ImportVerifiedProofs(
+			ctx, false, verified...,
 		))
 	}
 

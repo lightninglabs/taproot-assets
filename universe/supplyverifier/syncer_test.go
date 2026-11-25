@@ -267,16 +267,14 @@ func TestPushSupplyCommitmentPublishesBurnProvenance(t *testing.T) {
 	require.NoError(t, burnFile.Encode(&buf))
 	burnOutPoint := burnProof.OutPoint()
 	localProofs := proof.NewMockProofArchive()
-	err = localProofs.ImportProofs(
-		ctx, proof.VerifierCtx{}, false, &proof.AnnotatedProof{
-			Locator: proof.Locator{
-				AssetID:   fn.Ptr(burnProof.Asset.ID()),
-				ScriptKey: *burnProof.Asset.ScriptKey.PubKey,
-				OutPoint:  &burnOutPoint,
-			},
-			Blob: buf.Bytes(),
+	err = localProofs.StoreProof(&proof.AnnotatedProof{
+		Locator: proof.Locator{
+			AssetID:   fn.Ptr(burnProof.Asset.ID()),
+			ScriptKey: *burnProof.Asset.ScriptKey.PubKey,
+			OutPoint:  &burnOutPoint,
 		},
-	)
+		Blob: buf.Bytes(),
+	})
 	require.NoError(t, err)
 
 	leaves := supplycommit.SupplyLeaves{

@@ -62,19 +62,24 @@ func TestFileArchiverProofCollision(t *testing.T) {
 		blob1 = []byte("this is the first blob")
 		blob2 = []byte("this is the second blob")
 	)
-	err = fileArchive.ImportProofs(
-		ctx, MockVerifierCtx, false, &AnnotatedProof{
+	verified1, err := VerifyAnnotatedProofsWithVerifier(
+		ctx, NewMockVerifier(t), MockVerifierCtx, &AnnotatedProof{
 			Locator: locator1,
 			Blob:    blob1,
 		},
 	)
 	require.NoError(t, err)
-	err = fileArchive.ImportProofs(
-		ctx, MockVerifierCtx, false, &AnnotatedProof{
+	err = fileArchive.ImportVerifiedProofs(ctx, false, verified1...)
+	require.NoError(t, err)
+
+	verified2, err := VerifyAnnotatedProofsWithVerifier(
+		ctx, NewMockVerifier(t), MockVerifierCtx, &AnnotatedProof{
 			Locator: locator2,
 			Blob:    blob2,
 		},
 	)
+	require.NoError(t, err)
+	err = fileArchive.ImportVerifiedProofs(ctx, false, verified2...)
 	require.NoError(t, err)
 
 	// When retrieving the proofs, we should get the same blobs back.
@@ -85,6 +90,21 @@ func TestFileArchiverProofCollision(t *testing.T) {
 	proof2, err := fileArchive.FetchProof(ctx, locator2)
 	require.NoError(t, err)
 	require.EqualValues(t, blob2, proof2)
+}
+
+// verifyAndImport verifies ann with a mock verifier and imports the result
+// into archive.
+func verifyAndImport(t *testing.T, ctx context.Context,
+	archive *MultiArchiver, ann *AnnotatedProof) error {
+
+	verified, err := VerifyAnnotatedProofsWithVerifier(
+		ctx, NewMockVerifier(t), MockVerifierCtx, ann,
+	)
+	if err != nil {
+		return err
+	}
+
+	return archive.ImportVerifiedProofs(ctx, false, verified...)
 }
 
 // TestFileArchiver tests that the file archiver functions as advertised when
@@ -99,10 +119,7 @@ func TestFileArchiver(t *testing.T) {
 	fileArchive, err := NewFileArchiver(tempDir)
 	require.NoError(t, err)
 
-	// We'll use a fake verifier that just returns that the proof is valid.
-	archive := NewMultiArchiver(
-		NewMockVerifier(t), testTimeout, fileArchive,
-	)
+	archive := NewMultiArchiver(testTimeout, fileArchive)
 
 	ctx := context.Background()
 
@@ -187,9 +204,7 @@ func TestFileArchiver(t *testing.T) {
 					Locator: testCase.locator,
 				}
 
-				err = archive.ImportProofs(
-					ctx, MockVerifierCtx, false, proof,
-				)
+				err = verifyAndImport(t, ctx, archive, proof)
 
 				if testCase.expectedStoreError != nil {
 					require.ErrorIs(
@@ -373,8 +388,8 @@ func TestMigrateOldFileNames(t *testing.T) {
 	// We should be able to import a new proof, and it should be stored
 	// under the new naming scheme.
 	proof6 := RandProof(t, genesis2, scriptKey2, oddTxBlock, 2, 1)
-	err = fileArchive.ImportProofs(
-		ctx, MockVerifierCtx, false, &AnnotatedProof{
+	verified, err := VerifyAnnotatedProofsWithVerifier(
+		ctx, NewMockVerifier(t), MockVerifierCtx, &AnnotatedProof{
 			Locator: Locator{
 				AssetID:   fn.Ptr(proof6.Asset.ID()),
 				ScriptKey: *proof6.Asset.ScriptKey.PubKey,
@@ -383,6 +398,8 @@ func TestMigrateOldFileNames(t *testing.T) {
 			Blob: toFileBlob(proof6),
 		},
 	)
+	require.NoError(t, err)
+	err = fileArchive.ImportVerifiedProofs(ctx, false, verified...)
 	require.NoError(t, err)
 	assertProofAtNewName(proof6)
 }

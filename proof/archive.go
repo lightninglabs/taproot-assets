@@ -189,14 +189,13 @@ type Archiver interface {
 	// passed asset ID.
 	FetchProofs(ctx context.Context, id asset.ID) ([]*AnnotatedProof, error)
 
-	// ImportProofs attempts to store fully populated proofs on disk. The
-	// previous outpoint of the first state transition will be used as the
-	// Genesis point. The final resting place of the asset will be used as
-	// the script key itself. If replace is specified, we expect a proof to
-	// already be present, and we just update (replace) it with the new
-	// proof.
-	ImportProofs(ctx context.Context, vCtx VerifierCtx,
-		replace bool, proofs ...*AnnotatedProof) error
+	// ImportVerifiedProofs stores verified proofs. The previous outpoint
+	// of the first state transition will be used as the Genesis point.
+	// The final resting place of the asset will be used as the script
+	// key itself. If replace is specified, we expect a proof to already
+	// be present, and we just update (replace) it with the new proof.
+	ImportVerifiedProofs(ctx context.Context, replace bool,
+		proofs ...VerifiedAnnotatedProof) error
 }
 
 // NotifyArchiver is an Archiver that also allows callers to subscribe to
@@ -758,15 +757,13 @@ func (f *FileArchiver) FetchProofs(_ context.Context,
 	return proofs, nil
 }
 
-// ImportProofs attempts to store fully populated proofs on disk. The previous
+// importProofs stores fully populated proofs on disk. The previous
 // outpoint of the first state transition will be used as the Genesis point.
 // The final resting place of the asset will be used as the script key itself.
 // If replace is specified, we expect a proof to already be present, and we just
 // update (replace) it with the new proof.
-//
-// NOTE: This implements the Archiver interface.
-func (f *FileArchiver) ImportProofs(_ context.Context, _ VerifierCtx,
-	replace bool, proofs ...*AnnotatedProof) error {
+func (f *FileArchiver) importProofs(replace bool,
+	proofs ...*AnnotatedProof) error {
 
 	for _, proof := range proofs {
 		proofPath, err := genProofFileStoragePath(
@@ -802,7 +799,9 @@ func (f *FileArchiver) ImportProofs(_ context.Context, _ VerifierCtx,
 
 // ImportVerifiedProofs stores verified proofs on disk without re-validating
 // them.
-func (f *FileArchiver) ImportVerifiedProofs(ctx context.Context,
+//
+// NOTE: This implements the Archiver interface.
+func (f *FileArchiver) ImportVerifiedProofs(_ context.Context,
 	replace bool, proofs ...VerifiedAnnotatedProof) error {
 
 	if len(proofs) == 0 {
@@ -819,7 +818,7 @@ func (f *FileArchiver) ImportVerifiedProofs(ctx context.Context,
 		annotatedProofs[idx] = verifiedProof.AnnotatedProof()
 	}
 
-	return f.ImportProofs(ctx, VerifierCtx{}, replace, annotatedProofs...)
+	return f.importProofs(replace, annotatedProofs...)
 }
 
 // RegisterSubscriber adds a new subscriber for receiving events. The
@@ -872,8 +871,7 @@ var _ Archiver = (*FileArchiver)(nil)
 // attempts to use them either as a look-aside cache, or a write through cache
 // for all incoming requests.
 type MultiArchiver struct {
-	proofVerifier Verifier
-	backends      []Archiver
+	backends []Archiver
 
 	// archiveTimeout is the default timeout to use for any archive
 	// interaction.
@@ -886,11 +884,10 @@ type MultiArchiver struct {
 
 // NewMultiArchiver creates a new MultiArchiver based on the set of specified
 // backends.
-func NewMultiArchiver(verifier Verifier, archiveTimeout time.Duration,
+func NewMultiArchiver(archiveTimeout time.Duration,
 	backends ...Archiver) *MultiArchiver {
 
 	return &MultiArchiver{
-		proofVerifier:    verifier,
 		backends:         backends,
 		archiveTimeout:   archiveTimeout,
 		eventDistributor: fn.NewEventDistributor[Blob](),
@@ -1028,66 +1025,22 @@ func (m *MultiArchiver) FetchProofs(ctx context.Context,
 	return m.backends[0].FetchProofs(ctx, id)
 }
 
-// ImportProofs attempts to store fully populated proofs on disk. The previous
-// outpoint of the first state transition will be used as the Genesis point.
-// The final resting place of the asset will be used as the script key itself.
-func (m *MultiArchiver) ImportProofs(ctx context.Context, vCtx VerifierCtx,
-	replace bool, proofs ...*AnnotatedProof) error {
+// ImportVerifiedProofs stores verified proofs across all backend archives.
+//
+// NOTE: This implements the Archiver interface.
+func (m *MultiArchiver) ImportVerifiedProofs(ctx context.Context,
+	replace bool, proofs ...VerifiedAnnotatedProof) error {
 
-	// Before we import the proofs into the archive, we want to make sure
-	// that they're all valid. Along the way, we may augment the locator
-	// for each proof accordingly.
-	f := func(c context.Context, proof *AnnotatedProof) error {
-		// First, we'll decode and then also verify the proof.
-		finalStateTransition, err := m.proofVerifier.Verify(
-			c, bytes.NewReader(proof.Blob), vCtx,
-		)
-		if err != nil {
-			return fmt.Errorf("unable to verify proof: %w", err)
-		}
-
-		proof.AssetSnapshot = finalStateTransition
-
-		// TODO(roasbeef): actually want the split commit info here?
-		//  * or need to pass in alongside the proof?
-
-		finalAsset := finalStateTransition.Asset
-
-		// Now that the proof has been fully verified, we'll use the
-		// final resting place of the asset (result of the last state
-		// transition) to create a proper annotated proof. We only need
-		// to do this if it wasn't specified though.
-		if proof.AssetID == nil {
-			assetID := finalAsset.ID()
-			proof.AssetID = &assetID
-
-			if finalAsset.GroupKey != nil {
-				proof.GroupKey = &finalAsset.GroupKey.GroupPubKey
-			}
-
-			proof.ScriptKey = *finalAsset.ScriptKey.PubKey
-		}
-
-		return nil
-	}
-
-	if err := fn.ParSlice(ctx, proofs, f); err != nil {
-		return err
-	}
-
-	// Now that we know all the proofs are valid, and have tacked on some
-	// additional supplementary information into the locator, we'll attempt
-	// to import each proof our archive backends.
 	for _, archive := range m.backends {
-		err := archive.ImportProofs(ctx, vCtx, replace, proofs...)
+		err := archive.ImportVerifiedProofs(ctx, replace, proofs...)
 		if err != nil {
 			return err
 		}
 	}
 
 	// Deliver each new proof to the new item queue of the subscribers.
-	blobs := fn.Map(proofs, func(p *AnnotatedProof) Blob {
-		return p.Blob
+	blobs := fn.Map(proofs, func(p VerifiedAnnotatedProof) Blob {
+		return p.AnnotatedProof().Blob
 	})
 	m.eventDistributor.NotifySubscribers(blobs...)
 

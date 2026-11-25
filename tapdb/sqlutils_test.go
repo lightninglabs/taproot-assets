@@ -167,8 +167,13 @@ func (d *DbHandler) AddRandomAssetProof(t *testing.T,
 
 	// With all our test data constructed, we'll now attempt to import the
 	// asset into the database.
-	require.NoError(t, assetStore.ImportProofs(
-		ctx, proof.MockVerifierCtx, false, annotatedProof,
+	verified, err := proof.VerifyAnnotatedProofsWithVerifier(
+		ctx, snapshotVerifier{snapshot: annotatedProof.AssetSnapshot},
+		proof.MockVerifierCtx, annotatedProof,
+	)
+	require.NoError(t, err)
+	require.NoError(t, assetStore.ImportVerifiedProofs(
+		ctx, false, verified...,
 	))
 
 	// Now the HasProof should return true.
