@@ -534,8 +534,13 @@ func TestImportAssetProof(t *testing.T) {
 	testProof.AnchorBlockHeight = 1234
 	testProof.AnchorTxIndex = 5678
 	testProof.Blob = updatedBlob
-	require.NoError(t, assetStore.ImportProofs(
-		ctxb, proof.MockVerifierCtx, true, testProof,
+	verified, err := proof.VerifyAnnotatedProofsWithVerifier(
+		ctxb, snapshotVerifier{snapshot: testProof.AssetSnapshot},
+		proof.MockVerifierCtx, testProof,
+	)
+	require.NoError(t, err)
+	require.NoError(t, assetStore.ImportVerifiedProofs(
+		ctxb, true, verified...,
 	))
 
 	currentBlob, err = assetStore.FetchProof(ctxb, proof.Locator{
@@ -590,8 +595,13 @@ func TestImportAssetProof(t *testing.T) {
 	testProof.Blob, err = updatedProof.Bytes()
 	require.NoError(t, err)
 
-	require.NoError(t, assetStore.ImportProofs(
-		ctxb, proof.MockVerifierCtx, false, testProof,
+	verified, err = proof.VerifyAnnotatedProofsWithVerifier(
+		ctxb, snapshotVerifier{snapshot: testProof.AssetSnapshot},
+		proof.MockVerifierCtx, testProof,
+	)
+	require.NoError(t, err)
+	require.NoError(t, assetStore.ImportVerifiedProofs(
+		ctxb, false, verified...,
 	))
 
 	// We should still be able to fetch the old proof.
@@ -3955,9 +3965,17 @@ func TestUpsertAssetsWithSplitCommitments(t *testing.T) {
 				t, testAsset, 0,
 			)
 
-			err := dbHandle.AssetStore.ImportProofs(
-				ctx, proof.MockVerifierCtx, false,
-				annotatedProof,
+			vProofs, err := proof.VerifyAnnotatedProofsWithVerifier(
+				ctx,
+				snapshotVerifier{
+					snapshot: annotatedProof.AssetSnapshot,
+				},
+				proof.MockVerifierCtx, annotatedProof,
+			)
+			require.NoError(t, err)
+
+			err = dbHandle.AssetStore.ImportVerifiedProofs(
+				ctx, false, vProofs...,
 			)
 			require.NoError(t, err)
 
@@ -4423,19 +4441,24 @@ func insertOrphanUTXO(t *testing.T, ctx context.Context, db sqlc.Querier,
 	proofBlob, err := proof.EncodeAsProofFile(&assetProof)
 	require.NoError(t, err)
 
-	err = assetsStore.ImportProofs(
-		ctx, proof.MockVerifierCtx, false,
+	tombstoneSnapshot := &proof.AssetSnapshot{
+		AnchorTx:          anchorTx,
+		InternalKey:       internalKey,
+		Asset:             tombstone,
+		ScriptRoot:        tapCommitment,
+		AnchorBlockHeight: 100,
+	}
+	verified, err := proof.VerifyAnnotatedProofsWithVerifier(
+		ctx, snapshotVerifier{snapshot: tombstoneSnapshot},
+		proof.MockVerifierCtx,
 		&proof.AnnotatedProof{
-			AssetSnapshot: &proof.AssetSnapshot{
-				AnchorTx:          anchorTx,
-				InternalKey:       internalKey,
-				Asset:             tombstone,
-				ScriptRoot:        tapCommitment,
-				AnchorBlockHeight: 100,
-			},
-			Blob: proofBlob,
+			AssetSnapshot: tombstoneSnapshot,
+			Blob:          proofBlob,
 		},
 	)
+	require.NoError(t, err)
+
+	err = assetsStore.ImportVerifiedProofs(ctx, false, verified...)
 	require.NoError(t, err)
 
 	if !unknownKeyType {

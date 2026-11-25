@@ -2404,18 +2404,23 @@ func (a *AssetStore) upsertAssetProof(ctx context.Context,
 	return StoreIndexedAssetProof(ctx, db, dbAssetIds[0], indexedProof)
 }
 
-// ImportProofs attempts to store fully populated proofs on disk. The previous
-// outpoint of the first state transition will be used as the Genesis point.
-// The final resting place of the asset will be used as the script key itself.
+// ImportVerifiedProofs stores verified proofs. The previous outpoint of the
+// first state transition will be used as the Genesis point. The final
+// resting place of the asset will be used as the script key itself.
 //
-// NOTE: This implements the proof.ArchiveBackend interface.
-func (a *AssetStore) ImportProofs(ctx context.Context, _ proof.VerifierCtx,
-	replace bool, proofs ...*proof.AnnotatedProof) error {
+// NOTE: This implements the proof.Archiver interface.
+func (a *AssetStore) ImportVerifiedProofs(ctx context.Context,
+	replace bool, proofs ...proof.VerifiedAnnotatedProof) error {
+
+	ann := make([]*proof.AnnotatedProof, len(proofs))
+	for idx := range proofs {
+		ann[idx] = proofs[idx].AnnotatedProof()
+	}
 
 	var writeTxOpts AssetStoreTxOptions
 
 	err := a.db.ExecTx(ctx, &writeTxOpts, func(q ActiveAssetsStore) error {
-		for _, p := range proofs {
+		for _, p := range ann {
 			if replace {
 				err := a.upsertAssetProof(ctx, q, p)
 				if err != nil {
@@ -2440,7 +2445,7 @@ func (a *AssetStore) ImportProofs(ctx context.Context, _ proof.VerifierCtx,
 	// Notify any event subscribers that there are new proofs. We do this
 	// outside of the transaction to avoid the subscribers trying to look up
 	// the proofs before they are committed.
-	proofBlobs := fn.Map(proofs, func(p *proof.AnnotatedProof) proof.Blob {
+	proofBlobs := fn.Map(ann, func(p *proof.AnnotatedProof) proof.Blob {
 		return p.Blob
 	})
 	a.eventDistributor.NotifySubscribers(proofBlobs...)
