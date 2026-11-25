@@ -168,8 +168,7 @@ func NewStorage(tb testing.TB) *Storage {
 	proofFileArchiver, err := proof.NewFileArchiver(tb.TempDir())
 	require.NoError(tb, err)
 	proofArchive := proof.NewMultiArchiver(
-		&proof.BaseVerifier{}, tapdb.DefaultStoreTimeout,
-		assetStore, proofFileArchiver,
+		tapdb.DefaultStoreTimeout, assetStore, proofFileArchiver,
 	)
 
 	// Wire everything into the rpcserver config.

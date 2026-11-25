@@ -429,10 +429,8 @@ func (m *MockProofArchive) FetchProofs(_ context.Context,
 	return nil, fmt.Errorf("not implemented")
 }
 
-// ImportProofs will store the given proofs, without performing any validation.
-func (m *MockProofArchive) ImportProofs(_ context.Context, _ VerifierCtx,
-	_ bool, proofs ...*AnnotatedProof) error {
-
+// storeProofs stores the given proofs, without performing any validation.
+func (m *MockProofArchive) storeProofs(proofs ...*AnnotatedProof) error {
 	for _, proof := range proofs {
 		err := m.storeLocator(proof.Locator)
 		if err != nil {
@@ -448,6 +446,29 @@ func (m *MockProofArchive) ImportProofs(_ context.Context, _ VerifierCtx,
 	}
 
 	return nil
+}
+
+// StoreProof inserts the given proof directly into the mock archive,
+// without performing any validation. It is for seeding FetchProof-only
+// test fixtures, independent of the Archiver interface's verified-import
+// contract.
+func (m *MockProofArchive) StoreProof(p *AnnotatedProof) error {
+	return m.storeProofs(p)
+}
+
+// ImportVerifiedProofs will store the given proofs, without performing any
+// validation.
+//
+// NOTE: This implements the Archiver interface.
+func (m *MockProofArchive) ImportVerifiedProofs(_ context.Context,
+	_ bool, proofs ...VerifiedAnnotatedProof) error {
+
+	annotated := make([]*AnnotatedProof, len(proofs))
+	for idx := range proofs {
+		annotated[idx] = proofs[idx].AnnotatedProof()
+	}
+
+	return m.storeProofs(annotated...)
 }
 
 var _ Archiver = (*MockProofArchive)(nil)

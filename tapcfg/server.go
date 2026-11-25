@@ -297,8 +297,7 @@ func genServerConfig(ctx context.Context, cfg *Config,
 	)
 
 	proofArchive := proof.NewMultiArchiver(
-		&proof.BaseVerifier{}, tapdb.DefaultStoreTimeout,
-		assetStore, proofFileStore,
+		tapdb.DefaultStoreTimeout, assetStore, proofFileStore,
 	)
 
 	federationMembers := cfg.Universe.FederationServers
