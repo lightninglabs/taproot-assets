@@ -1281,17 +1281,20 @@ FROM universe_roots
 JOIN mssmt_roots
     ON universe_roots.namespace_root = mssmt_roots.namespace
 JOIN mssmt_nodes
-    ON mssmt_nodes.hash_key = mssmt_roots.root_hash 
+    ON mssmt_nodes.hash_key = mssmt_roots.root_hash
        AND mssmt_nodes.namespace = mssmt_roots.namespace
 JOIN genesis_assets
     ON genesis_assets.asset_id = universe_roots.asset_id
-ORDER BY 
-    CASE WHEN $1 = 0 THEN universe_roots.id END ASC,
-    CASE WHEN $1 = 1 THEN universe_roots.id END DESC
-LIMIT $3 OFFSET $2
+WHERE (universe_roots.proof_type = $1
+           OR $1 IS NULL)
+ORDER BY
+    CASE WHEN $2 = 0 THEN universe_roots.id END ASC,
+    CASE WHEN $2 = 1 THEN universe_roots.id END DESC
+LIMIT $4 OFFSET $3
 `
 
 type UniverseRootsParams struct {
+	ProofType     sql.NullString
 	SortDirection interface{}
 	NumOffset     int32
 	NumLimit      int32
@@ -1307,7 +1310,12 @@ type UniverseRootsRow struct {
 }
 
 func (q *Queries) UniverseRoots(ctx context.Context, arg UniverseRootsParams) ([]UniverseRootsRow, error) {
-	rows, err := q.db.QueryContext(ctx, UniverseRoots, arg.SortDirection, arg.NumOffset, arg.NumLimit)
+	rows, err := q.db.QueryContext(ctx, UniverseRoots,
+		arg.ProofType,
+		arg.SortDirection,
+		arg.NumOffset,
+		arg.NumLimit,
+	)
 	if err != nil {
 		return nil, err
 	}
