@@ -102,7 +102,9 @@ func UnmarshalFixedPoint(
 	scale := uint8(fp.Scale)
 
 	cBigInt := new(big.Int)
-	cBigInt.SetString(fp.Coefficient, 10)
+	if _, ok := cBigInt.SetString(fp.Coefficient, 10); !ok {
+		return nil, fmt.Errorf("invalid fixed point coefficient")
+	}
 
 	return &rfqmath.BigIntFixedPoint{
 		Coefficient: rfqmath.NewBigInt(cBigInt),

@@ -121,3 +121,20 @@ func TestUnmarshalFixedPointNil(t *testing.T) {
 	require.ErrorContains(t, err, "fixed point is nil")
 	require.Nil(t, rate)
 }
+
+// TestUnmarshalFixedPointInvalidCoefficient asserts that UnmarshalFixedPoint
+// rejects a coefficient that is not a base-10 integer.
+func TestUnmarshalFixedPointInvalidCoefficient(t *testing.T) {
+	t.Parallel()
+
+	for _, c := range []string{"", "abc", "12abc", "1.5"} {
+		rate, err := UnmarshalFixedPoint(&priceoraclerpc.FixedPoint{
+			Coefficient: c,
+			Scale:       2,
+		})
+		require.ErrorContains(
+			t, err, "invalid fixed point coefficient", c,
+		)
+		require.Nil(t, rate)
+	}
+}
