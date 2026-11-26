@@ -541,6 +541,13 @@ func (a *AuxChanCloser) Stop() error {
 func createCloseAlloc(isLocal, isInitiator bool, outputSum uint64,
 	shutdownMsg tapchannelmsg.AuxShutdownMsg) (*tapsend.Allocation, error) {
 
+	// A party with an asset balance needs an asset internal key to anchor
+	// it. The record is optional on the wire, so a peer can omit it.
+	if shutdownMsg.AssetInternalKey.Val == nil {
+		return nil, fmt.Errorf("shutdown records carry no asset " +
+			"internal key")
+	}
+
 	// The sort pkScript for the allocation will just be the internal key,
 	// mapped to a BIP 86 taproot output key.
 	sortKeyBytes := txscript.ComputeTaprootKeyNoScript(
