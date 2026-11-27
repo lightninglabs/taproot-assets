@@ -331,6 +331,22 @@ func (a *AuxChanCloser) AuxCloseShape(
 	return lfn.Some(chancloser.AuxCloseShape{Outputs: outputs}), nil
 }
 
+// settledOutputKept returns true if a party's settled BTC output is kept as
+// an output of its own on the co-op close transaction, following lnd's
+// rules. Without an asset output, the settled output is kept if it isn't
+// below the dust limit. With an asset output, the settled output is kept if
+// what remains after the asset output's anchor amount is above the dust
+// limit, and is merged into the asset output otherwise.
+func settledOutputKept(btcAmt, anchorAmt, dustLimit btcutil.Amount,
+	hasAssetOutput bool) bool {
+
+	if !hasAssetOutput {
+		return btcAmt >= dustLimit
+	}
+
+	return btcAmt-anchorAmt > dustLimit
+}
+
 // AuxCloseOutputs returns the set of close outputs to use for this co-op close
 // attempt. We'll add some extra outputs to the co-op close transaction, and
 // also give the caller a custom sorting routine.
@@ -471,10 +487,14 @@ func (a *AuxChanCloser) AuxCloseOutputs(
 
 		amtAfterAnchor := btcAmt - localAssetAnchorAmt
 
-		// If we can't have a non-dust output after subtracting the
-		// anchor amt, then we'll just drop this allocation, and modify
-		// our asset allocation to match this value.
-		if amtAfterAnchor <= o.DustLimit {
+		// If the settled output isn't kept on its own, then we'll just
+		// drop this allocation, and modify our asset allocation to
+		// match this value.
+		if !settledOutputKept(
+			btcAmt, localAssetAnchorAmt, o.DustLimit,
+			localAlloc != nil,
+		) {
+
 			if localAlloc != nil {
 				localAlloc.BtcAmount = btcAmt
 			}
@@ -500,10 +520,14 @@ func (a *AuxChanCloser) AuxCloseOutputs(
 
 		amtAfterAnchor := btcAmt - remoteAssetAnchorAmt
 
-		// If we can't have a non-dust output after subtracting the
-		// anchor amt, then we'll just drop this allocation, and modify
-		// our asset allocation to match this value.
-		if amtAfterAnchor <= o.DustLimit {
+		// If the settled output isn't kept on its own, then we'll just
+		// drop this allocation, and modify our asset allocation to
+		// match this value.
+		if !settledOutputKept(
+			btcAmt, remoteAssetAnchorAmt, o.DustLimit,
+			remoteAlloc != nil,
+		) {
+
 			if remoteAlloc != nil {
 				remoteAlloc.BtcAmount = btcAmt
 			}

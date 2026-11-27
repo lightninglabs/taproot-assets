@@ -66,6 +66,13 @@ type Server struct {
 
 	cfg *tapconfig.Config
 
+	// htlcStash records the HTLC sets of channel commitments as lnd
+	// fetches their aux leaves. It is created with the server shell, as
+	// lnd may fetch the leaves of a confirmed commitment before the
+	// server is fully configured. The aux sweeper is given the same
+	// instance when the configuration is applied.
+	htlcStash *tapchannel.CommitHtlcStash
+
 	rpcServer       *rpcserver.RPCServer
 	mboxServer      *authmailbox.Server
 	macaroonService *lndclient.MacaroonService
@@ -82,8 +89,11 @@ func NewServer(chainParams *address.ChainParams) *Server {
 		rpcServer:   rpcserver.NewRPCServer(),
 		mboxServer:  authmailbox.NewServer(),
 		chainParams: chainParams,
-		ready:       make(chan bool),
-		quit:        make(chan struct{}, 1),
+		htlcStash: tapchannel.NewCommitHtlcStash(
+			tapchannel.DefaultHtlcStashSize,
+		),
+		ready: make(chan bool),
+		quit:  make(chan struct{}, 1),
 	}
 }
 
@@ -91,6 +101,13 @@ func NewServer(chainParams *address.ChainParams) *Server {
 // the server is started.
 func (s *Server) UpdateConfig(cfg *tapconfig.Config) {
 	s.cfg = cfg
+
+	// Hand the aux sweeper the stash that has been populated since the
+	// server shell was created, so no commitment fetched by lnd before
+	// this point is lost.
+	if cfg.AuxSweeper != nil {
+		cfg.AuxSweeper.SetHtlcStash(s.htlcStash)
+	}
 }
 
 // initialize creates and initializes an instance of the macaroon service and
@@ -972,6 +989,14 @@ func (s *Server) FetchLeavesFromCommit(chanState lnwl.AuxChanState,
 		"theirBalance=%v, numHtlcs=%d", com.LocalBalance,
 		com.RemoteBalance, len(com.Htlcs))
 
+	// Record the HTLC set of this commitment, so the aux sweeper can
+	// derive exclusion proofs for plain BTC-only HTLC outputs if this
+	// commitment is ever broadcast. lnd reports the full HTLC set from
+	// its channel state, including HTLCs that carry no assets. Note that
+	// lnd may call this method before the server is fully configured, so
+	// the stash lives on the server shell itself.
+	tapchannel.StashCommitHtlcs(s.htlcStash, com, whoseCommit)
+
 	// The aux leaf creator is fully stateless, and we don't need to wait
 	// for the server to be started before being able to use it.
 	return tapchannel.FetchLeavesFromCommit(
@@ -989,6 +1014,11 @@ func (s *Server) FetchLeavesFromRevocation(
 	srvrLog.Debugf("FetchLeavesFromRevocation called, ourBalance=%v, "+
 		"teirBalance=%v, numHtlcs=%d", r.OurBalance, r.TheirBalance,
 		len(r.HTLCEntries))
+
+	// Record the HTLC set of this revoked commitment, so the aux
+	// sweeper can derive exclusion proofs for plain BTC-only HTLC
+	// outputs when importing the revoked commitment transaction.
+	tapchannel.StashRevokedHtlcs(s.htlcStash, r)
 
 	// The aux leaf creator is fully stateless, and we don't need to wait
 	// for the server to be started before being able to use it.

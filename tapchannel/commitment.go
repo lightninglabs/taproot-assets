@@ -1066,10 +1066,11 @@ func addCommitmentOutputs(chanType channeldb.ChannelType, localChanCfg,
 
 	// We've asserted that we have a non-dust BTC balance if we have an
 	// asset balance before, so we can just check the asset balance here.
-	// In case there is no asset balance, and the BTC value is dust, it will
-	// not be materialized on-chain, and we shouldn't create an allocation
-	// for it.
-	if ourAssetBalance > 0 || ourBalance > localChanCfg.DustLimit {
+	// In case there is no asset balance, and the BTC value is below the
+	// dust limit, it will not be materialized on-chain, and we shouldn't
+	// create an allocation for it. A balance exactly at the dust limit is
+	// kept on chain by lnd, so we need an allocation for it.
+	if ourAssetBalance > 0 || ourBalance >= localChanCfg.DustLimit {
 		toLocalScript, err := lnwallet.CommitScriptToSelf(
 			chanType, initiator, keys.ToLocalKey,
 			keys.RevocationKey, uint32(localChanCfg.CsvDelay),
@@ -1134,9 +1135,11 @@ func addCommitmentOutputs(chanType channeldb.ChannelType, localChanCfg,
 	}
 
 	// We only create an allocation if there is going to be an on-chain
-	// output. If this is dust (which is only allowed if there are no assets
-	// on the output), it will not be materialized on-chain.
-	if theirAssetBalance > 0 || theirBalance > localChanCfg.DustLimit {
+	// output. If this is below the dust limit (which is only allowed if
+	// there are no assets on the output), it will not be materialized
+	// on-chain. A balance exactly at the dust limit is kept on chain by
+	// lnd, so we need an allocation for it.
+	if theirAssetBalance > 0 || theirBalance >= localChanCfg.DustLimit {
 		toRemoteScript, _, err := lnwallet.CommitScriptToRemote(
 			chanType, initiator, keys.ToRemoteKey, leaseExpiry,
 			lfn.None[txscript.TapLeaf](),
