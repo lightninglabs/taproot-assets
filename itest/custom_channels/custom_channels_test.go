@@ -60,6 +60,10 @@ var testCases = []*ccTestCase{
 		test: testCustomChannelsHtlcForceClose,
 	},
 	{
+		name: "btc htlc remote force close",
+		test: testCustomChannelsBtcHtlcRemoteForceClose,
+	},
+	{
 		name: "htlc force close mpp",
 		test: testCustomChannelsHtlcForceCloseMpp,
 	},
