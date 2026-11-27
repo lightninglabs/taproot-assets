@@ -32,7 +32,8 @@
   related commitment construction bug is also fixed: a BTC-only balance
   exactly at the dust limit previously got no allocation even though lnd
   keeps the output on chain, which failed the link and could push the peer
-  into such a force close in the first place.
+  into such a force close in the first place. Co-op closes in the legacy
+  close flow likewise allocate a BTC-only output exactly at the dust limit.
 
 - [Taproot Assets daemons now disable MPTCP listeners by
   default](https://github.com/lightninglabs/taproot-assets/pull/2370), restoring
