@@ -4,13 +4,16 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/internal/test/lndmock"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightninglabs/taproot-assets/tapsend"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -863,4 +866,97 @@ func TestInPlaceCustomCommitSortOneToOne(t *testing.T) {
 		[]*tapsend.Allocation{newAlloc(0), newAlloc(0)},
 	)
 	require.ErrorContains(t, err, "duplicate order index 0")
+}
+
+// TestAddCommitmentOutputsDustLimit asserts that BTC-only balance outputs
+// exactly at the dust limit get an allocation. lnd keeps a balance output
+// on chain when its value is greater than or equal to the dust limit, so
+// the allocations must match that rule or the commitment sort fails with
+// an output and allocation size mismatch.
+func TestAddCommitmentOutputsDustLimit(t *testing.T) {
+	t.Parallel()
+
+	keyRing := lndmock.RandCommitmentKeyRing(t)
+	const dustLimit = 354
+	chanCfg := &channeldb.ChannelConfig{
+		DustLimit: dustLimit,
+		CsvDelay:  144,
+	}
+	chanType := channeldb.SimpleTaprootFeatureBit |
+		channeldb.AnchorOutputsBit | channeldb.ZeroHtlcTxFeeBit
+
+	// With no asset balance, the balance allocations are plain no-asset
+	// allocations carrying the BTC amount. We compare the multiset of
+	// allocation amounts against what we expect to end up on chain.
+	amounts := func(allocs []*tapsend.Allocation) map[btcutil.Amount]int {
+		m := make(map[btcutil.Amount]int)
+		for _, a := range allocs {
+			if a.Type == tapsend.AllocationTypeNoAssets {
+				m[a.BtcAmount]++
+			}
+		}
+
+		return m
+	}
+
+	testCases := []struct {
+		name         string
+		ourBalance   int64
+		theirBalance int64
+		wantLocal    int
+		wantRemote   int
+	}{{
+		name:         "both below dust",
+		ourBalance:   dustLimit - 1,
+		theirBalance: dustLimit - 1,
+		wantLocal:    0,
+		wantRemote:   0,
+	}, {
+		name:         "both exactly at dust",
+		ourBalance:   dustLimit,
+		theirBalance: dustLimit,
+		wantLocal:    1,
+		wantRemote:   1,
+	}, {
+		name:         "both above dust",
+		ourBalance:   dustLimit + 1,
+		theirBalance: dustLimit + 1,
+		wantLocal:    1,
+		wantRemote:   1,
+	}, {
+		name:         "local at dust remote below",
+		ourBalance:   dustLimit,
+		theirBalance: dustLimit - 1,
+		wantLocal:    1,
+		wantRemote:   0,
+	}}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var allocs []*tapsend.Allocation
+			err := addCommitmentOutputs(
+				chanType, chanCfg, chanCfg, false,
+				btcutil.Amount(tc.ourBalance),
+				btcutil.Amount(tc.theirBalance), 0, 0,
+				false, false, keyRing, 0,
+				func(a *tapsend.Allocation) {
+					allocs = append(allocs, a)
+				},
+			)
+			require.NoError(t, err)
+
+			want := make(map[btcutil.Amount]int)
+			if tc.wantLocal > 0 {
+				want[btcutil.Amount(tc.ourBalance)]++
+			}
+			if tc.wantRemote > 0 {
+				want[btcutil.Amount(tc.theirBalance)]++
+			}
+
+			require.Equal(
+				t, want, amounts(allocs),
+				"no-asset balance allocations",
+			)
+		})
+	}
 }

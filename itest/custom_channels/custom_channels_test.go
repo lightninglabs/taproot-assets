@@ -64,6 +64,10 @@ var testCases = []*ccTestCase{
 		test: testCustomChannelsBtcHtlcRemoteForceClose,
 	},
 	{
+		name: "btc dust limit balance",
+		test: testCustomChannelsBtcDustLimitBalance,
+	},
+	{
 		name: "htlc force close mpp",
 		test: testCustomChannelsHtlcForceCloseMpp,
 	},

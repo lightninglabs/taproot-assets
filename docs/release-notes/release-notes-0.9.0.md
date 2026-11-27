@@ -28,7 +28,11 @@
   stuck in `waiting_close` with the balance unswept. tapd now records the
   HTLC sets that lnd reports when fetching the aux leaves of a commitment
   and derives exclusion proofs for plain HTLC outputs from them, so
-  restarting an affected node with the fixed version resolves the close.
+  restarting an affected node with the fixed version resolves the close. A
+  related commitment construction bug is also fixed: a BTC-only balance
+  exactly at the dust limit previously got no allocation even though lnd
+  keeps the output on chain, which failed the link and could push the peer
+  into such a force close in the first place.
 
 - [Taproot Assets daemons now disable MPTCP listeners by
   default](https://github.com/lightninglabs/taproot-assets/pull/2370), restoring
