@@ -21,6 +21,15 @@
 
 # Bug Fixes
 
+- [Force closes of asset channels with a plain BTC-only HTLC in flight are
+  now resolved](https://github.com/lightninglabs/taproot-assets/pull/2401).
+  Importing such a commitment transaction previously failed because no
+  exclusion proof was created for the plain HTLC output, leaving the channel
+  stuck in `waiting_close` with the balance unswept. tapd now records the
+  HTLC sets that lnd reports when fetching the aux leaves of a commitment
+  and derives exclusion proofs for plain HTLC outputs from them, so
+  restarting an affected node with the fixed version resolves the close.
+
 - [Taproot Assets daemons now disable MPTCP listeners by
   default](https://github.com/lightninglabs/taproot-assets/pull/2370), restoring
   plain TCP as the default transport and mitigating the demonstrated
