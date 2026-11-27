@@ -149,7 +149,7 @@ func testCustomChannelsStrictForwarding(_ context.Context,
 	// satoshi, where we will check whether Dave's strict forwarding
 	// works as expected. Charlie is only used as a dummy RFQ peer in this
 	// case, Erin totally ignores the RFQ hint and just pays with sats.
-	assetInvoice := createAssetInvoice(t.t, charlie, dave, 40, assetID)
+	assetInvoice := createAssetInvoice(t.t, charlie, dave, 200, assetID)
 
 	ctx := context.Background()
 	assetInvoiceStream, err := dave.InvoicesClient.SubscribeSingleInvoice(
@@ -193,7 +193,7 @@ func testCustomChannelsStrictForwarding(_ context.Context,
 
 	// Edge case: We now try the opposite: Dave creates a BTC invoice but
 	// Charlie tries to pay it with assets. This should fail as well.
-	btcInvoice := createNormalInvoice(t.t, dave, 1_000)
+	btcInvoice := createNormalInvoice(t.t, dave, 5_000)
 	btcInvoiceStream, err := dave.InvoicesClient.SubscribeSingleInvoice(
 		ctx, &invoicesrpc.SubscribeSingleInvoiceRequest{
 			RHash: btcInvoice.RHash,

@@ -16,12 +16,13 @@ type SignDescriptor struct {
 	KeyDesc keychain.KeyDescriptor
 
 	// SingleTweak is a scalar that is added to the private key before
-	// signing. At most one of SingleTweak and DoubleTweak is set.
+	// signing. When both tweaks are set, lnd applies DoubleTweak first
+	// and SingleTweak second.
 	SingleTweak []byte
 
 	// DoubleTweak is a private key that is combined with the signing key
-	// in a revocation style derivation before signing. At most one of
-	// SingleTweak and DoubleTweak is set.
+	// in a revocation style derivation before signing. Second-level HTLC
+	// signing for aux channels sets it together with SingleTweak.
 	DoubleTweak *btcec.PrivateKey
 
 	// TapTweak is the input to the taproot tweak that turns the internal

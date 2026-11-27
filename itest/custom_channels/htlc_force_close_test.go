@@ -23,7 +23,7 @@ import (
 func testCustomChannelsHtlcForceClose(ctx context.Context,
 	net *itest.IntegratedNetworkHarness, t *ccHarnessTest) {
 
-	runCustomChannelsHtlcForceClose(ctx, t, net, false)
+	runCustomChannelsHtlcForceClose(ctx, t, net, false, "")
 }
 
 // testCustomChannelsHtlcForceCloseMpp tests that we can force close a channel
@@ -32,15 +32,19 @@ func testCustomChannelsHtlcForceClose(ctx context.Context,
 func testCustomChannelsHtlcForceCloseMpp(ctx context.Context,
 	net *itest.IntegratedNetworkHarness, t *ccHarnessTest) {
 
-	runCustomChannelsHtlcForceClose(ctx, t, net, true)
+	runCustomChannelsHtlcForceClose(ctx, t, net, true, "")
 }
 
 // runCustomChannelsHtlcForceClose is a helper function that runs the HTLC force
 // close test with the given MPP setting.
+//
+// If oldBinary is set, Alice and Bob open the channel and exchange their
+// first payments on that older release, and are upgraded to the current
+// build before the HTLCs of the main test are added.
 func runCustomChannelsHtlcForceClose(ctx context.Context, t *ccHarnessTest,
-	net *itest.IntegratedNetworkHarness, mpp bool) {
+	net *itest.IntegratedNetworkHarness, mpp bool, oldBinary string) {
 
-	t.Logf("Running test with MPP: %v", mpp)
+	t.Logf("Running test with MPP: %v, old binary: %q", mpp, oldBinary)
 
 	lndArgs := slices.Clone(lndArgsTemplate)
 	tapdArgs := slices.Clone(tapdArgsTemplate)
@@ -55,8 +59,16 @@ func runCustomChannelsHtlcForceClose(ctx context.Context, t *ccHarnessTest,
 
 	// Next, we'll make Alice and Bob, who will be the main nodes under
 	// test.
-	alice := net.NewNode("Alice", lndArgs, tapdArgs)
-	bob := net.NewNode("Bob", lndArgs, tapdArgs)
+	var alice, bob *itest.IntegratedNode
+	if oldBinary != "" {
+		alice = net.NewNodeWithBinary(
+			"Alice", oldBinary, lndArgs, tapdArgs,
+		)
+		bob = net.NewNodeWithBinary("Bob", oldBinary, lndArgs, tapdArgs)
+	} else {
+		alice = net.NewNode("Alice", lndArgs, tapdArgs)
+		bob = net.NewNode("Bob", lndArgs, tapdArgs)
+	}
 
 	// Now we'll connect all nodes, and also fund them with some coins.
 	nodes := []*itest.IntegratedNode{alice, bob}
@@ -132,6 +144,34 @@ func runCustomChannelsHtlcForceClose(ctx context.Context, t *ccHarnessTest,
 	sendKeySendPayment(t.t, alice, bob, keySendSatAmount)
 
 	logBalance(t.t, nodes, assetID, "after keysends to Bob")
+
+	// The channel now has a history of commitments built by the old
+	// release. Upgrade both peers. From here on they negotiate the
+	// features of the current build, so the commitments they create next
+	// follow them, while the ones that exist stay what they were built
+	// as. A few payments in each direction take the channel across that
+	// switch, revoking the last commitments of the old release on the
+	// way.
+	if oldBinary != "" {
+		t.Logf("Upgrading Alice and Bob to the current build...")
+		for _, node := range nodes {
+			net.UpgradeNode(node)
+		}
+		net.EnsureConnected(t.t, alice, bob)
+
+		for i := 0; i < 3; i++ {
+			sendAssetKeySendPayment(
+				t.t, alice, bob, keySendAssetAmount, assetID,
+				fn.None[int64](),
+			)
+			sendAssetKeySendPayment(
+				t.t, bob, alice, keySendAssetAmount, assetID,
+				fn.None[int64](),
+			)
+		}
+
+		logBalance(t.t, nodes, assetID, "after upgrade")
+	}
 
 	// Now that both parties have some funds, we'll move onto the main test.
 	//

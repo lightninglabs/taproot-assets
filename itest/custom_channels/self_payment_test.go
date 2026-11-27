@@ -32,7 +32,6 @@ func testCustomChannelsSelfPayment(_ context.Context,
 
 	lndArgs := slices.Clone(lndArgsTemplate)
 	tapdArgs := slices.Clone(tapdArgsTemplate)
-
 	// We use Alice as the proof courier. But in order for Alice to also
 	// use itself, we need to define its port upfront.
 	alicePort := port.NextAvailablePort()
@@ -128,12 +127,22 @@ func testCustomChannelsSelfPayment(_ context.Context,
 	t.Logf("Key sending 15k assets from Alice to Bob...")
 	const (
 		assetKeySendAmount = 15_000
-		numInvoicePayments = 10
+		numInvoicePayments = 5
 		assetInvoiceAmount = 1_234
 		btcInvoiceAmount   = 10_000
 		btcKeySendAmount   = 200_000
 		btcReserveAmount   = 2000
-		btcHtlcCost        = numInvoicePayments * 354
+
+		// Bob pays the on-chain carrier value of each asset HTLC he
+		// sends in the first round (rfqmath.DefaultOnChainHtlcSat).
+		// He must not be handed more than that: the asset HTLCs
+		// Alice sends in the second round give the carrier value
+		// back, and with a surplus Bob's BTC balance in the asset
+		// channel would grow large enough to forward a BTC payment
+		// over it. lnd picks randomly among the eligible links to
+		// a peer, so the BTC leg would no longer be pinned to the
+		// BTC channel.
+		btcHtlcCost = numInvoicePayments * 1200
 	)
 	sendAssetKeySendPayment(
 		t.t, alice, bob, assetKeySendAmount, assetID,

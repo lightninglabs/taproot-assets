@@ -66,12 +66,25 @@ func FetchLeavesFromView(chainParams *address.ChainParams,
 		),
 	)
 
-	stxoFeatures := NewSTXOFeatures(features)
+	// The live feature map is only populated once the peer has
+	// (re)connected. Around a restart it can be empty, so the STXO
+	// features fall back to the flags cached in the previous commitment.
+	stxoFeatures := NewSTXOFeatures(features).Or(
+		CommitmentSTXOFeatures(prevState),
+	)
+
+	// The sighash mode of the commitment is not ours to derive. Whoever
+	// signs a commitment decides its mode and states it on the
+	// commitment_signed, which can be retransmitted in a later connection
+	// with different features negotiated. lnd hands us the mode of the
+	// commitment being built, for the ones it signs and the ones it
+	// verifies alike, so both peers build the same second-level layout.
+	sigHashDefault := in.SigHashDefault
 
 	allocations, newCommitment, err := GenerateCommitmentAllocations(
 		prevState, in.ChannelState, chanAssetState, in.WhoseCommit,
 		in.OurBalance, in.TheirBalance, in.UnfilteredView, chainParams,
-		in.KeyRing, stxoFeatures,
+		in.KeyRing, stxoFeatures, sigHashDefault,
 	)
 	if err != nil {
 		return lfn.Err[returnType](fmt.Errorf("unable to generate "+
@@ -118,6 +131,7 @@ func FetchLeavesFromCommit(chainParams *address.ChainParams,
 
 	stxoFeatures := CommitmentSTXOFeatures(commitment)
 	warnMissingSpenderLeaves(chanState.FundingOutpoint, stxoFeatures)
+	sigHashDefault := commitment.SigHashDefault.Val
 
 	incomingHtlcs := commitment.IncomingHtlcAssets.Val.HtlcOutputs
 	incomingHtlcLeaves := commitment.AuxLeaves.Val.IncomingHtlcLeaves.
@@ -150,7 +164,7 @@ func FetchLeavesFromCommit(chainParams *address.ChainParams,
 			leaf, err := CreateSecondLevelHtlcTx(
 				chanState, com.CommitTx, htlc.Amt.ToSatoshis(),
 				keys, chainParams, htlcOutputs, cltvTimeout,
-				htlc.HtlcIndex, stxoFeatures,
+				htlc.HtlcIndex, stxoFeatures, sigHashDefault,
 			)
 			if err != nil {
 				return lfn.Err[returnType](fmt.Errorf("unable "+
@@ -191,7 +205,7 @@ func FetchLeavesFromCommit(chainParams *address.ChainParams,
 			leaf, err := CreateSecondLevelHtlcTx(
 				chanState, com.CommitTx, htlc.Amt.ToSatoshis(),
 				keys, chainParams, htlcOutputs, cltvTimeout,
-				htlc.HtlcIndex, stxoFeatures,
+				htlc.HtlcIndex, stxoFeatures, sigHashDefault,
 			)
 			if err != nil {
 				return lfn.Err[returnType](fmt.Errorf("unable "+
@@ -221,13 +235,17 @@ func FetchLeavesFromCommit(chainParams *address.ChainParams,
 
 // FetchLeavesFromRevocation attempts to fetch the auxiliary leaves
 // from a channel revocation that stores balance + blob information.
-func FetchLeavesFromRevocation(
-	r *channeldb.RevocationLog) lfn.Result[lnwl.CommitDiffAuxResult] {
+// The req carries the chanState, keys, and commitTx needed to compute
+// second-level HTLC auxiliary leaves at runtime, since these are not
+// stored in the commitment blob. chainParams is passed alongside since
+// it is a server-level concern, not part of the lnwallet request.
+func FetchLeavesFromRevocation(req lnwl.RevocationLeavesReq,
+	chainParams *address.ChainParams) lfn.Result[lnwl.CommitDiffAuxResult] {
 
 	type returnType = lnwl.CommitDiffAuxResult
 
 	return lfn.MapOptionZ(
-		r.CustomBlob.ValOpt(),
+		req.Revocation.CustomBlob.ValOpt(),
 		func(blob tlv.Blob) lfn.Result[lnwl.CommitDiffAuxResult] {
 			commitment, err := cmsg.DecodeCommitment(blob)
 			if err != nil {
@@ -235,11 +253,137 @@ func FetchLeavesFromRevocation(
 					"to decode commitment: %w", err))
 			}
 
+			leaves := commitment.Leaves()
+
+			// If we have the commit tx and chain params, we
+			// can compute the second-level HTLC aux leaves
+			// that aren't stored in the commitment blob.
+			if req.CommitTx != nil && chainParams != nil {
+				err = populateSecondLevelLeaves(
+					req.Revocation, commitment,
+					req.ChanState, req.Keys, req.CommitTx,
+					chainParams, &leaves,
+				)
+				if err != nil {
+					return lfn.Err[returnType](
+						fmt.Errorf("unable to "+
+							"populate second "+
+							"level leaves: %w",
+							err),
+					)
+				}
+			}
+
 			return lfn.Ok(lnwl.CommitDiffAuxResult{
-				AuxLeaves: lfn.Some(commitment.Leaves()),
+				AuxLeaves: lfn.Some(leaves),
 			})
 		},
 	)
+}
+
+// populateSecondLevelLeaves computes the second-level HTLC aux leaves
+// for each HTLC in the revocation log and populates them in the given
+// leaves struct. This mirrors the logic in FetchLeavesFromCommit.
+func populateSecondLevelLeaves(r *channeldb.RevocationLog,
+	commitment *cmsg.Commitment, chanState lnwl.AuxChanState,
+	keys lnwl.CommitmentKeyRing, commitTx *wire.MsgTx,
+	chainParams *address.ChainParams,
+	leaves *lnwl.CommitAuxLeaves) error {
+
+	stxoFeatures := CommitmentSTXOFeatures(commitment)
+	sigHashDefault := commitment.SigHashDefault.Val
+
+	incomingHtlcs := commitment.IncomingHtlcAssets.Val.HtlcOutputs
+	incomingHtlcLeaves := commitment.AuxLeaves.Val.
+		IncomingHtlcLeaves.Val.HtlcAuxLeaves
+	outgoingHtlcs := commitment.OutgoingHtlcAssets.Val.HtlcOutputs
+	outgoingHtlcLeaves := commitment.AuxLeaves.Val.
+		OutgoingHtlcLeaves.Val.HtlcAuxLeaves
+
+	for _, htlcEntry := range r.HTLCEntries {
+		// Skip HTLCs without an index.
+		htlcIdxOpt := htlcEntry.HtlcIndex.ValOpt()
+		if htlcIdxOpt.IsNone() {
+			continue
+		}
+
+		htlcIdx := htlcIdxOpt.UnsafeFromSome().Int()
+		htlcAmt := htlcEntry.Amt.Val.Int()
+
+		if htlcEntry.Incoming.Val {
+			htlcOutputs := incomingHtlcs[htlcIdx].Outputs
+			auxLeaf := incomingHtlcLeaves[htlcIdx].AuxLeaf
+
+			if len(htlcOutputs) == 0 {
+				continue
+			}
+
+			// For incoming HTLCs on the remote party's
+			// commitment, they'll need to go to the second
+			// level to time it out.
+			cltvTimeout := fn.Some(
+				htlcEntry.RefundTimeout.Val,
+			)
+
+			leaf, err := CreateSecondLevelHtlcTx(
+				chanState, commitTx, htlcAmt,
+				keys, chainParams, htlcOutputs,
+				cltvTimeout, htlcIdx, stxoFeatures,
+				sigHashDefault,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to create "+
+					"second level incoming HTLC "+
+					"leaf: %w", err)
+			}
+
+			existingLeaf := lfn.MapOption(
+				func(l cmsg.TapLeafRecord) txscript.TapLeaf {
+					return l.Leaf
+				},
+			)(auxLeaf.ValOpt())
+
+			leaves.IncomingHtlcLeaves[htlcIdx] = input.HtlcAuxLeaf{
+				AuxTapLeaf:      existingLeaf,
+				SecondLevelLeaf: leaf,
+			}
+		} else {
+			htlcOutputs := outgoingHtlcs[htlcIdx].Outputs
+			auxLeaf := outgoingHtlcLeaves[htlcIdx].AuxLeaf
+
+			if len(htlcOutputs) == 0 {
+				continue
+			}
+
+			// For outgoing HTLCs on the remote party's
+			// commitment, they don't need a CLTV timeout
+			// (they go to second level via the success path).
+			leaf, err := CreateSecondLevelHtlcTx(
+				chanState, commitTx, htlcAmt,
+				keys, chainParams, htlcOutputs,
+				fn.None[uint32](), htlcIdx,
+				stxoFeatures, sigHashDefault,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to create "+
+					"second level outgoing HTLC "+
+					"leaf: %w", err)
+			}
+
+			existingLeaf := lfn.MapOption(
+				func(l cmsg.TapLeafRecord) txscript.TapLeaf {
+					return l.Leaf
+				},
+			)(auxLeaf.ValOpt())
+
+			leaves.OutgoingHtlcLeaves[htlcIdx] = input.HtlcAuxLeaf{
+				AuxTapLeaf:      existingLeaf,
+				SecondLevelLeaf: leaf,
+			}
+		}
+	}
+
+	return nil
 }
 
 // ApplyHtlcView serves as the state transition function for the custom
@@ -276,12 +420,18 @@ func ApplyHtlcView(chainParams *address.ChainParams,
 		),
 	)
 
-	stxoFeatures := NewSTXOFeatures(features)
+	// Same as above: the STXO features fall back to the previous
+	// commitment, the sighash mode is the one lnd states for the
+	// commitment being built and is recorded in the new blob.
+	stxoFeatures := NewSTXOFeatures(features).Or(
+		CommitmentSTXOFeatures(prevState),
+	)
+	sigHashDefault := in.SigHashDefault
 
 	_, newCommitment, err := GenerateCommitmentAllocations(
 		prevState, in.ChannelState, chanAssetState, in.WhoseCommit,
 		in.OurBalance, in.TheirBalance, in.UnfilteredView, chainParams,
-		in.KeyRing, stxoFeatures,
+		in.KeyRing, stxoFeatures, sigHashDefault,
 	)
 	if err != nil {
 		return lfn.Err[returnType](fmt.Errorf("unable to generate "+
