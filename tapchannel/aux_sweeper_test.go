@@ -3,6 +3,7 @@ package tapchannel
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"net/url"
 	"sync"
 	"testing"
@@ -21,10 +22,14 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tapnode"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
+	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
+	"github.com/lightninglabs/taproot-assets/vm"
+	"github.com/lightningnetwork/lnd/channeldb"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/sweep"
@@ -1142,4 +1147,527 @@ func TestRegisterAndBroadcastSweepLayout(t *testing.T) {
 
 	_, err = suffix.VerifyProofs()
 	require.NoError(t, err)
+}
+
+// TestImportCommitTxBtcOnlyHtlc is a regression test for
+// https://github.com/lightninglabs/taproot-assets/issues/2393. A remote
+// force close with a plain BTC-only HTLC in flight could not be imported:
+// the exclusion proofs generated for the commitment only covered the
+// balance and anchor outputs, so the plain HTLC output failed proof
+// verification and the channel stayed in waiting close. The fix stashes
+// the HTLC descriptors that lnd reports when it fetches the aux leaves of
+// the commitment, and derives exclusion proofs for those outputs as well.
+func TestImportCommitTxBtcOnlyHtlc(t *testing.T) {
+	t.Parallel()
+
+	keyRing := lndmock.RandCommitmentKeyRing(t)
+	const csvDelay = 144
+
+	// The anchor outputs of the commitment transaction.
+	localAnchorTree, err := input.NewAnchorScriptTree(keyRing.ToLocalKey)
+	require.NoError(t, err)
+	localAnchorScript, err := txscript.PayToTaprootScript(
+		localAnchorTree.TaprootKey,
+	)
+	require.NoError(t, err)
+
+	remoteAnchorTree, err := input.NewAnchorScriptTree(
+		keyRing.ToRemoteKey,
+	)
+	require.NoError(t, err)
+	remoteAnchorScript, err := txscript.PayToTaprootScript(
+		remoteAnchorTree.TaprootKey,
+	)
+	require.NoError(t, err)
+
+	// The BTC-only HTLC output is a plain HTLC output that commits to no
+	// assets, built exactly as it is when the commitment is created.
+	var rHash [32]byte
+	_, _ = rand.Read(rHash[:])
+	const htlcTimeout = 800
+	htlcTree, err := lnwallet.GenTaprootHtlcScript(
+		false, lntypes.Remote, htlcTimeout, rHash, &keyRing,
+		lfn.None[txscript.TapLeaf](),
+	)
+	require.NoError(t, err)
+	htlcScript, err := txscript.PayToTaprootScript(htlcTree.TaprootKey)
+	require.NoError(t, err)
+
+	// The to-remote output carries the channel's assets.
+	toRemoteTree, err := input.NewRemoteCommitScriptTree(
+		keyRing.ToRemoteKey, input.NoneTapLeaf(),
+	)
+	require.NoError(t, err)
+
+	transferAsset := asset.RandAsset(t, asset.Normal)
+	transferAsset.PrevWitnesses[0].PrevID = &asset.PrevID{
+		ID:        transferAsset.ID(),
+		ScriptKey: asset.ToSerialized(transferAsset.ScriptKey.PubKey),
+	}
+
+	// buildCommitTx assembles the force-close commitment: the two
+	// anchors, optionally the plain HTLC output at index 2, and the
+	// asset carrying to-remote output last.
+	buildCommitTx := func(withHtlc bool) *wire.MsgTx {
+		assetCommitment, err := commitment.FromAssets(
+			nil, transferAsset,
+		)
+		require.NoError(t, err)
+		toRemoteScript, err := tapscript.PayToAddrScript(
+			*toRemoteTree.InternalKey, nil, *assetCommitment,
+		)
+		require.NoError(t, err)
+
+		commitTx := wire.NewMsgTx(2)
+		commitTx.AddTxIn(&wire.TxIn{})
+		commitTx.AddTxOut(&wire.TxOut{
+			Value:    330,
+			PkScript: localAnchorScript,
+		})
+		commitTx.AddTxOut(&wire.TxOut{
+			Value:    330,
+			PkScript: remoteAnchorScript,
+		})
+		if withHtlc {
+			commitTx.AddTxOut(&wire.TxOut{
+				Value:    5_000,
+				PkScript: htlcScript,
+			})
+		}
+		commitTx.AddTxOut(&wire.TxOut{
+			Value:    90_000,
+			PkScript: toRemoteScript,
+		})
+
+		return commitTx
+	}
+
+	// importCommitTxProof runs the exact sequence importCommitTx runs to
+	// import a force-close commitment: derive the no-asset allocations,
+	// then create the output commitments and the proof suffix with
+	// exclusion proofs for those allocations.
+	importCommitTxProof := func(commitTx *wire.MsgTx,
+		stash *CommitHtlcStash) (*proof.Proof, []*tapsend.Allocation) {
+
+		internalKey := toRemoteTree.InternalKey
+		assetIdx := uint32(len(commitTx.TxOut) - 1)
+		vPkt := &tappsbt.VPacket{
+			Inputs: []*tappsbt.VInput{{
+				PrevID: asset.PrevID{
+					ID: transferAsset.ID(),
+				},
+			}},
+			Outputs: []*tappsbt.VOutput{{
+				Amount:       transferAsset.Amount,
+				AssetVersion: transferAsset.Version,
+				Type:         tappsbt.TypeSimple,
+				Interactive:  true,
+				Asset:        transferAsset,
+				ScriptKey:    transferAsset.ScriptKey,
+
+				AnchorOutputIndex:       assetIdx,
+				AnchorOutputInternalKey: internalKey,
+			}},
+			ChainParams: &address.RegressionNetTap,
+		}
+		vPkt.SetInputAsset(0, transferAsset)
+
+		req := lnwallet.ResolutionReq{
+			CommitTx: commitTx,
+			KeyRing:  &keyRing,
+			CsvDelay: csvDelay,
+		}
+		vPackets := []*tappsbt.VPacket{vPkt}
+
+		allocations, err := commitOutputAllocations(
+			req, vPackets, stash,
+		).Unpack()
+		require.NoError(t, err)
+
+		outCommitments, err := tapsend.CreateOutputCommitments(
+			vPackets, tapsend.WithNoSTXOProofs(),
+		)
+		require.NoError(t, err)
+
+		proofSuffix, err := tapsend.CreateProofSuffixCustom(
+			commitTx, vPkt, outCommitments, 0, vPackets,
+			tapsend.NonAssetExclusionProofs(allocations),
+			proof.WithNoSTXOProofs(),
+		)
+		require.NoError(t, err)
+
+		return proofSuffix, allocations
+	}
+
+	verify := func(proofSuffix *proof.Proof) error {
+		_, err := proofSuffix.Verify(
+			context.Background(), &proof.AssetSnapshot{
+				Asset: transferAsset,
+			}, proof.MockChainLookup, proof.MockVerifierCtx,
+		)
+
+		return err
+	}
+
+	commitTx := buildCommitTx(true)
+
+	// Without the HTLC descriptors, the plain HTLC output at index 2
+	// gets no exclusion proof, and the porter's pre-broadcast
+	// verification rejects the commitment import exactly as reported in
+	// the issue.
+	t.Run("missing htlc data fails verification", func(t *testing.T) {
+		proofSuffix, allocations := importCommitTxProof(
+			commitTx, NewCommitHtlcStash(10),
+		)
+
+		covered := make(map[uint32]bool)
+		for _, alloc := range allocations {
+			covered[alloc.OutputIndex] = true
+		}
+		require.False(t, covered[2])
+
+		err := verify(proofSuffix)
+		require.ErrorIs(t, err, proof.ErrInvalidCommitmentProof)
+		require.ErrorContains(t, err, "missing exclusion proofs")
+	})
+
+	// With the HTLC descriptors stashed, as the aux leaf store does when
+	// lnd fetches the leaves of the commitment, the import produces a
+	// full set of exclusion proofs and verification only fails on the
+	// unsigned transfer witness, which is the last check.
+	t.Run("stashed htlc data verifies", func(t *testing.T) {
+		stash := NewCommitHtlcStash(10)
+		StashCommitHtlcs(stash, channeldb.ChannelCommitment{
+			CommitTx: commitTx,
+			Htlcs: []channeldb.HTLC{{
+				RHash:         rHash,
+				RefundTimeout: htlcTimeout,
+				Incoming:      false,
+				HtlcIndex:     7,
+			}},
+		}, lntypes.Remote)
+
+		proofSuffix, allocations := importCommitTxProof(
+			commitTx, stash,
+		)
+
+		covered := make(map[uint32]bool)
+		for _, alloc := range allocations {
+			covered[alloc.OutputIndex] = true
+		}
+		require.True(t, covered[0])
+		require.True(t, covered[1])
+		require.True(t, covered[2])
+		require.False(t, covered[3])
+
+		err := verify(proofSuffix)
+		require.ErrorIs(t, err, vm.Error{
+			Kind: vm.ErrInvalidTransferWitness,
+			Inner: txscript.Error{
+				ErrorCode: txscript.ErrTaprootSigInvalid,
+			},
+		})
+	})
+
+	// A commitment without HTLC outputs verifies the same way, so the
+	// plain HTLC exclusion proof is the only piece that was missing.
+	t.Run("no htlc output verifies", func(t *testing.T) {
+		proofSuffix, _ := importCommitTxProof(
+			buildCommitTx(false), NewCommitHtlcStash(10),
+		)
+
+		err := verify(proofSuffix)
+		require.ErrorIs(t, err, vm.Error{
+			Kind: vm.ErrInvalidTransferWitness,
+			Inner: txscript.Error{
+				ErrorCode: txscript.ErrTaprootSigInvalid,
+			},
+		})
+	})
+}
+
+// TestCommitHtlcStash tests the basic store, fetch, and eviction behavior
+// of the commitment HTLC stash.
+func TestCommitHtlcStash(t *testing.T) {
+	t.Parallel()
+
+	stash := NewCommitHtlcStash(2)
+
+	tx1 := wire.NewMsgTx(2)
+	tx1.AddTxIn(&wire.TxIn{})
+	tx2 := wire.NewMsgTx(2)
+	tx2.AddTxIn(&wire.TxIn{PreviousOutPoint: wire.OutPoint{Index: 1}})
+	tx3 := wire.NewMsgTx(2)
+	tx3.AddTxIn(&wire.TxIn{PreviousOutPoint: wire.OutPoint{Index: 2}})
+
+	htlcs := []channeldb.HTLC{{
+		RHash:         [32]byte{1},
+		RefundTimeout: 500,
+		Incoming:      true,
+		HtlcIndex:     3,
+	}}
+
+	// A nil stash is a no-op and safe to use.
+	StashCommitHtlcs(nil, channeldb.ChannelCommitment{
+		CommitTx: tx1, Htlcs: htlcs,
+	}, lntypes.Remote)
+
+	StashCommitHtlcs(stash, channeldb.ChannelCommitment{
+		CommitTx: tx1, Htlcs: htlcs,
+	}, lntypes.Remote)
+
+	whoseCommit, fetched, ok := stash.Fetch(tx1.TxHash())
+	require.True(t, ok)
+	require.Equal(t, lntypes.Remote, whoseCommit)
+	require.Len(t, fetched, 1)
+	require.Equal(t, [32]byte{1}, fetched[0].RHash)
+	require.EqualValues(t, 500, fetched[0].Timeout)
+	require.True(t, fetched[0].Incoming)
+	require.EqualValues(t, 3, fetched[0].Index)
+
+	// Fetching an unknown commitment reports no entry.
+	_, _, ok = stash.Fetch(tx2.TxHash())
+	require.False(t, ok)
+
+	// The oldest entry is evicted once the stash exceeds its capacity.
+	StashCommitHtlcs(stash, channeldb.ChannelCommitment{
+		CommitTx: tx2,
+	}, lntypes.Local)
+	StashCommitHtlcs(stash, channeldb.ChannelCommitment{
+		CommitTx: tx3,
+	}, lntypes.Local)
+
+	_, _, ok = stash.Fetch(tx1.TxHash())
+	require.False(t, ok)
+	_, _, ok = stash.Fetch(tx2.TxHash())
+	require.True(t, ok)
+	_, _, ok = stash.Fetch(tx3.TxHash())
+	require.True(t, ok)
+
+	// A commitment without a transaction is not recorded.
+	StashCommitHtlcs(stash, channeldb.ChannelCommitment{}, lntypes.Local)
+	_, _, ok = stash.Fetch(tx2.TxHash())
+	require.True(t, ok)
+}
+
+// TestImportCommitTxHtlcVariants tests that plain HTLC outputs get proper
+// exclusion proofs on commitment import for all HTLC directions and
+// commitment owners, and for commitments with multiple plain HTLCs.
+func TestImportCommitTxHtlcVariants(t *testing.T) {
+	t.Parallel()
+
+	keyRing := lndmock.RandCommitmentKeyRing(t)
+	const csvDelay = 144
+
+	localAnchorTree, err := input.NewAnchorScriptTree(keyRing.ToLocalKey)
+	require.NoError(t, err)
+	localAnchorScript, err := txscript.PayToTaprootScript(
+		localAnchorTree.TaprootKey,
+	)
+	require.NoError(t, err)
+
+	remoteAnchorTree, err := input.NewAnchorScriptTree(
+		keyRing.ToRemoteKey,
+	)
+	require.NoError(t, err)
+	remoteAnchorScript, err := txscript.PayToTaprootScript(
+		remoteAnchorTree.TaprootKey,
+	)
+	require.NoError(t, err)
+
+	toRemoteTree, err := input.NewRemoteCommitScriptTree(
+		keyRing.ToRemoteKey, input.NoneTapLeaf(),
+	)
+	require.NoError(t, err)
+
+	transferAsset := asset.RandAsset(t, asset.Normal)
+	transferAsset.PrevWitnesses[0].PrevID = &asset.PrevID{
+		ID:        transferAsset.ID(),
+		ScriptKey: asset.ToSerialized(transferAsset.ScriptKey.PubKey),
+	}
+
+	// buildAndVerify builds a commitment with the two anchors first, one
+	// output per given HTLC descriptor, and the asset output last. It
+	// then runs the importCommitTx proof creation with the stashed HTLC
+	// descriptors and verifies the resulting proof. Verification must
+	// pass all proof checks and only fail on the unsigned transfer
+	// witness, which is the last check.
+	buildAndVerify := func(t *testing.T, whoseCommit lntypes.ChannelParty,
+		htlcs []HtlcDescriptor) {
+
+		assetCommitment, err := commitment.FromAssets(
+			nil, transferAsset,
+		)
+		require.NoError(t, err)
+		toRemoteScript, err := tapscript.PayToAddrScript(
+			*toRemoteTree.InternalKey, nil, *assetCommitment,
+		)
+		require.NoError(t, err)
+
+		commitTx := wire.NewMsgTx(2)
+		commitTx.AddTxIn(&wire.TxIn{})
+		commitTx.AddTxOut(&wire.TxOut{
+			Value:    330,
+			PkScript: localAnchorScript,
+		})
+		commitTx.AddTxOut(&wire.TxOut{
+			Value:    330,
+			PkScript: remoteAnchorScript,
+		})
+
+		dbHtlcs := make([]channeldb.HTLC, 0, len(htlcs))
+		for idx, htlc := range htlcs {
+			htlcTree, err := lnwallet.GenTaprootHtlcScript(
+				htlc.Incoming, whoseCommit, htlc.Timeout,
+				htlc.RHash, &keyRing,
+				lfn.None[txscript.TapLeaf](),
+			)
+			require.NoError(t, err)
+			htlcScript, err := txscript.PayToTaprootScript(
+				htlcTree.TaprootKey,
+			)
+			require.NoError(t, err)
+
+			commitTx.AddTxOut(&wire.TxOut{
+				Value:    5_000,
+				PkScript: htlcScript,
+			})
+			dbHtlcs = append(dbHtlcs, channeldb.HTLC{
+				RHash:         htlc.RHash,
+				RefundTimeout: htlc.Timeout,
+				Incoming:      htlc.Incoming,
+				HtlcIndex:     uint64(idx),
+			})
+		}
+		commitTx.AddTxOut(&wire.TxOut{
+			Value:    90_000,
+			PkScript: toRemoteScript,
+		})
+
+		internalKey := toRemoteTree.InternalKey
+		assetIdx := uint32(len(commitTx.TxOut) - 1)
+		vPkt := &tappsbt.VPacket{
+			Inputs: []*tappsbt.VInput{{
+				PrevID: asset.PrevID{
+					ID: transferAsset.ID(),
+				},
+			}},
+			Outputs: []*tappsbt.VOutput{{
+				Amount:       transferAsset.Amount,
+				AssetVersion: transferAsset.Version,
+				Type:         tappsbt.TypeSimple,
+				Interactive:  true,
+				Asset:        transferAsset,
+				ScriptKey:    transferAsset.ScriptKey,
+
+				AnchorOutputIndex:       assetIdx,
+				AnchorOutputInternalKey: internalKey,
+			}},
+			ChainParams: &address.RegressionNetTap,
+		}
+		vPkt.SetInputAsset(0, transferAsset)
+
+		stash := NewCommitHtlcStash(10)
+		StashCommitHtlcs(stash, channeldb.ChannelCommitment{
+			CommitTx: commitTx,
+			Htlcs:    dbHtlcs,
+		}, whoseCommit)
+
+		req := lnwallet.ResolutionReq{
+			CommitTx: commitTx,
+			KeyRing:  &keyRing,
+			CsvDelay: csvDelay,
+		}
+		vPackets := []*tappsbt.VPacket{vPkt}
+
+		allocations, err := commitOutputAllocations(
+			req, vPackets, stash,
+		).Unpack()
+		require.NoError(t, err)
+
+		outCommitments, err := tapsend.CreateOutputCommitments(
+			vPackets, tapsend.WithNoSTXOProofs(),
+		)
+		require.NoError(t, err)
+
+		proofSuffix, err := tapsend.CreateProofSuffixCustom(
+			commitTx, vPkt, outCommitments, 0, vPackets,
+			tapsend.NonAssetExclusionProofs(allocations),
+			proof.WithNoSTXOProofs(),
+		)
+		require.NoError(t, err)
+
+		_, err = proofSuffix.Verify(
+			context.Background(), &proof.AssetSnapshot{
+				Asset: transferAsset,
+			}, proof.MockChainLookup, proof.MockVerifierCtx,
+		)
+		require.ErrorIs(t, err, vm.Error{
+			Kind: vm.ErrInvalidTransferWitness,
+			Inner: txscript.Error{
+				ErrorCode: txscript.ErrTaprootSigInvalid,
+			},
+		})
+	}
+
+	randHash := func() (h [32]byte) {
+		_, _ = rand.Read(h[:])
+
+		return h
+	}
+	dupHash := randHash()
+
+	testCases := []struct {
+		name        string
+		whoseCommit lntypes.ChannelParty
+		htlcs       []HtlcDescriptor
+	}{{
+		name:        "outgoing htlc on remote commitment",
+		whoseCommit: lntypes.Remote,
+		htlcs: []HtlcDescriptor{{
+			RHash: randHash(), Timeout: 800,
+		}},
+	}, {
+		name:        "incoming htlc on remote commitment",
+		whoseCommit: lntypes.Remote,
+		htlcs: []HtlcDescriptor{{
+			RHash: randHash(), Timeout: 800, Incoming: true,
+		}},
+	}, {
+		name:        "outgoing htlc on local commitment",
+		whoseCommit: lntypes.Local,
+		htlcs: []HtlcDescriptor{{
+			RHash: randHash(), Timeout: 800,
+		}},
+	}, {
+		name:        "incoming htlc on local commitment",
+		whoseCommit: lntypes.Local,
+		htlcs: []HtlcDescriptor{{
+			RHash: randHash(), Timeout: 800, Incoming: true,
+		}},
+	}, {
+		name:        "two htlcs in both directions",
+		whoseCommit: lntypes.Remote,
+		htlcs: []HtlcDescriptor{
+			{RHash: randHash(), Timeout: 800},
+			{RHash: randHash(), Timeout: 900, Incoming: true},
+		},
+	}, {
+		// Two plain HTLCs with the same payment hash and timeout in
+		// the same direction (e.g. MPP shards) produce identical
+		// outputs on the commitment. Each must still get its own
+		// exclusion proof.
+		name:        "duplicate htlcs same payment hash",
+		whoseCommit: lntypes.Remote,
+		htlcs: []HtlcDescriptor{
+			{RHash: dupHash, Timeout: 800},
+			{RHash: dupHash, Timeout: 800},
+		},
+	}}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			buildAndVerify(t, tc.whoseCommit, tc.htlcs)
+		})
+	}
 }

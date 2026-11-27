@@ -147,6 +147,12 @@ type AuxSweeperCfg struct {
 	// fresh anchoring for the winning transaction, while the stale
 	// form's anchoring abandons and compensates its rows.
 	AnchoringRegistrar ReceiveAnchoringRegistrar
+
+	// HtlcStash records the HTLC sets of channel commitments as lnd
+	// fetches their aux leaves. It is used to derive exclusion proofs
+	// for plain BTC-only HTLC outputs when importing a force-closed
+	// commitment transaction.
+	HtlcStash *CommitHtlcStash
 }
 
 // AuxSweeper is used to sweep funds from a commitment transaction that has
@@ -176,6 +182,14 @@ func NewAuxSweeper(cfg *AuxSweeperCfg) *AuxSweeper {
 		cfg:            cfg,
 		quit:           make(chan struct{}),
 	}
+}
+
+// SetHtlcStash sets the stash the sweeper uses to derive exclusion proofs
+// for plain BTC-only HTLC outputs when importing a force-closed commitment
+// transaction. It is called once the server's configuration is applied,
+// before the sweeper is started.
+func (a *AuxSweeper) SetHtlcStash(stash *CommitHtlcStash) {
+	a.cfg.HtlcStash = stash
 }
 
 // Start starts the AuxSweeper.
@@ -1244,9 +1258,12 @@ func reanchorAssetOutputs(ctx context.Context,
 // commitOutputAllocations builds NoAssets allocations for the actual pure-BTC
 // outputs of the real commitment transaction. This lets force-close exclusion
 // proofs match the transaction that is on chain instead of assuming the first
-// two outputs are always anchors.
+// two outputs are always anchors. Next to the balance and anchor outputs, this
+// also covers plain BTC-only HTLC outputs, whose descriptors are stashed by
+// the aux leaf store when lnd fetches the leaves of the commitment.
 func commitOutputAllocations(req lnwallet.ResolutionReq,
-	vPackets []*tappsbt.VPacket) lfn.Result[[]*tapsend.Allocation] {
+	vPackets []*tappsbt.VPacket,
+	stash *CommitHtlcStash) lfn.Result[[]*tapsend.Allocation] {
 
 	if req.CommitTx == nil {
 		return lfn.Err[[]*tapsend.Allocation](
@@ -1261,9 +1278,20 @@ func commitOutputAllocations(req lnwallet.ResolutionReq,
 		}
 	}
 
+	// findOutputIndex locates an output with the given pkScript that has
+	// not been matched yet. Two plain HTLCs with the same payment hash
+	// and timeout in the same direction (e.g. MPP shards) produce
+	// identical outputs on the commitment, so each match is claimed to
+	// make the next identical descriptor match the next output.
+	claimed := make(map[uint32]struct{})
 	findOutputIndex := func(pkScript []byte) (uint32, bool) {
 		for idx, txOut := range req.CommitTx.TxOut {
+			if _, ok := claimed[uint32(idx)]; ok {
+				continue
+			}
 			if bytes.Equal(txOut.PkScript, pkScript) {
+				claimed[uint32(idx)] = struct{}{}
+
 				return uint32(idx), true
 			}
 		}
@@ -1337,10 +1365,33 @@ func commitOutputAllocations(req lnwallet.ResolutionReq,
 		return lfn.Err[[]*tapsend.Allocation](err)
 	}
 
-	allocations := make([]*tapsend.Allocation, 0, 4)
-	for _, desc := range []input.ScriptDescriptor{
+	descriptors := []input.ScriptDescriptor{
 		toLocalTree, toRemoteTree, localAnchorTree, remoteAnchorTree,
-	} {
+	}
+
+	// Plain BTC-only HTLCs carry no assets, so they are not part of our
+	// commitment blob and would otherwise be left without an exclusion
+	// proof. Their descriptors are stashed by the aux leaf store when lnd
+	// fetches the leaves of the commitment, which always happens before
+	// it asks us to resolve an output of the commitment.
+	whoseCommit, htlcs, ok := stash.Fetch(req.CommitTx.TxHash())
+	if ok {
+		for _, htlc := range htlcs {
+			htlcScript, err := lnwallet.GenTaprootHtlcScript(
+				htlc.Incoming, whoseCommit, htlc.Timeout,
+				htlc.RHash, req.KeyRing,
+				lfn.None[txscript.TapLeaf](),
+			)
+			if err != nil {
+				return lfn.Err[[]*tapsend.Allocation](err)
+			}
+
+			descriptors = append(descriptors, htlcScript)
+		}
+	}
+
+	allocations := make([]*tapsend.Allocation, 0, len(descriptors))
+	for _, desc := range descriptors {
 		alloc, err := newNoAssetAlloc(desc)
 		if err != nil {
 			return lfn.Err[[]*tapsend.Allocation](err)
@@ -2173,7 +2224,7 @@ func (a *AuxSweeper) importCommitTx(req lnwallet.ResolutionReq,
 	// actually on chain, regardless of whether this is a symmetric or an
 	// asymmetric commitment.
 	anchorAllocations, err := commitOutputAllocations(
-		req, vPackets,
+		req, vPackets, a.cfg.HtlcStash,
 	).Unpack()
 	if err != nil {
 		return fmt.Errorf("unable to create anchor "+

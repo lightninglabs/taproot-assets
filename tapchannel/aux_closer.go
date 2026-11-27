@@ -331,6 +331,23 @@ func settledBtcAmount(desc types.AuxCloseDesc, isLocal bool,
 	return amt
 }
 
+// settledOutputKept returns true if a party's settled BTC output is kept as
+// an output of its own on the close transaction of the legacy close
+// negotiation, following lnd's rules. Without an asset output, the settled
+// output is kept if it isn't below the dust limit. With an asset output, the
+// settled output is kept if what remains after the asset output's anchor
+// amount is above the dust limit, and is merged into the asset output
+// otherwise.
+func settledOutputKept(btcAmt, anchorAmt, dustLimit btcutil.Amount,
+	hasAssetOutput bool) bool {
+
+	if !hasAssetOutput {
+		return btcAmt >= dustLimit
+	}
+
+	return btcAmt-anchorAmt > dustLimit
+}
+
 // sortCloseAllocsByKey orders the close allocations independently of their
 // BTC amounts: the asset allocations come first, followed by the BTC
 // allocations, each ordered by their taproot key.
@@ -984,10 +1001,14 @@ func (a *AuxChanCloser) buildCloseInfo(desc types.AuxCloseDesc,
 		btcAmt := settledBtcAmount(desc, isLocal, o.Amt)
 		amtAfterAnchor := btcAmt - anchorAmt
 
-		// If we can't have a non-dust output after subtracting the
-		// anchor amt, then we'll just drop this allocation, and modify
-		// the asset allocation to match this value.
-		if amtAfterAnchor <= o.DustLimit {
+		// If the settled output isn't kept on its own, then we'll just
+		// drop this allocation, and modify the asset allocation to
+		// match this value.
+		hasAssetOutput := assetAlloc != nil
+		if !settledOutputKept(
+			btcAmt, anchorAmt, o.DustLimit, hasAssetOutput,
+		) {
+
 			if assetAlloc != nil {
 				assetAlloc.BtcAmount = btcAmt
 			}
